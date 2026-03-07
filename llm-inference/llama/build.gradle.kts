@@ -43,11 +43,11 @@ kotlin {
 
     sourceSets {
         commonMain.dependencies {
-            implementation("sk.ainet:skainet-lang-core")
-            implementation("sk.ainet:skainet-io-core")
-            implementation("sk.ainet:skainet-io-gguf")
-            implementation("sk.ainet:skainet-io-safetensors")
-            implementation("sk.ainet:skainet-compile-core")
+            implementation(libs.skainet.lang.core)
+            implementation(libs.skainet.io.core)
+            implementation(libs.skainet.io.gguf)
+            implementation(libs.skainet.io.safetensors)
+            implementation(libs.skainet.compile.core)
             implementation(project(":llm-core"))
             implementation(libs.kotlinx.io.core)
             implementation(libs.kotlinx.coroutines)
@@ -55,7 +55,7 @@ kotlin {
 
         commonTest.dependencies {
             implementation(libs.kotlin.test)
-            implementation("sk.ainet:skainet-backend-cpu")
+            implementation(libs.skainet.backend.cpu)
         }
 
         val jvmTest by getting {
@@ -63,7 +63,7 @@ kotlin {
                 implementation(libs.kotlin.test)
                 implementation(libs.junit)
                 implementation(libs.kotlinx.coroutines.test)
-                implementation("sk.ainet:skainet-backend-cpu")
+                implementation(libs.skainet.backend.cpu)
             }
         }
     }

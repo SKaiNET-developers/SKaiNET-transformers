@@ -71,21 +71,21 @@ kotlin {
         commonMain.dependencies {
             implementation(project(":llm-inference:gemma"))
             implementation(project(":llm-core"))
-            implementation("sk.ainet:skainet-lang-core")
-            implementation("sk.ainet:skainet-compile-core")
-            implementation("sk.ainet:skainet-backend-cpu")
-            implementation("sk.ainet:skainet-lang-ksp-annotations")
-            implementation("sk.ainet:skainet-io-core")
-            implementation("sk.ainet:skainet-io-gguf")
-            implementation("sk.ainet:skainet-io-safetensors")
+            implementation(libs.skainet.lang.core)
+            implementation(libs.skainet.compile.core)
+            implementation(libs.skainet.backend.cpu)
+            implementation(libs.skainet.lang.ksp.annotations)
+            implementation(libs.skainet.io.core)
+            implementation(libs.skainet.io.gguf)
+            implementation(libs.skainet.io.safetensors)
             implementation(libs.kotlinx.io.core)
             implementation(libs.kotlinx.coroutines)
         }
 
         commonTest.dependencies {
             implementation(libs.kotlin.test)
-            implementation("sk.ainet:skainet-lang-models")
-            implementation("sk.ainet:skainet-io-gguf")
+            implementation(libs.skainet.lang.models)
+            implementation(libs.skainet.io.gguf)
         }
 
         val jvmMain by getting {
@@ -97,7 +97,7 @@ kotlin {
             dependencies {
                 implementation(libs.kotlin.test)
                 implementation(libs.kotlinx.coroutines.test)
-                implementation("sk.ainet:skainet-backend-cpu")
+                implementation(libs.skainet.backend.cpu)
             }
         }
         if (!project.hasProperty("buildFatJar")) {

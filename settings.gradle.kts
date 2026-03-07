@@ -15,8 +15,6 @@ dependencyResolutionManagement {
 
 rootProject.name = "SKaiNET-LLM"
 
-includeBuild("../SKaiNET")
-
 include("llm-core")
 include("llm-agent")
 include("llm-inference:llama")
@@ -27,3 +25,4 @@ include("llm-runtime:kllama")
 include("llm-runtime:kgemma")
 include("llm-apps:kllama-cli")
 include("llm-apps:kbert-cli")
+include("llm-bom")

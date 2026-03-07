@@ -1,4 +1,5 @@
 [versions]
+skainet = "0.15.3"
 agp = "8.13.0"
 jacksonDatabind = "2.21.1"
 jsonSchemaValidator = "3.0.0"
@@ -75,6 +76,16 @@ pbandk-runtime = { module = "pro.streem.pbandk:pbandk-runtime", version.ref = "p
 kotest-runner-junit5 = { module = "io.kotest:kotest-runner-junit5", version.ref = "kotest" }
 kotest-assertions-core = { module = "io.kotest:kotest-assertions-core", version.ref = "kotest" }
 kotest-property = { module = "io.kotest:kotest-property", version.ref = "kotest" }
+
+# SKaiNET
+skainet-lang-core = { module = "sk.ainet.core:skainet-lang-core", version.ref = "skainet" }
+skainet-lang-models = { module = "sk.ainet.core:skainet-lang-models", version.ref = "skainet" }
+skainet-lang-ksp-annotations = { module = "sk.ainet.core:skainet-lang-ksp-annotations", version.ref = "skainet" }
+skainet-compile-core = { module = "sk.ainet.core:skainet-compile-core", version.ref = "skainet" }
+skainet-backend-cpu = { module = "sk.ainet.core:skainet-backend-cpu", version.ref = "skainet" }
+skainet-io-core = { module = "sk.ainet.core:skainet-io-core", version.ref = "skainet" }
+skainet-io-gguf = { module = "sk.ainet.core:skainet-io-gguf", version.ref = "skainet" }
+skainet-io-safetensors = { module = "sk.ainet.core:skainet-io-safetensors", version.ref = "skainet" }
 
 [plugins]
 androidLibrary = { id = "com.android.library", version.ref = "agp" }

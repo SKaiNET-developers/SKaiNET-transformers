@@ -42,11 +42,11 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             api(project(":llm-core"))
-            implementation("sk.ainet:skainet-lang-core")
-            implementation("sk.ainet:skainet-io-safetensors")
-            implementation("sk.ainet:skainet-compile-core")
-            implementation("sk.ainet:skainet-backend-cpu")
-            implementation("sk.ainet:skainet-io-core")
+            implementation(libs.skainet.lang.core)
+            implementation(libs.skainet.io.safetensors)
+            implementation(libs.skainet.compile.core)
+            implementation(libs.skainet.backend.cpu)
+            implementation(libs.skainet.io.core)
             implementation(libs.kotlinx.coroutines)
         }
 
@@ -58,8 +58,8 @@ kotlin {
             dependencies {
                 implementation(libs.kotlin.test)
                 implementation(libs.kotlinx.coroutines.test)
-                implementation("sk.ainet:skainet-backend-cpu")
-                implementation("sk.ainet:skainet-io-safetensors")
+                implementation(libs.skainet.backend.cpu)
+                implementation(libs.skainet.io.safetensors)
             }
         }
     }

@@ -43,7 +43,7 @@ kotlin {
 
     sourceSets {
         commonMain.dependencies {
-            implementation("sk.ainet:skainet-lang-core")
+            implementation(libs.skainet.lang.core)
         }
 
         commonTest.dependencies {

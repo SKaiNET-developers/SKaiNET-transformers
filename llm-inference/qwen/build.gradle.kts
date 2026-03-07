@@ -44,9 +44,9 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             api(project(":llm-inference:llama"))
-            implementation("sk.ainet:skainet-lang-core")
-            implementation("sk.ainet:skainet-io-core")
-            implementation("sk.ainet:skainet-io-gguf")
+            implementation(libs.skainet.lang.core)
+            implementation(libs.skainet.io.core)
+            implementation(libs.skainet.io.gguf)
         }
 
         commonTest.dependencies {

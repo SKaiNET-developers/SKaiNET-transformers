@@ -5,10 +5,10 @@ plugins {
 
 dependencies {
     implementation(project(":llm-inference:bert"))
-    implementation("sk.ainet:skainet-lang-core")
-    implementation("sk.ainet:skainet-io-core")
-    implementation("sk.ainet:skainet-io-safetensors")
-    implementation("sk.ainet:skainet-backend-cpu")
+    implementation(libs.skainet.lang.core)
+    implementation(libs.skainet.io.core)
+    implementation(libs.skainet.io.safetensors)
+    implementation(libs.skainet.backend.cpu)
     implementation(libs.kotlinx.coroutines)
 }
 
