@@ -1,0 +1,28 @@
+# models
+*.gguf
+*.onnx
+
+local.properties
+.gradle
+.gradle*
+build/
+!gradle/wrapper/gradle-wrapper.jar
+.kotlin
+
+.kiro/
+.claude/
+
+### IntelliJ IDEA ###
+.idea
+*.iws
+*.iml
+*.ipr
+out/
+
+### VS Code ###
+.vscode/
+
+### Mac OS ###
+.DS_Store
+
+.java-version
