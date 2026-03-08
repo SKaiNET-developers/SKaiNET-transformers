@@ -1,5 +1,12 @@
 # SKaiNET-transformers
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENCE)
+[![Maven Central](https://img.shields.io/maven-central/v/sk.ainet.transformers/skainet-transformers-agent.svg)](https://central.sonatype.com/artifact/sk.ainet.transformers/skainet-transformers-agent)
+[![DeepWiki](https://img.shields.io/badge/DeepWiki-View%20Docs-blue?logo=readthedocs&logoColor=white)](https://deepwiki.com/SKaiNET-developers/SKaiNET-transformers)
+
+
+sk.ainet.transformers
+
 SKaiNET-transformers is a high-performance LLM (Large Language Model) application layer built on top of the [SKaiNET](https://github.com/SKaiNET-developers/SKaiNET.git) engine. It provides a set of runtimes and CLI tools for various transformer-based models, optimized for Kotlin Multiplatform.
 
 ## Key Features
