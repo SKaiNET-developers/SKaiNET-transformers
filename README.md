@@ -24,6 +24,18 @@ SKaiNET-transformers is a high-performance LLM (Large Language Model) applicatio
 - `llm-apps`: Ready-to-use CLI applications for model interaction and testing.
 - `llm-agent`: High-level agentic capabilities (in development).
 
+## Current Release
+
+The current release is **0.16.0**. To use SKaiNET-transformers in your project, add the following dependency:
+
+```kotlin
+dependencies {
+    implementation("sk.ainet.transformers:llm-core:0.16.0")
+}
+```
+
+Make sure to use a matching version of the SKaiNET engine (`sk.ainet.core:skainet-lang-core:0.16.0`).
+
 ## Getting Started
 
 ### Prerequisites

@@ -66,6 +66,13 @@ public object Gemma3nConfigParser {
         // Extract layer_types (maps to layer pattern)
         val layerPattern = extractLayerTypes(textConfigMap)
 
+        // AltUp fields (E4B)
+        val numAltupInputs = textConfigMap["altup_num_inputs"]?.toIntSafe() ?: 1
+        val altupActiveIdx = textConfigMap["altup_active_idx"]?.toIntSafe() ?: 0
+
+        // Activation sparsity pattern (E4B)
+        val activationSparsityPattern = extractActivationSparsityPattern(textConfigMap)
+
         return Gemma3nModelMetadata(
             architecture = architecture,
             embeddingLength = embeddingLength,
@@ -81,7 +88,10 @@ public object Gemma3nConfigParser {
             ropeBaseLocal = ropeBaseLocal,
             ropeBaseGlobal = ropeBaseGlobal,
             kvSharedLayers = kvSharedLayers,
-            layerPattern = layerPattern
+            layerPattern = layerPattern,
+            numAltupInputs = numAltupInputs,
+            altupActiveIdx = altupActiveIdx,
+            activationSparsityPattern = activationSparsityPattern
         )
     }
 
@@ -96,6 +106,14 @@ public object Gemma3nConfigParser {
             is Number -> List(blockCount) { intermediate.toInt() }
             else -> List(blockCount) { embeddingLength * 4 }
         }
+    }
+
+    private fun extractActivationSparsityPattern(textConfig: Map<String, Any?>): List<Float> {
+        val pattern = textConfig["activation_sparsity_pattern"]
+        if (pattern is List<*>) {
+            return pattern.mapNotNull { it?.toFloatSafe() }
+        }
+        return emptyList()
     }
 
     private fun extractLayerTypes(textConfig: Map<String, Any?>): List<String> {

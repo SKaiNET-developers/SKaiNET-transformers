@@ -24,7 +24,15 @@ public data class Gemma3nModelMetadata(
     val ropeBaseLocal: Float,
     val ropeBaseGlobal: Float,
     val kvSharedLayers: Int,
-    val layerPattern: List<String>
+    val layerPattern: List<String>,
+    /** Number of AltUp parallel inputs. E4B: 4, E2B: 1 (no-op). */
+    val numAltupInputs: Int = 1,
+    /** Active input index for AltUp routing. */
+    val altupActiveIdx: Int = 0,
+    /** Per-layer activation sparsity rates. Empty means no sparsity. */
+    val activationSparsityPattern: List<Float> = emptyList(),
+    /** Activation sparsity scale factor (from GGUF: gemma3n.activation_sparsity_scale). */
+    val activationSparsityScale: Float = 0f
 ) {
     /**
      * Returns the layer type at the given layer index.
