@@ -13,7 +13,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "SKaiNET-LLM"
+rootProject.name = "SKaiNET-transformers"
 
 include("llm-core")
 include("llm-agent")

@@ -14,7 +14,8 @@ allprojects {
     group = "sk.ainet.llm"
 }
 
-// Require JDK 21+ but allow any newer version (produces Java 21 bytecode via --release / jvmTarget)
+// Require JDK 21+ for bytecode target; JDK 25 recommended (set via jenv local 25.0).
+// Produces Java 21 bytecode via --release / jvmTarget for backward compatibility.
 subprojects {
     require(JavaVersion.current() >= JavaVersion.VERSION_21) {
         "This project requires JDK 21+, but found ${JavaVersion.current()}"

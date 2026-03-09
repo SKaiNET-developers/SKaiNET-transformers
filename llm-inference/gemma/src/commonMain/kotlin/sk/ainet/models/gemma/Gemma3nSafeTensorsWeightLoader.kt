@@ -108,6 +108,35 @@ public class Gemma3nSafeTensorsWeightLoader(
         // Output weight (weight tying - reuse embed_tokens)
         // Gemma 3n ties the output projection to the embedding weights
         tensorsByGgufName[Gemma3nTensorNames.OUTPUT_WEIGHT] = embedTensor
+
+        // Global AltUp tensors (optional, E4B)
+        loadTensorIfExists(
+            ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
+            HF_ALTUP_PROJ, Gemma3nTensorNames.ALTUP_PROJ,
+            transpose = false
+        )
+        loadTensorIfExists(
+            ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
+            HF_ALTUP_UNEMBD_PROJ, Gemma3nTensorNames.ALTUP_UNEMBD_PROJ,
+            transpose = false
+        )
+
+        // Global per-layer embedding tensors (E4B)
+        loadTensorIfExists(
+            ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
+            HF_PER_LAYER_TOKEN_EMBD, Gemma3nTensorNames.PER_LAYER_TOKEN_EMBD,
+            transpose = false
+        )
+        loadTensorIfExists(
+            ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
+            HF_PER_LAYER_MODEL_PROJ, Gemma3nTensorNames.PER_LAYER_MODEL_PROJ,
+            transpose = false
+        )
+        loadTensorIfExists(
+            ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
+            HF_PER_LAYER_PROJ_NORM, Gemma3nTensorNames.PER_LAYER_PROJ_NORM,
+            transpose = false
+        )
     }
 
     private fun <T : DType> loadLayerTensors(
@@ -170,6 +199,40 @@ public class Gemma3nSafeTensorsWeightLoader(
             ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
             hfPerLayerProjection(layer), Gemma3nTensorNames.perLayerInput(layer)
         )
+
+        // E4B per-layer AltUp tensors
+        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
+            hfAltupPredictCoef(layer), Gemma3nTensorNames.altupPredictCoef(layer), transpose = false)
+        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
+            hfAltupCorrectCoef(layer), Gemma3nTensorNames.altupCorrectCoef(layer), transpose = false)
+        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
+            hfAltupCorrectScale(layer), Gemma3nTensorNames.altupCorrectScale(layer), transpose = false)
+        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
+            hfAltupRouter(layer), Gemma3nTensorNames.altupRouter(layer))
+        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
+            hfAltupRouterNorm(layer), Gemma3nTensorNames.altupRouterNorm(layer), transpose = false)
+
+        // E4B additional norms and weights
+        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
+            hfAttnQNorm(layer), Gemma3nTensorNames.attnQNorm(layer), transpose = false)
+        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
+            hfAttnKNorm(layer), Gemma3nTensorNames.attnKNorm(layer), transpose = false)
+        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
+            hfPostAttentionNorm(layer), Gemma3nTensorNames.postAttentionNorm(layer), transpose = false)
+        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
+            hfPostFfwNorm(layer), Gemma3nTensorNames.postFfwNorm(layer), transpose = false)
+        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
+            hfPostNorm(layer), Gemma3nTensorNames.postNorm(layer), transpose = false)
+        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
+            hfInputGate(layer), Gemma3nTensorNames.inputGate(layer))
+        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
+            hfProj(layer), Gemma3nTensorNames.proj(layer))
+        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
+            hfLaurelL(layer), Gemma3nTensorNames.laurelL(layer))
+        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
+            hfLaurelR(layer), Gemma3nTensorNames.laurelR(layer))
+        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
+            hfLaurelPostNorm(layer), Gemma3nTensorNames.laurelPostNorm(layer), transpose = false)
     }
 
     private fun <T : DType> loadTensorIfExists(
@@ -243,6 +306,15 @@ public class Gemma3nSafeTensorsWeightLoader(
         const val HF_EMBED_TOKENS = "model.language_model.embed_tokens.weight"
         const val HF_OUTPUT_NORM = "model.language_model.norm.weight"
 
+        // Global AltUp tensors (E4B)
+        const val HF_ALTUP_PROJ = "model.language_model.altup_proj.weight"
+        const val HF_ALTUP_UNEMBD_PROJ = "model.language_model.altup_unembd_proj.weight"
+
+        // Global per-layer embedding tensors (E4B)
+        const val HF_PER_LAYER_TOKEN_EMBD = "model.language_model.per_layer_token_embd.weight"
+        const val HF_PER_LAYER_MODEL_PROJ = "model.language_model.per_layer_model_proj.weight"
+        const val HF_PER_LAYER_PROJ_NORM = "model.language_model.per_layer_proj_norm.weight"
+
         // Layer tensor name builders
         fun hfInputLayernorm(layer: Int) = "model.language_model.layers.$layer.input_layernorm.weight"
         fun hfAttnQ(layer: Int) = "model.language_model.layers.$layer.self_attn.q_proj.weight"
@@ -254,6 +326,25 @@ public class Gemma3nSafeTensorsWeightLoader(
         fun hfMlpUp(layer: Int) = "model.language_model.layers.$layer.mlp.up_proj.weight"
         fun hfMlpDown(layer: Int) = "model.language_model.layers.$layer.mlp.down_proj.weight"
         fun hfPerLayerProjection(layer: Int) = "model.language_model.layers.$layer.per_layer_projection.weight"
+
+        // E4B per-layer AltUp
+        fun hfAltupPredictCoef(layer: Int) = "model.language_model.layers.$layer.altup.predict_coef.weight"
+        fun hfAltupCorrectCoef(layer: Int) = "model.language_model.layers.$layer.altup.correct_coef.weight"
+        fun hfAltupCorrectScale(layer: Int) = "model.language_model.layers.$layer.altup.correct_scale.weight"
+        fun hfAltupRouter(layer: Int) = "model.language_model.layers.$layer.altup.router.weight"
+        fun hfAltupRouterNorm(layer: Int) = "model.language_model.layers.$layer.altup.router_norm.weight"
+
+        // E4B additional per-layer tensors
+        fun hfAttnQNorm(layer: Int) = "model.language_model.layers.$layer.self_attn.q_norm.weight"
+        fun hfAttnKNorm(layer: Int) = "model.language_model.layers.$layer.self_attn.k_norm.weight"
+        fun hfPostAttentionNorm(layer: Int) = "model.language_model.layers.$layer.post_attention_norm.weight"
+        fun hfPostFfwNorm(layer: Int) = "model.language_model.layers.$layer.post_ffw_norm.weight"
+        fun hfPostNorm(layer: Int) = "model.language_model.layers.$layer.post_norm.weight"
+        fun hfInputGate(layer: Int) = "model.language_model.layers.$layer.inp_gate.weight"
+        fun hfProj(layer: Int) = "model.language_model.layers.$layer.proj.weight"
+        fun hfLaurelL(layer: Int) = "model.language_model.layers.$layer.laurel_l.weight"
+        fun hfLaurelR(layer: Int) = "model.language_model.layers.$layer.laurel_r.weight"
+        fun hfLaurelPostNorm(layer: Int) = "model.language_model.layers.$layer.laurel_post_norm.weight"
     }
 }
 

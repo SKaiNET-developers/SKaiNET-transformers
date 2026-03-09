@@ -89,6 +89,22 @@ public class Gemma3nRuntime<T : DType>(
     public val currentPosition: Int
         get() = position
 
+    /** AltUp instance — null for E2B, initialized for E4B. */
+    private val altUp: AltUp<T>? = weights.altUpGlobalWeights?.let { globalWeights ->
+        val layerWeights = weights.layers.mapNotNull { it.altUpLayerWeights }
+        if (layerWeights.size == nLayers) {
+            AltUp(
+                ctx = ctx,
+                dtype = dtype,
+                numInputs = config.numAltupInputs,
+                activeIdx = config.altupActiveIdx,
+                hiddenSize = config.hiddenSize,
+                globalWeights = globalWeights,
+                layerWeights = layerWeights
+            )
+        } else null
+    }
+
     // ---- DecoderRuntime template methods ----
 
     override fun embedToken(tokenId: Int): Tensor<T, Float> =
@@ -117,9 +133,51 @@ public class Gemma3nRuntime<T : DType>(
         // FFN with GELU activation (Gemma uses GELU, not SiLU)
         val gate = ffnNorm.matmul(layer.gateProj.t()).gelu()
         val up = ffnNorm.matmul(layer.upProj.t())
-        val ffnOut = (gate * up).matmul(layer.downProj.t())
+        var ffnActivation = gate * up
+
+        // Apply activation sparsity (E4B)
+        val sparsity = config.getActivationSparsity(layerIdx)
+        if (sparsity > 0f) {
+            val buf = ffnActivation.expectFloatBuffer().copyOf()
+            ActivationSparsity.applyGaussianTopK(buf, sparsity)
+            ffnActivation = ctx.fromFloatArray(ffnActivation.shape, dtype, buf)
+        }
+
+        val ffnOut = ffnActivation.matmul(layer.downProj.t())
 
         return afterAttn + ffnOut
+    }
+
+    /**
+     * Override forward pass to support AltUp (E4B).
+     *
+     * When AltUp is present, the embedding is split into multiple parallel states.
+     * Only the active state passes through transformer layers; others are predicted/corrected.
+     * When AltUp is absent (E2B), the standard sequential forward pass is used.
+     */
+    override fun forward(tokenId: Int): Tensor<T, Float> {
+        require(position < seqLen) { "Context length exceeded: pos=$position seqLen=$seqLen" }
+
+        var x = embedToken(tokenId)
+
+        val altUp = this.altUp
+        if (altUp != null) {
+            var states = altUp.initialize(x)
+            for (layerIdx in 0 until nLayers) {
+                val predictions = altUp.predict(layerIdx, states)
+                val activeOutput = runLayer(layerIdx, predictions[altUp.activeIdx])
+                states = altUp.correct(layerIdx, activeOutput, predictions)
+            }
+            x = altUp.finalize(states)
+        } else {
+            for (layerIdx in 0 until nLayers) {
+                x = runLayer(layerIdx, x)
+            }
+        }
+
+        val logits = outputProject(outputNorm(x))
+        position++
+        return logits
     }
 
     override fun outputNorm(x: Tensor<T, Float>): Tensor<T, Float> =
