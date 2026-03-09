@@ -31,7 +31,29 @@ public data class Gemma3nLayerWeights<T : DType>(
     /** Optional per-layer input embedding */
     val perLayerInput: Tensor<T, Float>?,
     /** Optional per-layer output embedding */
-    val perLayerOutput: Tensor<T, Float>?
+    val perLayerOutput: Tensor<T, Float>?,
+    // ---- E4B additional per-layer weights ----
+    /** Per-layer AltUp weights (E4B only) */
+    val altUpLayerWeights: AltUpLayerWeights<T>? = null,
+    /** QK normalization weights (E4B) */
+    val attnQNorm: Tensor<T, Float>? = null,
+    val attnKNorm: Tensor<T, Float>? = null,
+    /** Post-attention norm (E4B: blk.N.post_attention_norm) */
+    val postAttentionNorm: Tensor<T, Float>? = null,
+    /** Post-FFN norm (E4B: blk.N.post_ffw_norm) */
+    val postFfwNorm: Tensor<T, Float>? = null,
+    /** Post norm (E4B: blk.N.post_norm) */
+    val postNorm: Tensor<T, Float>? = null,
+    /** Input gate for per-layer embeddings (E4B: blk.N.inp_gate) */
+    val inputGate: Tensor<T, Float>? = null,
+    /** Per-layer projection (E4B: blk.N.proj) */
+    val proj: Tensor<T, Float>? = null,
+    /** Laurel low-rank left (E4B: blk.N.laurel_l) */
+    val laurelL: Tensor<T, Float>? = null,
+    /** Laurel low-rank right (E4B: blk.N.laurel_r) */
+    val laurelR: Tensor<T, Float>? = null,
+    /** Laurel post norm (E4B: blk.N.laurel_post_norm) */
+    val laurelPostNorm: Tensor<T, Float>? = null
 )
 
 /**
@@ -45,7 +67,16 @@ public data class Gemma3nRuntimeWeights<T : DType>(
     val layers: List<Gemma3nLayerWeights<T>>,
     val finalNorm: Tensor<T, Float>,
     val lmHead: Tensor<T, Float>,
-    val quantTypes: Map<String, GGMLQuantizationType> = emptyMap()
+    val quantTypes: Map<String, GGMLQuantizationType> = emptyMap(),
+    /** Global AltUp weights, present only for E4B models (numAltupInputs > 1). */
+    val altUpGlobalWeights: AltUpGlobalWeights<T>? = null,
+    // ---- E4B global per-layer embedding tensors ----
+    /** Per-layer token embedding [perLayerDim * blockCount, vocabSize] */
+    val perLayerTokenEmbedding: Tensor<T, Float>? = null,
+    /** Per-layer model projection [hiddenSize, perLayerDim * blockCount] */
+    val perLayerModelProj: Tensor<T, Float>? = null,
+    /** Per-layer projection norm [perLayerDim] */
+    val perLayerProjNorm: Tensor<T, Float>? = null
 )
 
 /**
@@ -67,6 +98,7 @@ public object Gemma3nTensorNames {
     public const val ROPE_FREQS_REAL: String = "rope.freq_cis_real"
     public const val ROPE_FREQS_IMAG: String = "rope.freq_cis_imag"
 
+    // Standard per-layer tensors
     public fun inputLayernorm(layer: Int): String = "blk.$layer.attn_norm.weight"
     public fun attnQ(layer: Int): String = "blk.$layer.attn_q.weight"
     public fun attnK(layer: Int): String = "blk.$layer.attn_k.weight"
@@ -78,6 +110,34 @@ public object Gemma3nTensorNames {
     public fun ffnUp(layer: Int): String = "blk.$layer.ffn_up.weight"
     public fun perLayerInput(layer: Int): String = "blk.$layer.per_layer_input.weight"
     public fun perLayerOutput(layer: Int): String = "blk.$layer.per_layer_output.weight"
+
+    // E4B per-layer AltUp tensors
+    public fun altupPredictCoef(layer: Int): String = "blk.$layer.altup_predict_coef.weight"
+    public fun altupCorrectCoef(layer: Int): String = "blk.$layer.altup_correct_coef.weight"
+    public fun altupCorrectScale(layer: Int): String = "blk.$layer.altup_correct_scale.weight"
+    public fun altupRouter(layer: Int): String = "blk.$layer.altup_router.weight"
+    public fun altupRouterNorm(layer: Int): String = "blk.$layer.altup_router_norm.weight"
+
+    // E4B global AltUp tensors
+    public const val ALTUP_PROJ: String = "altup_proj.weight"
+    public const val ALTUP_UNEMBD_PROJ: String = "altup_unembd_proj.weight"
+
+    // E4B additional per-layer tensors
+    public fun attnQNorm(layer: Int): String = "blk.$layer.attn_q_norm.weight"
+    public fun attnKNorm(layer: Int): String = "blk.$layer.attn_k_norm.weight"
+    public fun postAttentionNorm(layer: Int): String = "blk.$layer.post_attention_norm.weight"
+    public fun postFfwNorm(layer: Int): String = "blk.$layer.post_ffw_norm.weight"
+    public fun postNorm(layer: Int): String = "blk.$layer.post_norm.weight"
+    public fun inputGate(layer: Int): String = "blk.$layer.inp_gate.weight"
+    public fun proj(layer: Int): String = "blk.$layer.proj.weight"
+    public fun laurelL(layer: Int): String = "blk.$layer.laurel_l.weight"
+    public fun laurelR(layer: Int): String = "blk.$layer.laurel_r.weight"
+    public fun laurelPostNorm(layer: Int): String = "blk.$layer.laurel_post_norm.weight"
+
+    // E4B global per-layer embedding tensors
+    public const val PER_LAYER_TOKEN_EMBD: String = "per_layer_token_embd.weight"
+    public const val PER_LAYER_MODEL_PROJ: String = "per_layer_model_proj.weight"
+    public const val PER_LAYER_PROJ_NORM: String = "per_layer_proj_norm.weight"
 }
 
 /**
@@ -182,6 +242,18 @@ public object Gemma3nWeightMapper {
             val perLayerInput = getOptional(Gemma3nTensorNames.perLayerInput(layer))
             val perLayerOutput = getOptional(Gemma3nTensorNames.perLayerOutput(layer))
 
+            // Optional per-layer AltUp weights (E4B)
+            val altUpLayerWeights = run {
+                val predict = getOptional(Gemma3nTensorNames.altupPredictCoef(layer))
+                val correct = getOptional(Gemma3nTensorNames.altupCorrectCoef(layer))
+                val scale = getOptional(Gemma3nTensorNames.altupCorrectScale(layer))
+                val router = getOptional(Gemma3nTensorNames.altupRouter(layer))
+                val routerNorm = getOptional(Gemma3nTensorNames.altupRouterNorm(layer))
+                if (predict != null && correct != null && scale != null && router != null && routerNorm != null) {
+                    AltUpLayerWeights(predict, correct, scale, router, routerNorm)
+                } else null
+            }
+
             Gemma3nLayerWeights(
                 inputLayernorm = inputLayernorm,
                 wq = wq,
@@ -193,8 +265,28 @@ public object Gemma3nWeightMapper {
                 upProj = upProj,
                 downProj = downProj,
                 perLayerInput = perLayerInput,
-                perLayerOutput = perLayerOutput
+                perLayerOutput = perLayerOutput,
+                altUpLayerWeights = altUpLayerWeights,
+                attnQNorm = getOptional(Gemma3nTensorNames.attnQNorm(layer)),
+                attnKNorm = getOptional(Gemma3nTensorNames.attnKNorm(layer)),
+                postAttentionNorm = getOptional(Gemma3nTensorNames.postAttentionNorm(layer)),
+                postFfwNorm = getOptional(Gemma3nTensorNames.postFfwNorm(layer)),
+                postNorm = getOptional(Gemma3nTensorNames.postNorm(layer)),
+                inputGate = getOptional(Gemma3nTensorNames.inputGate(layer)),
+                proj = getOptional(Gemma3nTensorNames.proj(layer)),
+                laurelL = getOptional(Gemma3nTensorNames.laurelL(layer)),
+                laurelR = getOptional(Gemma3nTensorNames.laurelR(layer)),
+                laurelPostNorm = getOptional(Gemma3nTensorNames.laurelPostNorm(layer))
             )
+        }
+
+        // Global AltUp weights (optional, present in E4B)
+        val altUpGlobalWeights = run {
+            val proj = getOptional(Gemma3nTensorNames.ALTUP_PROJ)
+            val unembdProj = getOptional(Gemma3nTensorNames.ALTUP_UNEMBD_PROJ)
+            if (proj != null && unembdProj != null) {
+                AltUpGlobalWeights(projWeight = proj, unembdProjWeight = unembdProj)
+            } else null
         }
 
         return Gemma3nRuntimeWeights(
@@ -205,7 +297,11 @@ public object Gemma3nWeightMapper {
             layers = layers,
             finalNorm = finalNorm,
             lmHead = lmHead,
-            quantTypes = weights.quantTypes
+            quantTypes = weights.quantTypes,
+            altUpGlobalWeights = altUpGlobalWeights,
+            perLayerTokenEmbedding = getOptional(Gemma3nTensorNames.PER_LAYER_TOKEN_EMBD),
+            perLayerModelProj = getOptional(Gemma3nTensorNames.PER_LAYER_MODEL_PROJ),
+            perLayerProjNorm = getOptional(Gemma3nTensorNames.PER_LAYER_PROJ_NORM)
         )
     }
 }

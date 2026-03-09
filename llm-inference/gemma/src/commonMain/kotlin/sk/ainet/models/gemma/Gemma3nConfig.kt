@@ -42,7 +42,13 @@ public data class Gemma3nConfig(
     val layerPattern: List<String> = DEFAULT_LAYER_PATTERN,
     val ropeBaseLocal: Float = 10000f,
     val ropeBaseGlobal: Float = 1000000f,
-    val kvSharedLayers: Int = 15
+    val kvSharedLayers: Int = 15,
+    /** Number of AltUp parallel inputs. E4B: 4, E2B: 1 (no-op). */
+    val numAltupInputs: Int = 1,
+    /** Active input index for AltUp routing. */
+    val altupActiveIdx: Int = 0,
+    /** Per-layer activation sparsity rates. Empty means no sparsity. */
+    val activationSparsityPattern: List<Float> = emptyList()
 ) {
     /** Total query dimension (numAttentionHeads * headDim) */
     public val queryDim: Int get() = numAttentionHeads * headDim
@@ -94,6 +100,20 @@ public data class Gemma3nConfig(
     }
 
     /**
+     * Returns the activation sparsity rate for the given layer.
+     * Returns 0.0 if no sparsity pattern is defined or the layer index is out of range.
+     */
+    public fun getActivationSparsity(layerIdx: Int): Float {
+        if (activationSparsityPattern.isEmpty()) return 0f
+        return activationSparsityPattern.getOrElse(layerIdx) { 0f }
+    }
+
+    /**
+     * Whether this config uses AltUp (numAltupInputs > 1).
+     */
+    public val hasAltUp: Boolean get() = numAltupInputs > 1
+
+    /**
      * Returns whether the given layer shares its KV cache.
      */
     public fun isKvShared(layerIdx: Int): Boolean {
@@ -138,7 +158,10 @@ public data class Gemma3nConfig(
                 layerPattern = metadata.layerPattern,
                 ropeBaseLocal = metadata.ropeBaseLocal,
                 ropeBaseGlobal = metadata.ropeBaseGlobal,
-                kvSharedLayers = metadata.kvSharedLayers
+                kvSharedLayers = metadata.kvSharedLayers,
+                numAltupInputs = metadata.numAltupInputs,
+                altupActiveIdx = metadata.altupActiveIdx,
+                activationSparsityPattern = metadata.activationSparsityPattern
             )
         }
 
@@ -158,6 +181,35 @@ public data class Gemma3nConfig(
             ropeBaseLocal = 10000f,
             ropeBaseGlobal = 1000000f,
             kvSharedLayers = 15
+        )
+
+        /**
+         * Default activation sparsity pattern for E4B:
+         * 95% sparsity for first 10 layers, 0% for remaining 25.
+         */
+        private val E4B_SPARSITY_PATTERN: List<Float> =
+            List(10) { 0.95f } + List(25) { 0.0f }
+
+        /**
+         * Default configuration for Gemma 3n E4B model.
+         * 8B raw params, ~4B effective via AltUp + activation sparsity.
+         */
+        public val E4B_DEFAULT: Gemma3nConfig = Gemma3nConfig(
+            hiddenSize = 2048,
+            perLayerHiddenSize = 256,
+            numLayers = 35,
+            numAttentionHeads = 8,
+            numKvHeads = 2,
+            headDim = 256,
+            intermediateSizes = List(35) { 16384 },
+            slidingWindow = 512,
+            layerPattern = DEFAULT_LAYER_PATTERN,
+            ropeBaseLocal = 10000f,
+            ropeBaseGlobal = 1000000f,
+            kvSharedLayers = 15,
+            numAltupInputs = 4,
+            altupActiveIdx = 0,
+            activationSparsityPattern = E4B_SPARSITY_PATTERN
         )
     }
 }

@@ -259,7 +259,9 @@ public class Gemma3nWeightLoader private constructor(
 
         val embeddingLength = fields["$prefix.embedding_length"]?.scalarInt()
             ?: inferEmbeddingFromTensor(tensors)
-        val perLayerEmbedding = fields["$prefix.per_layer_embedding_length"]?.scalarInt() ?: 256
+        val perLayerEmbedding = fields["$prefix.per_layer_embedding_length"]?.scalarInt()
+            ?: fields["$prefix.embedding_length_per_layer_input"]?.scalarInt()
+            ?: 256
         val contextLength = fields["$prefix.context_length"]?.scalarInt() ?: 8192
         val blockCount = fields["$prefix.block_count"]?.scalarInt() ?: 35
         val headCount = fields["$prefix.attention.head_count"]?.scalarInt() ?: 8
@@ -276,6 +278,7 @@ public class Gemma3nWeightLoader private constructor(
         val ropeBaseGlobal = fields["$prefix.rope.freq_base_global"]?.scalarFloat()
             ?: Gemma3nModelMetadata.DEFAULT_ROPE_BASE_GLOBAL
         val kvSharedLayers = fields["$prefix.kv_shared_layers"]?.scalarInt()
+            ?: fields["$prefix.attention.shared_kv_layers"]?.scalarInt()
             ?: Gemma3nModelMetadata.DEFAULT_KV_SHARED_LAYERS
 
         // Extract FFN sizes per layer (MatFormer)
@@ -283,6 +286,14 @@ public class Gemma3nWeightLoader private constructor(
 
         // Layer pattern (default: 4 sliding + 1 global)
         val layerPattern = extractLayerPattern(fields, prefix)
+
+        // AltUp fields (E4B)
+        val numAltupInputs = fields["$prefix.altup.num_inputs"]?.scalarInt() ?: 1
+        val altupActiveIdx = fields["$prefix.altup.active_idx"]?.scalarInt() ?: 0
+
+        // Activation sparsity
+        val activationSparsityPattern = extractActivationSparsityPattern(fields, prefix)
+        val activationSparsityScale = fields["$prefix.activation_sparsity_scale"]?.scalarFloat() ?: 0f
 
         return Gemma3nModelMetadata(
             architecture = arch,
@@ -299,7 +310,11 @@ public class Gemma3nWeightLoader private constructor(
             ropeBaseLocal = ropeBaseLocal,
             ropeBaseGlobal = ropeBaseGlobal,
             kvSharedLayers = kvSharedLayers,
-            layerPattern = layerPattern
+            layerPattern = layerPattern,
+            numAltupInputs = numAltupInputs,
+            altupActiveIdx = altupActiveIdx,
+            activationSparsityPattern = activationSparsityPattern,
+            activationSparsityScale = activationSparsityScale
         )
     }
 
@@ -314,7 +329,9 @@ public class Gemma3nWeightLoader private constructor(
 
         val embeddingLength = fields["$prefix.embedding_length"]?.toIntValue()
             ?: inferEmbeddingFromStreamingTensor(tensors)
-        val perLayerEmbedding = fields["$prefix.per_layer_embedding_length"]?.toIntValue() ?: 256
+        val perLayerEmbedding = fields["$prefix.per_layer_embedding_length"]?.toIntValue()
+            ?: fields["$prefix.embedding_length_per_layer_input"]?.toIntValue()
+            ?: 256
         val contextLength = fields["$prefix.context_length"]?.toIntValue() ?: 8192
         val blockCount = fields["$prefix.block_count"]?.toIntValue() ?: 35
         val headCount = fields["$prefix.attention.head_count"]?.toIntValue() ?: 8
@@ -331,6 +348,8 @@ public class Gemma3nWeightLoader private constructor(
         val ropeBaseGlobal = fields["$prefix.rope.freq_base_global"]?.toFloatValue()
             ?: Gemma3nModelMetadata.DEFAULT_ROPE_BASE_GLOBAL
         val kvSharedLayers = fields["$prefix.kv_shared_layers"]?.toIntValue()
+            ?: fields["$prefix.attention.shared_kv_layers"]?.toIntValue()
+            ?: (fields["$prefix.attention.shared_kv_layers"] as? Number)?.toInt()
             ?: Gemma3nModelMetadata.DEFAULT_KV_SHARED_LAYERS
 
         // Extract FFN sizes per layer (MatFormer)
@@ -338,6 +357,14 @@ public class Gemma3nWeightLoader private constructor(
 
         // Layer pattern (default: 4 sliding + 1 global)
         val layerPattern = extractStreamingLayerPattern(fields, prefix)
+
+        // AltUp fields (E4B)
+        val numAltupInputs = fields["$prefix.altup.num_inputs"]?.toIntValue() ?: 1
+        val altupActiveIdx = fields["$prefix.altup.active_idx"]?.toIntValue() ?: 0
+
+        // Activation sparsity
+        val activationSparsityPattern = extractStreamingActivationSparsityPattern(fields, prefix)
+        val activationSparsityScale = fields["$prefix.activation_sparsity_scale"]?.toFloatValue() ?: 0f
 
         return Gemma3nModelMetadata(
             architecture = arch,
@@ -354,7 +381,11 @@ public class Gemma3nWeightLoader private constructor(
             ropeBaseLocal = ropeBaseLocal,
             ropeBaseGlobal = ropeBaseGlobal,
             kvSharedLayers = kvSharedLayers,
-            layerPattern = layerPattern
+            layerPattern = layerPattern,
+            numAltupInputs = numAltupInputs,
+            altupActiveIdx = altupActiveIdx,
+            activationSparsityPattern = activationSparsityPattern,
+            activationSparsityScale = activationSparsityScale
         )
     }
 
@@ -437,6 +468,34 @@ public class Gemma3nWeightLoader private constructor(
         return Gemma3nModelMetadata.DEFAULT_LAYER_PATTERN
     }
 
+    private fun extractActivationSparsityPattern(
+        fields: Map<String, ReaderField>,
+        prefix: String
+    ): List<Float> {
+        val key = "$prefix.activation_sparsity_pattern"
+        val field = fields[key]
+        if (field != null) {
+            return try {
+                field.floatListValue()
+            } catch (e: Exception) {
+                emptyList()
+            }
+        }
+        return emptyList()
+    }
+
+    private fun extractStreamingActivationSparsityPattern(
+        fields: Map<String, Any?>,
+        prefix: String
+    ): List<Float> {
+        val key = "$prefix.activation_sparsity_pattern"
+        val value = fields[key]
+        if (value is List<*>) {
+            return value.mapNotNull { (it as? Number)?.toFloat() }
+        }
+        return emptyList()
+    }
+
     private fun validateMetadata(metadata: Gemma3nModelMetadata) {
         val validArchs = setOf("gemma3n", "gemma3", "gemma", "llama", "unknown")
         require(metadata.architecture in validArchs || metadata.architecture.startsWith("gemma")) {
@@ -503,6 +562,58 @@ public class Gemma3nWeightLoader private constructor(
                 }
             }
         }
+
+        // E4B per-layer AltUp + additional tensors
+        repeat(metadata.blockCount) { layer ->
+            listOf(
+                Gemma3nTensorNames.altupPredictCoef(layer),
+                Gemma3nTensorNames.altupCorrectCoef(layer),
+                Gemma3nTensorNames.altupCorrectScale(layer),
+                Gemma3nTensorNames.altupRouter(layer),
+                Gemma3nTensorNames.altupRouterNorm(layer),
+                Gemma3nTensorNames.attnQNorm(layer),
+                Gemma3nTensorNames.attnKNorm(layer),
+                Gemma3nTensorNames.postAttentionNorm(layer),
+                Gemma3nTensorNames.postFfwNorm(layer),
+                Gemma3nTensorNames.postNorm(layer),
+                Gemma3nTensorNames.inputGate(layer),
+                Gemma3nTensorNames.proj(layer),
+                Gemma3nTensorNames.laurelL(layer),
+                Gemma3nTensorNames.laurelR(layer),
+                Gemma3nTensorNames.laurelPostNorm(layer)
+            ).forEach { name ->
+                val rt = tensorByName[name]
+                if (rt != null) {
+                    val tensor: Tensor<T, V> = readerTensorToTensor(ctx, dtype, reader, rt, metadata)
+                    onTensorLoaded(name, tensor)
+                }
+            }
+        }
+
+        // E4B global AltUp tensors
+        listOf(
+            Gemma3nTensorNames.ALTUP_PROJ,
+            Gemma3nTensorNames.ALTUP_UNEMBD_PROJ
+        ).forEach { name ->
+            val rt = tensorByName[name]
+            if (rt != null) {
+                val tensor: Tensor<T, V> = readerTensorToTensor(ctx, dtype, reader, rt, metadata)
+                onTensorLoaded(name, tensor)
+            }
+        }
+
+        // E4B global per-layer embedding tensors
+        listOf(
+            Gemma3nTensorNames.PER_LAYER_TOKEN_EMBD,
+            Gemma3nTensorNames.PER_LAYER_MODEL_PROJ,
+            Gemma3nTensorNames.PER_LAYER_PROJ_NORM
+        ).forEach { name ->
+            val rt = tensorByName[name]
+            if (rt != null) {
+                val tensor: Tensor<T, V> = readerTensorToTensor(ctx, dtype, reader, rt, metadata)
+                onTensorLoaded(name, tensor)
+            }
+        }
     }
 
     private fun <T : DType, V> loadOptionalStreamingTensors(
@@ -536,6 +647,58 @@ public class Gemma3nWeightLoader private constructor(
                     val tensor: Tensor<T, V> = streamingTensorToTensor(ctx, dtype, reader, st, metadata)
                     onTensorLoaded(name, tensor)
                 }
+            }
+        }
+
+        // E4B per-layer AltUp + additional tensors
+        repeat(metadata.blockCount) { layer ->
+            listOf(
+                Gemma3nTensorNames.altupPredictCoef(layer),
+                Gemma3nTensorNames.altupCorrectCoef(layer),
+                Gemma3nTensorNames.altupCorrectScale(layer),
+                Gemma3nTensorNames.altupRouter(layer),
+                Gemma3nTensorNames.altupRouterNorm(layer),
+                Gemma3nTensorNames.attnQNorm(layer),
+                Gemma3nTensorNames.attnKNorm(layer),
+                Gemma3nTensorNames.postAttentionNorm(layer),
+                Gemma3nTensorNames.postFfwNorm(layer),
+                Gemma3nTensorNames.postNorm(layer),
+                Gemma3nTensorNames.inputGate(layer),
+                Gemma3nTensorNames.proj(layer),
+                Gemma3nTensorNames.laurelL(layer),
+                Gemma3nTensorNames.laurelR(layer),
+                Gemma3nTensorNames.laurelPostNorm(layer)
+            ).forEach { name ->
+                val st = tensorByName[name]
+                if (st != null) {
+                    val tensor: Tensor<T, V> = streamingTensorToTensor(ctx, dtype, reader, st, metadata)
+                    onTensorLoaded(name, tensor)
+                }
+            }
+        }
+
+        // E4B global AltUp tensors
+        listOf(
+            Gemma3nTensorNames.ALTUP_PROJ,
+            Gemma3nTensorNames.ALTUP_UNEMBD_PROJ
+        ).forEach { name ->
+            val st = tensorByName[name]
+            if (st != null) {
+                val tensor: Tensor<T, V> = streamingTensorToTensor(ctx, dtype, reader, st, metadata)
+                onTensorLoaded(name, tensor)
+            }
+        }
+
+        // E4B global per-layer embedding tensors
+        listOf(
+            Gemma3nTensorNames.PER_LAYER_TOKEN_EMBD,
+            Gemma3nTensorNames.PER_LAYER_MODEL_PROJ,
+            Gemma3nTensorNames.PER_LAYER_PROJ_NORM
+        ).forEach { name ->
+            val st = tensorByName[name]
+            if (st != null) {
+                val tensor: Tensor<T, V> = streamingTensorToTensor(ctx, dtype, reader, st, metadata)
+                onTensorLoaded(name, tensor)
             }
         }
     }
@@ -786,6 +949,13 @@ public class Gemma3nWeightLoader private constructor(
         val part = parts.getOrNull(idx) ?: error("Missing data part for field $name")
         @Suppress("UNCHECKED_CAST")
         return (part as List<*>).mapNotNull { (it as? Number)?.toInt() }
+    }
+
+    private fun ReaderField.floatListValue(): List<Float> {
+        val idx = data.firstOrNull() ?: 0
+        val part = parts.getOrNull(idx) ?: error("Missing data part for field $name")
+        @Suppress("UNCHECKED_CAST")
+        return (part as List<*>).mapNotNull { (it as? Number)?.toFloat() }
     }
 
     private fun ReaderField.stringListValue(): List<String> {

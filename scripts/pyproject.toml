@@ -1,0 +1,16 @@
+[project]
+name = "skainet-scripts"
+version = "0.1.0"
+description = "Model download and inspection tools for SKaiNET-transformers"
+requires-python = ">=3.11"
+dependencies = [
+    "huggingface_hub>=0.25.0",
+    "gguf>=0.10.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
