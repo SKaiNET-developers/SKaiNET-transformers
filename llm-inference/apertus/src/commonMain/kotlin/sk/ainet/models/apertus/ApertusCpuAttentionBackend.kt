@@ -1,5 +1,7 @@
 package sk.ainet.models.apertus
 
+import kotlin.math.cos
+import kotlin.math.sin
 import kotlin.math.sqrt
 import sk.ainet.apps.llm.KvCache
 import sk.ainet.apps.llm.HeapKvCache
@@ -25,7 +27,7 @@ public class ApertusCpuAttentionBackend<T : DType>(
     private val weights: ApertusRuntimeWeights<T>,
     private val dtype: KClass<T>,
     kvCache: KvCache? = null,
-    private val ropeFreqBase: Float = 12000000f
+    private val ropeFreqBase: Float = weights.metadata.ropeTheta
 ) : ApertusAttentionBackend<T> {
 
     private val dim = weights.metadata.embeddingLength
@@ -39,6 +41,16 @@ public class ApertusCpuAttentionBackend<T : DType>(
     private val nHeadsPerKv = nHeads / nKvHeads
 
     private val cache: KvCache = kvCache ?: HeapKvCache(nLayers, seqLen, kvDim)
+
+    /**
+     * Precomputed inverse frequencies from model weights (rope_freqs.weight).
+     * Shape: [ropeDim/2]. If present, used instead of computing from ropeFreqBase.
+     */
+    private val precomputedRopeFreqs: FloatArray? = weights.ropeFreqs?.let { tensor ->
+        val data = tensor.data
+        if (data is FloatArrayTensorData<*>) data.buffer.copyOf()
+        else data.copyToFloatArray()
+    }
 
     private val scoreBuffer = FloatArray(seqLen)
 
@@ -97,10 +109,45 @@ public class ApertusCpuAttentionBackend<T : DType>(
 
     private fun applyRopeGqa(qBuf: FloatArray, kBuf: FloatArray, pos: Int) {
         require(headSize % 2 == 0) { "RoPE requires even head size; got $headSize" }
-        val ropeStride = headSize / 2
 
-        applyRopeRotation(qBuf, nHeads, headSize, ropeDim, pos, ropeFreqBase, null, null, ropeStride)
-        applyRopeRotation(kBuf, nKvHeads, headSize, ropeDim, pos, ropeFreqBase, null, null, ropeStride)
+        if (precomputedRopeFreqs != null) {
+            applyRopeWithFreqs(qBuf, nHeads, headSize, pos, precomputedRopeFreqs)
+            applyRopeWithFreqs(kBuf, nKvHeads, headSize, pos, precomputedRopeFreqs)
+        } else {
+            val ropeStride = headSize / 2
+            applyRopeRotation(qBuf, nHeads, headSize, ropeDim, pos, ropeFreqBase, null, null, ropeStride)
+            applyRopeRotation(kBuf, nKvHeads, headSize, ropeDim, pos, ropeFreqBase, null, null, ropeStride)
+        }
+    }
+
+    /**
+     * Apply RoPE using precomputed inverse frequencies.
+     *
+     * For each pair index `p`, the angle is `pos * freqs[p]`.
+     * Rotation: out[2p] = in[2p] * cos(θ) - in[2p+1] * sin(θ)
+     *           out[2p+1] = in[2p] * sin(θ) + in[2p+1] * cos(θ)
+     */
+    private fun applyRopeWithFreqs(
+        buf: FloatArray,
+        numHeads: Int,
+        headSize: Int,
+        pos: Int,
+        freqs: FloatArray
+    ) {
+        val nPairs = freqs.size
+        for (h in 0 until numHeads) {
+            val headOffset = h * headSize
+            for (pair in 0 until nPairs) {
+                val angle = pos * freqs[pair]
+                val fcr = cos(angle)
+                val fci = sin(angle)
+                val i = pair * 2
+                val v0 = buf[headOffset + i]
+                val v1 = buf[headOffset + i + 1]
+                buf[headOffset + i] = (v0 * fcr - v1 * fci).toFloat()
+                buf[headOffset + i + 1] = (v0 * fci + v1 * fcr).toFloat()
+            }
+        }
     }
 
     private fun attentionGqa(layerIdx: Int, qBuf: FloatArray, pos: Int): FloatArray {
