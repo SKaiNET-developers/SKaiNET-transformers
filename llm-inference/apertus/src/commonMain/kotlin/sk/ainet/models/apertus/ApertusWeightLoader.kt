@@ -504,8 +504,7 @@ public class ApertusWeightLoader private constructor(
     private fun ReaderField.stringValue(): String {
         val idx = data.firstOrNull() ?: 0
         val part = parts.getOrNull(idx) ?: error("Missing data part for field $name")
-        @Suppress("UNCHECKED_CAST")
-        val bytes = (part as List<Any>).mapNotNull {
+        val bytes = (part as List<*>).mapNotNull {
             when (it) {
                 is UByte -> it.toByte()
                 is Byte -> it
