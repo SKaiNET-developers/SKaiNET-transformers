@@ -78,6 +78,20 @@ public class ApertusWeightLoader private constructor(
         ctx: ExecutionContext
     ): ApertusWeights<T, V> = loadToMap(ctx, T::class)
 
+    /**
+     * Load weights for lazy dequantization: small tensors (norms, embeddings)
+     * are dequantized to FP32; large projection matrices stay as raw quantized bytes.
+     */
+    public suspend fun loadQuantized(
+        ctx: ExecutionContext
+    ): ApertusQuantizedWeights {
+        return if (randomAccessProvider != null) {
+            loadQuantizedFromStreamingGguf(ctx)
+        } else {
+            loadQuantizedFromGguf(ctx)
+        }
+    }
+
     // ============== Sequential loading ==============
 
     private fun <T : DType, V> loadFromGguf(
@@ -164,6 +178,146 @@ public class ApertusWeightLoader private constructor(
 
             ApertusWeights(metadata, byName, xieluParams, preTransposed)
         }
+    }
+
+    // ============== Quantized (lazy-dequant) loading ==============
+
+    /**
+     * Tensor names that are always dequantized to FP32 (small or needed for lookup).
+     */
+    private fun alwaysFP32Names(metadata: ApertusModelMetadata): Set<String> {
+        val names = mutableSetOf<String>()
+        names += ApertusTensorNames.TOKEN_EMBEDDINGS
+        names += ApertusTensorNames.OUTPUT_NORM
+        names += ApertusTensorNames.ROPE_FREQS
+        repeat(metadata.blockCount) { layer ->
+            names += ApertusTensorNames.attnNorm(layer)
+            names += ApertusTensorNames.attnQNorm(layer)
+            names += ApertusTensorNames.attnKNorm(layer)
+            names += ApertusTensorNames.ffnNorm(layer)
+        }
+        return names
+    }
+
+    private fun loadQuantizedFromGguf(ctx: ExecutionContext): ApertusQuantizedWeights {
+        requireNotNull(sourceProvider) { "Sequential loading requires sourceProvider." }
+        val reader = sourceProvider.invoke().buffered().use { src ->
+            GGUFReader(src, loadTensorData = true)
+        }
+        val metadata = metadataFromGguf(reader.fields, reader.tensors)
+        validateMetadata(metadata)
+
+        val tensorByName = reader.tensors.associateBy { it.name }
+        val fp32 = linkedMapOf<String, Tensor<FP32, Float>>()
+        val quantized = linkedMapOf<String, QuantizedTensor>()
+        val xieluParams = mutableMapOf<Int, ApertusXIELUParams>()
+        val fp32Names = alwaysFP32Names(metadata)
+
+        requiredTensorNames(metadata).forEach { name ->
+            val rt = tensorByName[name] ?: error("Missing tensor: $name")
+            if (name in fp32Names) {
+                fp32[name] = readerTensorToFP32(ctx, reader, rt)
+            } else {
+                quantized[name] = readerTensorToQuantized(reader, rt)
+            }
+        }
+        // Optional rope_freqs
+        tensorByName[ApertusTensorNames.ROPE_FREQS]?.let { rt ->
+            fp32[ApertusTensorNames.ROPE_FREQS] = readerTensorToFP32(ctx, reader, rt)
+        }
+        extractXIELUParams(reader.fields, metadata.blockCount, xieluParams)
+        if (xieluParams.isEmpty()) {
+            extractXIELUParamsFromReader(reader, tensorByName, metadata.blockCount, xieluParams)
+        }
+        return ApertusQuantizedWeights(metadata, fp32, quantized, xieluParams)
+    }
+
+    private fun loadQuantizedFromStreamingGguf(ctx: ExecutionContext): ApertusQuantizedWeights {
+        requireNotNull(randomAccessProvider) { "Streaming loading requires randomAccessProvider." }
+        val source = randomAccessProvider.invoke()
+        return StreamingGGUFReader.open(source).use { reader ->
+            val metadata = metadataFromStreamingGguf(reader.fields, reader.tensors)
+            validateMetadata(metadata)
+
+            val tensorByName = reader.tensors.associateBy { it.name }
+            val fp32 = linkedMapOf<String, Tensor<FP32, Float>>()
+            val quantized = linkedMapOf<String, QuantizedTensor>()
+            val xieluParams = mutableMapOf<Int, ApertusXIELUParams>()
+            val fp32Names = alwaysFP32Names(metadata)
+
+            requiredTensorNames(metadata).forEach { name ->
+                val st = tensorByName[name] ?: error("Missing tensor: $name")
+                if (name in fp32Names) {
+                    fp32[name] = streamingTensorToFP32(ctx, reader, st)
+                } else {
+                    quantized[name] = streamingTensorToQuantized(reader, st)
+                }
+            }
+            tensorByName[ApertusTensorNames.ROPE_FREQS]?.let { st ->
+                fp32[ApertusTensorNames.ROPE_FREQS] = streamingTensorToFP32(ctx, reader, st)
+            }
+            extractXIELUParamsFromStreamingMeta(reader.fields, metadata.blockCount, xieluParams)
+            if (xieluParams.isEmpty()) {
+                extractXIELUParamsFromStreaming(reader, tensorByName, metadata.blockCount, xieluParams)
+            }
+            ApertusQuantizedWeights(metadata, fp32, quantized, xieluParams)
+        }
+    }
+
+    /** Dequant any GGUF tensor to FP32 (for small tensors like norms). */
+    @Suppress("UNCHECKED_CAST")
+    private fun readerTensorToFP32(
+        ctx: ExecutionContext,
+        reader: GGUFReader,
+        rt: ReaderTensor
+    ): Tensor<FP32, Float> {
+        val shape = Shape(*rt.shape.map { it.toInt() }.toIntArray())
+        val raw = if (rt.data.isEmpty()) reader.materialize(rt) else rt.data
+        val floats = when (rt.tensorType) {
+            GGMLQuantizationType.F32 -> (raw as List<Float>).toFloatArray()
+            GGMLQuantizationType.F16 -> DequantOps.dequantF16(raw)
+            GGMLQuantizationType.BF16 -> DequantOps.dequantBF16(raw)
+            else -> {
+                val bytes = DequantOps.toByteArray(raw, rt.name)
+                DequantOps.dequantFromBytes(bytes, rt.tensorType, rt.nElements)
+            }
+        }
+        return createTensor(ctx, FP32::class, shape, floats)
+    }
+
+    /** Keep a tensor as raw quantized bytes for lazy dequantization. */
+    private fun readerTensorToQuantized(reader: GGUFReader, rt: ReaderTensor): QuantizedTensor {
+        val shape = Shape(*rt.shape.map { it.toInt() }.toIntArray())
+        val raw = if (rt.data.isEmpty()) reader.materialize(rt) else rt.data
+        val bytes = DequantOps.toByteArray(raw, rt.name)
+        return QuantizedTensor(bytes, rt.tensorType, shape, rt.nElements)
+    }
+
+    /** Dequant a streaming tensor to FP32 (for small tensors). */
+    private fun streamingTensorToFP32(
+        ctx: ExecutionContext,
+        reader: StreamingGGUFReader,
+        st: StreamingTensorInfo
+    ): Tensor<FP32, Float> {
+        val shape = Shape(*st.shape.map { it.toInt() }.toIntArray())
+        val bytes = reader.loadTensorData(st)
+        val floats = when (st.tensorType) {
+            GGMLQuantizationType.F32 -> DequantOps.bytesToFloatArray(bytes)
+            GGMLQuantizationType.F16 -> DequantOps.dequantF16FromBytes(bytes)
+            GGMLQuantizationType.BF16 -> DequantOps.dequantBF16FromBytes(bytes)
+            else -> DequantOps.dequantFromBytes(bytes, st.tensorType, st.nElements.toInt())
+        }
+        return createTensor(ctx, FP32::class, shape, floats)
+    }
+
+    /** Keep a streaming tensor as raw quantized bytes for lazy dequantization. */
+    private fun streamingTensorToQuantized(
+        reader: StreamingGGUFReader,
+        st: StreamingTensorInfo
+    ): QuantizedTensor {
+        val shape = Shape(*st.shape.map { it.toInt() }.toIntArray())
+        val bytes = reader.loadTensorData(st)
+        return QuantizedTensor(bytes, st.tensorType, shape, st.nElements.toInt())
     }
 
     // ============== xIELU parameter extraction ==============
@@ -761,3 +915,32 @@ public suspend fun loadApertusRuntimeWeightsStreaming(
     quantPolicy: QuantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
     preTransposed: Boolean = false
 ): ApertusRuntimeWeights<FP32> = loadApertusRuntimeWeightsStreaming(ctx, randomAccessProvider, FP32::class, quantPolicy, preTransposed)
+
+// ============== Quantized (lazy-dequant) convenience loaders ==============
+
+/**
+ * Load Apertus weights for lazy dequantization from a GGUF source (sequential).
+ *
+ * Small tensors (norms, embeddings) are dequantized to FP32.
+ * Large projection matrices stay quantized and are dequantized per-layer at runtime.
+ */
+public suspend fun loadApertusQuantizedWeights(
+    ctx: ExecutionContext,
+    sourceProvider: () -> Source
+): ApertusQuantizedRuntimeWeights {
+    val loader = ApertusWeightLoader.fromSource(sourceProvider = sourceProvider)
+    val loaded = loader.loadQuantized(ctx)
+    return ApertusQuantizedWeightMapper.map(loaded)
+}
+
+/**
+ * Load Apertus weights for lazy dequantization from a GGUF source (streaming).
+ */
+public suspend fun loadApertusQuantizedWeightsStreaming(
+    ctx: ExecutionContext,
+    randomAccessProvider: () -> RandomAccessSource
+): ApertusQuantizedRuntimeWeights {
+    val loader = ApertusWeightLoader.fromRandomAccess(randomAccessProvider = randomAccessProvider)
+    val loaded = loader.loadQuantized(ctx)
+    return ApertusQuantizedWeightMapper.map(loaded)
+}

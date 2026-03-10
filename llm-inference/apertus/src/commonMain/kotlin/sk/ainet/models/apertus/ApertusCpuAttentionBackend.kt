@@ -22,35 +22,89 @@ import kotlin.reflect.KClass
  *
  * Q and K are expected to be QK-normed before being passed to this backend.
  */
-public class ApertusCpuAttentionBackend<T : DType>(
+public class ApertusCpuAttentionBackend<T : DType> private constructor(
     private val ctx: ExecutionContext,
-    private val weights: ApertusRuntimeWeights<T>,
     private val dtype: KClass<T>,
-    kvCache: KvCache? = null,
-    private val ropeFreqBase: Float = weights.metadata.ropeTheta
+    private val dim: Int,
+    private val seqLen: Int,
+    private val nLayers: Int,
+    private val nHeads: Int,
+    private val nKvHeads: Int,
+    private val headSize: Int,
+    private val kvDim: Int,
+    private val ropeDim: Int,
+    private val nHeadsPerKv: Int,
+    private val ropeFreqBase: Float,
+    private val cache: KvCache,
+    private val precomputedRopeFreqs: FloatArray?
 ) : ApertusAttentionBackend<T> {
 
-    private val dim = weights.metadata.embeddingLength
-    private val seqLen = weights.metadata.contextLength
-    private val nLayers = weights.metadata.blockCount
-    private val nHeads = weights.metadata.headCount
-    private val nKvHeads = weights.metadata.kvHeadCount
-    private val headSize = dim / nHeads
-    private val kvDim = nKvHeads * headSize
-    private val ropeDim = weights.metadata.ropeDimensionCount ?: headSize
-    private val nHeadsPerKv = nHeads / nKvHeads
-
-    private val cache: KvCache = kvCache ?: HeapKvCache(nLayers, seqLen, kvDim)
+    /**
+     * Primary constructor from full runtime weights.
+     */
+    public constructor(
+        ctx: ExecutionContext,
+        weights: ApertusRuntimeWeights<T>,
+        dtype: KClass<T>,
+        kvCache: KvCache? = null,
+        ropeFreqBase: Float = weights.metadata.ropeTheta
+    ) : this(
+        ctx = ctx,
+        dtype = dtype,
+        dim = weights.metadata.embeddingLength,
+        seqLen = weights.metadata.contextLength,
+        nLayers = weights.metadata.blockCount,
+        nHeads = weights.metadata.headCount,
+        nKvHeads = weights.metadata.kvHeadCount,
+        headSize = weights.metadata.embeddingLength / weights.metadata.headCount,
+        kvDim = weights.metadata.kvHeadCount * (weights.metadata.embeddingLength / weights.metadata.headCount),
+        ropeDim = weights.metadata.ropeDimensionCount
+            ?: (weights.metadata.embeddingLength / weights.metadata.headCount),
+        nHeadsPerKv = weights.metadata.headCount / weights.metadata.kvHeadCount,
+        ropeFreqBase = ropeFreqBase,
+        cache = kvCache ?: HeapKvCache(
+            weights.metadata.blockCount,
+            weights.metadata.contextLength,
+            weights.metadata.kvHeadCount * (weights.metadata.embeddingLength / weights.metadata.headCount)
+        ),
+        precomputedRopeFreqs = weights.ropeFreqs?.let { tensor ->
+            val data = tensor.data
+            if (data is FloatArrayTensorData<*>) data.buffer.copyOf()
+            else data.copyToFloatArray()
+        }
+    )
 
     /**
-     * Precomputed inverse frequencies from model weights (rope_freqs.weight).
-     * Shape: [ropeDim/2]. If present, used instead of computing from ropeFreqBase.
+     * Constructor from metadata and optional rope frequencies (for quantized runtime).
      */
-    private val precomputedRopeFreqs: FloatArray? = weights.ropeFreqs?.let { tensor ->
-        val data = tensor.data
-        if (data is FloatArrayTensorData<*>) data.buffer.copyOf()
-        else data.copyToFloatArray()
-    }
+    public constructor(
+        ctx: ExecutionContext,
+        metadata: ApertusModelMetadata,
+        dtype: KClass<T>,
+        ropeFreqs: FloatArray? = null,
+        kvCache: KvCache? = null,
+        ropeFreqBase: Float = metadata.ropeTheta
+    ) : this(
+        ctx = ctx,
+        dtype = dtype,
+        dim = metadata.embeddingLength,
+        seqLen = metadata.contextLength,
+        nLayers = metadata.blockCount,
+        nHeads = metadata.headCount,
+        nKvHeads = metadata.kvHeadCount,
+        headSize = metadata.embeddingLength / metadata.headCount,
+        kvDim = metadata.kvHeadCount * (metadata.embeddingLength / metadata.headCount),
+        ropeDim = metadata.ropeDimensionCount
+            ?: (metadata.embeddingLength / metadata.headCount),
+        nHeadsPerKv = metadata.headCount / metadata.kvHeadCount,
+        ropeFreqBase = ropeFreqBase,
+        cache = kvCache ?: HeapKvCache(
+            metadata.blockCount,
+            metadata.contextLength,
+            metadata.kvHeadCount * (metadata.embeddingLength / metadata.headCount)
+        ),
+        precomputedRopeFreqs = ropeFreqs
+    )
 
     private val scoreBuffer = FloatArray(seqLen)
 
