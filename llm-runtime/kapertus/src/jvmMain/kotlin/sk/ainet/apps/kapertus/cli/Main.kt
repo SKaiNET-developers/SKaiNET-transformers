@@ -2,6 +2,8 @@ package sk.ainet.apps.kapertus.cli
 
 import sk.ainet.apps.kapertus.ApertusIngestion
 import sk.ainet.apps.kapertus.ApertusLoadConfig
+import sk.ainet.apps.kllama.GGUFTokenizer
+import sk.ainet.apps.llm.Tokenizer
 import sk.ainet.models.apertus.ApertusRuntimeWeights
 import sk.ainet.models.apertus.ApertusRuntime
 import sk.ainet.models.apertus.ApertusCpuAttentionBackend
@@ -11,9 +13,11 @@ import sk.ainet.io.model.QuantPolicy
 import sk.ainet.lang.types.FP32
 import kotlinx.coroutines.runBlocking
 import java.nio.file.Path
+import java.nio.file.Files
 import kotlin.io.path.exists
 import kotlin.io.path.extension
 import kotlin.io.path.isDirectory
+import kotlin.io.path.readText
 import kotlin.system.exitProcess
 import kotlin.time.measureTime
 
@@ -21,6 +25,7 @@ private enum class ModelFormat { GGUF, SAFETENSORS }
 
 private data class CliArgs(
     val modelPath: Path,
+    val tokenizerPath: Path?,
     val prompt: String?,
     val steps: Int,
     val temperature: Float
@@ -32,14 +37,16 @@ private fun usage(errorMessage: String? = null): Nothing {
         System.err.println()
     }
 
-    println("Usage: kapertus -m <model> [-s <steps>] [-k <temperature>] <prompt>")
+    println("Usage: kapertus -m <model> [-t <tokenizer>] [-s <steps>] [-k <temperature>] <prompt>")
     println("  -m, --model         Path to .gguf, .safetensors model, or HuggingFace directory (required)")
+    println("  -t, --tokenizer     Path to tokenizer.json (auto-detected for .gguf and .safetensors)")
     println("  -s, --steps         Generation steps (default: 64)")
     println("  -k, --temperature   Sampling temperature (default: 0.8)")
     println("  -h, --help          Show this help")
     println()
     println("Example:")
     println("  kapertus -m model.gguf -s 96 -k 0.7 \"Hello, how are you?\"")
+    println("  kapertus -m ./apertus-hf/ \"Tell me about Kotlin\"")
     exitProcess(if (errorMessage == null) 0 else 1)
 }
 
@@ -47,6 +54,7 @@ private fun parseArgs(args: Array<String>): CliArgs {
     if (args.isEmpty()) usage("Missing arguments.")
 
     var model: String? = null
+    var tokenizer: String? = null
     var steps = 64
     var temperature = 0.8f
     var prompt: String? = null
@@ -64,6 +72,8 @@ private fun parseArgs(args: Array<String>): CliArgs {
             arg == "-h" || arg == "--help" -> usage()
             arg == "-m" || arg == "--model" -> model = nextValue(arg)
             arg.startsWith("--model=") -> model = arg.substringAfter("=")
+            arg == "-t" || arg == "--tokenizer" -> tokenizer = nextValue(arg)
+            arg.startsWith("--tokenizer=") -> tokenizer = arg.substringAfter("=")
             arg == "-s" || arg == "--steps" -> {
                 val value = nextValue(arg)
                 steps = value.toIntOrNull() ?: usage("Invalid steps value '$value'. Expected integer.")
@@ -90,7 +100,7 @@ private fun parseArgs(args: Array<String>): CliArgs {
     val modelPath = Path.of(model)
     if (!modelPath.exists()) usage("Model path does not exist: $model")
 
-    return CliArgs(modelPath, prompt, steps, temperature)
+    return CliArgs(modelPath, tokenizer?.let(Path::of), prompt, steps, temperature)
 }
 
 private fun detectFormat(path: Path): ModelFormat {
@@ -99,7 +109,11 @@ private fun detectFormat(path: Path): ModelFormat {
         val singleFile = path.resolve("model.safetensors")
         return when {
             indexFile.exists() || singleFile.exists() -> ModelFormat.SAFETENSORS
-            else -> usage("Cannot detect model format in directory: $path")
+            else -> {
+                val gguf = path.toFile().listFiles()?.firstOrNull { it.extension == "gguf" }
+                if (gguf != null) ModelFormat.GGUF
+                else usage("Cannot detect model format in directory: $path")
+            }
         }
     }
     return when (path.extension.lowercase()) {
@@ -109,12 +123,15 @@ private fun detectFormat(path: Path): ModelFormat {
     }
 }
 
-fun main(args: Array<String>) {
+private fun resolveModelDir(path: Path): Path =
+    if (path.isDirectory()) path else path.parent ?: path
+
+fun main(args: Array<String>) = runBlocking {
     val cliArgs = parseArgs(args)
     val format = detectFormat(cliArgs.modelPath)
     val prompt = cliArgs.prompt ?: "Hello"
 
-    println("Apertus-8B Inference (Kotlin)")
+    println("Apertus Inference (Kotlin)")
     println("Model: ${cliArgs.modelPath}")
     println("Format: $format")
     println("Steps: ${cliArgs.steps}, Temperature: ${cliArgs.temperature}")
@@ -127,33 +144,65 @@ fun main(args: Array<String>) {
         config = ApertusLoadConfig(quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32)
     )
 
+    // ---- Load weights ----
     println("Loading weights...")
     lateinit var runtimeWeights: ApertusRuntimeWeights<FP32>
     val loadTime = measureTime {
-        runtimeWeights = runBlocking {
-            when (format) {
-                ModelFormat.GGUF -> ingestion.loadStreaming {
-                    JvmRandomAccessSource.open(cliArgs.modelPath.toString())
+        runtimeWeights = when (format) {
+            ModelFormat.GGUF -> ingestion.loadStreaming {
+                JvmRandomAccessSource.open(cliArgs.modelPath.toString())
+            }
+            ModelFormat.SAFETENSORS -> {
+                val indexPath = if (cliArgs.modelPath.isDirectory()) {
+                    val index = cliArgs.modelPath.resolve("model.safetensors.index.json")
+                    if (index.exists()) index.toString()
+                    else cliArgs.modelPath.resolve("model.safetensors").toString()
+                } else {
+                    cliArgs.modelPath.toString()
                 }
-                ModelFormat.SAFETENSORS -> {
-                    val indexPath = if (cliArgs.modelPath.isDirectory()) {
-                        val index = cliArgs.modelPath.resolve("model.safetensors.index.json")
-                        if (index.exists()) index.toString()
-                        else cliArgs.modelPath.resolve("model.safetensors").toString()
-                    } else {
-                        cliArgs.modelPath.toString()
-                    }
-                    ingestion.loadSafeTensors(indexPath)
-                }
+                ingestion.loadSafeTensors(indexPath)
             }
         }
     }
     println("Weights loaded in $loadTime")
 
     val metadata = runtimeWeights.metadata
-    println("Model: ${metadata.architecture}, dim=${metadata.embeddingLength}, layers=${metadata.blockCount}, " +
+    println("  arch=${metadata.architecture}, dim=${metadata.embeddingLength}, layers=${metadata.blockCount}, " +
         "heads=${metadata.headCount}, kv_heads=${metadata.kvHeadCount}, vocab=${metadata.vocabSize}")
 
+    // ---- Load tokenizer ----
+    val tokenizerPath: Path? = when {
+        cliArgs.tokenizerPath != null -> cliArgs.tokenizerPath
+        format == ModelFormat.SAFETENSORS -> {
+            val modelDir = resolveModelDir(cliArgs.modelPath)
+            val autoTokenizer = modelDir.resolve("tokenizer.json")
+            if (autoTokenizer.exists()) autoTokenizer else null
+        }
+        else -> null
+    }
+
+    val tokenizer: Tokenizer = when {
+        format == ModelFormat.SAFETENSORS -> {
+            val tPath = tokenizerPath ?: error("tokenizer.json not found for SafeTensors model")
+            if (!tPath.exists()) error("Tokenizer not found: $tPath")
+            println("Loading tokenizer from $tPath...")
+            GGUFTokenizer.fromTokenizerJson(tPath.readText())
+        }
+        format == ModelFormat.GGUF && tokenizerPath == null -> {
+            println("Loading embedded GGUF tokenizer...")
+            JvmRandomAccessSource.open(cliArgs.modelPath.toString()).use { source ->
+                GGUFTokenizer.fromRandomAccessSource(source)
+            }
+        }
+        else -> {
+            val tPath = tokenizerPath ?: error("Tokenizer path is required. Use -t/--tokenizer.")
+            if (!tPath.exists()) error("Tokenizer not found: $tPath")
+            println("Loading tokenizer from $tPath...")
+            GGUFTokenizer.fromTokenizerJson(tPath.readText())
+        }
+    }
+
+    // ---- Build runtime ----
     val backend = ApertusCpuAttentionBackend<FP32>(
         ctx = ctx,
         weights = runtimeWeights,
@@ -168,10 +217,23 @@ fun main(args: Array<String>) {
         dtype = FP32::class
     )
 
+    // ---- Generate ----
+    val promptTokens = tokenizer.encode(prompt)
     println()
-    println("Prompt: $prompt")
+    println("Prompt: $prompt (${promptTokens.size} tokens)")
+    println("Generating ${cliArgs.steps} tokens with temperature=${cliArgs.temperature}...")
     println("---")
+    print(prompt)
 
-    // Tokenizer integration TBD — forward pass is wired and ready
-    println("[Tokenizer integration pending — forward pass is ready]")
+    var generated = 0
+    val elapsed = measureTime {
+        runtime.generate(prompt = promptTokens, steps = cliArgs.steps, temperature = cliArgs.temperature) { id ->
+            print(tokenizer.decode(id))
+            generated++
+        }
+    }.inWholeMilliseconds
+
+    val tokPerSec = if (elapsed > 0) generated / elapsed.toDouble() * 1000 else 0.0
+    println("\n---")
+    println("Generated $generated tokens in ${elapsed}ms (%.2f tok/s)".format(tokPerSec))
 }

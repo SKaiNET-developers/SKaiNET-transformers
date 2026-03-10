@@ -11,6 +11,7 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             implementation(project(":llm-inference:apertus"))
+            implementation(project(":llm-runtime:kllama"))
             implementation(project(":llm-core"))
             implementation(libs.skainet.lang.core)
             implementation(libs.skainet.compile.core)
