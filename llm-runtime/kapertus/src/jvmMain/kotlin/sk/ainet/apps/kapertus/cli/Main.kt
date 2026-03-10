@@ -28,7 +28,8 @@ private data class CliArgs(
     val tokenizerPath: Path?,
     val prompt: String?,
     val steps: Int,
-    val temperature: Float
+    val temperature: Float,
+    val contextLength: Int?
 )
 
 private fun usage(errorMessage: String? = null): Nothing {
@@ -37,11 +38,12 @@ private fun usage(errorMessage: String? = null): Nothing {
         System.err.println()
     }
 
-    println("Usage: kapertus -m <model> [-t <tokenizer>] [-s <steps>] [-k <temperature>] <prompt>")
+    println("Usage: kapertus -m <model> [-t <tokenizer>] [-s <steps>] [-k <temperature>] [-c <context>] <prompt>")
     println("  -m, --model         Path to .gguf, .safetensors model, or HuggingFace directory (required)")
     println("  -t, --tokenizer     Path to tokenizer.json (auto-detected for .gguf and .safetensors)")
     println("  -s, --steps         Generation steps (default: 64)")
     println("  -k, --temperature   Sampling temperature (default: 0.8)")
+    println("  -c, --context       Max context length (default: min(model, 2048))")
     println("  -h, --help          Show this help")
     println()
     println("Example:")
@@ -57,6 +59,7 @@ private fun parseArgs(args: Array<String>): CliArgs {
     var tokenizer: String? = null
     var steps = 64
     var temperature = 0.8f
+    var contextLength: Int? = null
     var prompt: String? = null
 
     var idx = 0
@@ -90,6 +93,14 @@ private fun parseArgs(args: Array<String>): CliArgs {
                 val value = arg.substringAfter("=")
                 temperature = value.toFloatOrNull() ?: usage("Invalid temperature '$value'. Expected float.")
             }
+            arg == "-c" || arg == "--context" -> {
+                val value = nextValue(arg)
+                contextLength = value.toIntOrNull() ?: usage("Invalid context length '$value'. Expected integer.")
+            }
+            arg.startsWith("--context=") -> {
+                val value = arg.substringAfter("=")
+                contextLength = value.toIntOrNull() ?: usage("Invalid context length '$value'. Expected integer.")
+            }
             arg.startsWith("-") -> usage("Unknown option: $arg")
             else -> prompt = arg
         }
@@ -100,7 +111,7 @@ private fun parseArgs(args: Array<String>): CliArgs {
     val modelPath = Path.of(model)
     if (!modelPath.exists()) usage("Model path does not exist: $model")
 
-    return CliArgs(modelPath, tokenizer?.let(Path::of), prompt, steps, temperature)
+    return CliArgs(modelPath, tokenizer?.let(Path::of), prompt, steps, temperature, contextLength)
 }
 
 private fun detectFormat(path: Path): ModelFormat {
@@ -141,7 +152,9 @@ fun main(args: Array<String>) = runBlocking {
     val ingestion = ApertusIngestion(
         ctx = ctx,
         dtype = FP32::class,
-        config = ApertusLoadConfig(quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32)
+        config = ApertusLoadConfig(
+            quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32
+        )
     )
 
     // ---- Load weights ----
@@ -166,9 +179,18 @@ fun main(args: Array<String>) = runBlocking {
     }
     println("Weights loaded in $loadTime")
 
+    // Limit context length to avoid OOM (KV cache allocation)
+    val maxCtx = cliArgs.contextLength ?: minOf(runtimeWeights.metadata.contextLength, 2048)
+    if (maxCtx < runtimeWeights.metadata.contextLength) {
+        runtimeWeights = runtimeWeights.copy(
+            metadata = runtimeWeights.metadata.copy(contextLength = maxCtx)
+        )
+    }
+
     val metadata = runtimeWeights.metadata
     println("  arch=${metadata.architecture}, dim=${metadata.embeddingLength}, layers=${metadata.blockCount}, " +
-        "heads=${metadata.headCount}, kv_heads=${metadata.kvHeadCount}, vocab=${metadata.vocabSize}")
+        "heads=${metadata.headCount}, kv_heads=${metadata.kvHeadCount}, vocab=${metadata.vocabSize}, " +
+        "ctx=${metadata.contextLength}")
 
     // ---- Load tokenizer ----
     val tokenizerPath: Path? = when {
@@ -206,8 +228,7 @@ fun main(args: Array<String>) = runBlocking {
     val backend = ApertusCpuAttentionBackend<FP32>(
         ctx = ctx,
         weights = runtimeWeights,
-        dtype = FP32::class,
-        ropeFreqBase = metadata.ropeTheta
+        dtype = FP32::class
     )
 
     val runtime = ApertusRuntime(

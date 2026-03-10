@@ -16,7 +16,8 @@ import kotlin.reflect.KClass
  * Configuration for loading Apertus weights.
  */
 public data class ApertusLoadConfig(
-    val quantPolicy: QuantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32
+    val quantPolicy: QuantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
+    val preTransposed: Boolean = false
 )
 
 /**
@@ -37,7 +38,8 @@ public class ApertusIngestion<T : DType>(
             ctx = ctx,
             sourceProvider = sourceProvider,
             dtype = dtype,
-            quantPolicy = config.quantPolicy
+            quantPolicy = config.quantPolicy,
+            preTransposed = config.preTransposed
         )
     }
 
@@ -50,7 +52,8 @@ public class ApertusIngestion<T : DType>(
             ctx = ctx,
             randomAccessProvider = randomAccessProvider,
             dtype = dtype,
-            quantPolicy = config.quantPolicy
+            quantPolicy = config.quantPolicy,
+            preTransposed = config.preTransposed
         )
     }
 

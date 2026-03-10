@@ -32,26 +32,31 @@ import kotlin.reflect.KClass
 public class ApertusWeightLoader private constructor(
     private val sourceProvider: (() -> Source)?,
     private val randomAccessProvider: (() -> RandomAccessSource)?,
-    private val quantPolicy: QuantPolicy = QuantPolicy.RAW_BYTES
+    private val quantPolicy: QuantPolicy = QuantPolicy.RAW_BYTES,
+    private val preTransposed: Boolean = false
 ) {
 
     public companion object {
         public fun fromSource(
             sourceProvider: () -> Source,
-            quantPolicy: QuantPolicy = QuantPolicy.RAW_BYTES
+            quantPolicy: QuantPolicy = QuantPolicy.RAW_BYTES,
+            preTransposed: Boolean = false
         ): ApertusWeightLoader = ApertusWeightLoader(
             sourceProvider = sourceProvider,
             randomAccessProvider = null,
-            quantPolicy = quantPolicy
+            quantPolicy = quantPolicy,
+            preTransposed = preTransposed
         )
 
         public fun fromRandomAccess(
             randomAccessProvider: () -> RandomAccessSource,
-            quantPolicy: QuantPolicy = QuantPolicy.RAW_BYTES
+            quantPolicy: QuantPolicy = QuantPolicy.RAW_BYTES,
+            preTransposed: Boolean = false
         ): ApertusWeightLoader = ApertusWeightLoader(
             sourceProvider = null,
             randomAccessProvider = randomAccessProvider,
-            quantPolicy = quantPolicy
+            quantPolicy = quantPolicy,
+            preTransposed = preTransposed
         )
     }
 
@@ -115,7 +120,7 @@ public class ApertusWeightLoader private constructor(
             extractXIELUParamsFromReader(reader, tensorByName, metadata.blockCount, xieluParams)
         }
 
-        return ApertusWeights(metadata, byName, xieluParams)
+        return ApertusWeights(metadata, byName, xieluParams, preTransposed)
     }
 
     // ============== Streaming loading ==============
@@ -157,46 +162,65 @@ public class ApertusWeightLoader private constructor(
                 extractXIELUParamsFromStreaming(reader, tensorByName, metadata.blockCount, xieluParams)
             }
 
-            ApertusWeights(metadata, byName, xieluParams)
+            ApertusWeights(metadata, byName, xieluParams, preTransposed)
         }
     }
 
     // ============== xIELU parameter extraction ==============
 
     /**
-     * Extract xIELU params from GGUF metadata fields (global, same for all layers).
-     * Fields: xielu.alpha_p, xielu.alpha_n, xielu.beta, xielu.eps
+     * Extract xIELU params from GGUF metadata fields.
+     *
+     * Fields are arrays of FLOAT32 with one value per layer:
+     * xielu.alpha_p, xielu.alpha_n, xielu.beta, xielu.eps
      */
     private fun extractXIELUParams(
         fields: Map<String, ReaderField>,
         blockCount: Int,
         out: MutableMap<Int, ApertusXIELUParams>
     ) {
-        val alphaP = fields["xielu.alpha_p"]?.scalarFloat() ?: return
-        val alphaN = fields["xielu.alpha_n"]?.scalarFloat() ?: return
-        val beta = fields["xielu.beta"]?.scalarFloat() ?: return
-        val eps = fields["xielu.eps"]?.scalarFloat() ?: return
-        val params = ApertusXIELUParams(alphaP, alphaN, beta, eps)
+        val alphaPField = fields["xielu.alpha_p"] ?: return
+        val alphaNField = fields["xielu.alpha_n"] ?: return
+        val betaField = fields["xielu.beta"] ?: return
+        val epsField = fields["xielu.eps"] ?: return
+
+        val alphaPArr = alphaPField.floatArray()
+        val alphaNArr = alphaNField.floatArray()
+        val betaArr = betaField.floatArray()
+        val epsArr = epsField.floatArray()
+
         for (layer in 0 until blockCount) {
-            out[layer] = params
+            out[layer] = ApertusXIELUParams(
+                alphaP = alphaPArr.getOrElse(layer) { alphaPArr.first() },
+                alphaN = alphaNArr.getOrElse(layer) { alphaNArr.first() },
+                beta = betaArr.getOrElse(layer) { betaArr.first() },
+                eps = epsArr.getOrElse(layer) { epsArr.first() }
+            )
         }
     }
 
     /**
-     * Extract xIELU params from streaming GGUF metadata (global, same for all layers).
+     * Extract xIELU params from streaming GGUF metadata.
+     *
+     * Values are per-layer arrays (one FLOAT32 per layer).
      */
     private fun extractXIELUParamsFromStreamingMeta(
         fields: Map<String, Any?>,
         blockCount: Int,
         out: MutableMap<Int, ApertusXIELUParams>
     ) {
-        val alphaP = fields["xielu.alpha_p"]?.toFloatValue() ?: return
-        val alphaN = fields["xielu.alpha_n"]?.toFloatValue() ?: return
-        val beta = fields["xielu.beta"]?.toFloatValue() ?: return
-        val eps = fields["xielu.eps"]?.toFloatValue() ?: return
-        val params = ApertusXIELUParams(alphaP, alphaN, beta, eps)
+        val alphaPArr = fields["xielu.alpha_p"]?.asFloatArray() ?: return
+        val alphaNArr = fields["xielu.alpha_n"]?.asFloatArray() ?: return
+        val betaArr = fields["xielu.beta"]?.asFloatArray() ?: return
+        val epsArr = fields["xielu.eps"]?.asFloatArray() ?: return
+
         for (layer in 0 until blockCount) {
-            out[layer] = params
+            out[layer] = ApertusXIELUParams(
+                alphaP = alphaPArr.getOrElse(layer) { alphaPArr.first() },
+                alphaN = alphaNArr.getOrElse(layer) { alphaNArr.first() },
+                beta = betaArr.getOrElse(layer) { betaArr.first() },
+                eps = epsArr.getOrElse(layer) { epsArr.first() }
+            )
         }
     }
 
@@ -515,6 +539,15 @@ public class ApertusWeightLoader private constructor(
         }
     }
 
+    /**
+     * Create a tensor from dequantized float data.
+     *
+     * For 2D tensors from GGUF (stored column-major with shape [out, in]):
+     * - Normal mode: transposes to row-major [in, out] (requires `.t()` in runtime)
+     * - Pre-transposed mode: interprets column-major as row-major [in, out] directly,
+     *   skipping the data transpose. The weights can then be used directly in matmul
+     *   without `.t()`, saving ~50% memory.
+     */
     @Suppress("UNCHECKED_CAST")
     private fun <T : DType, V> createTensor(
         ctx: ExecutionContext,
@@ -525,9 +558,16 @@ public class ApertusWeightLoader private constructor(
         return if (originalShape.rank == 2) {
             val rows = originalShape[0]
             val cols = originalShape[1]
-            val transposed = DequantOps.transposeColumnMajorToRowMajor(data, rows, cols)
-            val newShape = Shape(cols, rows)
-            ctx.fromFloatArray<T, Float>(newShape, dtype, transposed) as Tensor<T, V>
+            if (preTransposed) {
+                // Column-major [out, in] is equivalent to row-major [in, out]
+                // Skip data transpose — weights are already in matmul-ready layout
+                val newShape = Shape(cols, rows)
+                ctx.fromFloatArray<T, Float>(newShape, dtype, data) as Tensor<T, V>
+            } else {
+                val transposed = DequantOps.transposeColumnMajorToRowMajor(data, rows, cols)
+                val newShape = Shape(cols, rows)
+                ctx.fromFloatArray<T, Float>(newShape, dtype, transposed) as Tensor<T, V>
+            }
         } else {
             ctx.fromFloatArray<T, Float>(originalShape, dtype, data) as Tensor<T, V>
         }
@@ -568,6 +608,25 @@ public class ApertusWeightLoader private constructor(
         }
     }
 
+    /**
+     * Extract a float array from a ReaderField (GGUF ARRAY of FLOAT32).
+     * Each element is stored as a separate part; data indices point to them.
+     */
+    private fun ReaderField.floatArray(): FloatArray {
+        return FloatArray(data.size) { idx ->
+            val partIdx = data[idx]
+            val part = parts.getOrNull(partIdx) ?: error("Missing part $partIdx for field $name")
+            val value = (part as List<*>).firstOrNull()
+                ?: error("Empty part for field $name at index $idx")
+            when (value) {
+                is Float -> value
+                is Double -> value.toFloat()
+                is Number -> value.toFloat()
+                else -> error("Unsupported array element type ${value::class} for field $name")
+            }
+        }
+    }
+
     private fun ReaderField.stringValue(): String {
         val idx = data.firstOrNull() ?: 0
         val part = parts.getOrNull(idx) ?: error("Missing data part for field $name")
@@ -598,6 +657,25 @@ public class ApertusWeightLoader private constructor(
         is Double -> this.toFloat()
         is Int -> this.toFloat()
         is Long -> this.toFloat()
+        else -> null
+    }
+
+    /**
+     * Convert a streaming metadata value (array or scalar) to a FloatArray.
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun Any?.asFloatArray(): FloatArray? = when (this) {
+        is FloatArray -> this
+        is List<*> -> FloatArray(size) { i ->
+            when (val v = get(i)) {
+                is Float -> v
+                is Double -> v.toFloat()
+                is Number -> v.toFloat()
+                else -> return null
+            }
+        }
+        is Float -> floatArrayOf(this)
+        is Double -> floatArrayOf(this.toFloat())
         else -> null
     }
 
@@ -639,11 +717,13 @@ public suspend fun <T : DType> loadApertusRuntimeWeights(
     ctx: ExecutionContext,
     sourceProvider: () -> Source,
     dtype: KClass<T>,
-    quantPolicy: QuantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32
+    quantPolicy: QuantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
+    preTransposed: Boolean = false
 ): ApertusRuntimeWeights<T> {
     val loader = ApertusWeightLoader.fromSource(
         sourceProvider = sourceProvider,
-        quantPolicy = quantPolicy
+        quantPolicy = quantPolicy,
+        preTransposed = preTransposed
     )
     val loaded = loader.loadToMap<T, Float>(ctx, dtype)
     return ApertusWeightMapper.map(loaded)
@@ -652,8 +732,9 @@ public suspend fun <T : DType> loadApertusRuntimeWeights(
 public suspend fun loadApertusRuntimeWeights(
     ctx: ExecutionContext,
     sourceProvider: () -> Source,
-    quantPolicy: QuantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32
-): ApertusRuntimeWeights<FP32> = loadApertusRuntimeWeights(ctx, sourceProvider, FP32::class, quantPolicy)
+    quantPolicy: QuantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
+    preTransposed: Boolean = false
+): ApertusRuntimeWeights<FP32> = loadApertusRuntimeWeights(ctx, sourceProvider, FP32::class, quantPolicy, preTransposed)
 
 /**
  * Load Apertus runtime weights from a GGUF source (streaming, for large files).
@@ -662,11 +743,13 @@ public suspend fun <T : DType> loadApertusRuntimeWeightsStreaming(
     ctx: ExecutionContext,
     randomAccessProvider: () -> RandomAccessSource,
     dtype: KClass<T>,
-    quantPolicy: QuantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32
+    quantPolicy: QuantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
+    preTransposed: Boolean = false
 ): ApertusRuntimeWeights<T> {
     val loader = ApertusWeightLoader.fromRandomAccess(
         randomAccessProvider = randomAccessProvider,
-        quantPolicy = quantPolicy
+        quantPolicy = quantPolicy,
+        preTransposed = preTransposed
     )
     val loaded = loader.loadToMap<T, Float>(ctx, dtype)
     return ApertusWeightMapper.map(loaded)
@@ -675,5 +758,6 @@ public suspend fun <T : DType> loadApertusRuntimeWeightsStreaming(
 public suspend fun loadApertusRuntimeWeightsStreaming(
     ctx: ExecutionContext,
     randomAccessProvider: () -> RandomAccessSource,
-    quantPolicy: QuantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32
-): ApertusRuntimeWeights<FP32> = loadApertusRuntimeWeightsStreaming(ctx, randomAccessProvider, FP32::class, quantPolicy)
+    quantPolicy: QuantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
+    preTransposed: Boolean = false
+): ApertusRuntimeWeights<FP32> = loadApertusRuntimeWeightsStreaming(ctx, randomAccessProvider, FP32::class, quantPolicy, preTransposed)

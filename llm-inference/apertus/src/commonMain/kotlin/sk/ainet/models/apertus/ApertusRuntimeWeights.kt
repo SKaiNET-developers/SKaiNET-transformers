@@ -69,7 +69,8 @@ public data class ApertusRuntimeWeights<T : DType>(
     val layers: List<ApertusLayerWeights<T>>,
     val outputNorm: Tensor<T, Float>,
     val outputWeight: Tensor<T, Float>,
-    val ropeFreqs: Tensor<T, Float>? = null
+    val ropeFreqs: Tensor<T, Float>? = null,
+    val preTransposed: Boolean = false
 )
 
 /**
@@ -99,7 +100,8 @@ public object ApertusTensorNames {
 public data class ApertusWeights<T : DType, V>(
     val metadata: ApertusModelMetadata,
     val tensors: Map<String, Tensor<T, V>>,
-    val xieluParams: Map<Int, ApertusXIELUParams> = emptyMap()
+    val xieluParams: Map<Int, ApertusXIELUParams> = emptyMap(),
+    val preTransposed: Boolean = false
 )
 
 /**
@@ -150,7 +152,8 @@ public object ApertusWeightMapper {
             layers = layers,
             outputNorm = outputNorm,
             outputWeight = outputWeight,
-            ropeFreqs = ropeFreqs
+            ropeFreqs = ropeFreqs,
+            preTransposed = weights.preTransposed
         )
     }
 }

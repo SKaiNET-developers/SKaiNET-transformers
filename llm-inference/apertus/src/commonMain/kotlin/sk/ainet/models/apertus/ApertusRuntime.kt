@@ -37,27 +37,6 @@ public class ApertusRuntime<T : DType>(
     random: Random = Random.Default
 ) : DecoderRuntime<T>(random) {
 
-    private class TransposedLayerWeights<T : DType>(
-        val wqT: Tensor<T, Float>,
-        val wkT: Tensor<T, Float>,
-        val wvT: Tensor<T, Float>,
-        val woT: Tensor<T, Float>,
-        val ffnDownT: Tensor<T, Float>,
-        val ffnUpT: Tensor<T, Float>,
-    )
-
-    private val transposedLayers: List<TransposedLayerWeights<T>> = weights.layers.map { layer ->
-        TransposedLayerWeights(
-            wqT = layer.wq.t(),
-            wkT = layer.wk.t(),
-            wvT = layer.wv.t(),
-            woT = layer.wo.t(),
-            ffnDownT = layer.ffnDown.t(),
-            ffnUpT = layer.ffnUp.t(),
-        )
-    }
-    private val outputWeightT: Tensor<T, Float> = weights.outputWeight.t()
-
     // ---- DecoderRuntime abstract properties ----
     override val dim: Int = weights.metadata.embeddingLength
     override val seqLen: Int = weights.metadata.contextLength
@@ -102,22 +81,23 @@ public class ApertusRuntime<T : DType>(
         )
     }
 
+    private val outputWeightT: Tensor<T, Float> = weights.outputWeight.t()
+
     // ---- DecoderRuntime template methods ----
 
     override fun embedToken(tokenId: Int): Tensor<T, Float> =
         embedding.forward(intArrayOf(tokenId), ctx)
 
     override fun runLayer(layerIdx: Int, x: Tensor<T, Float>): Tensor<T, Float> {
-        val tl = transposedLayers[layerIdx]
         val layer = weights.layers[layerIdx]
 
         // 1. Attention norm
         val attnNorm = attnNorms[layerIdx].forward(x, ctx)
 
-        // 2. QKV projections
-        val q = attnNorm.matmul(tl.wqT)
-        val k = attnNorm.matmul(tl.wkT)
-        val v = attnNorm.matmul(tl.wvT)
+        // 2. QKV projections (transpose on the fly to avoid double-memory peak)
+        val q = attnNorm.matmul(layer.wq.t())
+        val k = attnNorm.matmul(layer.wk.t())
+        val v = attnNorm.matmul(layer.wv.t())
 
         // 3. QK-norm: per-head RMSNorm on Q and K
         val qNormed = applyPerHeadRMSNorm(q, nHeads, headDim, layer.qNorm)
@@ -127,15 +107,15 @@ public class ApertusRuntime<T : DType>(
         val attnOut = attentionBackend.attention(qNormed, kNormed, v, layerIdx, position)
 
         // 5. Output projection + residual
-        val afterAttn = x + attnOut.matmul(tl.woT)
+        val afterAttn = x + attnOut.matmul(layer.wo.t())
 
         // 6. FFN norm
         val ffnNorm = ffnNorms[layerIdx].forward(afterAttn, ctx)
 
         // 7. Ungated MLP: up → xIELU → down
-        val up = ffnNorm.matmul(tl.ffnUpT)
+        val up = ffnNorm.matmul(layer.ffnUp.t())
         val activated = applyXIELU(up, layer.xieluParams)
-        val ffnOut = activated.matmul(tl.ffnDownT)
+        val ffnOut = activated.matmul(layer.ffnDown.t())
 
         // 8. Residual
         return afterAttn + ffnOut
