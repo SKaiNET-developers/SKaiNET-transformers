@@ -189,9 +189,9 @@ public class ApertusRuntime<T : DType>(
                 }
                 val rms = sqrt(sumSq / headDim + eps)
 
-                // Normalize and scale
+                // Normalize and scale (weight is per-head, shared across all heads)
                 for (i in 0 until headDim) {
-                    buf[headOffset + i] = (buf[headOffset + i] / rms) * w[h * headDim + i]
+                    buf[headOffset + i] = (buf[headOffset + i] / rms) * w[i]
                 }
             }
         }
