@@ -3,10 +3,14 @@ package sk.ainet.apps.kapertus.cli
 import sk.ainet.apps.kapertus.ApertusIngestion
 import sk.ainet.apps.kapertus.ApertusLoadConfig
 import sk.ainet.apps.kllama.GGUFTokenizer
+import sk.ainet.apps.llm.DecoderRuntime
 import sk.ainet.apps.llm.Tokenizer
+import sk.ainet.models.apertus.ApertusQuantizedRuntime
+import sk.ainet.models.apertus.ApertusQuantizedRuntimeWeights
 import sk.ainet.models.apertus.ApertusRuntimeWeights
 import sk.ainet.models.apertus.ApertusRuntime
 import sk.ainet.models.apertus.ApertusCpuAttentionBackend
+import sk.ainet.models.apertus.ApertusModelMetadata
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
 import sk.ainet.io.model.QuantPolicy
@@ -29,7 +33,8 @@ private data class CliArgs(
     val prompt: String?,
     val steps: Int,
     val temperature: Float,
-    val contextLength: Int?
+    val contextLength: Int?,
+    val quantized: Boolean = false
 )
 
 private fun usage(errorMessage: String? = null): Nothing {
@@ -38,12 +43,13 @@ private fun usage(errorMessage: String? = null): Nothing {
         System.err.println()
     }
 
-    println("Usage: kapertus -m <model> [-t <tokenizer>] [-s <steps>] [-k <temperature>] [-c <context>] <prompt>")
+    println("Usage: kapertus -m <model> [-t <tokenizer>] [-s <steps>] [-k <temperature>] [-c <context>] [-q] <prompt>")
     println("  -m, --model         Path to .gguf, .safetensors model, or HuggingFace directory (required)")
     println("  -t, --tokenizer     Path to tokenizer.json (auto-detected for .gguf and .safetensors)")
     println("  -s, --steps         Generation steps (default: 64)")
     println("  -k, --temperature   Sampling temperature (default: 0.8)")
     println("  -c, --context       Max context length (default: min(model, 2048))")
+    println("  -q, --quantized     Keep weights quantized, dequantize per-layer (uses 4-8x less memory)")
     println("  -h, --help          Show this help")
     println()
     println("Example:")
@@ -60,6 +66,7 @@ private fun parseArgs(args: Array<String>): CliArgs {
     var steps = 64
     var temperature = 0.8f
     var contextLength: Int? = null
+    var quantized = false
     var prompt: String? = null
 
     var idx = 0
@@ -101,6 +108,7 @@ private fun parseArgs(args: Array<String>): CliArgs {
                 val value = arg.substringAfter("=")
                 contextLength = value.toIntOrNull() ?: usage("Invalid context length '$value'. Expected integer.")
             }
+            arg == "-q" || arg == "--quantized" -> quantized = true
             arg.startsWith("-") -> usage("Unknown option: $arg")
             else -> prompt = arg
         }
@@ -111,7 +119,7 @@ private fun parseArgs(args: Array<String>): CliArgs {
     val modelPath = Path.of(model)
     if (!modelPath.exists()) usage("Model path does not exist: $model")
 
-    return CliArgs(modelPath, tokenizer?.let(Path::of), prompt, steps, temperature, contextLength)
+    return CliArgs(modelPath, tokenizer?.let(Path::of), prompt, steps, temperature, contextLength, quantized)
 }
 
 private fun detectFormat(path: Path): ModelFormat {
@@ -144,7 +152,7 @@ fun main(args: Array<String>) = runBlocking {
 
     println("Apertus Inference (Kotlin)")
     println("Model: ${cliArgs.modelPath}")
-    println("Format: $format")
+    println("Format: $format${if (cliArgs.quantized) " (quantized / lazy dequant)" else ""}")
     println("Steps: ${cliArgs.steps}, Temperature: ${cliArgs.temperature}")
     println()
 
@@ -157,37 +165,75 @@ fun main(args: Array<String>) = runBlocking {
         )
     )
 
-    // ---- Load weights ----
+    // ---- Load weights and build runtime ----
     println("Loading weights...")
-    lateinit var runtimeWeights: ApertusRuntimeWeights<FP32>
+    val metadata: ApertusModelMetadata
+    val runtime: DecoderRuntime<FP32>
+
     val loadTime = measureTime {
-        runtimeWeights = when (format) {
-            ModelFormat.GGUF -> ingestion.loadStreaming {
+        if (cliArgs.quantized && format == ModelFormat.GGUF) {
+            // Quantized path: large weight matrices stay as raw bytes
+            var qWeights = ingestion.loadQuantizedStreaming {
                 JvmRandomAccessSource.open(cliArgs.modelPath.toString())
             }
-            ModelFormat.SAFETENSORS -> {
-                val indexPath = if (cliArgs.modelPath.isDirectory()) {
-                    val index = cliArgs.modelPath.resolve("model.safetensors.index.json")
-                    if (index.exists()) index.toString()
-                    else cliArgs.modelPath.resolve("model.safetensors").toString()
-                } else {
-                    cliArgs.modelPath.toString()
-                }
-                ingestion.loadSafeTensors(indexPath)
+            val maxCtx = cliArgs.contextLength ?: minOf(qWeights.metadata.contextLength, 2048)
+            if (maxCtx < qWeights.metadata.contextLength) {
+                qWeights = qWeights.copy(
+                    metadata = qWeights.metadata.copy(contextLength = maxCtx)
+                )
             }
+            metadata = qWeights.metadata
+            val backend = ApertusCpuAttentionBackend<FP32>(
+                ctx = ctx,
+                metadata = metadata,
+                dtype = FP32::class,
+                ropeFreqs = qWeights.ropeFreqs?.let { t ->
+                    t.data.copyToFloatArray()
+                }
+            )
+            runtime = ApertusQuantizedRuntime(
+                ctx = ctx,
+                weights = qWeights,
+                attentionBackend = backend
+            )
+        } else {
+            // Eager FP32 path
+            var runtimeWeights: ApertusRuntimeWeights<FP32> = when (format) {
+                ModelFormat.GGUF -> ingestion.loadStreaming {
+                    JvmRandomAccessSource.open(cliArgs.modelPath.toString())
+                }
+                ModelFormat.SAFETENSORS -> {
+                    val indexPath = if (cliArgs.modelPath.isDirectory()) {
+                        val index = cliArgs.modelPath.resolve("model.safetensors.index.json")
+                        if (index.exists()) index.toString()
+                        else cliArgs.modelPath.resolve("model.safetensors").toString()
+                    } else {
+                        cliArgs.modelPath.toString()
+                    }
+                    ingestion.loadSafeTensors(indexPath)
+                }
+            }
+            val maxCtx = cliArgs.contextLength ?: minOf(runtimeWeights.metadata.contextLength, 2048)
+            if (maxCtx < runtimeWeights.metadata.contextLength) {
+                runtimeWeights = runtimeWeights.copy(
+                    metadata = runtimeWeights.metadata.copy(contextLength = maxCtx)
+                )
+            }
+            metadata = runtimeWeights.metadata
+            val backend = ApertusCpuAttentionBackend<FP32>(
+                ctx = ctx,
+                weights = runtimeWeights,
+                dtype = FP32::class
+            )
+            runtime = ApertusRuntime(
+                ctx = ctx,
+                weights = runtimeWeights,
+                attentionBackend = backend,
+                dtype = FP32::class
+            )
         }
     }
     println("Weights loaded in $loadTime")
-
-    // Limit context length to avoid OOM (KV cache allocation)
-    val maxCtx = cliArgs.contextLength ?: minOf(runtimeWeights.metadata.contextLength, 2048)
-    if (maxCtx < runtimeWeights.metadata.contextLength) {
-        runtimeWeights = runtimeWeights.copy(
-            metadata = runtimeWeights.metadata.copy(contextLength = maxCtx)
-        )
-    }
-
-    val metadata = runtimeWeights.metadata
     println("  arch=${metadata.architecture}, dim=${metadata.embeddingLength}, layers=${metadata.blockCount}, " +
         "heads=${metadata.headCount}, kv_heads=${metadata.kvHeadCount}, vocab=${metadata.vocabSize}, " +
         "ctx=${metadata.contextLength}")
@@ -223,20 +269,6 @@ fun main(args: Array<String>) = runBlocking {
             GGUFTokenizer.fromTokenizerJson(tPath.readText())
         }
     }
-
-    // ---- Build runtime ----
-    val backend = ApertusCpuAttentionBackend<FP32>(
-        ctx = ctx,
-        weights = runtimeWeights,
-        dtype = FP32::class
-    )
-
-    val runtime = ApertusRuntime(
-        ctx = ctx,
-        weights = runtimeWeights,
-        attentionBackend = backend,
-        dtype = FP32::class
-    )
 
     // ---- Generate ----
     val promptTokens = tokenizer.encode(prompt)
