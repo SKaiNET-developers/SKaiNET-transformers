@@ -18,9 +18,12 @@ public data class ApertusModelMetadata(
     val ropeDimensionCount: Int?,
     val vocabSize: Int,
     val ropeTheta: Float = 12000000f,
+    val rmsNormEps: Float = 1e-5f,
     val qkNorm: Boolean = true,
     val hiddenAct: String = "xielu",
-    val tiedEmbeddings: Boolean = false
+    val tiedEmbeddings: Boolean = false,
+    val bosTokenId: Int = 1,
+    val eosTokenId: Int = 2
 )
 
 /**
@@ -65,7 +68,8 @@ public data class ApertusRuntimeWeights<T : DType>(
     val tokenEmbedding: Tensor<T, Float>,
     val layers: List<ApertusLayerWeights<T>>,
     val outputNorm: Tensor<T, Float>,
-    val outputWeight: Tensor<T, Float>
+    val outputWeight: Tensor<T, Float>,
+    val ropeFreqs: Tensor<T, Float>? = null
 )
 
 /**
@@ -75,6 +79,7 @@ public object ApertusTensorNames {
     public const val TOKEN_EMBEDDINGS: String = "token_embd.weight"
     public const val OUTPUT_NORM: String = "output_norm.weight"
     public const val OUTPUT_WEIGHT: String = "output.weight"
+    public const val ROPE_FREQS: String = "rope_freqs.weight"
 
     public fun attnNorm(layer: Int): String = "blk.$layer.attn_norm.weight"
     public fun attnQ(layer: Int): String = "blk.$layer.attn_q.weight"
@@ -137,12 +142,15 @@ public object ApertusWeightMapper {
             )
         }
 
+        val ropeFreqs = weights.tensors[ApertusTensorNames.ROPE_FREQS]
+
         return ApertusRuntimeWeights(
             metadata = metadata,
             tokenEmbedding = tokenEmbedding,
             layers = layers,
             outputNorm = outputNorm,
-            outputWeight = outputWeight
+            outputWeight = outputWeight,
+            ropeFreqs = ropeFreqs
         )
     }
 }

@@ -104,8 +104,16 @@ public class ApertusWeightLoader private constructor(
             byName[name] = readerTensorToTensor(ctx, dtype, reader, rt)
         }
 
-        // Load xIELU scalar params
-        extractXIELUParamsFromReader(reader, tensorByName, metadata.blockCount, xieluParams)
+        // Load optional rope_freqs tensor
+        tensorByName[ApertusTensorNames.ROPE_FREQS]?.let { rt ->
+            byName[ApertusTensorNames.ROPE_FREQS] = readerTensorToTensor(ctx, dtype, reader, rt)
+        }
+
+        // Extract xIELU params: try metadata fields first, then per-layer tensors
+        extractXIELUParams(reader.fields, metadata.blockCount, xieluParams)
+        if (xieluParams.isEmpty()) {
+            extractXIELUParamsFromReader(reader, tensorByName, metadata.blockCount, xieluParams)
+        }
 
         return ApertusWeights(metadata, byName, xieluParams)
     }
@@ -138,7 +146,16 @@ public class ApertusWeightLoader private constructor(
                 byName[name] = streamingTensorToTensor(ctx, dtype, reader, st)
             }
 
-            extractXIELUParamsFromStreaming(reader, tensorByName, metadata.blockCount, xieluParams)
+            // Load optional rope_freqs tensor
+            tensorByName[ApertusTensorNames.ROPE_FREQS]?.let { st ->
+                byName[ApertusTensorNames.ROPE_FREQS] = streamingTensorToTensor(ctx, dtype, reader, st)
+            }
+
+            // Extract xIELU params: try metadata fields first, then per-layer tensors
+            extractXIELUParamsFromStreamingMeta(reader.fields, metadata.blockCount, xieluParams)
+            if (xieluParams.isEmpty()) {
+                extractXIELUParamsFromStreaming(reader, tensorByName, metadata.blockCount, xieluParams)
+            }
 
             ApertusWeights(metadata, byName, xieluParams)
         }
@@ -146,6 +163,44 @@ public class ApertusWeightLoader private constructor(
 
     // ============== xIELU parameter extraction ==============
 
+    /**
+     * Extract xIELU params from GGUF metadata fields (global, same for all layers).
+     * Fields: xielu.alpha_p, xielu.alpha_n, xielu.beta, xielu.eps
+     */
+    private fun extractXIELUParams(
+        fields: Map<String, ReaderField>,
+        blockCount: Int,
+        out: MutableMap<Int, ApertusXIELUParams>
+    ) {
+        val alphaP = fields["xielu.alpha_p"]?.scalarFloat() ?: return
+        val alphaN = fields["xielu.alpha_n"]?.scalarFloat() ?: return
+        val beta = fields["xielu.beta"]?.scalarFloat() ?: return
+        val eps = fields["xielu.eps"]?.scalarFloat() ?: return
+        val params = ApertusXIELUParams(alphaP, alphaN, beta, eps)
+        for (layer in 0 until blockCount) {
+            out[layer] = params
+        }
+    }
+
+    /**
+     * Extract xIELU params from streaming GGUF metadata (global, same for all layers).
+     */
+    private fun extractXIELUParamsFromStreamingMeta(
+        fields: Map<String, Any?>,
+        blockCount: Int,
+        out: MutableMap<Int, ApertusXIELUParams>
+    ) {
+        val alphaP = fields["xielu.alpha_p"]?.toFloatValue() ?: return
+        val alphaN = fields["xielu.alpha_n"]?.toFloatValue() ?: return
+        val beta = fields["xielu.beta"]?.toFloatValue() ?: return
+        val eps = fields["xielu.eps"]?.toFloatValue() ?: return
+        val params = ApertusXIELUParams(alphaP, alphaN, beta, eps)
+        for (layer in 0 until blockCount) {
+            out[layer] = params
+        }
+    }
+
+    /** Fallback: extract xIELU from per-layer tensors (if stored as tensors). */
     private fun extractXIELUParamsFromReader(
         reader: GGUFReader,
         tensorByName: Map<String, ReaderTensor>,
@@ -236,6 +291,9 @@ public class ApertusWeightLoader private constructor(
         val vocabSize = fields["$prefix.vocab_size"]?.scalarInt()
             ?: inferVocabFromTensor(tensors)
         val ropeTheta = fields["$prefix.rope.freq_base"]?.scalarFloat() ?: 12000000f
+        val rmsNormEps = fields["$prefix.attention.layer_norm_rms_epsilon"]?.scalarFloat() ?: 1e-5f
+        val bosTokenId = fields["tokenizer.ggml.bos_token_id"]?.scalarInt() ?: 1
+        val eosTokenId = fields["tokenizer.ggml.eos_token_id"]?.scalarInt() ?: 2
 
         return ApertusModelMetadata(
             architecture = arch,
@@ -247,7 +305,10 @@ public class ApertusWeightLoader private constructor(
             feedForwardLength = feedForwardLength,
             ropeDimensionCount = ropeDim,
             vocabSize = vocabSize,
-            ropeTheta = ropeTheta
+            ropeTheta = ropeTheta,
+            rmsNormEps = rmsNormEps,
+            bosTokenId = bosTokenId,
+            eosTokenId = eosTokenId
         )
     }
 
@@ -269,6 +330,9 @@ public class ApertusWeightLoader private constructor(
         val vocabSize = fields["$prefix.vocab_size"]?.toIntValue()
             ?: inferVocabFromStreamingTensor(tensors)
         val ropeTheta = fields["$prefix.rope.freq_base"]?.toFloatValue() ?: 12000000f
+        val rmsNormEps = fields["$prefix.attention.layer_norm_rms_epsilon"]?.toFloatValue() ?: 1e-5f
+        val bosTokenId = fields["tokenizer.ggml.bos_token_id"]?.toIntValue() ?: 1
+        val eosTokenId = fields["tokenizer.ggml.eos_token_id"]?.toIntValue() ?: 2
 
         return ApertusModelMetadata(
             architecture = arch,
@@ -280,7 +344,10 @@ public class ApertusWeightLoader private constructor(
             feedForwardLength = feedForwardLength,
             ropeDimensionCount = ropeDim,
             vocabSize = vocabSize,
-            ropeTheta = ropeTheta
+            ropeTheta = ropeTheta,
+            rmsNormEps = rmsNormEps,
+            bosTokenId = bosTokenId,
+            eosTokenId = eosTokenId
         )
     }
 

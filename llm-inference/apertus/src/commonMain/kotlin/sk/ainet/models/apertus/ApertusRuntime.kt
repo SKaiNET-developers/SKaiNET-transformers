@@ -33,13 +33,9 @@ public class ApertusRuntime<T : DType>(
     val weights: ApertusRuntimeWeights<T>,
     private val attentionBackend: ApertusAttentionBackend<T>,
     private val dtype: KClass<T>,
-    private val eps: Float = 1e-5f,
+    private val eps: Float = weights.metadata.rmsNormEps,
     random: Random = Random.Default
 ) : DecoderRuntime<T>(random) {
-
-    private companion object {
-        const val BOS_TOKEN: Int = 1
-    }
 
     private class TransposedLayerWeights<T : DType>(
         val wqT: Tensor<T, Float>,
@@ -67,7 +63,7 @@ public class ApertusRuntime<T : DType>(
     override val seqLen: Int = weights.metadata.contextLength
     override val vocabSize: Int = weights.metadata.vocabSize
     override val nLayers: Int = weights.layers.size
-    override val bosToken: Int = BOS_TOKEN
+    override val bosToken: Int = weights.metadata.bosTokenId
 
     private val nHeads = weights.metadata.headCount
     private val headDim = dim / nHeads
