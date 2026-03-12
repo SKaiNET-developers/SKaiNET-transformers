@@ -288,7 +288,10 @@ public class ApertusSingleSafeTensorsLoader<T : DType>(
     private val metadata: ApertusModelMetadata
 ) {
 
-    public fun load(randomAccessProvider: () -> RandomAccessSource): ApertusRuntimeWeights<T> {
+    /**
+     * Load weights into a flat tensor map with GGUF-canonical names.
+     */
+    public fun loadToMap(randomAccessProvider: () -> RandomAccessSource): ApertusWeights<T, Float> {
         val tensors = mutableMapOf<String, Tensor<T, Float>>()
         val xieluParams = mutableMapOf<Int, ApertusXIELUParams>()
 
@@ -334,12 +337,18 @@ public class ApertusSingleSafeTensorsLoader<T : DType>(
             tensors[ApertusTensorNames.OUTPUT_WEIGHT] = embedding
         }
 
-        val weights = ApertusWeights<T, Float>(
+        return ApertusWeights<T, Float>(
             metadata = metadata,
             tensors = tensors,
             xieluParams = xieluParams
         )
-        return ApertusWeightMapper.map(weights)
+    }
+
+    /**
+     * Load weights and return structured [ApertusRuntimeWeights].
+     */
+    public fun load(randomAccessProvider: () -> RandomAccessSource): ApertusRuntimeWeights<T> {
+        return ApertusWeightMapper.map(loadToMap(randomAccessProvider))
     }
 
     private fun loadScalarFromSingle(
