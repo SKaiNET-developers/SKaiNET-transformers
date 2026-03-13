@@ -13,8 +13,11 @@ import sk.ainet.io.weights.MappingConfig
 import sk.ainet.io.weights.WeightMapper
 import sk.ainet.io.weights.WeightNameResolver
 import sk.ainet.io.weights.WeightTensor
-import sk.ainet.lang.dag.GraphProgramSink
 import sk.ainet.lang.graph.ComputeGraph
+import sk.ainet.lang.graph.DefaultComputeGraph
+import sk.ainet.lang.graph.DefaultGraphExecutionContext
+import sk.ainet.lang.graph.DefaultExecutionTape
+import sk.ainet.lang.graph.exec.ComputeGraphExecutor
 import sk.ainet.lang.nn.Module
 import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.tensor.data.FloatArrayTensorData
@@ -69,17 +72,17 @@ public class OptimizedLLMRuntime<T : DType>(
     override val nLayers: Int get() = modelNLayers
     override val bosToken: Int get() = field
 
-    // These are extracted from the model's module tree structure
+    // Extracted from the model's module tree structure
     private val modelDim: Int
     private val modelVocabSize: Int
     private val modelSeqLen: Int
     private val modelNLayers: Int
 
-    // Optimized graph (only populated in OPTIMIZED mode)
+    // Optimized graph (only populated in OPTIMIZED mode after compile())
     private var optimizedGraph: ComputeGraph? = null
+    private var graphExecutor: ComputeGraphExecutor? = null
 
     init {
-        // Extract architecture parameters from the module tree
         val info = extractModelInfo(model)
         modelDim = info.dim
         modelVocabSize = info.vocabSize
@@ -90,15 +93,12 @@ public class OptimizedLLMRuntime<T : DType>(
     // ---- DecoderRuntime template methods ----
 
     override fun embedToken(tokenId: Int): Tensor<T, Float> {
-        // Direct mode delegates to the module's forward pass
-        // The module tree handles embedding lookup internally
         val inputTensor = createTokenTensor(tokenId)
         return model.forward(inputTensor, ctx)
     }
 
     override fun runLayer(layerIdx: Int, x: Tensor<T, Float>): Tensor<T, Float> {
-        // In the unified module-based approach, runLayer is not called separately —
-        // the full forward pass runs through the module tree in embedToken.
+        // The full forward pass runs through the module tree in embedToken.
         // This method exists only for DecoderRuntime compatibility.
         return x
     }
@@ -108,7 +108,6 @@ public class OptimizedLLMRuntime<T : DType>(
     override fun outputProject(x: Tensor<T, Float>): Tensor<T, Float> = x
 
     override fun resetState() {
-        // Reset KV caches and other stateful modules
         resetModuleState(model)
     }
 
@@ -140,42 +139,86 @@ public class OptimizedLLMRuntime<T : DType>(
     /**
      * Compile the model for optimized execution.
      *
-     * Traces the module into a DAG, applies the LLM optimization pipeline, and
-     * prepares the optimized graph for execution. Call this before using [Mode.OPTIMIZED].
+     * Creates a tracing [DefaultGraphExecutionContext], runs a forward pass through the
+     * module tree to capture the computation graph, applies the LLM optimization pipeline,
+     * and prepares a [ComputeGraphExecutor] for subsequent forward passes.
      *
      * @param dummyTokenId A token ID to use for the tracing forward pass
      * @return Diagnostics from the optimization passes
      */
     public fun compile(dummyTokenId: Int = bosToken): List<String> {
-        val sink = GraphProgramSink()
+        // 1. Create a tracing execution context that builds a ComputeGraph online
+        val tracingGraph = DefaultComputeGraph()
+        val tracingCtx = DefaultGraphExecutionContext.graph(
+            baseOps = ctx.ops,
+            graph = tracingGraph
+        )
 
-        // TODO: wire sink into ctx's OpSink for tracing
-        // For now, run a tracing forward pass that records into the sink
+        // 2. Run a tracing forward pass — KspTensorOps emits OpTrace events to GraphSink,
+        //    which builds the ComputeGraph via TraceToGraphBuilder
         val input = createTokenTensor(dummyTokenId)
-        model.forward(input, ctx)
+        model.forward(input, tracingCtx)
 
-        val program = sink.toGraphProgram()
-
-        // Convert GraphProgram to ComputeGraph for optimization
-        val graph = programToComputeGraph(program)
-
-        // Run the LLM optimization pipeline
-        val result = LLM_PIPELINE.optimize(graph)
+        // 3. Apply the LLM optimization pipeline
+        val result = LLM_PIPELINE.optimize(tracingGraph)
         optimizedGraph = result.graph
+
+        // 4. Create executor for the optimized graph
+        graphExecutor = ComputeGraphExecutor(result.graph, ctx.ops)
 
         return result.passResults.flatMap { it.diagnostics }
     }
 
+    /**
+     * Alternative compilation path using tape recording + offline conversion.
+     *
+     * Uses [DefaultGraphExecutionContext.tape] to record traces, then converts
+     * to [ComputeGraph] via [DefaultExecutionTape.toComputeGraph]. Useful when
+     * the online [GraphSink] path has issues with complex control flow.
+     *
+     * @param dummyTokenId A token ID to use for the tracing forward pass
+     * @return Diagnostics from the optimization passes
+     */
+    public fun compileViaTape(dummyTokenId: Int = bosToken): List<String> {
+        // 1. Create tape-recording context
+        val tapingCtx = DefaultGraphExecutionContext.tape(baseOps = ctx.ops)
+
+        // 2. Record the forward pass
+        val (tape, _) = tapingCtx.record {
+            val input = createTokenTensor(dummyTokenId)
+            model.forward(input, this)
+        }
+
+        // 3. Convert tape to ComputeGraph
+        val rawGraph = when (tape) {
+            is DefaultExecutionTape -> tape.toComputeGraph(
+                synthesizeExternalInputs = true,
+                inputTensorIds = emptySet()
+            )
+            else -> error("Expected DefaultExecutionTape but got ${tape?.let { it::class.simpleName }}")
+        }
+
+        // 4. Optimize
+        val result = LLM_PIPELINE.optimize(rawGraph)
+        optimizedGraph = result.graph
+
+        // 5. Create executor
+        graphExecutor = ComputeGraphExecutor(result.graph, ctx.ops)
+
+        return result.passResults.flatMap { it.diagnostics }
+    }
+
+    @Suppress("UNCHECKED_CAST")
     private fun executeOptimized(tokenId: Int): Tensor<T, Float> {
-        val graph = optimizedGraph
+        val executor = graphExecutor
             ?: error("Model not compiled. Call compile() before using OPTIMIZED mode.")
 
-        // Execute the optimized graph
-        // The graph executor resolves parameter bindings and runs fused kernels
         val input = createTokenTensor(tokenId)
-        // TODO: integrate with ComputeGraphExecutor once available
-        // For now, fall back to direct execution
-        return model.forward(input, ctx)
+        val results = executor.execute(mapOf("input" to input as Tensor<DType, Float>))
+
+        // The last output is the logits tensor
+        return results.values.lastOrNull() as? Tensor<T, Float>
+            ?: error("Graph execution produced no outputs")
     }
 
     // ---- Weight Loading ----
@@ -183,11 +226,7 @@ public class OptimizedLLMRuntime<T : DType>(
     /**
      * Load weights from model file tensors using a name resolver.
      *
-     * This is the Module-based path (for DIRECT mode).
-     *
-     * @param tensors Weight tensors loaded from GGUF/SafeTensors
-     * @param resolver Translates module paths to tensor names in the model format
-     * @return Mapping result with diagnostics
+     * This is the Module-based path (works for both DIRECT and pre-compile OPTIMIZED mode).
      */
     public fun loadWeights(
         tensors: List<WeightTensor<T, Float>>,
@@ -203,26 +242,6 @@ public class OptimizedLLMRuntime<T : DType>(
         )
     }
 
-    /**
-     * Load weights into the optimized graph's parameter nodes.
-     *
-     * This is the Graph-based path (for OPTIMIZED mode, post-compile).
-     *
-     * @param tensors Weight tensors loaded from GGUF/SafeTensors
-     * @param resolver Translates parameter node IDs to tensor names
-     * @return Graph load result with diagnostics
-     */
-    public fun loadGraphWeights(
-        tensors: List<WeightTensor<T, Float>>,
-        resolver: WeightNameResolver
-    ): GraphWeightLoader.GraphLoadResult<T, Float> {
-        val sink = GraphProgramSink()
-        // Get the current program for graph weight loading
-        val program = sink.toGraphProgram()
-        val loader = GraphWeightLoader(resolver)
-        return loader.load(program, tensors)
-    }
-
     // ---- Internals ----
 
     @Suppress("UNCHECKED_CAST")
@@ -236,11 +255,9 @@ public class OptimizedLLMRuntime<T : DType>(
     }
 
     private fun resetModuleState(module: Module<*, *>) {
-        // Walk the module tree and reset any stateful modules (KV caches, etc.)
         for (child in module.modules) {
             resetModuleState(child)
         }
-        // Check for KVCache reset
         if (module is sk.ainet.lang.nn.transformer.KVCache<*, *>) {
             module.reset()
         }
@@ -254,10 +271,9 @@ public class OptimizedLLMRuntime<T : DType>(
     )
 
     private fun extractModelInfo(module: Module<*, *>): ModelInfo {
-        // Walk the module tree to extract architecture parameters
         var dim = 0
         var vocabSize = 0
-        var seqLen = 4096 // default
+        var seqLen = 4096
         var nLayers = 0
 
         fun walk(m: Module<*, *>) {
@@ -279,58 +295,13 @@ public class OptimizedLLMRuntime<T : DType>(
 
         walk(module)
 
-        // Count transformer layers by looking at stage/sequential blocks named "blk.N"
         for (child in module.modules) {
             if (child.name.startsWith("blk.") || child.name.matches(Regex("encoder\\.layer\\.\\d+"))) {
                 nLayers++
             }
         }
 
-        return ModelInfo(
-            dim = dim,
-            vocabSize = vocabSize,
-            seqLen = seqLen,
-            nLayers = nLayers
-        )
-    }
-
-    private fun programToComputeGraph(program: sk.ainet.lang.dag.GraphProgram): ComputeGraph {
-        val graph = sk.ainet.lang.graph.DefaultComputeGraph()
-        val nodeMap = mutableMapOf<String, sk.ainet.lang.graph.GraphNode>()
-
-        // Create graph nodes from program nodes
-        for (nodeDef in program.nodes) {
-            val graphNode = sk.ainet.lang.graph.GraphNode(
-                id = nodeDef.id,
-                operation = nodeDef.operation,
-                inputs = nodeDef.inputs.map { it.spec },
-                outputs = nodeDef.outputs.map { it.spec },
-                metadata = nodeDef.attributes.filterValues { it != null }.mapValues { it.value!! }
-            )
-            graph.addNode(graphNode)
-            nodeMap[nodeDef.id] = graphNode
-        }
-
-        // Create edges from input references
-        var edgeId = 0
-        for (nodeDef in program.nodes) {
-            for ((inputIdx, inputValue) in nodeDef.inputs.withIndex()) {
-                val srcNode = nodeMap[inputValue.nodeId] ?: continue
-                val dstNode = nodeMap[nodeDef.id] ?: continue
-                graph.addEdge(
-                    sk.ainet.lang.graph.GraphEdge(
-                        id = "e${edgeId++}",
-                        source = srcNode,
-                        destination = dstNode,
-                        sourceOutputIndex = inputValue.outputIndex,
-                        destinationInputIndex = inputIdx,
-                        tensorSpec = inputValue.spec
-                    )
-                )
-            }
-        }
-
-        return graph
+        return ModelInfo(dim, vocabSize, seqLen, nLayers)
     }
 
     public companion object {
@@ -379,11 +350,11 @@ public class OptimizedLLMRuntime<T : DType>(
             val mode = if (optimized) Mode.OPTIMIZED else Mode.DIRECT
             val runtime = OptimizedLLMRuntime(model, ctx, mode, bosToken)
 
-            // Load weights into the module tree
+            // Load weights into the module tree (needed for both modes —
+            // OPTIMIZED mode traces with real weights for accurate graph capture)
             val result = runtime.loadWeights(tensors, resolver)
             WeightMapper.validateAllParametersMapped(result)
 
-            // Compile if optimized mode
             if (optimized) {
                 runtime.compile(bosToken)
             }
