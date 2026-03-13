@@ -12,6 +12,12 @@ import sk.ainet.lang.types.DType
  *
  * Implementations are platform-specific (e.g. MPSGraph on Apple).
  */
+@Deprecated(
+    message = "Subsumed by OptimizedLLMRuntime's optimization pipeline. " +
+        "Fused QKV and FFN execution is now handled automatically by " +
+        "ComputeGraphExecutor with LLMFusedOpHandlers.",
+    level = DeprecationLevel.WARNING
+)
 public interface GraphAccelerator<T : DType> {
 
     public data class QKVResult<T : DType>(

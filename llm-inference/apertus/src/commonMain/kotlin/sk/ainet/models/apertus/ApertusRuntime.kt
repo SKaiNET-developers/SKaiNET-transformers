@@ -28,6 +28,14 @@ import kotlin.reflect.KClass
  *
  * Extends [DecoderRuntime] for shared forward/generate/sample logic.
  */
+@Deprecated(
+    message = "Use OptimizedLLMRuntime with apertusNetwork() instead. " +
+        "See docs/optimizable-LLM-NNs-DAG.md for migration guide.",
+    replaceWith = ReplaceWith(
+        "OptimizedLLMRuntime.create(apertusNetwork(config), tensors, resolver, ctx)",
+        "sk.ainet.apps.llm.OptimizedLLMRuntime"
+    )
+)
 public class ApertusRuntime<T : DType>(
     private val ctx: ExecutionContext,
     val weights: ApertusRuntimeWeights<T>,

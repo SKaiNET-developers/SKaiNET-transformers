@@ -31,6 +31,14 @@ import kotlin.reflect.KClass
  * Follows the [LlamaRuntime] pattern: direct tensor ops, no Module composition for encoder layers.
  * Uses [Embedding] for lookup tables and [LayerNormalization] for norms.
  */
+@Deprecated(
+    message = "Use OptimizedLLMRuntime with bertNetwork() instead. " +
+        "See docs/optimizable-LLM-NNs-DAG.md for migration guide.",
+    replaceWith = ReplaceWith(
+        "OptimizedLLMRuntime.create(bertNetwork(config), tensors, resolver, ctx)",
+        "sk.ainet.apps.llm.OptimizedLLMRuntime"
+    )
+)
 public class BertRuntime<T : DType>(
     private val ctx: ExecutionContext,
     private val weights: BertRuntimeWeights<T>,
