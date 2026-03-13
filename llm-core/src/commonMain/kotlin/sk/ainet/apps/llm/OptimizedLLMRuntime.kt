@@ -18,6 +18,7 @@ import sk.ainet.lang.graph.DefaultComputeGraph
 import sk.ainet.lang.graph.DefaultGraphExecutionContext
 import sk.ainet.lang.graph.DefaultExecutionTape
 import sk.ainet.lang.graph.exec.ComputeGraphExecutor
+import sk.ainet.lang.graph.exec.LLMFusedOpHandlers
 import sk.ainet.lang.nn.Module
 import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.tensor.data.FloatArrayTensorData
@@ -315,6 +316,13 @@ public class OptimizedLLMRuntime<T : DType>(
          * 4. OperationFusion — fuse remaining elementwise chains
          * 5. DeadCodeElimination — clean up nodes orphaned by fusion passes
          */
+        init {
+            // Register CPU fallback handlers for fused ops so the executor
+            // can run them on any backend. Platform-specific handlers (Metal, CUDA)
+            // override these when available.
+            LLMFusedOpHandlers.registerAll()
+        }
+
         public val LLM_PIPELINE: GraphOptimizationPipeline = GraphOptimizationPipeline(
             passes = listOf(
                 TransposeEliminationPass(),
