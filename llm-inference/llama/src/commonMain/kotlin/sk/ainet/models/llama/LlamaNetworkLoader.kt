@@ -36,11 +36,12 @@ import sk.ainet.lang.types.DType
  * val model = LlamaNetworkLoader.fromWeights(llamaWeights, debug = true)
  * ```
  */
-public class LlamaNetworkLoader private constructor(
-    private val weightsProvider: WeightsProvider,
-    private val debug: Boolean = false
+public class LlamaNetworkLoader @PublishedApi internal constructor(
+    @PublishedApi internal val weightsProvider: WeightsProvider,
+    @PublishedApi internal val debug: Boolean = false
 ) {
-    private sealed interface WeightsProvider {
+    @PublishedApi
+    internal sealed interface WeightsProvider {
         data class GgufSource(
             val sourceProvider: () -> Source,
             val quantPolicy: QuantPolicy
@@ -73,6 +74,7 @@ public class LlamaNetworkLoader private constructor(
         )
 
         /** Load from a GGUF file via streaming RandomAccessSource (any size). */
+        @JvmName("fromGgufRandomAccess")
         public fun fromGguf(
             randomAccessProvider: () -> RandomAccessSource,
             quantPolicy: QuantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,

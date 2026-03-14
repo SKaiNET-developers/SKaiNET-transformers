@@ -44,6 +44,9 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             implementation(libs.skainet.lang.core)
+            implementation(libs.skainet.compile.dag)
+            implementation(libs.skainet.compile.opt)
+            implementation(libs.skainet.io.core)
         }
 
         commonTest.dependencies {

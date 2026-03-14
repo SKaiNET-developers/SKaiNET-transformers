@@ -28,11 +28,12 @@ import sk.ainet.lang.types.DType
  *     .load<FP32, Float>(ctx)
  * ```
  */
-public class ApertusNetworkLoader private constructor(
-    private val weightsProvider: WeightsProvider,
-    private val debug: Boolean = false
+public class ApertusNetworkLoader @PublishedApi internal constructor(
+    @PublishedApi internal val weightsProvider: WeightsProvider,
+    @PublishedApi internal val debug: Boolean = false
 ) {
-    private sealed interface WeightsProvider {
+    @PublishedApi
+    internal sealed interface WeightsProvider {
         data class GgufSource(
             val sourceProvider: () -> Source,
             val quantPolicy: QuantPolicy
@@ -64,6 +65,7 @@ public class ApertusNetworkLoader private constructor(
         )
 
         /** Load from a GGUF file via streaming RandomAccessSource (any size). */
+        @JvmName("fromGgufRandomAccess")
         public fun fromGguf(
             randomAccessProvider: () -> RandomAccessSource,
             quantPolicy: QuantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
@@ -138,8 +140,13 @@ public class ApertusNetworkLoader private constructor(
         // Convert xIELU scalar params to tensors with GGUF-canonical names.
         // The resolver expects tensors named "blk.N.mlp.act_fn.{alpha_p,alpha_n,beta,eps}".
         weights.xieluParams.forEach { (layer, params) ->
-            fun addScalar(paramSuffix: String, value: Float) {
-                val name = "blk.$layer.mlp.act_fn.$paramSuffix"
+            for ((suffix, value) in listOf(
+                "alpha_p" to params.alphaP,
+                "alpha_n" to params.alphaN,
+                "beta" to params.beta,
+                "eps" to params.eps
+            )) {
+                val name = "blk.$layer.mlp.act_fn.$suffix"
                 val tensor = ctx.fromFloatArray<T, Float>(Shape(1), T::class, floatArrayOf(value))
                 @Suppress("UNCHECKED_CAST")
                 weightTensors += WeightTensor(
@@ -148,10 +155,6 @@ public class ApertusNetworkLoader private constructor(
                     tensor = tensor as sk.ainet.lang.tensor.Tensor<T, V>
                 )
             }
-            addScalar("alpha_p", params.alphaP)
-            addScalar("alpha_n", params.alphaN)
-            addScalar("beta", params.beta)
-            addScalar("eps", params.eps)
         }
 
         val config = MappingConfig(

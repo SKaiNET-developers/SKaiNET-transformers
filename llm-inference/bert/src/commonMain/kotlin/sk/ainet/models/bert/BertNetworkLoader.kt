@@ -27,6 +27,38 @@ import kotlin.reflect.KClass
  * (they require additive lookups during forward pass). Only word embeddings,
  * LayerNorm, attention, and FFN weights are mapped.
  */
+@PublishedApi
+internal fun <T : DType> buildBertTensorMap(
+    weights: BertRuntimeWeights<T>
+): Map<String, Tensor<T, *>> {
+    val map = mutableMapOf<String, Tensor<T, *>>()
+
+    map[BertTensorNames.WORD_EMBEDDINGS] = weights.wordEmbeddings
+    map[BertTensorNames.EMBEDDING_LN_WEIGHT] = weights.embeddingLayerNormWeight
+    map[BertTensorNames.EMBEDDING_LN_BIAS] = weights.embeddingLayerNormBias
+
+    weights.layers.forEachIndexed { i, layer ->
+        map[BertTensorNames.queryWeight(i)] = layer.queryWeight
+        map[BertTensorNames.queryBias(i)] = layer.queryBias
+        map[BertTensorNames.keyWeight(i)] = layer.keyWeight
+        map[BertTensorNames.keyBias(i)] = layer.keyBias
+        map[BertTensorNames.valueWeight(i)] = layer.valueWeight
+        map[BertTensorNames.valueBias(i)] = layer.valueBias
+        map[BertTensorNames.attnOutputWeight(i)] = layer.attnOutputWeight
+        map[BertTensorNames.attnOutputBias(i)] = layer.attnOutputBias
+        map[BertTensorNames.attnLayerNormWeight(i)] = layer.attnLayerNormWeight
+        map[BertTensorNames.attnLayerNormBias(i)] = layer.attnLayerNormBias
+        map[BertTensorNames.intermediateWeight(i)] = layer.intermediateWeight
+        map[BertTensorNames.intermediateBias(i)] = layer.intermediateBias
+        map[BertTensorNames.outputWeight(i)] = layer.outputWeight
+        map[BertTensorNames.outputBias(i)] = layer.outputBias
+        map[BertTensorNames.outputLayerNormWeight(i)] = layer.outputLayerNormWeight
+        map[BertTensorNames.outputLayerNormBias(i)] = layer.outputLayerNormBias
+    }
+
+    return map
+}
+
 public object BertNetworkLoader {
 
     /**
@@ -87,35 +119,8 @@ public object BertNetworkLoader {
         weights: BertRuntimeWeights<T>,
         debug: Boolean = false
     ): Module<T, V> {
-        val tensors = mutableMapOf<String, Tensor<T, V>>()
-
         @Suppress("UNCHECKED_CAST")
-        fun put(name: String, t: Tensor<T, *>) { tensors[name] = t as Tensor<T, V> }
-
-        // Embeddings
-        put(BertTensorNames.WORD_EMBEDDINGS, weights.wordEmbeddings)
-        put(BertTensorNames.EMBEDDING_LN_WEIGHT, weights.embeddingLayerNormWeight)
-        put(BertTensorNames.EMBEDDING_LN_BIAS, weights.embeddingLayerNormBias)
-
-        // Per-layer weights
-        weights.layers.forEachIndexed { i, layer ->
-            put(BertTensorNames.queryWeight(i), layer.queryWeight)
-            put(BertTensorNames.queryBias(i), layer.queryBias)
-            put(BertTensorNames.keyWeight(i), layer.keyWeight)
-            put(BertTensorNames.keyBias(i), layer.keyBias)
-            put(BertTensorNames.valueWeight(i), layer.valueWeight)
-            put(BertTensorNames.valueBias(i), layer.valueBias)
-            put(BertTensorNames.attnOutputWeight(i), layer.attnOutputWeight)
-            put(BertTensorNames.attnOutputBias(i), layer.attnOutputBias)
-            put(BertTensorNames.attnLayerNormWeight(i), layer.attnLayerNormWeight)
-            put(BertTensorNames.attnLayerNormBias(i), layer.attnLayerNormBias)
-            put(BertTensorNames.intermediateWeight(i), layer.intermediateWeight)
-            put(BertTensorNames.intermediateBias(i), layer.intermediateBias)
-            put(BertTensorNames.outputWeight(i), layer.outputWeight)
-            put(BertTensorNames.outputBias(i), layer.outputBias)
-            put(BertTensorNames.outputLayerNormWeight(i), layer.outputLayerNormWeight)
-            put(BertTensorNames.outputLayerNormBias(i), layer.outputLayerNormBias)
-        }
+        val tensors = buildBertTensorMap(weights) as Map<String, Tensor<T, V>>
 
         return fromTensorMap(weights.config, tensors, debug)
     }

@@ -1,5 +1,5 @@
 [versions]
-skainet = "0.16.0"
+skainet = "0.17.0-SNAPSHOT"
 agp = "8.13.0"
 jacksonDatabind = "2.21.1"
 jsonSchemaValidator = "3.0.0"
@@ -82,6 +82,8 @@ skainet-lang-core = { module = "sk.ainet.core:skainet-lang-core", version.ref = 
 skainet-lang-models = { module = "sk.ainet.core:skainet-lang-models", version.ref = "skainet" }
 skainet-lang-ksp-annotations = { module = "sk.ainet.core:skainet-lang-ksp-annotations", version.ref = "skainet" }
 skainet-compile-core = { module = "sk.ainet.core:skainet-compile-core", version.ref = "skainet" }
+skainet-compile-dag = { module = "sk.ainet.core:skainet-compile-dag", version.ref = "skainet" }
+skainet-compile-opt = { module = "sk.ainet.core:skainet-compile-opt", version.ref = "skainet" }
 skainet-backend-cpu = { module = "sk.ainet.core:skainet-backend-cpu", version.ref = "skainet" }
 skainet-io-core = { module = "sk.ainet.core:skainet-io-core", version.ref = "skainet" }
 skainet-io-gguf = { module = "sk.ainet.core:skainet-io-gguf", version.ref = "skainet" }

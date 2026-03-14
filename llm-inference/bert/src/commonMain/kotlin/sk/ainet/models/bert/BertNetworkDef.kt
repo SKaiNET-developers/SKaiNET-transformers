@@ -3,6 +3,7 @@ package sk.ainet.models.bert
 import sk.ainet.lang.nn.Module
 import sk.ainet.lang.nn.dsl.NeuralNetworkDsl
 import sk.ainet.lang.nn.dsl.sequential
+import sk.ainet.lang.tensor.gelu
 import sk.ainet.lang.types.DType
 
 /**
@@ -51,7 +52,7 @@ public inline fun <reified T : DType, V> bertNetwork(
 
                 // GeLU FFN
                 dense(ffnDim, id = "intermediate")
-                gelu()
+                activation { it.gelu() }
                 dense(dim, id = "output")
                 residual()
                 layerNorm(intArrayOf(dim), eps, id = "output_ln")

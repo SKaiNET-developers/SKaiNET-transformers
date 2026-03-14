@@ -1,6 +1,7 @@
 package sk.ainet.apps.llm
 
 import kotlin.random.Random
+import kotlin.reflect.KClass
 import sk.ainet.compile.opt.GraphOptimizationPipeline
 import sk.ainet.compile.opt.passes.DeadCodeEliminationPass
 import sk.ainet.compile.opt.passes.LLMFusionPass
@@ -8,7 +9,6 @@ import sk.ainet.compile.opt.passes.OperationFusionPass
 import sk.ainet.compile.opt.passes.SharedWeightDeduplicationPass
 import sk.ainet.compile.opt.passes.TransposeEliminationPass
 import sk.ainet.context.ExecutionContext
-import sk.ainet.io.weights.GraphWeightLoader
 import sk.ainet.io.weights.MappingConfig
 import sk.ainet.io.weights.WeightMapper
 import sk.ainet.io.weights.WeightNameResolver
@@ -20,7 +20,10 @@ import sk.ainet.lang.graph.DefaultExecutionTape
 import sk.ainet.lang.graph.exec.ComputeGraphExecutor
 import sk.ainet.lang.graph.exec.LLMFusedOpHandlers
 import sk.ainet.lang.nn.Module
+import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.Tensor
+import sk.ainet.lang.tensor.VoidOpsTensor
+import sk.ainet.lang.tensor.data.DenseFloatArrayTensorData
 import sk.ainet.lang.tensor.data.FloatArrayTensorData
 import sk.ainet.lang.types.DType
 
@@ -46,14 +49,16 @@ import sk.ainet.lang.types.DType
  * @param model The `Module<T, V>` tree built from a `network {}` definition
  * @param ctx Execution context providing tensor operations
  * @param mode Execution mode: [Mode.DIRECT] or [Mode.OPTIMIZED]
- * @param bosToken Beginning-of-sequence token ID
+ * @param dtype KClass for the DType (needed to create tensors)
+ * @param bos Beginning-of-sequence token ID
  * @param random Random generator for sampling
  */
 public class OptimizedLLMRuntime<T : DType>(
     private val model: Module<T, Float>,
     private val ctx: ExecutionContext,
     private val mode: Mode = Mode.DIRECT,
-    private val bosToken: Int = 1,
+    private val dtype: KClass<T>,
+    private val bos: Int = 1,
     random: Random = Random.Default
 ) : DecoderRuntime<T>(random) {
 
@@ -71,7 +76,7 @@ public class OptimizedLLMRuntime<T : DType>(
     override val vocabSize: Int get() = modelVocabSize
     override val seqLen: Int get() = modelSeqLen
     override val nLayers: Int get() = modelNLayers
-    override val bosToken: Int get() = field
+    override val bosToken: Int get() = bos
 
     // Extracted from the model's module tree structure
     private val modelDim: Int
@@ -147,7 +152,7 @@ public class OptimizedLLMRuntime<T : DType>(
      * @param dummyTokenId A token ID to use for the tracing forward pass
      * @return Diagnostics from the optimization passes
      */
-    public fun compile(dummyTokenId: Int = bosToken): List<String> {
+    public fun compile(dummyTokenId: Int = bos): List<String> {
         // 1. Create a tracing execution context that builds a ComputeGraph online
         val tracingGraph = DefaultComputeGraph()
         val tracingCtx = DefaultGraphExecutionContext.graph(
@@ -155,8 +160,7 @@ public class OptimizedLLMRuntime<T : DType>(
             graph = tracingGraph
         )
 
-        // 2. Run a tracing forward pass — KspTensorOps emits OpTrace events to GraphSink,
-        //    which builds the ComputeGraph via TraceToGraphBuilder
+        // 2. Run a tracing forward pass — the graph sink builds the ComputeGraph
         val input = createTokenTensor(dummyTokenId)
         model.forward(input, tracingCtx)
 
@@ -173,30 +177,29 @@ public class OptimizedLLMRuntime<T : DType>(
     /**
      * Alternative compilation path using tape recording + offline conversion.
      *
-     * Uses [DefaultGraphExecutionContext.tape] to record traces, then converts
+     * Records a forward pass into a [DefaultExecutionTape], then converts
      * to [ComputeGraph] via [DefaultExecutionTape.toComputeGraph]. Useful when
-     * the online [GraphSink] path has issues with complex control flow.
+     * the online graph sink path has issues with complex control flow.
      *
      * @param dummyTokenId A token ID to use for the tracing forward pass
      * @return Diagnostics from the optimization passes
      */
-    public fun compileViaTape(dummyTokenId: Int = bosToken): List<String> {
+    public fun compileViaTape(dummyTokenId: Int = bos): List<String> {
         // 1. Create tape-recording context
         val tapingCtx = DefaultGraphExecutionContext.tape(baseOps = ctx.ops)
 
-        // 2. Record the forward pass
-        val (tape, _) = tapingCtx.record {
-            val input = createTokenTensor(dummyTokenId)
-            model.forward(input, this)
-        }
+        // 2. Record the forward pass by running it through the tape context
+        val input = createTokenTensor(dummyTokenId)
+        model.forward(input, tapingCtx)
 
-        // 3. Convert tape to ComputeGraph
+        // 3. Extract the tape and convert to ComputeGraph
+        val tape = tapingCtx.createTapeFactory(tapingCtx)
         val rawGraph = when (tape) {
             is DefaultExecutionTape -> tape.toComputeGraph(
                 synthesizeExternalInputs = true,
                 inputTensorIds = emptySet()
             )
-            else -> error("Expected DefaultExecutionTape but got ${tape?.let { it::class.simpleName }}")
+            else -> error("Expected DefaultExecutionTape but got ${tape::class.simpleName}")
         }
 
         // 4. Optimize
@@ -245,14 +248,10 @@ public class OptimizedLLMRuntime<T : DType>(
 
     // ---- Internals ----
 
-    @Suppress("UNCHECKED_CAST")
     private fun createTokenTensor(tokenId: Int): Tensor<T, Float> {
-        val data = FloatArrayTensorData<T>(floatArrayOf(tokenId.toFloat()), intArrayOf(1))
-        return Tensor(
-            data = data as sk.ainet.lang.tensor.TensorData<T, Float>,
-            shape = sk.ainet.lang.tensor.Shape(intArrayOf(1)),
-            dtype = model.dtype
-        )
+        val shape = Shape(intArrayOf(1))
+        val data = DenseFloatArrayTensorData<T>(shape, floatArrayOf(tokenId.toFloat()))
+        return VoidOpsTensor(data = data, dtype = dtype)
     }
 
     private fun resetModuleState(module: Module<*, *>) {
@@ -281,8 +280,8 @@ public class OptimizedLLMRuntime<T : DType>(
             when (m) {
                 is sk.ainet.lang.nn.layers.Embedding<*, *> -> {
                     if (vocabSize == 0) {
-                        vocabSize = m.vocabSize
-                        dim = m.dim
+                        vocabSize = m.numEmbeddings
+                        dim = m.embeddingDim
                     }
                 }
                 is sk.ainet.lang.nn.transformer.KVCache<*, *> -> {
@@ -343,6 +342,7 @@ public class OptimizedLLMRuntime<T : DType>(
          * @param tensors Weight tensors from GGUF/SafeTensors
          * @param resolver Weight name resolver for the model format
          * @param ctx Execution context
+         * @param dtype KClass for the DType
          * @param optimized Whether to compile for optimized execution
          * @param bosToken BOS token ID
          * @return A ready-to-use runtime
@@ -352,11 +352,12 @@ public class OptimizedLLMRuntime<T : DType>(
             tensors: List<WeightTensor<T, Float>>,
             resolver: WeightNameResolver,
             ctx: ExecutionContext,
+            dtype: KClass<T>,
             optimized: Boolean = true,
             bosToken: Int = 1
         ): OptimizedLLMRuntime<T> {
             val mode = if (optimized) Mode.OPTIMIZED else Mode.DIRECT
-            val runtime = OptimizedLLMRuntime(model, ctx, mode, bosToken)
+            val runtime = OptimizedLLMRuntime(model, ctx, mode, dtype, bosToken)
 
             // Load weights into the module tree (needed for both modes —
             // OPTIMIZED mode traces with real weights for accurate graph capture)
