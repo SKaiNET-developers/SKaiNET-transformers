@@ -278,7 +278,7 @@ public class OptimizedLLMRuntime<T : DType>(
 
         fun walk(m: Module<*, *>) {
             when (m) {
-                is sk.ainet.lang.nn.layers.Embedding<*, *> -> {
+                is sk.ainet.lang.nn.layers.EmbeddingAdapter<*, *> -> {
                     if (vocabSize == 0) {
                         vocabSize = m.numEmbeddings
                         dim = m.embeddingDim
