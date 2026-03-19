@@ -87,6 +87,10 @@ public class OptimizedLLMRuntime<T : DType>(
     // Optimized graph (only populated in OPTIMIZED mode after compile())
     private var optimizedGraph: ComputeGraph? = null
     private var graphExecutor: ComputeGraphExecutor? = null
+    // Maps graph input node IDs to weight tensors for execution-time resolution
+    private var weightTensorMap: Map<String, Tensor<T, Float>> = emptyMap()
+    // The graph node ID that receives the dynamic token input (vs static weights)
+    private var inputNodeId: String? = null
 
     init {
         val info = extractModelInfo(model)
@@ -153,72 +157,130 @@ public class OptimizedLLMRuntime<T : DType>(
      * @return Diagnostics from the optimization passes
      */
     public fun compile(dummyTokenId: Int = bos): List<String> {
-        // 1. Create a tracing execution context that builds a ComputeGraph online
-        val tracingGraph = DefaultComputeGraph()
-        val tracingCtx = DefaultGraphExecutionContext.graph(
-            baseOps = ctx.ops,
-            graph = tracingGraph
+        val diagnostics = mutableListOf<String>()
+
+        // 1. Create a tape-recording context that traces operations with
+        //    full tensor reference tracking (needed to wire edges correctly)
+        val tapingCtx = DefaultGraphExecutionContext.tape(baseOps = ctx.ops)
+
+        // 2. Record the forward pass
+        tapingCtx.startRecording()
+        val input = createTokenTensor(dummyTokenId)
+        model.forward(input, tapingCtx)
+        val tape = tapingCtx.stopRecording()
+
+        // 3. Convert tape to ComputeGraph.
+        //    We save the session for weight resolution at execution time, then
+        //    clear it before graph conversion to avoid embedding weight float arrays
+        //    (which would OOM for large models). External inputs become lightweight
+        //    placeholder nodes instead.
+        val tapeObj = tape as? DefaultExecutionTape
+            ?: error("Expected DefaultExecutionTape but got ${tape?.let { it::class.simpleName }}")
+
+        // Keep the original session for graph building (needed for correct edge wiring
+        // of ops with List<Tensor> params like concat). Use embedConstants=false to avoid
+        // OOM from embedding weight float arrays into graph nodes.
+        val tracingSession = tapeObj.session
+
+        val rawGraph = tapeObj.toComputeGraph(
+            synthesizeExternalInputs = true,
+            inputTensorIds = emptySet(),
+            embedConstants = false
         )
 
-        // 2. Run a tracing forward pass — the graph sink builds the ComputeGraph
-        val input = createTokenTensor(dummyTokenId)
-        model.forward(input, tracingCtx)
+        diagnostics.add("Traced graph: ${rawGraph.nodes.size} nodes, ${rawGraph.edges.size} edges")
 
-        // 3. Apply the LLM optimization pipeline
-        val result = LLM_PIPELINE.optimize(tracingGraph)
+        // 4. Validate the raw traced graph before optimization
+        try {
+            rawGraph.getTopologicalOrder()
+        } catch (e: IllegalStateException) {
+            diagnostics.add("WARNING: Raw traced graph has cycles — skipping optimization passes")
+            optimizedGraph = rawGraph
+            graphExecutor = ComputeGraphExecutor(rawGraph, ctx.ops)
+            val (wMap, inNodeId) = buildWeightTensorMap(tracingSession, rawGraph, input)
+            weightTensorMap = wMap
+            inputNodeId = inNodeId
+            diagnostics.add("Input node: $inNodeId, weight map: ${wMap.size} entries")
+            return diagnostics
+        }
+
+        // 5. Apply the LLM optimization pipeline
+        val result = LLM_PIPELINE.optimize(rawGraph)
         optimizedGraph = result.graph
+        diagnostics.addAll(result.passResults.flatMap { it.diagnostics })
+        val optimizedGraphForExec = result.graph
 
-        // 4. Create executor for the optimized graph
-        graphExecutor = ComputeGraphExecutor(result.graph, ctx.ops)
+        // 6. Create executor for the optimized graph
+        graphExecutor = ComputeGraphExecutor(optimizedGraphForExec, ctx.ops)
 
-        return result.passResults.flatMap { it.diagnostics }
+        // 7. Build the weight tensor map for execution-time resolution
+        val (wMap, inNodeId) = buildWeightTensorMap(tracingSession, optimizedGraphForExec, input)
+        weightTensorMap = wMap
+        inputNodeId = inNodeId
+        diagnostics.add("Input node: $inNodeId, weight map: ${wMap.size} entries")
+
+        return diagnostics
     }
 
     /**
-     * Alternative compilation path using tape recording + offline conversion.
+     * Alternative compilation path that skips optimization passes.
      *
-     * Records a forward pass into a [DefaultExecutionTape], then converts
-     * to [ComputeGraph] via [DefaultExecutionTape.toComputeGraph]. Useful when
-     * the online graph sink path has issues with complex control flow.
+     * Traces the forward pass into a ComputeGraph but only applies the graph
+     * executor without any optimization. Useful for debugging when optimization
+     * passes cause issues.
      *
      * @param dummyTokenId A token ID to use for the tracing forward pass
-     * @return Diagnostics from the optimization passes
+     * @return Diagnostics
      */
-    public fun compileViaTape(dummyTokenId: Int = bos): List<String> {
-        // 1. Create tape-recording context
-        val tapingCtx = DefaultGraphExecutionContext.tape(baseOps = ctx.ops)
+    public fun compileUnoptimized(dummyTokenId: Int = bos): List<String> {
+        val diagnostics = mutableListOf<String>()
 
-        // 2. Record the forward pass by running it through the tape context
+        val tapingCtx = DefaultGraphExecutionContext.tape(baseOps = ctx.ops)
+        tapingCtx.startRecording()
         val input = createTokenTensor(dummyTokenId)
         model.forward(input, tapingCtx)
+        val tape = tapingCtx.stopRecording()
 
-        // 3. Extract the tape and convert to ComputeGraph
-        val tape = tapingCtx.createTapeFactory(tapingCtx)
-        val rawGraph = when (tape) {
-            is DefaultExecutionTape -> tape.toComputeGraph(
-                synthesizeExternalInputs = true,
-                inputTensorIds = emptySet()
-            )
-            else -> error("Expected DefaultExecutionTape but got ${tape::class.simpleName}")
-        }
+        val tapeObj = tape as? DefaultExecutionTape
+            ?: error("Expected DefaultExecutionTape but got ${tape?.let { it::class.simpleName }}")
 
-        // 4. Optimize
-        val result = LLM_PIPELINE.optimize(rawGraph)
-        optimizedGraph = result.graph
+        val tracingSession = tapeObj.session
 
-        // 5. Create executor
-        graphExecutor = ComputeGraphExecutor(result.graph, ctx.ops)
+        val rawGraph = tapeObj.toComputeGraph(
+            synthesizeExternalInputs = true,
+            inputTensorIds = emptySet(),
+            embedConstants = false
+        )
 
-        return result.passResults.flatMap { it.diagnostics }
+        diagnostics.add("Traced graph (unoptimized): ${rawGraph.nodes.size} nodes, ${rawGraph.edges.size} edges")
+
+        optimizedGraph = rawGraph
+        graphExecutor = ComputeGraphExecutor(rawGraph, ctx.ops)
+        val (wMap, inNodeId) = buildWeightTensorMap(tracingSession, rawGraph, input)
+        weightTensorMap = wMap
+        inputNodeId = inNodeId
+        diagnostics.add("Input node: $inNodeId, weight map: ${wMap.size} entries")
+
+        return diagnostics
     }
 
     @Suppress("UNCHECKED_CAST")
     private fun executeOptimized(tokenId: Int): Tensor<T, Float> {
         val executor = graphExecutor
             ?: error("Model not compiled. Call compile() before using OPTIMIZED mode.")
+        val nodeId = inputNodeId
+            ?: error("Input node ID not resolved during compilation. Graph may be missing the token input.")
 
         val input = createTokenTensor(tokenId)
-        val results = executor.execute(mapOf("input" to input as Tensor<DType, Float>))
+
+        // Build input map: token input (at its exact node ID) + all weight tensors
+        val inputMap = mutableMapOf<String, Tensor<DType, Float>>()
+        inputMap[nodeId] = input as Tensor<DType, Float>
+        for ((wNodeId, tensor) in weightTensorMap) {
+            inputMap[wNodeId] = tensor as Tensor<DType, Float>
+        }
+
+        val results = executor.execute(inputMap)
 
         // The last output is the logits tensor
         return results.values.lastOrNull() as? Tensor<T, Float>
@@ -247,6 +309,50 @@ public class OptimizedLLMRuntime<T : DType>(
     }
 
     // ---- Internals ----
+
+    /**
+     * Build a map from graph input node IDs to actual weight tensors.
+     *
+     * During compilation, unresolved tensor refs become input placeholder nodes.
+     * This method resolves those placeholders back to the actual weight tensors
+     * from the tracing session, so they can be provided at execution time.
+     *
+     * The [tracingInputTensor] (the token tensor used during tracing) is excluded
+     * from the weight map and its node ID is returned separately so that
+     * [executeOptimized] can feed the dynamic token input to the correct node.
+     *
+     * @return Pair of (weightMap, inputNodeId) where inputNodeId is the graph node
+     *   that should receive the dynamic token input at execution time.
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun buildWeightTensorMap(
+        session: sk.ainet.lang.trace.TraceSession,
+        graph: ComputeGraph,
+        tracingInputTensor: Tensor<T, Float>
+    ): Pair<Map<String, Tensor<T, Float>>, String?> {
+        val result = mutableMapOf<String, Tensor<T, Float>>()
+        var detectedInputNodeId: String? = null
+        for (node in graph.nodes) {
+            if (node.operationName != "input" && node.operationName != "weight") continue
+            val outputSpec = node.outputs.firstOrNull() ?: continue
+            val tensorId = outputSpec.name
+            val tensor = session.resolve(tensorId)
+            // Identify the token input node: it has a small shape (typically [1] for a
+            // single token ID) while weight tensors are much larger. The embedding module
+            // converts the FP32 token tensor to Int32 internally, so we can't match by
+            // object identity with the original input — we match by shape instead.
+            val resolvedShape = tensor?.shape?.dimensions
+            if (resolvedShape != null && resolvedShape.contentEquals(tracingInputTensor.shape.dimensions)
+                && (tensor?.volume ?: 0) <= 1) {
+                detectedInputNodeId = node.id
+                continue // Don't add the dynamic input to the static weight map
+            }
+            @Suppress("UNCHECKED_CAST")
+            val typedTensor = tensor as? Tensor<T, Float> ?: continue
+            result[node.id] = typedTensor
+        }
+        return result to detectedInputNodeId
+    }
 
     private fun createTokenTensor(tokenId: Int): Tensor<T, Float> {
         val shape = Shape(intArrayOf(1))

@@ -6,6 +6,9 @@ pluginManagement {
     }
 }
 
+// Composite build: resolve SKaiNET modules from local source instead of Maven
+includeBuild("../SKaiNET")
+
 dependencyResolutionManagement {
     repositories {
         mavenLocal()

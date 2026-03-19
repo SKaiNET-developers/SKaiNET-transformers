@@ -45,7 +45,8 @@ class RuntimeEquivalenceTest {
         reference: FloatArray,
         candidate: FloatArray,
         tolerance: Float = 1e-3f,
-        label: String = "logits"
+        label: String = "logits",
+        verbose: Boolean = false
     ): Boolean {
         require(reference.size == candidate.size) {
             "Shape mismatch: reference=${reference.size} vs candidate=${candidate.size}"
@@ -59,6 +60,11 @@ class RuntimeEquivalenceTest {
         }
         val mismatchFrac = if (reference.isNotEmpty()) mismatches.toFloat() / reference.size else 0f
         println("  [$label] maxDiff=${"%.6f".format(maxDiff)}, mismatches=$mismatches/${reference.size} (${"%.4f".format(mismatchFrac * 100)}%)")
+        if (verbose || mismatchFrac > 0.01f) {
+            val n = minOf(5, reference.size)
+            println("    DIRECT first $n: ${reference.take(n).map { "%.6f".format(it) }}")
+            println("    OPTIM  first $n: ${candidate.take(n).map { "%.6f".format(it) }}")
+        }
         return mismatchFrac <= 0.01f
     }
 
@@ -147,9 +153,9 @@ class RuntimeEquivalenceTest {
                 dtype = FP32::class
             )
 
-            println("Compiling optimized graph...")
+            println("Compiling optimized graph (unoptimized path for debugging)...")
             val compileDuration = measureTime {
-                val diagnostics = optimizedRuntime.compile()
+                val diagnostics = optimizedRuntime.compileUnoptimized()
                 println("  Diagnostics: ${diagnostics.size} messages")
                 diagnostics.forEach { println("    - $it") }
             }
@@ -163,7 +169,7 @@ class RuntimeEquivalenceTest {
             for (tokenId in testTokens) {
                 val refLogits = directRuntime.forward(tokenId).data.copyToFloatArray()
                 val candLogits = optimizedRuntime.forward(tokenId).data.copyToFloatArray()
-                if (!compareLogits(refLogits, candLogits, tolerance = 1e-4f, label = "token=$tokenId")) {
+                if (!compareLogits(refLogits, candLogits, tolerance = 1e-4f, label = "token=$tokenId", verbose = true)) {
                     allPassed = false
                 }
             }
