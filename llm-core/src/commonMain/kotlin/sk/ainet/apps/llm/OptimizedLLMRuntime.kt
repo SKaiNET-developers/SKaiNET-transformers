@@ -141,6 +141,42 @@ public class OptimizedLLMRuntime<T : DType>(
     // ---- Compilation / Optimization ----
 
     /**
+     * Test each optimization pass individually and report which ones introduce divergence.
+     * Returns a list of (passName, maxDiff) pairs for diagnostic purposes.
+     */
+    public fun compileDiagnostic(dummyTokenId: Int = bos): List<Pair<String, Float>> {
+        // First get the DIRECT reference
+        val directInput = createTokenTensor(dummyTokenId)
+        val directLogits = model.forward(directInput, ctx).data.copyToFloatArray()
+        // Reset state after DIRECT forward
+        resetModuleState(model)
+
+        val results = mutableListOf<Pair<String, Float>>()
+        for ((name, pipeline) in getLLMOptimizationPassesForDebug()) {
+            // Re-trace for each pass (tracing mutates model state)
+            resetModuleState(model)
+            compileWith(dummyTokenId, pipeline)
+            val optimizedLogits = executeOptimized(dummyTokenId).data.copyToFloatArray()
+            var maxDiff = 0f
+            for (i in directLogits.indices) {
+                val d = kotlin.math.abs(directLogits[i] - optimizedLogits[i])
+                if (d > maxDiff) maxDiff = d
+            }
+            results.add(name to maxDiff)
+            // Reset for next iteration
+            position = 0
+        }
+        // Leave runtime in uncompiled state
+        optimizedGraph = null
+        graphExecutor = null
+        weightTensorMap = emptyMap()
+        inputNodeId = null
+        position = 0
+        resetModuleState(model)
+        return results
+    }
+
+    /**
      * Compile the model for optimized execution.
      *
      * Creates a tracing [DefaultGraphExecutionContext], runs a forward pass through the

@@ -259,7 +259,6 @@ class StateManagementTest {
     }
 
     @Test
-    @Ignore("Optimization passes introduce divergence — fused op handlers need debugging")
     fun `OPTIMIZED - full pipeline matches DIRECT at position 0`() {
         val directRuntime = createDirectRuntime()
         val directLogits = directRuntime.forward(1).data.copyToFloatArray()
@@ -267,12 +266,15 @@ class StateManagementTest {
         val optRuntime = createOptimizedRuntime()
         optRuntime.compile()
         val optLogits = optRuntime.forward(1).data.copyToFloatArray()
+
         val diff = maxAbsDiff(directLogits, optLogits)
         val mismatch = mismatchFraction(directLogits, optLogits, tol = 1e-4f)
-        println("  Optimized vs DIRECT: maxDiff=${"%.6f".format(diff)}, mismatch=${"%.1f".format(mismatch * 100)}%")
+        println("  Full pipeline vs DIRECT: maxDiff=${"%.6f".format(diff)}, mismatch=${"%.1f".format(mismatch * 100)}%")
+        println("    DIRECT first 5:    ${directLogits.take(5)}")
+        println("    OPTIMIZED first 5: ${optLogits.take(5)}")
 
-        assertTrue(mismatch < 0.05f,
-            "Optimized graph should match DIRECT at pos 0 (mismatch=${mismatch * 100}%)")
+        assertTrue(diff < 1e-3f,
+            "Full pipeline should match DIRECT at position 0 (maxDiff=$diff)")
     }
 
     @Test

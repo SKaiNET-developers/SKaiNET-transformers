@@ -46,7 +46,9 @@ public fun getLLMOptimizationPipeline(): GraphOptimizationPipeline {
             TransposeEliminationPass(),
             SharedWeightDeduplicationPass(),
             LLMFusionPass(),
-            OperationFusionPass(),
+            // OperationFusionPass skipped: its fallback decomposition in the graph
+            // executor misroutes inputs between sub-ops (skainet issue).
+            // LLM-specific fusions cover the performance-critical patterns.
             DeadCodeEliminationPass()
         ),
         maxIterations = 2
