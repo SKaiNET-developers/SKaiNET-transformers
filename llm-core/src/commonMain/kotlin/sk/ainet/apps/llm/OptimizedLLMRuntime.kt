@@ -96,7 +96,10 @@ public class OptimizedLLMRuntime<T : DType>(
         require(position < seqLen) { "Context length exceeded: pos=$position seqLen=$seqLen" }
 
         val logits = when (mode) {
-            OptimizedLLMMode.DIRECT -> {
+            OptimizedLLMMode.DIRECT, OptimizedLLMMode.HYBRID -> {
+                // HYBRID uses the same model.forward() path as DIRECT, but
+                // HybridTransformerBlock instances internally dispatch to
+                // compiled subgraphs for compute-heavy operations.
                 val input = createTokenTensor(tokenId)
                 model.forward(input, ctx)
             }
@@ -186,8 +189,43 @@ public class OptimizedLLMRuntime<T : DType>(
      * @param dummyTokenId A token ID to use for the tracing forward pass
      * @return Diagnostics from the optimization passes
      */
-    public fun compile(dummyTokenId: Int = bos): List<String> =
-        compileWith(dummyTokenId, getLLMOptimizationPipeline())
+    public fun compile(dummyTokenId: Int = bos): List<String> {
+        return if (mode == OptimizedLLMMode.HYBRID) {
+            compileHybrid()
+        } else {
+            compileWith(dummyTokenId, getLLMOptimizationPipeline())
+        }
+    }
+
+    /**
+     * Compile all [HybridTransformerBlock] instances in the module tree.
+     * Each block compiles its own per-layer subgraphs (attn_compute, ffn_compute).
+     */
+    private fun compileHybrid(): List<String> {
+        val diagnostics = mutableListOf<String>()
+        val pipeline = getLLMOptimizationPipeline()
+        val blocks = findHybridBlocks(model)
+        diagnostics.add("Found ${blocks.size} HybridTransformerBlock(s)")
+        for (block in blocks) {
+            diagnostics.addAll(block.compile(ctx, dtype, pipeline))
+        }
+        return diagnostics
+    }
+
+    private fun findHybridBlocks(module: Module<*, *>): List<HybridTransformerBlock<T, Float>> {
+        val result = mutableListOf<HybridTransformerBlock<T, Float>>()
+        val queue = mutableListOf<Module<*, *>>(module)
+        var i = 0
+        while (i < queue.size) {
+            val m = queue[i++]
+            @Suppress("UNCHECKED_CAST")
+            if (m is HybridTransformerBlock<*, *>) {
+                result.add(m as HybridTransformerBlock<T, Float>)
+            }
+            queue.addAll(m.modules)
+        }
+        return result
+    }
 
     @PublishedApi
     internal fun compileWith(

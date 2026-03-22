@@ -1,6 +1,6 @@
 package sk.ainet.models.apertus
 
-import sk.ainet.apps.llm.TransformerBlock
+import sk.ainet.apps.llm.HybridTransformerBlock
 import sk.ainet.lang.nn.DefaultNeuralNetworkExecutionContext
 import sk.ainet.lang.nn.Module
 import sk.ainet.lang.nn.dsl.NeuralNetworkDslImpl
@@ -62,7 +62,7 @@ public inline fun <reified T : DType, V> apertusNetwork(
             stage.dense(dim, id = "ffn_down")
             stage.residual()
 
-            dslImpl.modules += TransformerBlock(stage.modules.toList(), name = "blk.$layer")
+            dslImpl.modules += HybridTransformerBlock(stage.modules.toList(), name = "blk.$layer")
         }
 
         rmsNorm(dim, eps, id = "output_norm")

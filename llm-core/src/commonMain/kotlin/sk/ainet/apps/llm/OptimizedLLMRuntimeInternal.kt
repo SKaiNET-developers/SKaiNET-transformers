@@ -21,8 +21,10 @@ import sk.ainet.lang.types.DType
 public enum class OptimizedLLMMode {
     /** Direct execution via Module.forward() — no compilation, good for debugging. */
     DIRECT,
-    /** Traced + optimized execution via fused graph kernels — production path. */
-    OPTIMIZED
+    /** Traced + optimized execution via fused graph kernels — single-token only. */
+    OPTIMIZED,
+    /** Hybrid: compiled subgraphs for compute + imperative attention — multi-step production path. */
+    HYBRID
 }
 
 internal data class ModelInfo(

@@ -1,6 +1,6 @@
 package sk.ainet.models.bert
 
-import sk.ainet.apps.llm.TransformerBlock
+import sk.ainet.apps.llm.HybridTransformerBlock
 import sk.ainet.lang.nn.DefaultNeuralNetworkExecutionContext
 import sk.ainet.lang.nn.Module
 import sk.ainet.lang.nn.dsl.NeuralNetworkDslImpl
@@ -62,7 +62,7 @@ public inline fun <reified T : DType, V> bertNetwork(
             stage.residual()
             stage.layerNorm(intArrayOf(dim), eps, id = "output_ln")
 
-            dslImpl.modules += TransformerBlock(stage.modules.toList(), name = "encoder.layer.$layer")
+            dslImpl.modules += HybridTransformerBlock(stage.modules.toList(), name = "encoder.layer.$layer")
         }
     }
 }

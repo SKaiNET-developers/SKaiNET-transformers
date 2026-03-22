@@ -99,6 +99,11 @@ class StateManagementTest {
         return OptimizedLLMRuntime(model, ctx, OptimizedLLMMode.OPTIMIZED, FP32::class)
     }
 
+    private fun createHybridRuntime(): OptimizedLLMRuntime<FP32> {
+        val model = LlamaNetworkLoader.fromWeights(LlamaWeights(metadata, buildWeights()))
+        return OptimizedLLMRuntime(model, ctx, OptimizedLLMMode.HYBRID, FP32::class)
+    }
+
     // ---- Helpers ----
 
     private fun maxAbsDiff(a: FloatArray, b: FloatArray): Float {
@@ -326,5 +331,74 @@ class StateManagementTest {
         assertTrue(diff > 0.01f,
             "OPTIMIZED mode logits should change across positions (maxDiff=$diff). " +
             "Nearly identical logits indicate the graph replays the position-0 trace.")
+    }
+
+    // =====================================================================
+    // Issue 3: HYBRID mode — compiled subgraphs + imperative state
+    // =====================================================================
+
+    @Test
+    fun `HYBRID - first token should match DIRECT mode`() {
+        val directRuntime = createDirectRuntime()
+        val hybridRuntime = createHybridRuntime()
+        val diagnostics = hybridRuntime.compile()
+        diagnostics.forEach { println("  hybrid: $it") }
+
+        val directLogits = directRuntime.forward(1).data.copyToFloatArray()
+        val hybridLogits = hybridRuntime.forward(1).data.copyToFloatArray()
+
+        val diff = maxAbsDiff(directLogits, hybridLogits)
+        val mismatch = mismatchFraction(directLogits, hybridLogits, tol = 1e-4f)
+        println("HYBRID vs DIRECT at position 0: maxDiff=$diff, mismatch=${mismatch * 100}%")
+        println("  DIRECT first 5: ${directLogits.take(5)}")
+        println("  HYBRID first 5: ${hybridLogits.take(5)}")
+
+        assertTrue(diff < 1e-3f,
+            "HYBRID should match DIRECT at position 0 (maxDiff=$diff)")
+    }
+
+    @Test
+    fun `HYBRID - second token should match DIRECT mode`() {
+        val directRuntime = createDirectRuntime()
+        val hybridRuntime = createHybridRuntime()
+        hybridRuntime.compile()
+
+        // Advance both to position 1
+        directRuntime.forward(1)
+        hybridRuntime.forward(1)
+
+        val directLogits = directRuntime.forward(5).data.copyToFloatArray()
+        val hybridLogits = hybridRuntime.forward(5).data.copyToFloatArray()
+
+        val diff = maxAbsDiff(directLogits, hybridLogits)
+        val mismatch = mismatchFraction(directLogits, hybridLogits, tol = 1e-4f)
+        println("HYBRID vs DIRECT at position 1: maxDiff=$diff, mismatch=${mismatch * 100}%")
+        println("  DIRECT first 5: ${directLogits.take(5)}")
+        println("  HYBRID first 5: ${hybridLogits.take(5)}")
+
+        assertTrue(diff < 1e-3f,
+            "HYBRID should match DIRECT at position 1 (maxDiff=$diff)")
+    }
+
+    @Test
+    fun `HYBRID - multi-step logits should show divergence from step 0`() {
+        val hybridRuntime = createHybridRuntime()
+        hybridRuntime.compile()
+
+        val allLogits = mutableListOf<FloatArray>()
+        for (token in intArrayOf(1, 5, 3, 7)) {
+            allLogits.add(hybridRuntime.forward(token).data.copyToFloatArray())
+        }
+
+        println("HYBRID multi-step divergence from step 0:")
+        for (i in 1 until allLogits.size) {
+            val diff = maxAbsDiff(allLogits[0], allLogits[i])
+            val mismatch = mismatchFraction(allLogits[0], allLogits[i])
+            println("  step $i: maxDiff=$diff, mismatch=${mismatch * 100}%")
+        }
+
+        val step1Diff = maxAbsDiff(allLogits[0], allLogits[1])
+        assertTrue(step1Diff > 0.01f,
+            "HYBRID step 1 should differ from step 0 (maxDiff=$step1Diff)")
     }
 }
