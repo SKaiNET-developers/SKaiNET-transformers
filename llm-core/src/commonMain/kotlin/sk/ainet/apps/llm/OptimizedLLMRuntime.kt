@@ -2,29 +2,20 @@ package sk.ainet.apps.llm
 
 import kotlin.random.Random
 import kotlin.reflect.KClass
-import sk.ainet.compile.opt.GraphOptimizationPipeline
-import sk.ainet.compile.opt.passes.DeadCodeEliminationPass
-import sk.ainet.compile.opt.passes.LLMFusionPass
-import sk.ainet.compile.opt.passes.OperationFusionPass
-import sk.ainet.compile.opt.passes.SharedWeightDeduplicationPass
-import sk.ainet.compile.opt.passes.TransposeEliminationPass
 import sk.ainet.context.ExecutionContext
 import sk.ainet.io.weights.MappingConfig
 import sk.ainet.io.weights.WeightMapper
 import sk.ainet.io.weights.WeightNameResolver
 import sk.ainet.io.weights.WeightTensor
 import sk.ainet.lang.graph.ComputeGraph
-import sk.ainet.lang.graph.DefaultComputeGraph
 import sk.ainet.lang.graph.DefaultGraphExecutionContext
 import sk.ainet.lang.graph.DefaultExecutionTape
 import sk.ainet.lang.graph.exec.ComputeGraphExecutor
-import sk.ainet.lang.graph.exec.LLMFusedOpHandlers
 import sk.ainet.lang.nn.Module
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.tensor.VoidOpsTensor
 import sk.ainet.lang.tensor.data.DenseFloatArrayTensorData
-import sk.ainet.lang.tensor.data.FloatArrayTensorData
 import sk.ainet.lang.types.DType
 
 /**
@@ -34,7 +25,7 @@ import sk.ainet.lang.types.DType
  * The runtime supports two execution modes from the same `network {}` definition:
  *
  * 1. **Direct mode** (development/debugging): The `Module<T,V>` tree executes forward
- *    passes directly, identical to how CNNs work today. No compilation step needed.
+ *    passes directly. No compilation step needed.
  *
  * 2. **Optimized mode** (production): The module is traced into a DAG, optimization
  *    passes (transpose elimination, weight dedup, RMSNorm/SwiGLU/QKV fusion, DCE) are
@@ -48,7 +39,7 @@ import sk.ainet.lang.types.DType
  * @param T The data type for model weights (FP32, FP16, Q8_0, etc.)
  * @param model The `Module<T, V>` tree built from a `network {}` definition
  * @param ctx Execution context providing tensor operations
- * @param mode Execution mode: [Mode.DIRECT] or [Mode.OPTIMIZED]
+ * @param mode Execution mode: [OptimizedLLMMode.DIRECT] or [OptimizedLLMMode.OPTIMIZED]
  * @param dtype KClass for the DType (needed to create tensors)
  * @param bos Beginning-of-sequence token ID
  * @param random Random generator for sampling
@@ -56,27 +47,20 @@ import sk.ainet.lang.types.DType
 public class OptimizedLLMRuntime<T : DType>(
     private val model: Module<T, Float>,
     private val ctx: ExecutionContext,
-    private val mode: Mode = Mode.DIRECT,
+    private val mode: OptimizedLLMMode = OptimizedLLMMode.DIRECT,
     private val dtype: KClass<T>,
-    private val bos: Int = 1,
-    random: Random = Random.Default
-) : DecoderRuntime<T>(random) {
+    public val bos: Int = 1,
+    private val random: Random = Random.Default
+) : InferenceRuntime<T> {
 
-    /**
-     * Execution mode.
-     */
-    public enum class Mode {
-        /** Direct execution via Module.forward() — no compilation, good for debugging. */
-        DIRECT,
-        /** Traced + optimized execution via fused graph kernels — production path. */
-        OPTIMIZED
-    }
+    public val dim: Int get() = modelDim
+    public val vocabSize: Int get() = modelVocabSize
+    public val seqLen: Int get() = modelSeqLen
+    public val nLayers: Int get() = modelNLayers
 
-    override val dim: Int get() = modelDim
-    override val vocabSize: Int get() = modelVocabSize
-    override val seqLen: Int get() = modelSeqLen
-    override val nLayers: Int get() = modelNLayers
-    override val bosToken: Int get() = bos
+    /** Current position in the sequence (incremented on each forward call). */
+    public var position: Int = 0
+        private set
 
     // Extracted from the model's module tree structure
     private val modelDim: Int
@@ -100,26 +84,7 @@ public class OptimizedLLMRuntime<T : DType>(
         modelNLayers = info.nLayers
     }
 
-    // ---- DecoderRuntime template methods ----
-
-    override fun embedToken(tokenId: Int): Tensor<T, Float> {
-        val inputTensor = createTokenTensor(tokenId)
-        return model.forward(inputTensor, ctx)
-    }
-
-    override fun runLayer(layerIdx: Int, x: Tensor<T, Float>): Tensor<T, Float> {
-        // The full forward pass runs through the module tree in embedToken.
-        // This method exists only for DecoderRuntime compatibility.
-        return x
-    }
-
-    override fun outputNorm(x: Tensor<T, Float>): Tensor<T, Float> = x
-
-    override fun outputProject(x: Tensor<T, Float>): Tensor<T, Float> = x
-
-    override fun resetState() {
-        resetModuleState(model)
-    }
+    // ---- InferenceRuntime implementation ----
 
     /**
      * Single-token forward pass.
@@ -131,17 +96,46 @@ public class OptimizedLLMRuntime<T : DType>(
         require(position < seqLen) { "Context length exceeded: pos=$position seqLen=$seqLen" }
 
         val logits = when (mode) {
-            Mode.DIRECT -> {
+            OptimizedLLMMode.DIRECT -> {
                 val input = createTokenTensor(tokenId)
                 model.forward(input, ctx)
             }
-            Mode.OPTIMIZED -> {
+            OptimizedLLMMode.OPTIMIZED -> {
                 executeOptimized(tokenId)
             }
         }
 
         position++
         return logits
+    }
+
+    /** Reset to initial state (clear KV caches, rewind position to 0). */
+    override fun reset() {
+        resetModuleState(model)
+        position = 0
+    }
+
+    // ---- Convenience generation ----
+
+    /**
+     * Auto-regressive generation loop.
+     *
+     * Delegates to the standalone [generate] extension on [InferenceRuntime].
+     */
+    public fun generate(
+        prompt: IntArray,
+        steps: Int,
+        temperature: Float,
+        onToken: (Int) -> Unit
+    ) {
+        (this as InferenceRuntime<T>).generate(
+            prompt = prompt,
+            steps = steps,
+            temperature = temperature,
+            bosToken = bos,
+            random = random,
+            onToken = onToken
+        )
     }
 
     // ---- Compilation / Optimization ----
@@ -156,7 +150,14 @@ public class OptimizedLLMRuntime<T : DType>(
      * @param dummyTokenId A token ID to use for the tracing forward pass
      * @return Diagnostics from the optimization passes
      */
-    public fun compile(dummyTokenId: Int = bos): List<String> {
+    public fun compile(dummyTokenId: Int = bos): List<String> =
+        compileWith(dummyTokenId, getLLMOptimizationPipeline())
+
+    @PublishedApi
+    internal fun compileWith(
+        dummyTokenId: Int = bos,
+        pipeline: sk.ainet.compile.opt.GraphOptimizationPipeline
+    ): List<String> {
         val diagnostics = mutableListOf<String>()
 
         // 1. Create a tape-recording context that traces operations with
@@ -205,7 +206,7 @@ public class OptimizedLLMRuntime<T : DType>(
         }
 
         // 5. Apply the LLM optimization pipeline
-        val result = LLM_PIPELINE.optimize(rawGraph)
+        val result = pipeline.optimize(rawGraph)
         optimizedGraph = result.graph
         diagnostics.addAll(result.passResults.flatMap { it.diagnostics })
         val optimizedGraphForExec = result.graph
@@ -332,8 +333,13 @@ public class OptimizedLLMRuntime<T : DType>(
     ): Pair<Map<String, Tensor<T, Float>>, String?> {
         val result = mutableMapOf<String, Tensor<T, Float>>()
         var detectedInputNodeId: String? = null
-        for (node in graph.nodes) {
-            if (node.operationName != "input" && node.operationName != "weight") continue
+
+        // Count input/weight nodes vs total for diagnostics
+        val inputWeightNodes = graph.nodes.filter {
+            it.operationName in setOf("input", "weight", "parameter", "constant")
+        }
+
+        for (node in inputWeightNodes) {
             val outputSpec = node.outputs.firstOrNull() ?: continue
             val tensorId = outputSpec.name
             val tensor = session.resolve(tensorId)
@@ -369,112 +375,37 @@ public class OptimizedLLMRuntime<T : DType>(
         }
     }
 
-    private data class ModelInfo(
-        val dim: Int,
-        val vocabSize: Int,
-        val seqLen: Int,
-        val nLayers: Int
-    )
-
     private fun extractModelInfo(module: Module<*, *>): ModelInfo {
         var dim = 0
         var vocabSize = 0
         var seqLen = 4096
         var nLayers = 0
 
-        fun walk(m: Module<*, *>) {
-            when (m) {
-                is sk.ainet.lang.nn.layers.EmbeddingAdapter<*, *> -> {
-                    if (vocabSize == 0) {
-                        vocabSize = m.numEmbeddings
-                        dim = m.embeddingDim
-                    }
+        val modules = mutableListOf<Module<*, *>>()
+        modules.add(module)
+        var i = 0
+        while (i < modules.size) {
+            val m = modules[i++]
+
+            if (m is sk.ainet.lang.nn.layers.EmbeddingAdapter<*, *>) {
+                if (vocabSize == 0) {
+                    vocabSize = m.numEmbeddings
+                    dim = m.embeddingDim
                 }
-                is sk.ainet.lang.nn.transformer.KVCache<*, *> -> {
-                    seqLen = m.maxSeqLen
-                }
+            } else if (m is sk.ainet.lang.nn.transformer.KVCache<*, *>) {
+                seqLen = m.maxSeqLen
             }
-            for (child in m.modules) {
-                walk(child)
-            }
+
+            modules.addAll(m.modules)
         }
 
-        walk(module)
-
-        for (child in module.modules) {
-            if (child.name.startsWith("blk.") || child.name.matches(Regex("encoder\\.layer\\.\\d+"))) {
+        for (m in module.modules) {
+            val name = m.name ?: ""
+            if (name.startsWith("blk.") || name.contains("layer")) {
                 nLayers++
             }
         }
 
         return ModelInfo(dim, vocabSize, seqLen, nLayers)
-    }
-
-    public companion object {
-        /**
-         * The standard LLM optimization pipeline.
-         *
-         * Pass ordering:
-         * 1. TransposeElimination — fold transposes into matmuls before fusion sees them
-         * 2. SharedWeightDedup — deduplicate tied weights before pattern matching
-         * 3. LLMFusion — fuse RMSNorm, SwiGLU, QKV patterns on clean graph
-         * 4. OperationFusion — fuse remaining elementwise chains
-         * 5. DeadCodeElimination — clean up nodes orphaned by fusion passes
-         */
-        init {
-            // Register CPU fallback handlers for fused ops so the executor
-            // can run them on any backend. Platform-specific handlers (Metal, CUDA)
-            // override these when available.
-            LLMFusedOpHandlers.registerAll()
-        }
-
-        public val LLM_PIPELINE: GraphOptimizationPipeline = GraphOptimizationPipeline(
-            passes = listOf(
-                TransposeEliminationPass(),
-                SharedWeightDeduplicationPass(),
-                LLMFusionPass(),
-                OperationFusionPass(),
-                DeadCodeEliminationPass()
-            ),
-            maxIterations = 2
-        )
-
-        /**
-         * Create an optimized runtime from a network definition and weights.
-         *
-         * This is the primary factory method for production use.
-         *
-         * @param model Module tree from a `network {}` definition (e.g., `llamaNetwork(config)`)
-         * @param tensors Weight tensors from GGUF/SafeTensors
-         * @param resolver Weight name resolver for the model format
-         * @param ctx Execution context
-         * @param dtype KClass for the DType
-         * @param optimized Whether to compile for optimized execution
-         * @param bosToken BOS token ID
-         * @return A ready-to-use runtime
-         */
-        public fun <T : DType> create(
-            model: Module<T, Float>,
-            tensors: List<WeightTensor<T, Float>>,
-            resolver: WeightNameResolver,
-            ctx: ExecutionContext,
-            dtype: KClass<T>,
-            optimized: Boolean = true,
-            bosToken: Int = 1
-        ): OptimizedLLMRuntime<T> {
-            val mode = if (optimized) Mode.OPTIMIZED else Mode.DIRECT
-            val runtime = OptimizedLLMRuntime(model, ctx, mode, dtype, bosToken)
-
-            // Load weights into the module tree (needed for both modes —
-            // OPTIMIZED mode traces with real weights for accurate graph capture)
-            val result = runtime.loadWeights(tensors, resolver)
-            WeightMapper.validateAllParametersMapped(result)
-
-            if (optimized) {
-                runtime.compile(bosToken)
-            }
-
-            return runtime
-        }
     }
 }
