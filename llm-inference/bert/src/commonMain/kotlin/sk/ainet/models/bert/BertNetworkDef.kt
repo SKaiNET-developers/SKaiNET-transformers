@@ -1,7 +1,10 @@
 package sk.ainet.models.bert
 
+import sk.ainet.apps.llm.TransformerBlock
+import sk.ainet.lang.nn.DefaultNeuralNetworkExecutionContext
 import sk.ainet.lang.nn.Module
-import sk.ainet.lang.nn.dsl.NeuralNetworkDsl
+import sk.ainet.lang.nn.dsl.NeuralNetworkDslImpl
+import sk.ainet.lang.nn.dsl.StageImpl
 import sk.ainet.lang.nn.dsl.sequential
 import sk.ainet.lang.tensor.gelu
 import sk.ainet.lang.types.DType
@@ -30,33 +33,36 @@ public inline fun <reified T : DType, V> bertNetwork(
     val eps = config.layerNormEps
 
     return sequential<T, V> {
-        // Embedding stage: word embeddings + LayerNorm
+        // Embedding stage: word embeddings + LayerNorm (no residuals, MLP is fine)
         stage("embeddings") {
             embedding(vocabSize, dim, id = "word_embeddings")
             layerNorm(intArrayOf(dim), eps, id = "LayerNorm")
         }
 
-        // Encoder layers
+        // Encoder layers — use TransformerBlock for residual connections
+        val dslImpl = this as NeuralNetworkDslImpl<T, V>
+        val nnCtx = DefaultNeuralNetworkExecutionContext()
         for (layer in 0 until nLayers) {
-            stage("encoder.layer.$layer") {
-                // Self-attention (bidirectional, no causal mask, with bias)
-                multiHeadAttention(
-                    dim = dim,
-                    nHeads = nHeads,
-                    causal = false,
-                    bias = true,
-                    id = "attention"
-                )
-                residual()
-                layerNorm(intArrayOf(dim), eps, id = "attn_ln")
+            val stage = StageImpl<T, V>(nnCtx, "encoder.layer.$layer", T::class)
+            // Self-attention (bidirectional, no causal mask, with bias)
+            stage.multiHeadAttention(
+                dim = dim,
+                nHeads = nHeads,
+                causal = false,
+                bias = true,
+                id = "attention"
+            )
+            stage.residual()
+            stage.layerNorm(intArrayOf(dim), eps, id = "attn_ln")
 
-                // GeLU FFN
-                dense(ffnDim, id = "intermediate")
-                activation { it.gelu() }
-                dense(dim, id = "output")
-                residual()
-                layerNorm(intArrayOf(dim), eps, id = "output_ln")
-            }
+            // GeLU FFN
+            stage.dense(ffnDim, id = "intermediate")
+            stage.activation { it.gelu() }
+            stage.dense(dim, id = "output")
+            stage.residual()
+            stage.layerNorm(intArrayOf(dim), eps, id = "output_ln")
+
+            dslImpl.modules += TransformerBlock(stage.modules.toList(), name = "encoder.layer.$layer")
         }
     }
 }

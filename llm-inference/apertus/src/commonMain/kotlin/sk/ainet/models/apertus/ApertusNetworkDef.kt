@@ -1,7 +1,10 @@
 package sk.ainet.models.apertus
 
+import sk.ainet.apps.llm.TransformerBlock
+import sk.ainet.lang.nn.DefaultNeuralNetworkExecutionContext
 import sk.ainet.lang.nn.Module
-import sk.ainet.lang.nn.dsl.NeuralNetworkDsl
+import sk.ainet.lang.nn.dsl.NeuralNetworkDslImpl
+import sk.ainet.lang.nn.dsl.StageImpl
 import sk.ainet.lang.nn.dsl.sequential
 import sk.ainet.lang.types.DType
 
@@ -34,29 +37,32 @@ public inline fun <reified T : DType, V> apertusNetwork(
     return sequential<T, V> {
         embedding(vocabSize, dim, id = "token_embd")
 
+        val dslImpl = this as NeuralNetworkDslImpl<T, V>
+        val nnCtx = DefaultNeuralNetworkExecutionContext()
         for (layer in 0 until nLayers) {
-            stage("blk.$layer") {
-                rmsNorm(dim, eps, id = "attn_norm")
-                multiHeadAttention(
-                    dim = dim,
-                    nHeads = nHeads,
-                    nKVHeads = nKVHeads,
-                    causal = true,
-                    qkNorm = true,
-                    id = "attn"
-                ) {
-                    rope(headDim, seqLen)
-                    kvCache(seqLen, nKVHeads, headDim)
-                }
-                residual()
-
-                // Ungated FFN with xIELU (no SwiGLU)
-                rmsNorm(dim, eps, id = "ffn_norm")
-                dense(ffnDim, id = "ffn_up")
-                xielu(id = "act_fn")
-                dense(dim, id = "ffn_down")
-                residual()
+            val stage = StageImpl<T, V>(nnCtx, "blk.$layer", T::class)
+            stage.rmsNorm(dim, eps, id = "attn_norm")
+            stage.multiHeadAttention(
+                dim = dim,
+                nHeads = nHeads,
+                nKVHeads = nKVHeads,
+                causal = true,
+                qkNorm = true,
+                id = "attn"
+            ) {
+                rope(headDim, seqLen)
+                kvCache(seqLen, nKVHeads, headDim)
             }
+            stage.residual()
+
+            // Ungated FFN with xIELU (no SwiGLU)
+            stage.rmsNorm(dim, eps, id = "ffn_norm")
+            stage.dense(ffnDim, id = "ffn_up")
+            stage.xielu(id = "act_fn")
+            stage.dense(dim, id = "ffn_down")
+            stage.residual()
+
+            dslImpl.modules += TransformerBlock(stage.modules.toList(), name = "blk.$layer")
         }
 
         rmsNorm(dim, eps, id = "output_norm")
