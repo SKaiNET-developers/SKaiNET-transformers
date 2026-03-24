@@ -285,8 +285,15 @@ public class HybridTransformerBlock<T : DType, V>(
         ops: sk.ainet.lang.tensor.ops.TensorOps
     ): Tensor<T, V> {
         if (repeats == 1) return t
-        val repeated = (0 until repeats).map { t }
-        return ops.concat(repeated, dim = 0)
+        // Repeat each KV head individually so head mapping matches GQA:
+        // head h uses KV head h/repeats → [kv0]*repeats ++ [kv1]*repeats ++ ...
+        val nKVHeads = t.shape[0]
+        val expanded = mutableListOf<Tensor<T, V>>()
+        for (h in 0 until nKVHeads) {
+            val headSlice = ops.narrow(t, 0, h, 1) // [1, seqLen, headDim]
+            repeat(repeats) { expanded.add(headSlice) }
+        }
+        return ops.concat(expanded, dim = 0)
     }
 
     // --- Subgraph tracing and compilation ---
