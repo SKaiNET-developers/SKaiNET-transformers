@@ -5,7 +5,12 @@ import sk.ainet.lang.nn.DefaultNeuralNetworkExecutionContext
 import sk.ainet.lang.nn.Module
 import sk.ainet.lang.nn.dsl.NeuralNetworkDslImpl
 import sk.ainet.lang.nn.dsl.StageImpl
+import sk.ainet.lang.nn.dsl.embedding
+import sk.ainet.lang.nn.dsl.multiHeadAttention
+import sk.ainet.lang.nn.dsl.residual
+import sk.ainet.lang.nn.dsl.rmsNorm
 import sk.ainet.lang.nn.dsl.sequential
+import sk.ainet.lang.nn.dsl.swiGluFFN
 import sk.ainet.lang.types.DType
 
 /**
@@ -35,11 +40,11 @@ public inline fun <reified T : DType, V> llamaNetwork(
     val eps = 1e-5f
 
     return sequential<T, V> {
-        embedding(vocabSize, dim, id = "token_embd")
+        val dslImpl = this as NeuralNetworkDslImpl<T, V>
+        dslImpl.embedding(vocabSize, dim, id = "token_embd")
 
         // Build each transformer layer via the DSL helpers, but wrap in
         // TransformerBlock instead of MLP so residual connections work.
-        val dslImpl = this as NeuralNetworkDslImpl<T, V>
         val nnCtx = DefaultNeuralNetworkExecutionContext()
         for (layer in 0 until nLayers) {
             val stage = StageImpl<T, V>(nnCtx, "blk.$layer", T::class)
@@ -63,7 +68,7 @@ public inline fun <reified T : DType, V> llamaNetwork(
             dslImpl.modules += HybridTransformerBlock(stage.modules.toList(), name = "blk.$layer")
         }
 
-        rmsNorm(dim, eps, id = "output_norm")
+        dslImpl.rmsNorm(dim, eps, id = "output_norm")
         dense(vocabSize, id = "output")
     }
 }
