@@ -10,6 +10,7 @@ import sk.ainet.io.weights.WeightMapper
 import sk.ainet.io.weights.WeightTensor
 import sk.ainet.lang.nn.Module
 import sk.ainet.lang.types.DType
+import kotlin.jvm.JvmName
 
 /**
  * End-to-end loader that builds a `llamaNetwork()` module and populates it

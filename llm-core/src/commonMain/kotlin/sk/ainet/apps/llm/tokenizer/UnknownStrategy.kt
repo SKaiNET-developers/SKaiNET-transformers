@@ -7,7 +7,7 @@ import sk.ainet.apps.llm.TokenizerType
  * Fallback tokenizer strategy when the tokenizer type cannot be determined.
  * Defaults to SentencePiece-like behavior as it's most common in GGUF models.
  */
-object UnknownStrategy : TokenizerStrategy {
+public object UnknownStrategy : TokenizerStrategy {
     override val type: TokenizerType = TokenizerType.UNKNOWN
 
     /** Default to SentencePiece space marker: ▁ (U+2581) */

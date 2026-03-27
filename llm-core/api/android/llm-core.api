@@ -1,0 +1,162 @@
+public abstract class sk/ainet/apps/llm/DecoderRuntime {
+	public fun <init> ()V
+	public fun <init> (Lkotlin/random/Random;)V
+	public synthetic fun <init> (Lkotlin/random/Random;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	protected abstract fun embedToken (I)Lsk/ainet/lang/tensor/Tensor;
+	protected final fun expectFloatBuffer (Lsk/ainet/lang/tensor/Tensor;)[F
+	public fun forward (I)Lsk/ainet/lang/tensor/Tensor;
+	public fun generate ([IIFLkotlin/jvm/functions/Function1;)V
+	protected abstract fun getBosToken ()I
+	protected abstract fun getDim ()I
+	protected abstract fun getNLayers ()I
+	public final fun getPosition ()I
+	protected final fun getRandom ()Lkotlin/random/Random;
+	protected abstract fun getSeqLen ()I
+	protected abstract fun getVocabSize ()I
+	protected abstract fun outputNorm (Lsk/ainet/lang/tensor/Tensor;)Lsk/ainet/lang/tensor/Tensor;
+	protected abstract fun outputProject (Lsk/ainet/lang/tensor/Tensor;)Lsk/ainet/lang/tensor/Tensor;
+	public fun reset ()V
+	protected abstract fun resetState ()V
+	protected abstract fun runLayer (ILsk/ainet/lang/tensor/Tensor;)Lsk/ainet/lang/tensor/Tensor;
+	protected final fun sample (Lsk/ainet/lang/tensor/Tensor;F)I
+	protected final fun setPosition (I)V
+}
+
+public final class sk/ainet/apps/llm/HeapKvCache : sk/ainet/apps/llm/KvCache {
+	public fun <init> (III)V
+	public fun getKey (IIII)F
+	public final fun getKeyArray ()[F
+	public fun getKvDim ()I
+	public fun getNLayers ()I
+	public fun getSeqLen ()I
+	public fun getValue (IIII)F
+	public final fun getValueArray ()[F
+	public fun reset ()V
+	public fun store (II[FI[FI)V
+}
+
+public abstract interface class sk/ainet/apps/llm/InferenceRuntime {
+	public abstract fun forward (I)Lsk/ainet/lang/tensor/Tensor;
+	public abstract fun reset ()V
+}
+
+public abstract interface class sk/ainet/apps/llm/KvCache {
+	public abstract fun getKey (IIII)F
+	public abstract fun getKvDim ()I
+	public abstract fun getNLayers ()I
+	public abstract fun getSeqLen ()I
+	public abstract fun getValue (IIII)F
+	public abstract fun reset ()V
+	public abstract fun store (II[FI[FI)V
+}
+
+public final class sk/ainet/apps/llm/OptimizedLLMMode : java/lang/Enum {
+	public static final field DIRECT Lsk/ainet/apps/llm/OptimizedLLMMode;
+	public static final field OPTIMIZED Lsk/ainet/apps/llm/OptimizedLLMMode;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lsk/ainet/apps/llm/OptimizedLLMMode;
+	public static fun values ()[Lsk/ainet/apps/llm/OptimizedLLMMode;
+}
+
+public final class sk/ainet/apps/llm/OptimizedLLMRuntime : sk/ainet/apps/llm/DecoderRuntime {
+	public fun <init> (Lsk/ainet/lang/nn/Module;Lsk/ainet/context/ExecutionContext;Lsk/ainet/apps/llm/OptimizedLLMMode;Lkotlin/reflect/KClass;ILkotlin/random/Random;)V
+	public synthetic fun <init> (Lsk/ainet/lang/nn/Module;Lsk/ainet/context/ExecutionContext;Lsk/ainet/apps/llm/OptimizedLLMMode;Lkotlin/reflect/KClass;ILkotlin/random/Random;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun compile (I)Ljava/util/List;
+	public static synthetic fun compile$default (Lsk/ainet/apps/llm/OptimizedLLMRuntime;IILjava/lang/Object;)Ljava/util/List;
+	public final fun compileUnoptimized (I)Ljava/util/List;
+	public static synthetic fun compileUnoptimized$default (Lsk/ainet/apps/llm/OptimizedLLMRuntime;IILjava/lang/Object;)Ljava/util/List;
+	public fun forward (I)Lsk/ainet/lang/tensor/Tensor;
+	public final fun loadWeights (Ljava/util/List;Lsk/ainet/io/weights/WeightNameResolver;)Lsk/ainet/io/weights/WeightMapper$MappingResult;
+}
+
+public final class sk/ainet/apps/llm/OptimizedLLMRuntimeInternalKt {
+	public static final fun createOptimizedLLMRuntime (Lsk/ainet/lang/nn/Module;Ljava/util/List;Lsk/ainet/io/weights/WeightNameResolver;Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;ZI)Lsk/ainet/apps/llm/OptimizedLLMRuntime;
+	public static synthetic fun createOptimizedLLMRuntime$default (Lsk/ainet/lang/nn/Module;Ljava/util/List;Lsk/ainet/io/weights/WeightNameResolver;Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;ZIILjava/lang/Object;)Lsk/ainet/apps/llm/OptimizedLLMRuntime;
+	public static final fun getLLMOptimizationPipeline ()Lsk/ainet/compile/opt/GraphOptimizationPipeline;
+}
+
+public final class sk/ainet/apps/llm/RopeUtilsKt {
+	public static final fun applyRopeRotation ([FIIIIF[F[FILjava/lang/Float;)V
+	public static synthetic fun applyRopeRotation$default ([FIIIIF[F[FILjava/lang/Float;ILjava/lang/Object;)V
+	public static final fun ropeCos (IIIF)F
+	public static synthetic fun ropeCos$default (IIIFILjava/lang/Object;)F
+	public static final fun ropeFrequency (IIIF)F
+	public static synthetic fun ropeFrequency$default (IIIFILjava/lang/Object;)F
+	public static final fun ropeSin (IIIF)F
+	public static synthetic fun ropeSin$default (IIIFILjava/lang/Object;)F
+}
+
+public final class sk/ainet/apps/llm/SamplingUtilsKt {
+	public static final fun sampleFromLogits ([FFLkotlin/random/Random;)I
+	public static synthetic fun sampleFromLogits$default ([FFLkotlin/random/Random;ILjava/lang/Object;)I
+	public static final fun softmaxInPlace ([FI)V
+	public static synthetic fun softmaxInPlace$default ([FIILjava/lang/Object;)V
+}
+
+public abstract interface class sk/ainet/apps/llm/Tokenizer {
+	public abstract fun decode (I)Ljava/lang/String;
+	public abstract fun decode ([I)Ljava/lang/String;
+	public abstract fun encode (Ljava/lang/String;)[I
+}
+
+public abstract interface class sk/ainet/apps/llm/TokenizerStrategy {
+	public abstract fun getSpaceMarker ()Ljava/lang/String;
+	public abstract fun getType ()Lsk/ainet/apps/llm/TokenizerType;
+	public abstract fun postprocess (Ljava/lang/String;)Ljava/lang/String;
+	public abstract fun preprocess (Ljava/lang/String;)Ljava/lang/String;
+}
+
+public final class sk/ainet/apps/llm/TokenizerType : java/lang/Enum {
+	public static final field BPE Lsk/ainet/apps/llm/TokenizerType;
+	public static final field SENTENCEPIECE Lsk/ainet/apps/llm/TokenizerType;
+	public static final field UNKNOWN Lsk/ainet/apps/llm/TokenizerType;
+	public static final field WORDPIECE Lsk/ainet/apps/llm/TokenizerType;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lsk/ainet/apps/llm/TokenizerType;
+	public static fun values ()[Lsk/ainet/apps/llm/TokenizerType;
+}
+
+public final class sk/ainet/apps/llm/tokenizer/BPEStrategy : sk/ainet/apps/llm/TokenizerStrategy {
+	public static final field INSTANCE Lsk/ainet/apps/llm/tokenizer/BPEStrategy;
+	public fun getSpaceMarker ()Ljava/lang/String;
+	public fun getType ()Lsk/ainet/apps/llm/TokenizerType;
+	public fun postprocess (Ljava/lang/String;)Ljava/lang/String;
+	public fun preprocess (Ljava/lang/String;)Ljava/lang/String;
+}
+
+public final class sk/ainet/apps/llm/tokenizer/HuggingFaceBPETokenizer : sk/ainet/apps/llm/Tokenizer {
+	public fun decode (I)Ljava/lang/String;
+	public fun decode ([I)Ljava/lang/String;
+	public fun encode (Ljava/lang/String;)[I
+	public final fun getVocabSize ()I
+}
+
+public final class sk/ainet/apps/llm/tokenizer/HuggingFaceBPETokenizerKt {
+	public static final fun createHuggingFaceBPETokenizerFromJson (Ljava/lang/String;Ljava/lang/String;)Lsk/ainet/apps/llm/tokenizer/HuggingFaceBPETokenizer;
+	public static synthetic fun createHuggingFaceBPETokenizerFromJson$default (Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lsk/ainet/apps/llm/tokenizer/HuggingFaceBPETokenizer;
+}
+
+public final class sk/ainet/apps/llm/tokenizer/SentencePieceStrategy : sk/ainet/apps/llm/TokenizerStrategy {
+	public static final field INSTANCE Lsk/ainet/apps/llm/tokenizer/SentencePieceStrategy;
+	public fun getSpaceMarker ()Ljava/lang/String;
+	public fun getType ()Lsk/ainet/apps/llm/TokenizerType;
+	public fun postprocess (Ljava/lang/String;)Ljava/lang/String;
+	public fun preprocess (Ljava/lang/String;)Ljava/lang/String;
+}
+
+public final class sk/ainet/apps/llm/tokenizer/UnknownStrategy : sk/ainet/apps/llm/TokenizerStrategy {
+	public static final field INSTANCE Lsk/ainet/apps/llm/tokenizer/UnknownStrategy;
+	public fun getSpaceMarker ()Ljava/lang/String;
+	public fun getType ()Lsk/ainet/apps/llm/TokenizerType;
+	public fun postprocess (Ljava/lang/String;)Ljava/lang/String;
+	public fun preprocess (Ljava/lang/String;)Ljava/lang/String;
+}
+
+public final class sk/ainet/apps/llm/tokenizer/WordPieceStrategy : sk/ainet/apps/llm/TokenizerStrategy {
+	public static final field INSTANCE Lsk/ainet/apps/llm/tokenizer/WordPieceStrategy;
+	public fun getSpaceMarker ()Ljava/lang/String;
+	public fun getType ()Lsk/ainet/apps/llm/TokenizerType;
+	public fun postprocess (Ljava/lang/String;)Ljava/lang/String;
+	public fun preprocess (Ljava/lang/String;)Ljava/lang/String;
+}
+

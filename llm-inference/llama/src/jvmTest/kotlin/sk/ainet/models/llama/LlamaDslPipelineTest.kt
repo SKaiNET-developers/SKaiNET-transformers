@@ -4,6 +4,7 @@ import kotlin.math.abs
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import sk.ainet.apps.llm.OptimizedLLMMode
 import sk.ainet.apps.llm.OptimizedLLMRuntime
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.lang.tensor.Shape
@@ -100,7 +101,7 @@ class LlamaDslPipelineTest {
         val runtime = OptimizedLLMRuntime(
             model = model,
             ctx = ctx,
-            mode = OptimizedLLMRuntime.Mode.DIRECT,
+            mode = OptimizedLLMMode.DIRECT,
             dtype = FP32::class
         )
 
@@ -125,10 +126,10 @@ class LlamaDslPipelineTest {
 
         // Build two independent runtimes from the same weights
         val model1 = LlamaNetworkLoader.fromWeights(weights)
-        val runtime1 = OptimizedLLMRuntime(model1, ctx, OptimizedLLMRuntime.Mode.DIRECT, FP32::class)
+        val runtime1 = OptimizedLLMRuntime(model1, ctx, OptimizedLLMMode.DIRECT, FP32::class)
 
         val model2 = LlamaNetworkLoader.fromWeights(weights)
-        val runtime2 = OptimizedLLMRuntime(model2, ctx, OptimizedLLMRuntime.Mode.DIRECT, FP32::class)
+        val runtime2 = OptimizedLLMRuntime(model2, ctx, OptimizedLLMMode.DIRECT, FP32::class)
 
         // Forward the same token and compare
         val logits1 = runtime1.forward(1).data.copyToFloatArray()
@@ -149,7 +150,7 @@ class LlamaDslPipelineTest {
         val runtime = OptimizedLLMRuntime(
             model = model,
             ctx = ctx,
-            mode = OptimizedLLMRuntime.Mode.DIRECT,
+            mode = OptimizedLLMMode.DIRECT,
             dtype = FP32::class
         )
 
@@ -175,7 +176,7 @@ class LlamaDslPipelineTest {
         val weights = LlamaWeights<FP32, Float>(metadata, tensors)
         val model = LlamaNetworkLoader.fromWeights(weights)
 
-        val runtime = OptimizedLLMRuntime(model, ctx, OptimizedLLMRuntime.Mode.DIRECT, FP32::class)
+        val runtime = OptimizedLLMRuntime(model, ctx, OptimizedLLMMode.DIRECT, FP32::class)
 
         val logits1 = runtime.forward(1).data.copyToFloatArray()
         val logits2 = runtime.forward(5).data.copyToFloatArray()

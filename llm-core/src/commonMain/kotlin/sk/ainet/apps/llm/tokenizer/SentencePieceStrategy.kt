@@ -11,7 +11,7 @@ import sk.ainet.apps.llm.TokenizerType
  * the ▁ character to mark word boundaries (spaces become ▁, and text
  * starts with ▁ to mark the beginning).
  */
-object SentencePieceStrategy : TokenizerStrategy {
+public object SentencePieceStrategy : TokenizerStrategy {
     override val type: TokenizerType = TokenizerType.SENTENCEPIECE
 
     /** SentencePiece space marker: ▁ (U+2581) */

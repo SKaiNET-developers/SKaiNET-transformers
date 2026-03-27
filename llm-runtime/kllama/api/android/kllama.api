@@ -1,0 +1,94 @@
+public final class sk/ainet/apps/kllama/CpuAttentionBackend : sk/ainet/models/llama/AttentionBackend {
+	public fun <init> (Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/llama/LlamaRuntimeWeights;Lkotlin/reflect/KClass;Lsk/ainet/apps/llm/KvCache;F)V
+	public synthetic fun <init> (Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/llama/LlamaRuntimeWeights;Lkotlin/reflect/KClass;Lsk/ainet/apps/llm/KvCache;FILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun attention (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;II)Lsk/ainet/lang/tensor/Tensor;
+	public fun batchAttention (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;II)Lsk/ainet/lang/tensor/Tensor;
+	public fun reset ()V
+}
+
+public final class sk/ainet/apps/kllama/GGUFTokenizer : sk/ainet/apps/llm/Tokenizer {
+	public static final field Companion Lsk/ainet/apps/kllama/GGUFTokenizer$Companion;
+	public synthetic fun <init> (Ljava/util/List;[FIIILsk/ainet/apps/llm/TokenizerStrategy;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun decode (I)Ljava/lang/String;
+	public fun decode ([I)Ljava/lang/String;
+	public fun encode (Ljava/lang/String;)[I
+	public final fun getBosId ()I
+	public final fun getEosId ()I
+	public final fun getTokenizerType ()Lsk/ainet/apps/llm/TokenizerType;
+	public final fun getVocabSize ()I
+}
+
+public final class sk/ainet/apps/kllama/GGUFTokenizer$Companion {
+	public final fun fromGGUF (Lsk/ainet/io/gguf/GGUFReader;Z)Lsk/ainet/apps/kllama/GGUFTokenizer;
+	public static synthetic fun fromGGUF$default (Lsk/ainet/apps/kllama/GGUFTokenizer$Companion;Lsk/ainet/io/gguf/GGUFReader;ZILjava/lang/Object;)Lsk/ainet/apps/kllama/GGUFTokenizer;
+	public final fun fromRandomAccessSource (Lsk/ainet/io/RandomAccessSource;Z)Lsk/ainet/apps/kllama/GGUFTokenizer;
+	public static synthetic fun fromRandomAccessSource$default (Lsk/ainet/apps/kllama/GGUFTokenizer$Companion;Lsk/ainet/io/RandomAccessSource;ZILjava/lang/Object;)Lsk/ainet/apps/kllama/GGUFTokenizer;
+	public final fun fromSource (Lkotlinx/io/Source;Z)Lsk/ainet/apps/kllama/GGUFTokenizer;
+	public static synthetic fun fromSource$default (Lsk/ainet/apps/kllama/GGUFTokenizer$Companion;Lkotlinx/io/Source;ZILjava/lang/Object;)Lsk/ainet/apps/kllama/GGUFTokenizer;
+	public final fun fromTokenizerJson (Ljava/lang/String;Z)Lsk/ainet/apps/kllama/GGUFTokenizer;
+	public static synthetic fun fromTokenizerJson$default (Lsk/ainet/apps/kllama/GGUFTokenizer$Companion;Ljava/lang/String;ZILjava/lang/Object;)Lsk/ainet/apps/kllama/GGUFTokenizer;
+}
+
+public final class sk/ainet/apps/kllama/GpuAttentionBackend : sk/ainet/models/llama/AttentionBackend {
+	public fun <init> (Lsk/ainet/context/ExecutionContext;Lsk/ainet/apps/kllama/GpuTensorBridge;Lsk/ainet/models/llama/LlamaRuntimeWeights;Lkotlin/reflect/KClass;F)V
+	public synthetic fun <init> (Lsk/ainet/context/ExecutionContext;Lsk/ainet/apps/kllama/GpuTensorBridge;Lsk/ainet/models/llama/LlamaRuntimeWeights;Lkotlin/reflect/KClass;FILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun attention (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;II)Lsk/ainet/lang/tensor/Tensor;
+	public fun batchAttention (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;II)Lsk/ainet/lang/tensor/Tensor;
+	public fun reset ()V
+}
+
+public abstract interface class sk/ainet/apps/kllama/GpuTensorBridge {
+	public abstract fun concat (Ljava/util/List;I)Lsk/ainet/lang/tensor/Tensor;
+	public abstract fun slice (Lsk/ainet/lang/tensor/Tensor;[I[I[I)Lsk/ainet/lang/tensor/Tensor;
+	public abstract fun sliceUpdate (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;[I[I[I)Lsk/ainet/lang/tensor/Tensor;
+}
+
+public final class sk/ainet/apps/kllama/KvCacheAndroidKt {
+	public static final fun createOptimalKvCache (III)Lsk/ainet/apps/llm/KvCache;
+}
+
+public final class sk/ainet/apps/kllama/Llama2DotCWeightLoader {
+	public static final field INSTANCE Lsk/ainet/apps/kllama/Llama2DotCWeightLoader;
+	public final fun load (Lsk/ainet/context/ExecutionContext;Lkotlinx/io/Source;)Lsk/ainet/models/llama/LlamaRuntimeWeights;
+}
+
+public final class sk/ainet/apps/kllama/LlamaIngestion {
+	public fun <init> (Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;Lsk/ainet/apps/kllama/LlamaLoadConfig;)V
+	public synthetic fun <init> (Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;Lsk/ainet/apps/kllama/LlamaLoadConfig;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun load (Lkotlin/jvm/functions/Function0;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun loadSafeTensors (Lkotlin/jvm/functions/Function0;Lsk/ainet/models/llama/LlamaModelMetadata;Z)Lsk/ainet/models/llama/LlamaRuntimeWeights;
+	public static synthetic fun loadSafeTensors$default (Lsk/ainet/apps/kllama/LlamaIngestion;Lkotlin/jvm/functions/Function0;Lsk/ainet/models/llama/LlamaModelMetadata;ZILjava/lang/Object;)Lsk/ainet/models/llama/LlamaRuntimeWeights;
+	public final fun loadStreaming (Lkotlin/jvm/functions/Function0;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class sk/ainet/apps/kllama/LlamaLoadConfig {
+	public fun <init> ()V
+	public fun <init> (Lsk/ainet/io/model/QuantPolicy;Z)V
+	public synthetic fun <init> (Lsk/ainet/io/model/QuantPolicy;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Lsk/ainet/io/model/QuantPolicy;
+	public final fun component2 ()Z
+	public final fun copy (Lsk/ainet/io/model/QuantPolicy;Z)Lsk/ainet/apps/kllama/LlamaLoadConfig;
+	public static synthetic fun copy$default (Lsk/ainet/apps/kllama/LlamaLoadConfig;Lsk/ainet/io/model/QuantPolicy;ZILjava/lang/Object;)Lsk/ainet/apps/kllama/LlamaLoadConfig;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAllowQuantized ()Z
+	public final fun getQuantPolicy ()Lsk/ainet/io/model/QuantPolicy;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/apps/kllama/TokenizerImpl : sk/ainet/apps/llm/Tokenizer {
+	public fun <init> ([Ljava/lang/String;[F)V
+	public fun decode (I)Ljava/lang/String;
+	public fun decode ([I)Ljava/lang/String;
+	public fun encode (Ljava/lang/String;)[I
+}
+
+public final class sk/ainet/apps/kllama/TokenizerUtils {
+	public static final field Companion Lsk/ainet/apps/kllama/TokenizerUtils$Companion;
+	public fun <init> ()V
+}
+
+public final class sk/ainet/apps/kllama/TokenizerUtils$Companion {
+	public final fun buildTokenizer (Lkotlinx/io/Source;I)Lsk/ainet/apps/llm/Tokenizer;
+}
+

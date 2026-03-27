@@ -65,7 +65,7 @@ public class ApertusNetworkLoader @PublishedApi internal constructor(
         )
 
         /** Load from a GGUF file via streaming RandomAccessSource (any size). */
-        @JvmName("fromGgufRandomAccess")
+        @kotlin.jvm.JvmName("fromGgufRandomAccess")
         public fun fromGguf(
             randomAccessProvider: () -> RandomAccessSource,
             quantPolicy: QuantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,

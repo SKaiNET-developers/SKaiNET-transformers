@@ -1,0 +1,27 @@
+public final class sk/ainet/models/qwen/QwenConfigParser {
+	public static final field INSTANCE Lsk/ainet/models/qwen/QwenConfigParser;
+	public final fun isTiedEmbeddings (Ljava/lang/String;)Z
+	public final fun parse (Ljava/lang/String;)Lsk/ainet/models/llama/LlamaModelMetadata;
+}
+
+public final class sk/ainet/models/qwen/QwenGgufTensorNames : sk/ainet/io/gguf/TensorNameMapper {
+	public static final field INSTANCE Lsk/ainet/models/qwen/QwenGgufTensorNames;
+	public fun layerAttnK (I)Ljava/lang/String;
+	public fun layerAttnNorm (I)Ljava/lang/String;
+	public fun layerAttnO (I)Ljava/lang/String;
+	public fun layerAttnQ (I)Ljava/lang/String;
+	public fun layerAttnV (I)Ljava/lang/String;
+	public fun layerFfnDown (I)Ljava/lang/String;
+	public fun layerFfnGate (I)Ljava/lang/String;
+	public fun layerFfnNorm (I)Ljava/lang/String;
+	public fun layerFfnUp (I)Ljava/lang/String;
+	public fun outputNorm ()Ljava/lang/String;
+	public fun outputWeight ()Ljava/lang/String;
+	public fun tokenEmbedding ()Ljava/lang/String;
+}
+
+public final class sk/ainet/models/qwen/QwenHfTensorNameMapper {
+	public static final field INSTANCE Lsk/ainet/models/qwen/QwenHfTensorNameMapper;
+	public final fun toCanonical (Ljava/lang/String;)Ljava/lang/String;
+}
+

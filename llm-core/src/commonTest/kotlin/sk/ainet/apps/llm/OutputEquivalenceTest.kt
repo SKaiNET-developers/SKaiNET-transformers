@@ -41,8 +41,8 @@ class OutputEquivalenceChecker(
         override fun toString(): String = buildString {
             val status = if (passed) "PASS" else "FAIL"
             append("[$status] $label: ")
-            append("maxDiff=%.6f, meanDiff=%.6f, ".format(maxAbsDiff, meanAbsDiff))
-            append("mismatches=$mismatchCount/$totalElements (%.4f%%)".format(mismatchFraction * 100))
+            append("maxDiff=$maxAbsDiff, meanDiff=$meanAbsDiff, ")
+            append("mismatches=$mismatchCount/$totalElements (${mismatchFraction * 100}%%)")
         }
     }
 
