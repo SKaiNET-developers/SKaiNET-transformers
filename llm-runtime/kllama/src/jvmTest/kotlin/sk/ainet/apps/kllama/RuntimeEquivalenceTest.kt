@@ -2,6 +2,7 @@ package sk.ainet.apps.kllama
 
 import kotlin.math.abs
 import kotlin.test.Test
+import org.junit.jupiter.api.Tag
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 import sk.ainet.apps.llm.OptimizedLLMMode
@@ -25,6 +26,7 @@ import kotlin.time.measureTime
  *
  * Requires model at ~/.lmstudio/models/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/
  */
+@Tag("integration")
 class RuntimeEquivalenceTest {
 
     companion object {

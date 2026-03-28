@@ -2,7 +2,8 @@ package sk.ainet.models.gemma
 
 import kotlinx.coroutines.runBlocking
 import org.junit.Assume.assumeTrue
-import org.junit.Test
+import org.junit.jupiter.api.Tag
+import kotlin.test.Test
 import sk.ainet.io.safetensors.StreamingShardedSafeTensorsReader
 import sk.ainet.io.safetensors.readTextFile
 import java.io.File
@@ -27,6 +28,7 @@ class Gemma3nSafeTensorsIntegrationTest {
         )
     }
 
+    @Tag("integration")
     @Test
     fun `test config json parsing`() {
         skipIfModelNotPresent()
@@ -62,6 +64,7 @@ class Gemma3nSafeTensorsIntegrationTest {
         println("  Vocab size: ${metadata.vocabSize}")
     }
 
+    @Tag("integration")
     @Test
     fun `test safetensors index loading`() = runBlocking {
         skipIfModelNotPresent()

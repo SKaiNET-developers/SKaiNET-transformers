@@ -2,6 +2,7 @@ package sk.ainet.apps.kllama
 
 import kotlin.test.Test
 import kotlin.test.assertTrue
+import org.junit.jupiter.api.Tag
 import kotlinx.coroutines.runBlocking
 import sk.ainet.apps.llm.OptimizedLLMMode
 import sk.ainet.apps.llm.OptimizedLLMRuntime
@@ -14,6 +15,7 @@ import java.nio.file.Path
 import kotlin.io.path.exists
 import kotlin.time.measureTime
 
+@Tag("integration")
 class SmokeGenerationTest {
 
     companion object {
