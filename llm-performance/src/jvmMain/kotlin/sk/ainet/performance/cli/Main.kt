@@ -27,29 +27,14 @@ fun main(args: Array<String>) {
 private class RunCommand(
     private val orchestrator: JvmBenchmarkOrchestrator,
 ) : Subcommand(name = "run", actionDescription = "Run a benchmark scenario") {
-    private val scenario by option(
-        type = ArgType.String,
-        fullName = "scenario",
-        description = "Benchmark scenario id",
-    ).required()
-
-    private val target by option(
-        type = ArgType.String,
-        fullName = "target",
-        description = "Execution target",
-    ).default("jvm")
-
-    private val model by option(
-        type = ArgType.String,
-        fullName = "model",
-        description = "Model reference",
-    )
-
-    private val format by option(
-        type = ArgType.String,
-        fullName = "format",
-        description = "Output format: console or json",
-    ).default("console")
+    private val scenario by option(ArgType.String, fullName = "scenario", description = "Benchmark scenario id").required()
+    private val target by option(ArgType.String, fullName = "target", description = "Execution target").default("jvm")
+    private val model by option(ArgType.String, fullName = "model", description = "Model reference")
+    private val modelPath by option(ArgType.String, fullName = "model-path", description = "Explicit local model path")
+    private val format by option(ArgType.String, fullName = "format", description = "Output format: console or json").default("console")
+    private val warmupRuns by option(ArgType.Int, fullName = "warmup-runs", description = "Warmup runs per case").default(3)
+    private val measuredRuns by option(ArgType.Int, fullName = "measured-runs", description = "Measured runs per case").default(3)
+    private val steps by option(ArgType.String, fullName = "steps", description = "Comma-separated generation step counts").default("16,64")
 
     override fun execute() {
         val outputFormat = when (format.lowercase()) {
@@ -57,14 +42,21 @@ private class RunCommand(
             "json" -> BenchmarkOutputFormat.JSON
             else -> error("Unsupported format '$format'.")
         }
+        val resolvedModelReference = modelPath ?: model
+        val parsedSteps = steps.split(',').map { it.trim() }.filter { it.isNotEmpty() }.map {
+            it.toIntOrNull() ?: error("Invalid step count '$it'.")
+        }
 
         val result = runBlocking {
             orchestrator.run(
                 BenchmarkRunRequest(
                     scenarioId = scenario,
                     target = target,
-                    model = model,
+                    modelReference = resolvedModelReference,
                     outputFormat = outputFormat,
+                    warmupRuns = warmupRuns,
+                    measuredRuns = measuredRuns,
+                    steps = parsedSteps,
                 )
             )
         }
@@ -87,13 +79,11 @@ private class ListScenariosCommand(
 private class ResolveModelCommand(
     private val orchestrator: JvmBenchmarkOrchestrator,
 ) : Subcommand(name = "resolve-model", actionDescription = "Resolve a model reference") {
-    private val model by option(
-        type = ArgType.String,
-        fullName = "model",
-        description = "Model reference to resolve",
-    ).required()
+    private val model by option(ArgType.String, fullName = "model", description = "Model reference to resolve")
+    private val modelPath by option(ArgType.String, fullName = "model-path", description = "Explicit local model path to resolve")
 
     override fun execute() {
-        JvmConsoleReporter.renderResolvedModel(orchestrator.resolveModelReference(model))
+        val resolved = orchestrator.resolveModelReference(modelPath ?: model)
+        JvmConsoleReporter.renderResolvedModel(resolved)
     }
 }

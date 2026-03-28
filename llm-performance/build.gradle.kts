@@ -51,8 +51,15 @@ kotlin {
 
         val jvmMain by getting {
             dependencies {
+                implementation(project(":llm-core"))
+                implementation(project(":llm-inference:llama"))
+                implementation(project(":llm-runtime:kllama"))
                 implementation(libs.kotlinx.cli)
                 implementation(libs.kotlinx.coroutines)
+                implementation(libs.skainet.lang.core)
+                implementation(libs.skainet.backend.cpu)
+                implementation(libs.skainet.io.core)
+                implementation(libs.skainet.io.gguf)
             }
         }
 
@@ -80,4 +87,6 @@ tasks.withType<Test>().configureEach {
 
 tasks.withType<JavaExec>().configureEach {
     jvmArgs("--enable-preview", "--add-modules", "jdk.incubator.vector")
+    minHeapSize = "2g"
+    maxHeapSize = "12g"
 }

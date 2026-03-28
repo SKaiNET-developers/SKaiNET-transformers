@@ -9,10 +9,6 @@ public interface BenchmarkRunner<C, R> {
     public suspend fun run(config: C): R
 }
 
-public interface ModelReference {
-    public val raw: String
-}
-
 public enum class BenchmarkCaseStatus {
     SUCCESS,
     SKIPPED,
@@ -34,6 +30,10 @@ public data class BenchmarkCaseResult(
     val caseId: String,
     val status: BenchmarkCaseStatus,
     val metrics: List<BenchmarkMetric>,
+    val runtime: String? = null,
+    val promptLabel: String? = null,
+    val promptTokenCount: Int? = null,
+    val steps: Int? = null,
     val notes: List<String> = emptyList(),
 )
 
@@ -42,14 +42,20 @@ public data class BenchmarkRunResult(
     val target: String,
     val startedAtEpochMillis: Long,
     val finishedAtEpochMillis: Long,
+    val modelReference: String? = null,
+    val resolvedModelPath: String? = null,
+    val modelResolutionSource: String? = null,
     val cases: List<BenchmarkCaseResult>,
 )
 
 public data class BenchmarkRunRequest(
     val scenarioId: String,
     val target: String = "jvm",
-    val model: String? = null,
+    val modelReference: String? = null,
     val outputFormat: BenchmarkOutputFormat = BenchmarkOutputFormat.CONSOLE,
+    val warmupRuns: Int = 3,
+    val measuredRuns: Int = 3,
+    val steps: List<Int> = listOf(16, 64),
 )
 
 public data class ResolvedBenchmarkScenario(
