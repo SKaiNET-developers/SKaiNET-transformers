@@ -5,6 +5,9 @@ import sk.ainet.lang.nn.DefaultNeuralNetworkExecutionContext
 import sk.ainet.lang.nn.Module
 import sk.ainet.lang.nn.dsl.NeuralNetworkDslImpl
 import sk.ainet.lang.nn.dsl.StageImpl
+import sk.ainet.lang.nn.dsl.embedding
+import sk.ainet.lang.nn.dsl.multiHeadAttention
+import sk.ainet.lang.nn.dsl.residual
 import sk.ainet.lang.nn.dsl.sequential
 import sk.ainet.lang.tensor.gelu
 import sk.ainet.lang.types.DType
@@ -33,15 +36,16 @@ public inline fun <reified T : DType, V> bertNetwork(
     val eps = config.layerNormEps
 
     return sequential<T, V> {
-        // Embedding stage: word embeddings + LayerNorm (no residuals, MLP is fine)
-        stage("embeddings") {
-            embedding(vocabSize, dim, id = "word_embeddings")
-            layerNorm(intArrayOf(dim), eps, id = "LayerNorm")
-        }
-
-        // Encoder layers — use TransformerBlock for residual connections
         val dslImpl = this as NeuralNetworkDslImpl<T, V>
         val nnCtx = DefaultNeuralNetworkExecutionContext()
+
+        // Embedding stage: word embeddings + LayerNorm
+        val embStage = StageImpl<T, V>(nnCtx, "embeddings", T::class)
+        embStage.embedding(vocabSize, dim, id = "word_embeddings")
+        embStage.layerNorm(intArrayOf(dim), eps, id = "LayerNorm")
+        dslImpl.modules += HybridTransformerBlock(embStage.modules.toList(), name = "embeddings")
+
+        // Encoder layers — use TransformerBlock for residual connections
         for (layer in 0 until nLayers) {
             val stage = StageImpl<T, V>(nnCtx, "encoder.layer.$layer", T::class)
             // Self-attention (bidirectional, no causal mask, with bias)
