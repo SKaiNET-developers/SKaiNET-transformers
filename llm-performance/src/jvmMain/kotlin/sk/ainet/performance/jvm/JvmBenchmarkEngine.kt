@@ -31,6 +31,11 @@ import sk.ainet.performance.ResolvedBenchmarkScenario
 private const val MODEL_PROPERTY = "skainet.model.path"
 private const val MODEL_ENV = "SKAINET_MODEL_PATH"
 
+private fun log(message: String) {
+    System.err.println("[BENCH] $message")
+    System.err.flush()
+}
+
 private interface JvmBenchmarkScenario : BenchmarkScenario {
     suspend fun execute(request: BenchmarkRunRequest, resolver: JvmModelResolver = JvmModelResolver()): BenchmarkRunResult
 }
@@ -137,12 +142,15 @@ private class LlamaRuntimeThroughputScenario : JvmBenchmarkScenario {
         val resolvedModel = resolver.resolve(request.modelReference)
         val startedAt = System.currentTimeMillis()
 
+        log("Resolved model: ${resolvedModel.path} (source: ${resolvedModel.source})")
+        log("Tokenizing prompts...")
         val tokenizer = JvmRandomAccessSource.open(resolvedModel.path.toString()).use { source ->
             GGUFTokenizer.fromRandomAccessSource(source)
         }
         val promptPlans = prompts.map { prompt ->
             PromptPlan(prompt = prompt, promptTokens = tokenizer.encode(prompt.text))
         }
+        log("Prompts tokenized: ${promptPlans.joinToString { "${it.prompt.label}(${it.promptTokens.size} tokens)" }}")
 
         val adapters: List<LlamaRuntimeAdapter> = listOf(
             LegacyLlamaAdapter(resolvedModel.path),
@@ -151,17 +159,24 @@ private class LlamaRuntimeThroughputScenario : JvmBenchmarkScenario {
         )
 
         val results = mutableListOf<BenchmarkCaseResult>()
-        for (adapter in adapters) {
-            results += adapter.runAllCases(
+        for ((index, adapter) in adapters.withIndex()) {
+            log("=== Runtime ${index + 1}/${adapters.size}: ${adapter.runtimeName} ===")
+            log("Loading model for ${adapter.runtimeName}...")
+            val adapterResults = adapter.runAllCases(
                 promptPlans = promptPlans,
                 stepCounts = request.steps,
                 warmupRuns = request.warmupRuns,
                 measuredRuns = request.measuredRuns,
             )
+            results += adapterResults
+            val successCount = adapterResults.count { it.status == BenchmarkCaseStatus.SUCCESS }
+            log("${adapter.runtimeName} finished: $successCount/${adapterResults.size} cases succeeded")
             System.gc()
         }
 
         val finishedAt = System.currentTimeMillis()
+        val elapsedSec = (finishedAt - startedAt) / 1000.0
+        log("All runtimes complete. Total elapsed: ${"%.1f".format(elapsedSec)}s")
         return BenchmarkRunResult(
             scenarioId = id,
             target = request.target,
@@ -253,12 +268,22 @@ private class LegacyLlamaAdapter(
         measuredRuns: Int,
         run: (IntArray, Int) -> Unit,
     ): BenchmarkCaseResult {
-        repeat(warmupRuns) { run(promptTokens, steps) }
+        log("  $runtimeName | prompt=${prompt.label} steps=$steps | warming up ($warmupRuns runs)...")
+        repeat(warmupRuns) { i ->
+            run(promptTokens, steps)
+            log("    warmup ${i + 1}/$warmupRuns done")
+        }
+        log("  $runtimeName | prompt=${prompt.label} steps=$steps | measuring ($measuredRuns runs)...")
         val measurements = (1..measuredRuns)
-            .map { measureTime { run(promptTokens, steps) }.inWholeMilliseconds }
+            .map { i ->
+                val ms = measureTime { run(promptTokens, steps) }.inWholeMilliseconds
+                log("    measured ${i}/$measuredRuns: ${ms}ms")
+                ms
+            }
             .sorted()
         val medianMillis = measurements[measuredRuns / 2].coerceAtLeast(1)
         val throughput = steps.toDouble() / medianMillis * 1000.0
+        log("  $runtimeName | prompt=${prompt.label} steps=$steps | median=${medianMillis}ms throughput=${"%.2f".format(throughput)} tok/s")
         return BenchmarkCaseResult(
             caseId = "$runtimeName:${prompt.label}:$steps",
             status = BenchmarkCaseStatus.SUCCESS,
@@ -300,20 +325,26 @@ private class DirectDslLlamaAdapter(
         val results = mutableListOf<BenchmarkCaseResult>()
         for (steps in stepCounts) {
             for ((prompt, promptTokens) in promptPlans) {
-                repeat(warmupRuns) {
+                log("  $runtimeName | prompt=${prompt.label} steps=$steps | warming up ($warmupRuns runs)...")
+                repeat(warmupRuns) { i ->
                     runtime.reset()
                     runtime.generate(promptTokens, steps, 0.0f) { _ -> }
+                    log("    warmup ${i + 1}/$warmupRuns done")
                 }
+                log("  $runtimeName | prompt=${prompt.label} steps=$steps | measuring ($measuredRuns runs)...")
                 val measurements = (1..measuredRuns)
-                    .map {
-                        measureTime {
+                    .map { i ->
+                        val ms = measureTime {
                             runtime.reset()
                             runtime.generate(promptTokens, steps, 0.0f) { _ -> }
                         }.inWholeMilliseconds
+                        log("    measured ${i}/$measuredRuns: ${ms}ms")
+                        ms
                     }
                     .sorted()
                 val medianMillis = measurements[measuredRuns / 2].coerceAtLeast(1)
                 val throughput = steps.toDouble() / medianMillis * 1000.0
+                log("  $runtimeName | prompt=${prompt.label} steps=$steps | median=${medianMillis}ms throughput=${"%.2f".format(throughput)} tok/s")
                 results += BenchmarkCaseResult(
                     caseId = "$runtimeName:${prompt.label}:$steps",
                     status = BenchmarkCaseStatus.SUCCESS,
@@ -364,6 +395,7 @@ private class OptimizedLlamaAdapter(
         }
 
         if (runtime == null) {
+            log("  OPTIMIZED runtime failed to initialize — skipping all cases")
             return stepCounts.flatMap { steps ->
                 promptPlans.map { (prompt, promptTokens) ->
                     BenchmarkCaseResult(
@@ -383,20 +415,26 @@ private class OptimizedLlamaAdapter(
         val results = mutableListOf<BenchmarkCaseResult>()
         for (steps in stepCounts) {
             for ((prompt, promptTokens) in promptPlans) {
-                repeat(warmupRuns) {
+                log("  $runtimeName | prompt=${prompt.label} steps=$steps | warming up ($warmupRuns runs)...")
+                repeat(warmupRuns) { i ->
                     runtime.reset()
                     runtime.generate(promptTokens, steps, 0.0f) { _ -> }
+                    log("    warmup ${i + 1}/$warmupRuns done")
                 }
+                log("  $runtimeName | prompt=${prompt.label} steps=$steps | measuring ($measuredRuns runs)...")
                 val measurements = (1..measuredRuns)
-                    .map {
-                        measureTime {
+                    .map { i ->
+                        val ms = measureTime {
                             runtime.reset()
                             runtime.generate(promptTokens, steps, 0.0f) { _ -> }
                         }.inWholeMilliseconds
+                        log("    measured ${i}/$measuredRuns: ${ms}ms")
+                        ms
                     }
                     .sorted()
                 val medianMillis = measurements[measuredRuns / 2].coerceAtLeast(1)
                 val throughput = steps.toDouble() / medianMillis * 1000.0
+                log("  $runtimeName | prompt=${prompt.label} steps=$steps | median=${medianMillis}ms throughput=${"%.2f".format(throughput)} tok/s")
                 results += BenchmarkCaseResult(
                     caseId = "$runtimeName:${prompt.label}:$steps",
                     status = BenchmarkCaseStatus.SUCCESS,

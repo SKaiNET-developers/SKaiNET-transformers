@@ -85,6 +85,8 @@ skainet-compile-core = { module = "sk.ainet.core:skainet-compile-core", version.
 skainet-compile-dag = { module = "sk.ainet.core:skainet-compile-dag", version.ref = "skainet" }
 skainet-compile-opt = { module = "sk.ainet.core:skainet-compile-opt", version.ref = "skainet" }
 skainet-backend-cpu = { module = "sk.ainet.core:skainet-backend-cpu", version.ref = "skainet" }
+skainet-backend-metal = { module = "sk.ainet.core:skainet-backend-metal", version.ref = "skainet" }
+skainet-backend-mlx = { module = "sk.ainet.core:skainet-backend-mlx", version.ref = "skainet" }
 skainet-io-core = { module = "sk.ainet.core:skainet-io-core", version.ref = "skainet" }
 skainet-io-gguf = { module = "sk.ainet.core:skainet-io-gguf", version.ref = "skainet" }
 skainet-io-safetensors = { module = "sk.ainet.core:skainet-io-safetensors", version.ref = "skainet" }

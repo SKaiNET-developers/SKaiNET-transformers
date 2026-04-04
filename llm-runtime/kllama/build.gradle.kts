@@ -119,3 +119,14 @@ tasks.withType<Test>().configureEach {
 tasks.withType<JavaExec>().configureEach {
     jvmArgs("--enable-preview", "--add-modules", "jdk.incubator.vector")
 }
+
+tasks.register<JavaExec>("runJvm") {
+    description = "Run kllama CLI on JVM"
+    group = "application"
+    mainClass.set("sk.ainet.apps.kllama.cli.MainKt")
+    classpath = files(
+        kotlin.jvm().compilations["main"].output.allOutputs,
+        configurations["jvmRuntimeClasspath"]
+    )
+    jvmArgs("--enable-preview", "--add-modules", "jdk.incubator.vector")
+}
