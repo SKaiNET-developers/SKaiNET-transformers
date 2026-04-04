@@ -10,6 +10,10 @@ import sk.ainet.apps.kllama.CpuAttentionBackend
 import sk.ainet.apps.kllama.Llama2DotCWeightLoader
 import sk.ainet.models.llama.MemSegWeightConverter
 import sk.ainet.apps.kllama.TokenizerUtils
+import sk.ainet.apps.llm.backend.BackendRegistry
+import sk.ainet.apps.llm.backend.availableNames
+import sk.ainet.apps.llm.backend.bestAvailable
+import sk.ainet.apps.llm.backend.find
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
 import sk.ainet.io.model.QuantPolicy
@@ -41,7 +45,8 @@ private data class CliArgs(
     val chatMode: Boolean,
     val agentMode: Boolean,
     val demoMode: Boolean,
-    val templateName: String
+    val templateName: String,
+    val backend: String?
 )
 
 private fun usage(errorMessage: String? = null): Nothing {
@@ -60,6 +65,8 @@ private fun usage(errorMessage: String? = null): Nothing {
     println("  --agent             Interactive agent mode with tool calling")
     println("  --demo              Tool calling demo with file listing and calculator")
     println("  --template=NAME     Chat template: llama3 (default) or chatml")
+    println("  --backend=NAME      Compute backend: auto-selects best available (see --list-backends)")
+    println("  --list-backends     List available compute backends and exit")
     println("  -h, --help          Show this help")
     println()
     println("Example:")
@@ -83,6 +90,7 @@ private fun parseArgs(args: Array<String>): CliArgs {
     var agentMode = false
     var demoMode = false
     var templateName = "llama3"
+    var backend: String? = null
 
     var idx = 0
     while (idx < args.size) {
@@ -121,6 +129,17 @@ private fun parseArgs(args: Array<String>): CliArgs {
             arg == "--agent" -> agentMode = true
             arg == "--demo" -> demoMode = true
             arg.startsWith("--template=") -> templateName = arg.substringAfter("=")
+            arg == "--backend" -> backend = nextValue(arg)
+            arg.startsWith("--backend=") -> backend = arg.substringAfter("=")
+            arg == "--list-backends" -> {
+                val available = BackendRegistry.providers()
+                println("Available backends:")
+                for (p in available) {
+                    val status = if (p.isAvailable()) "available" else "unavailable"
+                    println("  ${p.name.padEnd(12)} ${p.displayName} (priority=${p.priority}, $status)")
+                }
+                exitProcess(0)
+            }
             arg.startsWith("-") -> usage("Unknown option '$arg'.")
             else -> {
                 if (prompt != null) usage("Multiple prompts provided. Prompt must be a single positional argument.")
@@ -149,7 +168,8 @@ private fun parseArgs(args: Array<String>): CliArgs {
         chatMode = chatMode,
         agentMode = agentMode,
         demoMode = demoMode,
-        templateName = templateName
+        templateName = templateName,
+        backend = backend
     )
 }
 
@@ -252,6 +272,15 @@ fun main(args: Array<String>) {
         }
 
         if (!modelPath.exists()) error("Model not found: $modelPath")
+
+        // Select compute backend
+        val provider = cliArgs.backend?.let { name ->
+            BackendRegistry.find(name) ?: run {
+                System.err.println("Warning: Backend '$name' not found. Available: ${BackendRegistry.availableNames()}")
+                BackendRegistry.bestAvailable()
+            }
+        } ?: BackendRegistry.bestAvailable()
+        println("Backend: ${provider.displayName}")
 
         val quantArena = Arena.ofShared()
         val memSegFactory = MemorySegmentTensorDataFactory()

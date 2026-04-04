@@ -31,42 +31,6 @@ kotlin {
             executable {
                 entryPoint = "sk.ainet.performance.cli.main"
                 baseName = "llm-performance"
-
-                val neuroBase = rootProject.projectDir.resolve("../../neuroSKai/neuroSK/projects").canonicalPath
-
-                // Metal bridge
-                val metalBridgeDir = providers.environmentVariable("SKAINET_METAL_BRIDGE_DIR")
-                    .orElse(providers.gradleProperty("skainet.metal.bridge.dir"))
-                    .orElse("$neuroBase/metal/neuroSKai-backend-metal/skainet-backends/skainet-backend-metal/build/native/bridge")
-                    .get()
-
-                // MLX bridge
-                val mlxBridgeDir = providers.environmentVariable("SKAINET_MLX_BRIDGE_DIR")
-                    .orElse(providers.gradleProperty("skainet.mlx.bridge.dir"))
-                    .orElse("$neuroBase/mlx/neuroSKai-backend-mlx/skainet-backends/skainet-backend-mlx/build/native/bridge")
-                    .get()
-
-                // MLX system library
-                val mlxLibDir = providers.environmentVariable("MLX_ROOT")
-                    .map { "$it/lib" }
-                    .orElse("/opt/homebrew/opt/mlx/lib")
-                    .get()
-
-                linkerOpts(
-                    // Metal bridge
-                    "-L$metalBridgeDir", "-lmetal_bridge",
-                    // MLX bridge
-                    "-L$mlxBridgeDir", "-lmlx_bridge",
-                    // MLX system library
-                    "-L$mlxLibDir", "-lmlx",
-                    // C++ stdlib
-                    "-lc++",
-                    // Apple frameworks
-                    "-framework", "Metal",
-                    "-framework", "MetalPerformanceShaders",
-                    "-framework", "Accelerate",
-                    "-framework", "Foundation",
-                )
             }
         }
     }
@@ -138,10 +102,6 @@ kotlin {
 
         val macosMain by creating {
             dependsOn(nativeMain)
-            dependencies {
-                implementation(libs.skainet.backend.metal)
-                implementation(libs.skainet.backend.mlx)
-            }
         }
 
         val macosArm64Main by getting {
