@@ -10,7 +10,7 @@ import sk.ainet.apps.llm.TokenizerType
  * GPT-2 BPE tokenizers encode spaces as part of the following token,
  * using Ġ to represent a space before the token.
  */
-object BPEStrategy : TokenizerStrategy {
+public object BPEStrategy : TokenizerStrategy {
     override val type: TokenizerType = TokenizerType.BPE
 
     /** GPT-2 BPE space marker: Ġ (U+0120) */

@@ -31,6 +31,14 @@ import kotlin.reflect.KClass
  * @param eps Epsilon for RMS normalization
  * @param random Random generator for sampling
  */
+@Deprecated(
+    message = "Use OptimizedLLMRuntime with llamaNetwork() instead. " +
+        "See docs/optimizable-LLM-NNs-DAG.md for migration guide.",
+    replaceWith = ReplaceWith(
+        "OptimizedLLMRuntime.create(llamaNetwork(config), tensors, resolver, ctx)",
+        "sk.ainet.apps.llm.OptimizedLLMRuntime"
+    )
+)
 public class LlamaRuntime<T : DType>(
     private val ctx: ExecutionContext,
     val weights: LlamaRuntimeWeights<T>,

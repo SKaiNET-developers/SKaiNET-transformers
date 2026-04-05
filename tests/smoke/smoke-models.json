@@ -19,12 +19,18 @@
       "steps": 16
     },
     {
+      "name": "Qwen3-1.7B",
+      "runner": "qwen",
+      "model": "Qwen3-1.7B-GGUF/Qwen3-1.7B-Q8_0.gguf",
+      "format": "safetensors",
+      "prompt": "Hello world",
+    },
+    {
       "name": "BERT-MiniLM",
       "runner": "kbert",
       "model": "~/.cache/huggingface/models/all-MiniLM-L6-v2",
       "format": "safetensors",
-      "prompt": "Hello world",
-      "doc": "Good morning"
+      "prompt": "Hello world"
     }
   ]
 }

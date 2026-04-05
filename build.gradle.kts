@@ -51,5 +51,10 @@ subprojects {
 
     tasks.withType<Test>().configureEach {
         maxHeapSize = "8192m"
+        useJUnitPlatform {
+            if (!project.hasProperty("includeIntegration")) {
+                excludeTags("integration")
+            }
+        }
     }
 }

@@ -1,7 +1,8 @@
 package sk.ainet.models.bert
 
 import kotlinx.coroutines.test.runTest
-import org.junit.Assume.assumeTrue
+import org.junit.jupiter.api.Assumptions.assumeTrue
+import org.junit.jupiter.api.Tag
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
 import sk.ainet.io.safetensors.SafeTensorsParametersLoader
@@ -27,6 +28,7 @@ import kotlin.test.assertTrue
  *
  * Tests are skipped (via JUnit Assume) when either is unavailable.
  */
+@Tag("integration")
 class BertNumericalAccuracyTest {
 
     companion object {
@@ -214,13 +216,13 @@ class BertNumericalAccuracyTest {
     @Test
     fun tokenizer_matchesPythonTokenIds() {
         val refPath = resolveReferenceDataPath()
-        assumeTrue("Reference data not found at $refPath", refPath.exists())
+        assumeTrue(refPath.exists(), "Reference data not found at $refPath")
         val modelDir = resolveHfCacheDir()
-        assumeTrue("Model not cached", modelDir != null)
+        assumeTrue(modelDir != null, "Model not cached")
         modelDir!!
 
         val vocabPath = modelDir.resolve("vocab.txt")
-        assumeTrue("vocab.txt not found", vocabPath.exists())
+        assumeTrue(vocabPath.exists(), "vocab.txt not found")
 
         val tokenizer = HuggingFaceTokenizer.fromVocabTxt(vocabPath.readText())
         val reference = parseReferenceJson(refPath.readText())
@@ -248,13 +250,13 @@ class BertNumericalAccuracyTest {
     @Test
     fun forward_matchesPythonHiddenStates() = runTest {
         val refPath = resolveReferenceDataPath()
-        assumeTrue("Reference data not found at $refPath", refPath.exists())
+        assumeTrue(refPath.exists(), "Reference data not found at $refPath")
         val modelDir = resolveHfCacheDir()
-        assumeTrue("Model not cached", modelDir != null)
+        assumeTrue(modelDir != null, "Model not cached")
         modelDir!!
 
         val mainSafetensors = modelDir.resolve("model.safetensors")
-        assumeTrue("model.safetensors not found", mainSafetensors.exists())
+        assumeTrue(mainSafetensors.exists(), "model.safetensors not found")
 
         val config = MDBR_LEAF_IR_CONFIG
         val reference = parseReferenceJson(refPath.readText())
@@ -295,15 +297,15 @@ class BertNumericalAccuracyTest {
     @Test
     fun encode_matchesPythonEmbedding() = runTest {
         val refPath = resolveReferenceDataPath()
-        assumeTrue("Reference data not found at $refPath", refPath.exists())
+        assumeTrue(refPath.exists(), "Reference data not found at $refPath")
         val modelDir = resolveHfCacheDir()
-        assumeTrue("Model not cached", modelDir != null)
+        assumeTrue(modelDir != null, "Model not cached")
         modelDir!!
 
         val mainSafetensors = modelDir.resolve("model.safetensors")
         val denseSafetensors = modelDir.resolve("2_Dense").resolve("model.safetensors")
-        assumeTrue("model.safetensors not found", mainSafetensors.exists())
-        assumeTrue("2_Dense/model.safetensors not found", denseSafetensors.exists())
+        assumeTrue(mainSafetensors.exists(), "model.safetensors not found")
+        assumeTrue(denseSafetensors.exists(), "2_Dense/model.safetensors not found")
 
         val config = MDBR_LEAF_IR_CONFIG
         val reference = parseReferenceJson(refPath.readText())

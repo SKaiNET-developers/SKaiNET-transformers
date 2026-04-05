@@ -3,6 +3,7 @@ package sk.ainet.apps.kllama
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import org.junit.jupiter.api.Tag
 import kotlinx.coroutines.test.runTest
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
@@ -130,6 +131,7 @@ class LlamaRuntimeFP16Test {
         assertEquals(4, runtime.currentPosition)
     }
 
+    @Tag("integration")
     @Test
     fun `LlamaIngestion loads streaming quantized GGUF model as FP16`() = runTest {
         var projectRoot = File(System.getProperty("user.dir"))

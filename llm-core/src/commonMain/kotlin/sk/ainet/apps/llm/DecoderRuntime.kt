@@ -4,6 +4,7 @@ import kotlin.random.Random
 import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.tensor.data.FloatArrayTensorData
 import sk.ainet.lang.types.DType
+import sk.ainet.apps.llm.sampleFromLogits
 
 /**
  * Base decoder-only transformer runtime with shared forward pass,
@@ -22,7 +23,7 @@ import sk.ainet.lang.types.DType
  */
 public abstract class DecoderRuntime<T : DType>(
     protected val random: Random = Random.Default
-) {
+) : InferenceRuntime<T> {
 
     // ---- abstract properties ----
     protected abstract val dim: Int
@@ -64,7 +65,7 @@ public abstract class DecoderRuntime<T : DType>(
      *
      * Increments [position] by 1 on success.
      */
-    public open fun forward(tokenId: Int): Tensor<T, Float> {
+    public override fun forward(tokenId: Int): Tensor<T, Float> {
         require(position < seqLen) { "Context length exceeded: pos=$position seqLen=$seqLen" }
 
         var x = embedToken(tokenId)
@@ -79,7 +80,7 @@ public abstract class DecoderRuntime<T : DType>(
     }
 
     /** Reset to initial state (clear caches, rewind position to 0). */
-    public open fun reset() {
+    public override fun reset() {
         resetState()
         position = 0
     }
