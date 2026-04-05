@@ -44,13 +44,33 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             api(project(":llm-inference:llama"))
+            implementation(project(":llm-core"))
             implementation(libs.skainet.lang.core)
             implementation(libs.skainet.io.core)
             implementation(libs.skainet.io.gguf)
+            implementation(libs.skainet.io.safetensors)
+            implementation(libs.skainet.compile.core)
+            implementation(libs.kotlinx.io.core)
+            implementation(libs.kotlinx.coroutines)
         }
 
         commonTest.dependencies {
             implementation(libs.kotlin.test)
+            implementation(libs.skainet.backend.cpu)
+        }
+
+        val jvmTest by getting {
+            dependencies {
+                implementation(libs.kotlin.test)
+                implementation(libs.junit)
+                implementation(libs.kotlinx.coroutines.test)
+                implementation(libs.skainet.backend.cpu)
+            }
         }
     }
+}
+
+tasks.withType<Test>().configureEach {
+    jvmArgs("--enable-preview", "--add-modules", "jdk.incubator.vector", "-XX:MaxDirectMemorySize=12g")
+    maxHeapSize = "6g"
 }
