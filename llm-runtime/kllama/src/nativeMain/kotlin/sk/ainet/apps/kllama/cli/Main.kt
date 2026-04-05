@@ -11,6 +11,10 @@ import sk.ainet.apps.kllama.LlamaIngestion
 import sk.ainet.apps.kllama.LlamaLoadConfig
 import sk.ainet.apps.llm.Tokenizer
 import sk.ainet.apps.kllama.GpuAttentionBackend
+import sk.ainet.apps.llm.backend.BackendRegistry
+import sk.ainet.apps.llm.backend.availableNames
+import sk.ainet.apps.llm.backend.bestAvailable
+import sk.ainet.apps.llm.backend.find
 import sk.ainet.models.llama.LlamaRuntime
 import sk.ainet.models.llama.LlamaRuntimeInterface
 import sk.ainet.apps.kllama.Llama2DotCWeightLoader
@@ -28,28 +32,36 @@ private fun usage(): Nothing {
     println("  <model>         Path to .gguf or .bin model")
     println("  <tokenizer>     Path to tokenizer.bin (required for .bin, optional for .gguf)")
     println("  <prompt>        Text prompt")
-    println("  --backend=NAME  Execution backend (default: ${defaultBackend()})")
+    println("  --backend=NAME  Execution backend (default: ${BackendRegistry.bestAvailable().name})")
     println("  --gpu-opt       Use GPU-optimized runtime (reduces CPU roundtrips)")
     println("  --graph         Use MPSGraph compiled execution (Metal backend only)")
     println("  --dtype=TYPE    Tensor dtype: fp16 or fp32 (default: fp32)")
     println("  --list-backends List available backends and exit")
-    println("Available backends: ${availableBackends().joinToString(", ")}")
+    println("Available backends: ${BackendRegistry.availableNames().joinToString(", ")}")
     throw IllegalArgumentException("Invalid arguments")
 }
 
 fun main(args: Array<String>) = runBlocking {
-    var backend = defaultBackend()
+    // Register platform-specific backends
+    registerPlatformBackends()
+
+    var backendName: String? = null
     var useGpuOpt = false
     var useGraph = false
     var dtypeStr = "fp32"
     val filteredArgs = args.filter { arg ->
         when {
-            arg.startsWith("--backend=") -> { backend = arg.substringAfter("="); false }
+            arg.startsWith("--backend=") -> { backendName = arg.substringAfter("="); false }
             arg == "--gpu-opt" -> { useGpuOpt = true; false }
             arg == "--graph" -> { useGraph = true; useGpuOpt = true; false }
             arg.startsWith("--dtype=") -> { dtypeStr = arg.substringAfter("=").lowercase(); false }
             arg == "--list-backends" -> {
-                println("Available: ${availableBackends().joinToString(", ")} (default: ${defaultBackend()})")
+                val providers = BackendRegistry.providers()
+                println("Available backends:")
+                for (p in providers) {
+                    val status = if (p.isAvailable()) "available" else "unavailable"
+                    println("  ${p.name.padEnd(12)} ${p.displayName} (priority=${p.priority}, $status)")
+                }
                 return@runBlocking
             }
             else -> true
@@ -57,6 +69,14 @@ fun main(args: Array<String>) = runBlocking {
     }.toTypedArray()
 
     if (filteredArgs.size < 2) usage()
+
+    val provider = backendName?.let { name ->
+        BackendRegistry.find(name) ?: run {
+            println("Warning: Backend '$name' not found. Available: ${BackendRegistry.availableNames()}")
+            BackendRegistry.bestAvailable()
+        }
+    } ?: BackendRegistry.bestAvailable()
+    println("Backend: ${provider.displayName}")
 
     val firstArgStr = filteredArgs[0]
     val isGguf = firstArgStr.endsWith(".gguf", ignoreCase = true)
@@ -84,7 +104,7 @@ fun main(args: Array<String>) = runBlocking {
         error("Model not found: $modelPathStr")
     }
 
-    val ctx = createExecutionContext(backend)
+    val ctx = provider.createContext()
 
     when (dtypeStr) {
         "fp16" -> runInference<FP16>(ctx, FP16::class, isGguf, modelPathStr, modelPath, useGpuOpt, useGraph, tokenizerPathStr, prompt, steps, temperature)
