@@ -43,11 +43,36 @@ kotlin {
 
     sourceSets {
         commonMain.dependencies {
+            api(kotlin("stdlib-common"))
             implementation(libs.skainet.lang.core)
+            implementation(libs.skainet.compile.dag)
+            implementation(libs.skainet.compile.opt)
+            implementation(libs.skainet.io.core)
         }
 
         commonTest.dependencies {
             implementation(libs.kotlin.test)
         }
+
+        val jvmMain by getting
+
+        // Shared source set for all non-JVM targets (manual BackendRegistry)
+        val registryBasedMain by creating {
+            dependsOn(commonMain.get())
+        }
+
+        val nativeMain by creating { dependsOn(registryBasedMain) }
+        val iosArm64Main by getting { dependsOn(nativeMain) }
+        val iosSimulatorArm64Main by getting { dependsOn(nativeMain) }
+        val linuxX64Main by getting { dependsOn(nativeMain) }
+        val linuxArm64Main by getting { dependsOn(nativeMain) }
+        val macosArm64Main by getting { dependsOn(nativeMain) }
+
+        if (!project.hasProperty("buildFatJar")) {
+            val androidMain by getting { dependsOn(registryBasedMain) }
+        }
+        val jsMain by getting { dependsOn(registryBasedMain) }
+        val wasmJsMain by getting { dependsOn(registryBasedMain) }
+        val wasmWasiMain by getting { dependsOn(registryBasedMain) }
     }
 }

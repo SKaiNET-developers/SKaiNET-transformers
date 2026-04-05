@@ -36,9 +36,10 @@ public class LlamaSafeTensorsLoader<T : DType>(
 ) {
 
     /**
-     * Load weights from SafeTensors file and return [LlamaRuntimeWeights].
+     * Load weights from SafeTensors file into a flat tensor map with GGUF-canonical names.
+     * Useful for feeding into [WeightMapper] with a [WeightNameResolver].
      */
-    public fun load(randomAccessProvider: () -> RandomAccessSource): LlamaRuntimeWeights<T> {
+    public fun loadToMap(randomAccessProvider: () -> RandomAccessSource): LlamaWeights<T, Float> {
         val tensors = mutableMapOf<String, Tensor<T, Float>>()
 
         StreamingSafeTensorsReader.open(randomAccessProvider()).use { reader ->
@@ -103,11 +104,17 @@ public class LlamaSafeTensorsLoader<T : DType>(
             println("  Tied: ${LlamaTensorNames.OUTPUT_WEIGHT} → ${LlamaTensorNames.TOKEN_EMBEDDINGS}")
         }
 
-        val weights = LlamaWeights<T, Float>(
+        return LlamaWeights<T, Float>(
             metadata = metadata,
             tensors = tensors
         )
-        return LlamaWeightMapper.map(weights)
+    }
+
+    /**
+     * Load weights from SafeTensors and return structured [LlamaRuntimeWeights].
+     */
+    public fun load(randomAccessProvider: () -> RandomAccessSource): LlamaRuntimeWeights<T> {
+        return LlamaWeightMapper.map(loadToMap(randomAccessProvider))
     }
 
     /**

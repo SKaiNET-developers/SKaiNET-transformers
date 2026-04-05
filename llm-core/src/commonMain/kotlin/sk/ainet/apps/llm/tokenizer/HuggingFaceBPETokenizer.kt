@@ -11,7 +11,7 @@ import sk.ainet.apps.llm.Tokenizer
  * This is a Kotlin Multiplatform implementation that can be used on
  * JVM, Native, JS, and WASM targets.
  */
-public class HuggingFaceBPETokenizer private constructor(
+public class HuggingFaceBPETokenizer internal constructor(
     private val vocab: List<String>,
     private val tokenToId: Map<String, Int>,
     private val scores: FloatArray,
@@ -95,80 +95,78 @@ public class HuggingFaceBPETokenizer private constructor(
     override fun decode(tokens: IntArray): String {
         return tokens.joinToString("") { decode(it) }.trimStart()
     }
+}
 
-    public companion object {
-        /** SentencePiece space marker: ▁ (U+2581) */
-        private const val SPACE_MARKER = "\u2581"
+/** SentencePiece space marker: ▁ (U+2581) */
+private const val SPACE_MARKER = "\u2581"
 
-        /**
-         * Load tokenizer from tokenizer.json content.
-         *
-         * @param jsonContent The raw JSON string from tokenizer.json
-         * @param configContent Optional tokenizer_config.json content for special token settings
-         * @return Configured BPE tokenizer
-         */
-        public fun fromJson(jsonContent: String, configContent: String? = null): HuggingFaceBPETokenizer {
-            val parser = TokenizerJsonParser(jsonContent)
+/**
+ * Load tokenizer from tokenizer.json content.
+ *
+ * @param jsonContent The raw JSON string from tokenizer.json
+ * @param configContent Optional tokenizer_config.json content for special token settings
+ * @return Configured BPE tokenizer
+ */
+public fun createHuggingFaceBPETokenizerFromJson(jsonContent: String, configContent: String? = null): HuggingFaceBPETokenizer {
+    val parser = TokenizerJsonParser(jsonContent)
 
-            // Parse vocab
-            val vocabMap = parser.parseVocab()
-            val vocabSize = vocabMap.size
-            val vocab = MutableList(vocabSize) { "" }
-            vocabMap.forEach { (token, id) ->
-                if (id < vocabSize) {
-                    vocab[id] = token
-                }
-            }
-
-            // Parse merges and convert to scores
-            // Earlier merges have higher priority (higher score)
-            val merges = parser.parseMerges()
-            val scores = FloatArray(vocabSize) { Float.NEGATIVE_INFINITY }
-
-            // Assign scores based on merge order (earlier = higher score)
-            merges.forEachIndexed { index, (left, right) ->
-                val merged = left + right
-                val tokenId = vocabMap[merged]
-                if (tokenId != null) {
-                    // Higher score for earlier merges
-                    scores[tokenId] = (merges.size - index).toFloat()
-                }
-            }
-
-            // Also give base vocab tokens a score
-            vocabMap.forEach { (token, id) ->
-                if (scores[id] == Float.NEGATIVE_INFINITY) {
-                    scores[id] = 0f
-                }
-            }
-
-            // Parse special tokens
-            val addedTokens = parser.parseAddedTokens()
-            val bosTokenId = addedTokens["<bos>"] ?: addedTokens["<s>"] ?: 2
-            val eosTokenId = addedTokens["<eos>"] ?: addedTokens["</s>"] ?: 1
-            val unkTokenId = addedTokens["<unk>"] ?: 3
-
-            // Parse config for add_bos_token / add_eos_token settings
-            var addBosToken = true
-            var addEosToken = false
-            if (configContent != null) {
-                val configParser = TokenizerConfigParser(configContent)
-                addBosToken = configParser.getBoolean("add_bos_token") ?: true
-                addEosToken = configParser.getBoolean("add_eos_token") ?: false
-            }
-
-            return HuggingFaceBPETokenizer(
-                vocab = vocab,
-                tokenToId = vocabMap,
-                scores = scores,
-                bosTokenId = bosTokenId,
-                eosTokenId = eosTokenId,
-                unkTokenId = unkTokenId,
-                addBosToken = addBosToken,
-                addEosToken = addEosToken
-            )
+    // Parse vocab
+    val vocabMap = parser.parseVocab()
+    val vocabSize = vocabMap.size
+    val vocab = MutableList(vocabSize) { "" }
+    vocabMap.forEach { (token, id) ->
+        if (id < vocabSize) {
+            vocab[id] = token
         }
     }
+
+    // Parse merges and convert to scores
+    // Earlier merges have higher priority (higher score)
+    val merges = parser.parseMerges()
+    val scores = FloatArray(vocabSize) { Float.NEGATIVE_INFINITY }
+
+    // Assign scores based on merge order (earlier = higher score)
+    merges.forEachIndexed { index, (left, right) ->
+        val merged = left + right
+        val tokenId = vocabMap[merged]
+        if (tokenId != null) {
+            // Higher score for earlier merges
+            scores[tokenId] = (merges.size - index).toFloat()
+        }
+    }
+
+    // Also give base vocab tokens a score
+    vocabMap.forEach { (token, id) ->
+        if (scores[id] == Float.NEGATIVE_INFINITY) {
+            scores[id] = 0f
+        }
+    }
+
+    // Parse special tokens
+    val addedTokens = parser.parseAddedTokens()
+    val bosTokenId = addedTokens["<bos>"] ?: addedTokens["<s>"] ?: 2
+    val eosTokenId = addedTokens["<eos>"] ?: addedTokens["</s>"] ?: 1
+    val unkTokenId = addedTokens["<unk>"] ?: 3
+
+    // Parse config for add_bos_token / add_eos_token settings
+    var addBosToken = true
+    var addEosToken = false
+    if (configContent != null) {
+        val configParser = TokenizerConfigParser(configContent)
+        addBosToken = configParser.getBoolean("add_bos_token") ?: true
+        addEosToken = configParser.getBoolean("add_eos_token") ?: false
+    }
+
+    return HuggingFaceBPETokenizer(
+        vocab = vocab,
+        tokenToId = vocabMap,
+        scores = scores,
+        bosTokenId = bosTokenId,
+        eosTokenId = eosTokenId,
+        unkTokenId = unkTokenId,
+        addBosToken = addBosToken,
+        addEosToken = addEosToken
+    )
 }
 
 /**

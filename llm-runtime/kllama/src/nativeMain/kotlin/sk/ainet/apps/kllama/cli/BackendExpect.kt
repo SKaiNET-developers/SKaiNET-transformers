@@ -7,9 +7,12 @@ import sk.ainet.models.llama.LlamaRuntimeWeights
 import sk.ainet.lang.types.DType
 import kotlin.reflect.KClass
 
-internal expect fun createExecutionContext(backend: String): ExecutionContext
-internal expect fun availableBackends(): List<String>
-internal expect fun defaultBackend(): String
+/**
+ * Register platform-specific [BackendProvider]s with [BackendRegistry].
+ * Called once at startup before backend selection.
+ */
+internal expect fun registerPlatformBackends()
+
 internal expect fun <T : DType> createGpuTensorBridge(ctx: ExecutionContext, dtype: KClass<T>): GpuTensorBridge<T>?
 internal expect fun <T : DType> createGraphAccelerator(
     ctx: ExecutionContext,

@@ -3,6 +3,7 @@ package sk.ainet.apps.kllama
 import kotlin.test.Test
 import kotlin.test.assertTrue
 import kotlin.test.assertEquals
+import org.junit.jupiter.api.Tag
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
 import sk.ainet.models.llama.LlamaRuntime
@@ -25,6 +26,7 @@ import kotlinx.coroutines.runBlocking
  *
  * Requires TinyLlama Q8_0 GGUF at the path below. Skips gracefully if not found.
  */
+@Tag("integration")
 class E2EQuantizedInferenceTest {
 
     companion object {
