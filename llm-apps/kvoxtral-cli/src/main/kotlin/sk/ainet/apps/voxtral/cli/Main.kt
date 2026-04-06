@@ -293,26 +293,53 @@ fun main(args: Array<String>) = runBlocking {
 
     // ---- Load tokenizer ----
     println("Loading tokenizer...")
-    val tokenizer: Tokenizer = if (format == ModelFormat.GGUF && cliArgs.tokenizerPath == null) {
-        // For standalone GGUF files, use embedded tokenizer
-        val ggufPath = if (cliArgs.modelPath.isDirectory()) {
-            cliArgs.modelPath.toFile().listFiles()?.first { it.extension == "gguf" }!!.toPath()
-        } else {
-            cliArgs.modelPath
+    val tokenizer: Tokenizer = run {
+        // Try explicit tokenizer file first
+        if (cliArgs.tokenizerPath != null) {
+            val path = cliArgs.tokenizerPath
+            if (!path.exists()) error("Tokenizer not found: $path")
+            val isTekken = path.toString().endsWith("tekken.json", ignoreCase = true)
+            return@run if (isTekken) {
+                println("  Using Tekken tokenizer from $path")
+                TekkenTokenizerAdapter.fromJson(path.readText())
+            } else {
+                println("  Using HuggingFace tokenizer from $path")
+                GGUFTokenizer.fromTokenizerJson(path.readText())
+            }
         }
-        println("  Using embedded GGUF tokenizer")
-        GGUFTokenizer.fromRandomAccessSource(
-            JvmRandomAccessSource.open(ggufPath.toString())
-        )
-    } else {
-        val tokenizerFile = resolveTokenizerFile(modelDir, cliArgs.tokenizerPath)
-        val isTekken = tokenizerFile.toString().endsWith("tekken.json", ignoreCase = true)
-        if (isTekken) {
-            println("  Using Tekken tokenizer from $tokenizerFile")
-            TekkenTokenizerAdapter.fromJson(tokenizerFile.readText())
-        } else {
-            println("  Using HuggingFace tokenizer from $tokenizerFile")
-            GGUFTokenizer.fromTokenizerJson(tokenizerFile.readText())
+
+        // Try auto-detected file tokenizer (tekken.json or tokenizer.json in model dir)
+        val tekken = modelDir.resolve("tekken.json")
+        val tokenizerJson = modelDir.resolve("tokenizer.json")
+        when {
+            tekken.exists() -> {
+                println("  Using Tekken tokenizer from $tekken")
+                TekkenTokenizerAdapter.fromJson(tekken.readText())
+            }
+            tokenizerJson.exists() -> {
+                println("  Using HuggingFace tokenizer from $tokenizerJson")
+                GGUFTokenizer.fromTokenizerJson(tokenizerJson.readText())
+            }
+            format == ModelFormat.GGUF -> {
+                // Try embedded GGUF tokenizer as last resort
+                val ggufPath = if (cliArgs.modelPath.isDirectory()) {
+                    cliArgs.modelPath.toFile().listFiles()?.first { it.extension == "gguf" }!!.toPath()
+                } else {
+                    cliArgs.modelPath
+                }
+                try {
+                    println("  Using embedded GGUF tokenizer")
+                    GGUFTokenizer.fromRandomAccessSource(
+                        JvmRandomAccessSource.open(ggufPath.toString())
+                    )
+                } catch (e: Exception) {
+                    error("No tokenizer found. GGUF has no embedded tokenizer. " +
+                        "Provide tekken.json with -t: kvoxtral -m model.gguf -t tekken.json ...")
+                }
+            }
+            else -> {
+                error("No tokenizer found in $modelDir. Provide one with -t/--tokenizer.")
+            }
         }
     }
 
@@ -400,12 +427,10 @@ fun main(args: Array<String>) = runBlocking {
     val codebookLevels = audioConfig.acousticCodebookSize
     var acousticCodes: IntArray? = null
 
-    if (hiddenStates != null) {
-        val hasAcousticWeights = allTensors.keys.any { it.startsWith("acoustic.") }
+    val hasAcousticWeights = allTensors.keys.any { it.startsWith("acoustic.") }
+    if (hiddenStates != null && hasAcousticWeights) {
         println("Running acoustic flow matching (${cliArgs.flowSteps} ${cliArgs.flowMethod} steps, " +
-            "$nCodebooks codebooks x $codebookLevels levels" +
-            if (hasAcousticWeights) ", with model weights" else ", zero-initialized" +
-            ")...")
+            "$nCodebooks codebooks x $codebookLevels levels)...")
         val acousticTime = measureTime {
             val dim = hiddenStates.shape[1]
             val acousticDim = nCodebooks * codebookLevels

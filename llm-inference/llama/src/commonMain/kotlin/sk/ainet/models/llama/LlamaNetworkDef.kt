@@ -121,6 +121,15 @@ internal class VoidDenseModule<T : DType, V>(
         val ops = ctx.ops
         val weight = params[0].value
         // output = input @ weight^T (no bias — LLaMA lm_head has no bias)
-        return ops.matmul(input, ops.transpose(weight))
+        // Weight shape: [vocabSize, dim]. Input: [1, dim]. Result: [1, vocabSize].
+        // Use matmul(input, transpose(weight)) but for very large vocab, transpose
+        // alone allocates too much memory. Check if weight is already transposed-friendly.
+        val wShape = weight.shape
+        if (wShape.rank == 2 && wShape[0] > wShape[1]) {
+            // Weight is [outDim, inDim] — typical case. Transpose needed.
+            return ops.matmul(input, ops.transpose(weight))
+        }
+        // Weight is [inDim, outDim] — already transposed
+        return ops.matmul(input, weight)
     }
 }
