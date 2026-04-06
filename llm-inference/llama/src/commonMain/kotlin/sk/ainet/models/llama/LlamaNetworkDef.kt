@@ -27,14 +27,15 @@ import sk.ainet.lang.types.DType
  * [ResidualAdd] modules receive the correct skip-connection input.
  */
 public inline fun <reified T : DType, V> llamaNetwork(
-    metadata: LlamaModelMetadata
+    metadata: LlamaModelMetadata,
+    maxInferenceLen: Int = minOf(metadata.contextLength, 4096)
 ): Module<T, V> {
     val dim = metadata.embeddingLength
     val nHeads = metadata.headCount
     val nKVHeads = metadata.kvHeadCount
     val nLayers = metadata.blockCount
     val ffnDim = metadata.feedForwardLength
-    val seqLen = metadata.contextLength
+    val seqLen = maxInferenceLen
     val vocabSize = metadata.vocabSize
     val headDim = metadata.ropeDimensionCount ?: (dim / nHeads)
     val eps = 1e-5f
@@ -69,6 +70,57 @@ public inline fun <reified T : DType, V> llamaNetwork(
         }
 
         dslImpl.rmsNorm(dim, eps, id = "output_norm")
-        dense(vocabSize, id = "output")
+        // Use void placeholder for output projection to avoid allocating [vocabSize, dim] zeros.
+        // Weights are loaded by WeightMapper.
+        dslImpl.modules += VoidDenseModule<T, V>("output", vocabSize, dim)
+    }
+}
+
+/**
+ * Lightweight dense (linear) module with void placeholder weight.
+ * No bias. Used for large projections (lm_head with vocab=131K) to avoid
+ * allocating gigabytes of zero-initialized memory before weights are loaded.
+ * Follows the same pattern as [SwiGLUFFN] for void weight creation.
+ */
+@Suppress("UNCHECKED_CAST")
+@PublishedApi
+internal class VoidDenseModule<T : DType, V>(
+    override val name: String,
+    outDim: Int,
+    inDim: Int
+) : sk.ainet.lang.nn.Module<T, V>(), sk.ainet.lang.nn.topology.ModuleParameters<T, V> {
+
+    override val params: List<sk.ainet.lang.nn.topology.ModuleParameter<T, V>> = listOf(
+        sk.ainet.lang.nn.topology.ModuleParameter.WeightParameter(
+            "$name.weight",
+            sk.ainet.lang.tensor.VoidOpsTensor(
+                object : sk.ainet.lang.tensor.data.TensorData<T, V> {
+                    override val shape = sk.ainet.lang.tensor.Shape(outDim, inDim)
+                    override fun get(vararg indices: Int): V = 0.0f as V
+                    override fun set(vararg indices: Int, value: V) {}
+                },
+                Any::class as kotlin.reflect.KClass<T>
+            )
+        ),
+        sk.ainet.lang.nn.topology.ModuleParameter.BiasParameter(
+            "$name.bias",
+            sk.ainet.lang.tensor.VoidOpsTensor(
+                object : sk.ainet.lang.tensor.data.TensorData<T, V> {
+                    override val shape = sk.ainet.lang.tensor.Shape(outDim)
+                    override fun get(vararg indices: Int): V = 0.0f as V
+                    override fun set(vararg indices: Int, value: V) {}
+                },
+                Any::class as kotlin.reflect.KClass<T>
+            )
+        )
+    )
+
+    override val modules: List<sk.ainet.lang.nn.Module<T, V>> = emptyList()
+
+    override fun onForward(input: sk.ainet.lang.tensor.Tensor<T, V>, ctx: sk.ainet.context.ExecutionContext): sk.ainet.lang.tensor.Tensor<T, V> {
+        val ops = ctx.ops
+        val weight = params[0].value
+        // output = input @ weight^T (no bias — LLaMA lm_head has no bias)
+        return ops.matmul(input, ops.transpose(weight))
     }
 }

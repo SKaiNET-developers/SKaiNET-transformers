@@ -292,10 +292,9 @@ fun main(args: Array<String>) = runBlocking {
     val model = backboneModel.value
 
     // ---- Load tokenizer ----
-    val tokenizerFile = resolveTokenizerFile(modelDir, cliArgs.tokenizerPath)
-    println("Loading tokenizer from $tokenizerFile...")
-    val isTekken = tokenizerFile.toString().endsWith("tekken.json", ignoreCase = true)
+    println("Loading tokenizer...")
     val tokenizer: Tokenizer = if (format == ModelFormat.GGUF && cliArgs.tokenizerPath == null) {
+        // For standalone GGUF files, use embedded tokenizer
         val ggufPath = if (cliArgs.modelPath.isDirectory()) {
             cliArgs.modelPath.toFile().listFiles()?.first { it.extension == "gguf" }!!.toPath()
         } else {
@@ -305,12 +304,16 @@ fun main(args: Array<String>) = runBlocking {
         GGUFTokenizer.fromRandomAccessSource(
             JvmRandomAccessSource.open(ggufPath.toString())
         )
-    } else if (isTekken) {
-        println("  Using Tekken tokenizer (Mistral format)")
-        TekkenTokenizerAdapter.fromJson(tokenizerFile.readText())
     } else {
-        println("  Using HuggingFace tokenizer.json")
-        GGUFTokenizer.fromTokenizerJson(tokenizerFile.readText())
+        val tokenizerFile = resolveTokenizerFile(modelDir, cliArgs.tokenizerPath)
+        val isTekken = tokenizerFile.toString().endsWith("tekken.json", ignoreCase = true)
+        if (isTekken) {
+            println("  Using Tekken tokenizer from $tokenizerFile")
+            TekkenTokenizerAdapter.fromJson(tokenizerFile.readText())
+        } else {
+            println("  Using HuggingFace tokenizer from $tokenizerFile")
+            GGUFTokenizer.fromTokenizerJson(tokenizerFile.readText())
+        }
     }
 
     // ---- Build backbone runtime (captures hidden states) ----

@@ -103,10 +103,19 @@ public class AttentionImpl<T : DType, V>(
 // ============================================================================
 
 public fun <T : DType, V> StageImpl<T, V>.embedding(vocabSize: Int, dim: Int, id: String = "") {
+    @Suppress("UNCHECKED_CAST")
+    val voidWeight = sk.ainet.lang.tensor.VoidOpsTensor(
+        object : sk.ainet.lang.tensor.data.TensorData<T, V> {
+            override val shape = sk.ainet.lang.tensor.Shape(vocabSize, dim)
+            override fun get(vararg indices: Int): V = 0.0f as V
+            override fun set(vararg indices: Int, value: V) {}
+        },
+        Any::class as kotlin.reflect.KClass<T>
+    )
     val emb = Embedding<T, V>(
-        ctx = executionContext,
-        dtype = kClass,
-        params = EmbeddingParams(numEmbeddings = vocabSize, embeddingDim = dim),
+        numEmbeddings = vocabSize,
+        embeddingDim = dim,
+        initWeight = voidWeight,
         name = getDefaultName(id, "Embedding", modules.size)
     )
     modules += EmbeddingAdapter(emb)
@@ -171,10 +180,21 @@ public fun <T : DType, V> StageImpl<T, V>.residual() {
 // ============================================================================
 
 public fun <T : DType, V> NeuralNetworkDslImpl<T, V>.embedding(vocabSize: Int, dim: Int, id: String = "") {
+    // Use VoidOpsTensor placeholder to avoid allocating a full [vocabSize, dim] random tensor.
+    // The actual weights will be set by WeightMapper during model loading.
+    @Suppress("UNCHECKED_CAST")
+    val voidWeight = sk.ainet.lang.tensor.VoidOpsTensor(
+        object : sk.ainet.lang.tensor.data.TensorData<T, V> {
+            override val shape = sk.ainet.lang.tensor.Shape(vocabSize, dim)
+            override fun get(vararg indices: Int): V = 0.0f as V
+            override fun set(vararg indices: Int, value: V) {}
+        },
+        Any::class as kotlin.reflect.KClass<T>
+    )
     val emb = Embedding<T, V>(
-        ctx = executionContext,
-        dtype = kClass,
-        params = EmbeddingParams(numEmbeddings = vocabSize, embeddingDim = dim),
+        numEmbeddings = vocabSize,
+        embeddingDim = dim,
+        initWeight = voidWeight,
         name = getDefaultName(id, "Embedding", modules.size)
     )
     modules += EmbeddingAdapter(emb)
