@@ -237,6 +237,193 @@ class VoxtralDslPipelineTest {
         assertEquals(37, defaults.audio.totalCodebooks)
     }
 
+    // ========== Acoustic pipeline tests ==========
+
+    private val acousticMetadataTiny = LlamaModelMetadata(
+        architecture = "voxtral_tts_acoustic",
+        embeddingLength = dim,
+        contextLength = seqLen,
+        blockCount = 1,
+        headCount = nHeads,
+        kvHeadCount = kvHeads,
+        feedForwardLength = ffDim,
+        ropeDimensionCount = headDim,
+        vocabSize = vocabSize
+    )
+
+    private val tinyCodebooks = 4
+    private val tinyLevels = 5
+    private val tinyAcousticDim = tinyCodebooks * tinyLevels  // 20
+
+    private fun buildAcousticWeightTensors(): Map<String, Tensor<FP32, Float>> {
+        val tensors = linkedMapOf<String, Tensor<FP32, Float>>()
+
+        // Acoustic transformer layer 0
+        tensors[VoxtralTensorNames.acousticAttnNorm(0)] = ones(Shape(dim))
+        tensors[VoxtralTensorNames.acousticAttnQ(0)] = randn(Shape(dim, dim), seed = 20)
+        tensors[VoxtralTensorNames.acousticAttnK(0)] = randn(Shape(dim, dim), seed = 21)
+        tensors[VoxtralTensorNames.acousticAttnV(0)] = randn(Shape(dim, dim), seed = 22)
+        tensors[VoxtralTensorNames.acousticAttnOut(0)] = randn(Shape(dim, dim), seed = 23)
+        tensors[VoxtralTensorNames.acousticFfnNorm(0)] = ones(Shape(dim))
+        tensors[VoxtralTensorNames.acousticFfnGate(0)] = randn(Shape(ffDim, dim), seed = 24)
+        tensors[VoxtralTensorNames.acousticFfnDown(0)] = randn(Shape(dim, ffDim), seed = 25)
+        tensors[VoxtralTensorNames.acousticFfnUp(0)] = randn(Shape(ffDim, dim), seed = 26)
+        tensors[VoxtralTensorNames.ACOUSTIC_NORM] = ones(Shape(dim))
+
+        // Input/output projections
+        tensors[VoxtralTensorNames.ACOUSTIC_INPUT_PROJ] = randn(Shape(dim, tinyAcousticDim), seed = 30)
+        tensors[VoxtralTensorNames.ACOUSTIC_OUTPUT_PROJ] = randn(Shape(tinyAcousticDim, dim), seed = 31)
+
+        return tensors
+    }
+
+    @Test
+    fun `flow matching Euler produces finite output`() {
+        val fm = VoxtralFlowMatching()
+        val testSeqLen = 4
+        val testDim = 8
+
+        val result = fm.sampleEuler<FP32>(
+            ctx = ctx,
+            dtype = FP32::class,
+            seqLen = testSeqLen,
+            acousticDim = testDim,
+            numSteps = 4,
+            velocityFn = { xt, _ ->
+                // Identity velocity: just return -xt (moves toward zero)
+                ctx.ops.mulScalar(xt, -1.0f)
+            },
+            random = kotlin.random.Random(42)
+        )
+
+        assertEquals(2, result.shape.rank, "Output should be 2D")
+        assertEquals(testSeqLen, result.shape[0], "First dim should be seqLen")
+        assertEquals(testDim, result.shape[1], "Second dim should be acousticDim")
+
+        val data = result.data.copyToFloatArray()
+        for (i in data.indices) {
+            assertTrue(data[i].isFinite(), "Output[$i] = ${data[i]} is not finite")
+        }
+    }
+
+    @Test
+    fun `flow matching midpoint produces finite output`() {
+        val fm = VoxtralFlowMatching()
+
+        val result = fm.sampleMidpoint<FP32>(
+            ctx = ctx,
+            dtype = FP32::class,
+            seqLen = 4,
+            acousticDim = 8,
+            numSteps = 4,
+            velocityFn = { xt, _ -> ctx.ops.mulScalar(xt, -1.0f) },
+            random = kotlin.random.Random(42)
+        )
+
+        val data = result.data.copyToFloatArray()
+        for (i in data.indices) {
+            assertTrue(data[i].isFinite(), "Midpoint output[$i] = ${data[i]} is not finite")
+        }
+    }
+
+    @Test
+    fun `FSQ quantization produces valid codes`() {
+        val fm = VoxtralFlowMatching()
+        val nCb = 2
+        val levels = 3
+        // 1 frame, 2 codebooks × 3 levels = 6 values
+        // cb0: [-1.0, 0.5, 2.0] → argmax = 2
+        // cb1: [3.0, -1.0, 0.0] → argmax = 0
+        val values = floatArrayOf(-1.0f, 0.5f, 2.0f, 3.0f, -1.0f, 0.0f)
+        @Suppress("UNCHECKED_CAST")
+        val tensor = ctx.fromFloatArray<FP32, Float>(Shape(1, values.size), FP32::class, values) as Tensor<FP32, Float>
+
+        val codes = fm.quantizeFSQ(tensor, nCb, levels)
+
+        assertEquals(nCb, codes.size, "Should produce nCodebooks codes per frame")
+        for (code in codes) {
+            assertTrue(code in 0 until levels,
+                "Code $code should be in [0, $levels)")
+        }
+        assertEquals(2, codes[0], "First codebook argmax should be index 2")
+        assertEquals(0, codes[1], "Second codebook argmax should be index 0")
+    }
+
+    @Test
+    fun `acoustic runtime generates valid codes with tiny model`() {
+        val tensors = buildAcousticWeightTensors()
+        val weights = LlamaWeights<FP32, Float>(acousticMetadataTiny, tensors)
+
+        val acousticRuntime = VoxtralNetworkLoader.acousticFromWeights(
+            weights = weights,
+            acousticMetadata = acousticMetadataTiny,
+            ctx = ctx,
+            nCodebooks = tinyCodebooks,
+            codebookLevels = tinyLevels
+        )
+
+        // Simulate backbone hidden states: 3 frames of dim=8
+        val backboneHidden = randn(Shape(3, dim), seed = 50)
+
+        val codes = acousticRuntime.generate(
+            backboneHidden = backboneHidden,
+            numSteps = 4,
+            method = "euler",
+            random = kotlin.random.Random(42)
+        )
+
+        assertEquals(3 * tinyCodebooks, codes.size,
+            "Should produce seqLen * nCodebooks codes")
+        for (code in codes) {
+            assertTrue(code in 0 until tinyLevels,
+                "Code $code should be in [0, $tinyLevels)")
+        }
+    }
+
+    @Test
+    fun `acoustic runtime is deterministic with same seed`() {
+        val tensors = buildAcousticWeightTensors()
+        val weights = LlamaWeights<FP32, Float>(acousticMetadataTiny, tensors)
+        val backboneHidden = randn(Shape(3, dim), seed = 50)
+
+        val runtime1 = VoxtralNetworkLoader.acousticFromWeights(
+            weights, acousticMetadataTiny, ctx, tinyCodebooks, tinyLevels
+        )
+        val codes1 = runtime1.generate(backboneHidden, numSteps = 4, random = kotlin.random.Random(42))
+
+        val runtime2 = VoxtralNetworkLoader.acousticFromWeights(
+            weights, acousticMetadataTiny, ctx, tinyCodebooks, tinyLevels
+        )
+        val codes2 = runtime2.generate(backboneHidden, numSteps = 4, random = kotlin.random.Random(42))
+
+        assertTrue(codes1.contentEquals(codes2), "Same seed should produce identical codes")
+    }
+
+    @Test
+    fun `acoustic runtime produces different codes for different conditioning`() {
+        val tensors = buildAcousticWeightTensors()
+        val weights = LlamaWeights<FP32, Float>(acousticMetadataTiny, tensors)
+
+        val hidden1 = randn(Shape(3, dim), seed = 50)
+        val hidden2 = randn(Shape(3, dim), seed = 99)
+
+        val runtime1 = VoxtralNetworkLoader.acousticFromWeights(
+            weights, acousticMetadataTiny, ctx, tinyCodebooks, tinyLevels
+        )
+        val codes1 = runtime1.generate(hidden1, numSteps = 4, random = kotlin.random.Random(42))
+
+        val runtime2 = VoxtralNetworkLoader.acousticFromWeights(
+            weights, acousticMetadataTiny, ctx, tinyCodebooks, tinyLevels
+        )
+        val codes2 = runtime2.generate(hidden2, numSteps = 4, random = kotlin.random.Random(42))
+
+        var allSame = true
+        for (i in codes1.indices) {
+            if (codes1[i] != codes2[i]) { allSame = false; break }
+        }
+        assertTrue(!allSame, "Different conditioning should produce different codes")
+    }
+
     @Test
     fun `config parser parses Mistral params json`() {
         val json = """

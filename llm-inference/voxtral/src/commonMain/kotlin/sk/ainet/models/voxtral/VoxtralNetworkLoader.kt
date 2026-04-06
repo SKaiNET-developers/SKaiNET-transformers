@@ -8,12 +8,15 @@ import sk.ainet.io.weights.MappingConfig
 import sk.ainet.io.weights.WeightMapper
 import sk.ainet.io.weights.WeightTensor
 import sk.ainet.lang.nn.Module
+import sk.ainet.lang.tensor.Shape
+import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.types.DType
 import sk.ainet.models.llama.LlamaModelMetadata
 import sk.ainet.models.llama.LlamaSafeTensorsLoader
 import sk.ainet.models.llama.LlamaWeightLoader
 import sk.ainet.models.llama.LlamaWeights
 import kotlin.jvm.JvmName
+import kotlin.reflect.KClass
 
 /**
  * End-to-end loader that builds Voxtral network modules and populates them
@@ -106,6 +109,21 @@ public class VoxtralNetworkLoader @PublishedApi internal constructor(
         ): Module<T, V> = VoxtralNetworkLoader(
             WeightsProvider.Preloaded(weights), debug
         ).applyWeightsToBackbone(weights)
+
+        /** Build acoustic runtime from already-loaded weights. */
+        public inline fun <reified T : DType> acousticFromWeights(
+            weights: LlamaWeights<T, Float>,
+            acousticMetadata: LlamaModelMetadata,
+            ctx: ExecutionContext,
+            nCodebooks: Int = 36,
+            codebookLevels: Int = 21,
+            debug: Boolean = false
+        ): VoxtralAcousticRuntime<T> {
+            val acousticModel = voxtralAcousticNetwork<T, Float>(acousticMetadata)
+            return VoxtralNetworkLoader(
+                WeightsProvider.Preloaded(weights), debug
+            ).buildAcousticRuntime(weights, acousticModel, acousticMetadata, ctx, T::class, nCodebooks, codebookLevels)
+        }
     }
 
     /**
@@ -191,5 +209,104 @@ public class VoxtralNetworkLoader @PublishedApi internal constructor(
         }
 
         return model
+    }
+
+    /**
+     * Load weights and build the acoustic flow-matching runtime.
+     *
+     * @param acousticMetadata Metadata for the acoustic transformer (3 layers).
+     * @param nCodebooks Number of acoustic codebooks (default: 36).
+     * @param codebookLevels FSQ levels per codebook (default: 21).
+     * @return A [VoxtralAcousticRuntime] ready for flow-matching inference.
+     */
+    public suspend inline fun <reified T : DType> loadAcoustic(
+        ctx: ExecutionContext,
+        acousticMetadata: LlamaModelMetadata,
+        nCodebooks: Int = 36,
+        codebookLevels: Int = 21
+    ): VoxtralAcousticRuntime<T> {
+        val weights: LlamaWeights<T, Float> = loadWeights(ctx)
+        val acousticModel = voxtralAcousticNetwork<T, Float>(acousticMetadata)
+        return buildAcousticRuntime(weights, acousticModel, acousticMetadata, ctx, T::class, nCodebooks, codebookLevels)
+    }
+
+    /**
+     * Build the acoustic runtime from loaded weights.
+     *
+     * 1. Build acoustic transformer DSL network and map weights
+     * 2. Extract input/output projection tensors
+     * 3. Assemble into [VoxtralAcousticRuntime]
+     */
+    @PublishedApi
+    internal fun <T : DType> buildAcousticRuntime(
+        weights: LlamaWeights<T, Float>,
+        acousticModel: Module<T, Float>,
+        acousticMetadata: LlamaModelMetadata,
+        ctx: ExecutionContext,
+        dtype: KClass<T>,
+        nCodebooks: Int,
+        codebookLevels: Int
+    ): VoxtralAcousticRuntime<T> {
+        val dim = acousticMetadata.embeddingLength
+        val acousticDim = nCodebooks * codebookLevels
+
+        // Map acoustic transformer weights
+        val weightTensors = weights.tensors
+            .filter { (name, _) -> name.startsWith("acoustic.blk.") || name.startsWith("acoustic.output_norm") }
+            .map { (name, tensor) ->
+                WeightTensor(
+                    name = name,
+                    shape = tensor.shape.dimensions.toList(),
+                    tensor = tensor
+                )
+            }
+
+        val config = MappingConfig(
+            usePathBasedMatching = false,
+            fallbackToShapeMatching = false,
+            debug = debug,
+            nameResolver = VoxtralGGUFNameResolver()
+        )
+
+        if (weightTensors.isNotEmpty()) {
+            val result = WeightMapper.applyWeights(acousticModel, weightTensors, config)
+            val unmappedNonBias = result.missingParams.filter { !it.contains(".bias") }
+            if (unmappedNonBias.isNotEmpty() && debug) {
+                println("Acoustic model unmapped params (${unmappedNonBias.size}):")
+                unmappedNonBias.forEach { println("  - $it") }
+            }
+        }
+
+        // Extract projection tensors (these are raw linear layers, not part of the DSL module)
+        val inputProj = weights.tensors[VoxtralTensorNames.ACOUSTIC_INPUT_PROJ]
+            ?: createZeroTensor(ctx, dtype, Shape(dim, acousticDim))
+        val outputProj = weights.tensors[VoxtralTensorNames.ACOUSTIC_OUTPUT_PROJ]
+            ?: createZeroTensor(ctx, dtype, Shape(acousticDim, dim))
+        val inputProjBias = weights.tensors[VoxtralTensorNames.ACOUSTIC_INPUT_PROJ_BIAS]
+        val outputProjBias = weights.tensors[VoxtralTensorNames.ACOUSTIC_OUTPUT_PROJ_BIAS]
+
+        return VoxtralAcousticRuntime(
+            acousticTransformer = acousticModel,
+            inputProj = inputProj,
+            outputProj = outputProj,
+            inputProjBias = inputProjBias,
+            outputProjBias = outputProjBias,
+            ctx = ctx,
+            dtype = dtype,
+            nCodebooks = nCodebooks,
+            codebookLevels = codebookLevels,
+            dim = dim
+        )
+    }
+
+    private fun <T : DType> createZeroTensor(
+        ctx: ExecutionContext,
+        dtype: KClass<T>,
+        shape: Shape
+    ): Tensor<T, Float> {
+        val data = FloatArray(shape.volume)
+        @Suppress("UNCHECKED_CAST")
+        val result = ctx.fromFloatArray<T, Float>(shape, dtype, data)
+        return result as Tensor<T, Float>
     }
 }

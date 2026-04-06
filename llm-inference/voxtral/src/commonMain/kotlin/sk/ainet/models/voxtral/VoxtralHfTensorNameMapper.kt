@@ -36,8 +36,12 @@ public object VoxtralHfTensorNameMapper {
         }
 
         // Acoustic model global tensors
-        if (hfName == "acoustic_model.norm.weight") {
-            return VoxtralTensorNames.ACOUSTIC_NORM
+        when (hfName) {
+            "acoustic_model.norm.weight" -> return VoxtralTensorNames.ACOUSTIC_NORM
+            "acoustic_model.input_projection.weight" -> return VoxtralTensorNames.ACOUSTIC_INPUT_PROJ
+            "acoustic_model.input_projection.bias" -> return VoxtralTensorNames.ACOUSTIC_INPUT_PROJ_BIAS
+            "acoustic_model.output_projection.weight" -> return VoxtralTensorNames.ACOUSTIC_OUTPUT_PROJ
+            "acoustic_model.output_projection.bias" -> return VoxtralTensorNames.ACOUSTIC_OUTPUT_PROJ_BIAS
         }
 
         // Codec tensors

@@ -33,6 +33,10 @@ public object VoxtralTensorNames {
 
     // ========== Acoustic Model ==========
 
+    public const val ACOUSTIC_INPUT_PROJ: String = "acoustic.input_proj.weight"
+    public const val ACOUSTIC_INPUT_PROJ_BIAS: String = "acoustic.input_proj.bias"
+    public const val ACOUSTIC_OUTPUT_PROJ: String = "acoustic.output_proj.weight"
+    public const val ACOUSTIC_OUTPUT_PROJ_BIAS: String = "acoustic.output_proj.bias"
     public const val ACOUSTIC_NORM: String = "acoustic.output_norm.weight"
 
     public fun acousticAttnNorm(layer: Int): String = "acoustic.blk.$layer.attn_norm.weight"

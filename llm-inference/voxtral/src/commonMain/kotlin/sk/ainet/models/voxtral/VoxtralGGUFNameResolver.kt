@@ -63,6 +63,16 @@ public class VoxtralGGUFNameResolver : WeightNameResolver {
             paramName.contains("down_proj.weight") ->
                 if (blockPrefix != null) "$blockPrefix.ffn_down.weight" else null
 
+            // Acoustic input/output projections
+            moduleName == "acoustic.input_proj" && paramName.endsWith(".weight") ->
+                "acoustic.input_proj.weight"
+            moduleName == "acoustic.input_proj" && paramName.endsWith(".bias") ->
+                "acoustic.input_proj.bias"
+            moduleName == "acoustic.output_proj" && paramName.endsWith(".weight") ->
+                "acoustic.output_proj.weight"
+            moduleName == "acoustic.output_proj" && paramName.endsWith(".bias") ->
+                "acoustic.output_proj.bias"
+
             // Output norm (backbone or acoustic)
             moduleName == "acoustic.output_norm" || paramName.contains("acoustic.output_norm") ->
                 "acoustic.output_norm.weight"
