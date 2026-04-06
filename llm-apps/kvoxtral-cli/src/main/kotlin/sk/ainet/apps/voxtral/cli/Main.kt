@@ -15,6 +15,7 @@ import sk.ainet.models.voxtral.VoxtralConfigParser
 import sk.ainet.models.voxtral.VoxtralDefaults
 import sk.ainet.models.voxtral.VoxtralNetworkLoader
 import sk.ainet.models.voxtral.VoxtralSafeTensorsLoader
+import sk.ainet.models.voxtral.TekkenTokenizerAdapter
 import kotlinx.coroutines.runBlocking
 import java.nio.file.Path
 import kotlin.io.path.exists
@@ -278,16 +279,22 @@ fun main(args: Array<String>) = runBlocking {
     // ---- Load tokenizer ----
     val tokenizerFile = resolveTokenizerFile(modelDir, cliArgs.tokenizerPath)
     println("Loading tokenizer from $tokenizerFile...")
+    val isTekken = tokenizerFile.toString().endsWith("tekken.json", ignoreCase = true)
     val tokenizer: Tokenizer = if (format == ModelFormat.GGUF && cliArgs.tokenizerPath == null) {
         val ggufPath = if (cliArgs.modelPath.isDirectory()) {
             cliArgs.modelPath.toFile().listFiles()?.first { it.extension == "gguf" }!!.toPath()
         } else {
             cliArgs.modelPath
         }
+        println("  Using embedded GGUF tokenizer")
         GGUFTokenizer.fromRandomAccessSource(
             JvmRandomAccessSource.open(ggufPath.toString())
         )
+    } else if (isTekken) {
+        println("  Using Tekken tokenizer (Mistral format)")
+        TekkenTokenizerAdapter.fromJson(tokenizerFile.readText())
     } else {
+        println("  Using HuggingFace tokenizer.json")
         GGUFTokenizer.fromTokenizerJson(tokenizerFile.readText())
     }
 
