@@ -39,7 +39,8 @@ private data class CliArgs(
     val temperature: Float,
     val flowSteps: Int,
     val flowMethod: String,
-    val voice: String?
+    val voice: String?,
+    val beep: Boolean
 )
 
 private fun usage(errorMessage: String? = null): Nothing {
@@ -59,6 +60,7 @@ private fun usage(errorMessage: String? = null): Nothing {
     println("  --flow-method       ODE solver: euler or midpoint (default: euler)")
     println("  --voice             Voice preset name (default: auto-detect, or 'none')")
     println("  --list-voices       List available voice presets and exit")
+    println("  --beep              Also write a beep-encoded WAV (token → frequency mapping)")
     println("  -h, --help          Show this help")
     println()
     println("Example:")
@@ -78,6 +80,7 @@ private fun parseArgs(args: Array<String>): CliArgs {
     var flowSteps = 16
     var flowMethod = "euler"
     var voice: String? = null
+    var beep = false
     var text: String? = null
 
     var idx = 0
@@ -125,6 +128,7 @@ private fun parseArgs(args: Array<String>): CliArgs {
             arg.startsWith("--flow-method=") -> flowMethod = arg.substringAfter("=")
             arg == "--voice" -> voice = nextValue(arg)
             arg.startsWith("--voice=") -> voice = arg.substringAfter("=")
+            arg == "--beep" -> beep = true
             arg == "--list-voices" -> {
                 println("Available voice presets:")
                 VoxtralVoices.PRESETS.forEach { (name, idx) ->
@@ -154,7 +158,7 @@ private fun parseArgs(args: Array<String>): CliArgs {
         usage("Invalid flow method '$flowMethod'. Expected: euler or midpoint.")
     }
 
-    return CliArgs(modelPath, tokenizer?.let(Path::of), text, outputPath, steps, temperature, flowSteps, flowMethod, voice)
+    return CliArgs(modelPath, tokenizer?.let(Path::of), text, outputPath, steps, temperature, flowSteps, flowMethod, voice, beep)
 }
 
 private fun detectFormat(path: Path): ModelFormat {
@@ -508,8 +512,25 @@ fun main(args: Array<String>) = runBlocking {
         channels = 1
     )
 
+    // ---- Write beep WAV (optional) ----
+    if (cliArgs.beep) {
+        val beepPath = Path.of(cliArgs.outputPath.toString().replace(".wav", ".beep.wav"))
+        val beepSamples = toneMapTokens(generatedTokens, audioConfig)
+        println("Writing beep WAV: $beepPath (${beepSamples.size} samples)")
+        WavWriter.write(
+            path = beepPath,
+            samples = beepSamples,
+            sampleRate = audioConfig.samplingRate,
+            channels = 1
+        )
+    }
+
+    println()
     println("Done.")
     println("Output: ${cliArgs.outputPath}")
+    if (cliArgs.beep) {
+        println("Beep:   ${cliArgs.outputPath.toString().replace(".wav", ".beep.wav")}")
+    }
     println()
     println("Pipeline: text -> ${promptTokens.size} prompt tokens -> ${generatedTokens.size} semantic tokens")
     if (acousticCodes != null) {
@@ -519,7 +540,7 @@ fun main(args: Array<String>) = runBlocking {
     if (!usedCodec) {
         println()
         println("Note: Audio is tone-mapped (codec weights not loaded).")
-        println("Load codec weights for actual speech synthesis.")
+        println("Load full SafeTensors model for actual speech synthesis.")
     }
 }
 
