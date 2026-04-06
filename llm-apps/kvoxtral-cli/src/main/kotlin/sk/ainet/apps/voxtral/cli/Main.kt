@@ -15,6 +15,8 @@ import sk.ainet.models.voxtral.VoxtralConfigParser
 import sk.ainet.models.voxtral.VoxtralDefaults
 import sk.ainet.models.voxtral.VoxtralNetworkLoader
 import sk.ainet.models.voxtral.VoxtralSafeTensorsLoader
+import sk.ainet.models.voxtral.VoxtralVoiceLoader
+import sk.ainet.models.voxtral.VoxtralVoices
 import sk.ainet.models.voxtral.TekkenTokenizerAdapter
 import kotlinx.coroutines.runBlocking
 import java.nio.file.Path
@@ -36,7 +38,8 @@ private data class CliArgs(
     val steps: Int,
     val temperature: Float,
     val flowSteps: Int,
-    val flowMethod: String
+    val flowMethod: String,
+    val voice: String?
 )
 
 private fun usage(errorMessage: String? = null): Nothing {
@@ -54,6 +57,8 @@ private fun usage(errorMessage: String? = null): Nothing {
     println("  -k, --temperature   Sampling temperature (default: 0.7)")
     println("  --flow-steps        ODE solver steps for acoustic model (default: 16)")
     println("  --flow-method       ODE solver: euler or midpoint (default: euler)")
+    println("  --voice             Voice preset name (default: auto-detect, or 'none')")
+    println("  --list-voices       List available voice presets and exit")
     println("  -h, --help          Show this help")
     println()
     println("Example:")
@@ -72,6 +77,7 @@ private fun parseArgs(args: Array<String>): CliArgs {
     var temperature = 0.7f
     var flowSteps = 16
     var flowMethod = "euler"
+    var voice: String? = null
     var text: String? = null
 
     var idx = 0
@@ -117,6 +123,15 @@ private fun parseArgs(args: Array<String>): CliArgs {
             }
             arg == "--flow-method" -> flowMethod = nextValue(arg)
             arg.startsWith("--flow-method=") -> flowMethod = arg.substringAfter("=")
+            arg == "--voice" -> voice = nextValue(arg)
+            arg.startsWith("--voice=") -> voice = arg.substringAfter("=")
+            arg == "--list-voices" -> {
+                println("Available voice presets:")
+                VoxtralVoices.PRESETS.forEach { (name, idx) ->
+                    println("  ${name.padEnd(20)} (index $idx)")
+                }
+                exitProcess(0)
+            }
             arg.startsWith("-") -> usage("Unknown option: $arg")
             else -> {
                 if (text != null) usage("Multiple text inputs provided. Text must be a single positional argument.")
@@ -139,7 +154,7 @@ private fun parseArgs(args: Array<String>): CliArgs {
         usage("Invalid flow method '$flowMethod'. Expected: euler or midpoint.")
     }
 
-    return CliArgs(modelPath, tokenizer?.let(Path::of), text, outputPath, steps, temperature, flowSteps, flowMethod)
+    return CliArgs(modelPath, tokenizer?.let(Path::of), text, outputPath, steps, temperature, flowSteps, flowMethod, voice)
 }
 
 private fun detectFormat(path: Path): ModelFormat {
@@ -306,10 +321,43 @@ fun main(args: Array<String>) = runBlocking {
         bos = audioConfig.bosTokenId
     )
 
+    // ---- Load voice (optional) ----
+    val voxtralVoice = if (cliArgs.voice != null && cliArgs.voice != "none") {
+        val voiceName = cliArgs.voice
+        println("Loading voice '$voiceName'...")
+        val available = VoxtralVoiceLoader.listAvailable(modelDir)
+        if (available.isEmpty()) {
+            println("  No voice .pt files found in $modelDir")
+            null
+        } else {
+            val voice = VoxtralVoiceLoader.loadFromDir(modelDir, voiceName)
+            if (voice != null) {
+                println("  Loaded: ${voice.numFrames} frames x ${voice.dim} dim")
+            } else {
+                println("  Voice '$voiceName' not found. Available: ${available.joinToString(", ")}")
+            }
+            voice
+        }
+    } else {
+        // Auto-detect: try to load default voice if available
+        val available = VoxtralVoiceLoader.listAvailable(modelDir)
+        if (available.isNotEmpty() && cliArgs.voice != "none") {
+            val defaultName = if (VoxtralVoices.DEFAULT in available) VoxtralVoices.DEFAULT else available.first()
+            val voice = VoxtralVoiceLoader.loadFromDir(modelDir, defaultName)
+            if (voice != null) {
+                println("Auto-loaded voice '${voice.name}' (${voice.numFrames} frames)")
+            }
+            voice
+        } else {
+            null
+        }
+    }
+
     // ---- Step 1: Generate semantic tokens + capture hidden states ----
     val promptTokens = tokenizer.encode(cliArgs.text)
     println()
-    println("Input: ${promptTokens.size} tokens")
+    println("Input: ${promptTokens.size} tokens" +
+        if (voxtralVoice != null) " + ${voxtralVoice.numFrames} voice frames" else "")
     println("Generating up to ${cliArgs.steps} semantic tokens (temperature=${cliArgs.temperature})...")
 
     val generatedTokens = mutableListOf<Int>()
@@ -317,7 +365,8 @@ fun main(args: Array<String>) = runBlocking {
         backboneRuntime.generate(
             prompt = promptTokens,
             steps = cliArgs.steps,
-            temperature = cliArgs.temperature
+            temperature = cliArgs.temperature,
+            voice = voxtralVoice
         ) { tokenId ->
             generatedTokens.add(tokenId)
             // Print progress every 50 tokens

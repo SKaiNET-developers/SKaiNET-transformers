@@ -16,6 +16,10 @@ import kotlin.reflect.KClass
  * provide hidden states for the acoustic model, while still returning
  * logits for autoregressive token generation.
  *
+ * Supports **voice conditioning** by injecting pre-computed voice frame
+ * embeddings into the input sequence prefix. Voice embeddings bypass the
+ * token embedding layer and are fed directly into the transformer blocks.
+ *
  * The hidden states are accumulated during [generate] and can be retrieved
  * via [lastHiddenStates] for feeding into [VoxtralAcousticRuntime].
  *
@@ -32,8 +36,10 @@ public class VoxtralBackboneRuntime<T : DType>(
     private val random: Random = Random.Default
 ) {
     private val modules = model.modules
-    private val allButLast = modules.dropLast(1)  // everything up to and including output_norm
-    private val lmHead = modules.last()            // output (lm_head)
+    private val tokenEmbedding = modules.first()       // token_embd
+    private val transformerAndNorm = modules.drop(1).dropLast(1)  // blk.0..blk.N + output_norm
+    private val lmHead = modules.last()                // output (lm_head)
+    private val allButLast = modules.dropLast(1)       // everything except lm_head
 
     public var position: Int = 0
         private set
@@ -85,6 +91,35 @@ public class VoxtralBackboneRuntime<T : DType>(
     }
 
     /**
+     * Forward pass with a pre-computed embedding vector (bypasses token embedding).
+     *
+     * Used for voice conditioning: voice frame embeddings are already in the
+     * backbone's hidden dimension and skip the token_embd lookup.
+     *
+     * @param embedding Pre-computed embedding of shape [dim]
+     */
+    @Suppress("UNCHECKED_CAST")
+    public fun forwardEmbedding(embedding: FloatArray): Tensor<T, Float> {
+        var hidden = ctx.fromFloatArray<T, Float>(
+            Shape(1, embedding.size), dtype, embedding
+        ) as Tensor<T, Float>
+
+        // Skip token_embd, forward through transformer blocks + output_norm
+        for (mod in transformerAndNorm) {
+            hidden = mod.forward(hidden, ctx)
+        }
+
+        // Capture hidden state
+        hiddenStatesList.add(hidden.data.copyToFloatArray())
+
+        // Forward through lm_head
+        val logits = lmHead.forward(hidden, ctx)
+
+        position++
+        return logits
+    }
+
+    /**
      * Reset state (KV caches, position, hidden states).
      */
     public fun reset() {
@@ -97,20 +132,30 @@ public class VoxtralBackboneRuntime<T : DType>(
      * Generate tokens autoregressively while capturing hidden states.
      *
      * After this call, [lastHiddenStates] returns the accumulated hidden states
-     * for all positions (prompt + generated).
+     * for all positions (voice prefix + prompt + generated).
      *
      * @param prompt Input token IDs
      * @param steps Number of tokens to generate after prompt
      * @param temperature Sampling temperature
+     * @param voice Optional voice for speaker conditioning. When provided, voice frame
+     *   embeddings are injected before the prompt tokens as in-context conditioning.
      * @param onToken Callback for each generated token
      */
     public fun generate(
         prompt: IntArray,
         steps: Int,
         temperature: Float = 0.7f,
+        voice: VoxtralVoice? = null,
         onToken: (Int) -> Unit
     ) {
         reset()
+
+        // Inject voice conditioning frames (bypass token embedding)
+        if (voice != null) {
+            for (frame in 0 until voice.numFrames) {
+                forwardEmbedding(voice.frameEmbedding(frame))
+            }
+        }
 
         // Process prompt (prefill)
         for (i in 0 until prompt.size - 1) {
