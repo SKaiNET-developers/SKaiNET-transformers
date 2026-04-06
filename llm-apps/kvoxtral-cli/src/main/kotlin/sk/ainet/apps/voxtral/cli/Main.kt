@@ -1,18 +1,17 @@
 package sk.ainet.apps.voxtral.cli
 
 import sk.ainet.apps.kllama.GGUFTokenizer
-import sk.ainet.apps.llm.OptimizedLLMMode
-import sk.ainet.apps.llm.OptimizedLLMRuntime
 import sk.ainet.apps.llm.Tokenizer
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
 import sk.ainet.io.model.QuantPolicy
 import sk.ainet.lang.types.FP32
+import sk.ainet.models.voxtral.VoxtralAcousticRuntime
+import sk.ainet.models.voxtral.VoxtralBackboneRuntime
 import sk.ainet.models.voxtral.VoxtralConfigParser
 import sk.ainet.models.voxtral.VoxtralDefaults
 import sk.ainet.models.voxtral.VoxtralNetworkLoader
 import kotlinx.coroutines.runBlocking
-import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.exists
 import kotlin.io.path.extension
@@ -20,6 +19,7 @@ import kotlin.io.path.isDirectory
 import kotlin.io.path.readText
 import kotlin.system.exitProcess
 import kotlin.time.measureTime
+import kotlin.time.measureTimedValue
 
 private enum class ModelFormat { GGUF, SAFETENSORS }
 
@@ -29,7 +29,9 @@ private data class CliArgs(
     val text: String,
     val outputPath: Path,
     val steps: Int,
-    val temperature: Float
+    val temperature: Float,
+    val flowSteps: Int,
+    val flowMethod: String
 )
 
 private fun usage(errorMessage: String? = null): Nothing {
@@ -38,18 +40,20 @@ private fun usage(errorMessage: String? = null): Nothing {
         System.err.println()
     }
 
-    println("Usage: kvoxtral -m <model> -o <output.wav> [-t <tokenizer>] [-s <steps>] [-k <temperature>] <text>")
+    println("Usage: kvoxtral -m <model> -o <output.wav> [-t <tokenizer>] [-s <steps>] [-k <temperature>] [--flow-steps N] [--flow-method euler|midpoint] <text>")
     println()
     println("  -m, --model         Path to .gguf or .safetensors model, or HuggingFace directory (required)")
     println("  -o, --output        Output WAV file path (required)")
     println("  -t, --tokenizer     Path to tokenizer.json or tekken.json (auto-detected)")
-    println("  -s, --steps         Generation steps / max audio tokens (default: 512)")
+    println("  -s, --steps         Max audio tokens to generate (default: 512)")
     println("  -k, --temperature   Sampling temperature (default: 0.7)")
+    println("  --flow-steps        ODE solver steps for acoustic model (default: 16)")
+    println("  --flow-method       ODE solver: euler or midpoint (default: euler)")
     println("  -h, --help          Show this help")
     println()
     println("Example:")
     println("  kvoxtral -m Voxtral-4B-TTS-2603/ -o hello.wav \"Hello, how are you today?\"")
-    println("  kvoxtral -m voxtral.gguf -o speech.wav -s 1024 \"The quick brown fox\"")
+    println("  kvoxtral -m voxtral.gguf -o speech.wav -s 1024 --flow-steps 32 \"The quick brown fox\"")
     exitProcess(if (errorMessage == null) 0 else 1)
 }
 
@@ -61,6 +65,8 @@ private fun parseArgs(args: Array<String>): CliArgs {
     var output: String? = null
     var steps = 512
     var temperature = 0.7f
+    var flowSteps = 16
+    var flowMethod = "euler"
     var text: String? = null
 
     var idx = 0
@@ -96,6 +102,16 @@ private fun parseArgs(args: Array<String>): CliArgs {
                 val value = arg.substringAfter("=")
                 temperature = value.toFloatOrNull() ?: usage("Invalid temperature '$value'. Expected float.")
             }
+            arg == "--flow-steps" -> {
+                val value = nextValue(arg)
+                flowSteps = value.toIntOrNull() ?: usage("Invalid flow-steps value '$value'. Expected integer.")
+            }
+            arg.startsWith("--flow-steps=") -> {
+                val value = arg.substringAfter("=")
+                flowSteps = value.toIntOrNull() ?: usage("Invalid flow-steps value '$value'. Expected integer.")
+            }
+            arg == "--flow-method" -> flowMethod = nextValue(arg)
+            arg.startsWith("--flow-method=") -> flowMethod = arg.substringAfter("=")
             arg.startsWith("-") -> usage("Unknown option: $arg")
             else -> {
                 if (text != null) usage("Multiple text inputs provided. Text must be a single positional argument.")
@@ -114,14 +130,11 @@ private fun parseArgs(args: Array<String>): CliArgs {
 
     if (text == null) usage("Text input is required as a positional argument.")
 
-    return CliArgs(
-        modelPath = modelPath,
-        tokenizerPath = tokenizer?.let(Path::of),
-        text = text,
-        outputPath = outputPath,
-        steps = steps,
-        temperature = temperature
-    )
+    if (flowMethod !in listOf("euler", "midpoint")) {
+        usage("Invalid flow method '$flowMethod'. Expected: euler or midpoint.")
+    }
+
+    return CliArgs(modelPath, tokenizer?.let(Path::of), text, outputPath, steps, temperature, flowSteps, flowMethod)
 }
 
 private fun detectFormat(path: Path): ModelFormat {
@@ -147,9 +160,6 @@ private fun detectFormat(path: Path): ModelFormat {
 private fun resolveModelDir(path: Path): Path =
     if (path.isDirectory()) path else path.parent ?: path
 
-/**
- * Resolve the SafeTensors file path. Voxtral uses `consolidated.safetensors` (Mistral format).
- */
 private fun resolveSafeTensorsFile(modelPath: Path): Path {
     if (!modelPath.isDirectory()) return modelPath
     val consolidated = modelPath.resolve("consolidated.safetensors")
@@ -159,9 +169,6 @@ private fun resolveSafeTensorsFile(modelPath: Path): Path {
     error("No .safetensors file found in $modelPath")
 }
 
-/**
- * Resolve config file. Voxtral uses `params.json` (Mistral format), falling back to `config.json`.
- */
 private fun resolveConfigFile(modelDir: Path): Path? {
     val params = modelDir.resolve("params.json")
     if (params.exists()) return params
@@ -170,9 +177,6 @@ private fun resolveConfigFile(modelDir: Path): Path? {
     return null
 }
 
-/**
- * Resolve tokenizer file. Voxtral uses `tekken.json` (Mistral tokenizer), falling back to `tokenizer.json`.
- */
 private fun resolveTokenizerFile(modelDir: Path, explicit: Path?): Path {
     if (explicit != null) {
         if (!explicit.exists()) error("Tokenizer not found: $explicit")
@@ -194,6 +198,7 @@ fun main(args: Array<String>) = runBlocking {
 
     val format = detectFormat(cliArgs.modelPath)
     val modelDir = resolveModelDir(cliArgs.modelPath)
+    val audioConfig = VoxtralDefaults.AUDIO
 
     println("Voxtral TTS (Kotlin)")
     println("Model: ${cliArgs.modelPath}")
@@ -204,20 +209,19 @@ fun main(args: Array<String>) = runBlocking {
 
     val ctx = DirectCpuExecutionContext()
 
-    // ---- Load model ----
-    println("Loading model...")
-    val loadTime = measureTime {
-        val model = when (format) {
+    // ---- Load backbone model ----
+    println("Loading backbone model...")
+    val backboneModel = measureTimedValue {
+        when (format) {
             ModelFormat.GGUF -> {
                 val ggufPath = if (cliArgs.modelPath.isDirectory()) {
-                    val gguf = cliArgs.modelPath.toFile().listFiles()
+                    cliArgs.modelPath.toFile().listFiles()
                         ?.firstOrNull { it.extension == "gguf" }
-                        ?: error("No .gguf file found in ${cliArgs.modelPath}")
-                    gguf.toPath()
+                        ?.toPath() ?: error("No .gguf file found in ${cliArgs.modelPath}")
                 } else {
                     cliArgs.modelPath
                 }
-                println("Loading GGUF model from $ggufPath...")
+                println("  Loading GGUF model from $ggufPath...")
                 val loader = VoxtralNetworkLoader.fromGguf(
                     randomAccessProvider = { JvmRandomAccessSource.open(ggufPath.toString()) },
                     quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32
@@ -229,11 +233,10 @@ fun main(args: Array<String>) = runBlocking {
                 val configFile = resolveConfigFile(modelDir)
 
                 val metadata = if (configFile != null) {
-                    println("Loading config from $configFile...")
-                    val configJson = configFile.readText()
-                    VoxtralConfigParser.parse(configJson).backbone
+                    println("  Config: $configFile")
+                    VoxtralConfigParser.parse(configFile.readText()).backbone
                 } else {
-                    println("No config file found, using Voxtral-4B defaults...")
+                    println("  Using Voxtral-4B defaults")
                     VoxtralDefaults.BACKBONE
                 }
 
@@ -243,11 +246,10 @@ fun main(args: Array<String>) = runBlocking {
                     true
                 }
 
-                println("Loading SafeTensors model from $stFile...")
-                println("  Architecture: ${metadata.architecture}, layers=${metadata.blockCount}, " +
-                    "dim=${metadata.embeddingLength}, heads=${metadata.headCount}, " +
-                    "kvHeads=${metadata.kvHeadCount}, vocab=${metadata.vocabSize}")
-                if (tiedEmbeddings) println("  Tied word embeddings: output.weight = token_embd.weight")
+                println("  SafeTensors: $stFile")
+                println("  layers=${metadata.blockCount}, dim=${metadata.embeddingLength}, " +
+                    "heads=${metadata.headCount}, kvHeads=${metadata.kvHeadCount}, vocab=${metadata.vocabSize}")
+                if (tiedEmbeddings) println("  Tied embeddings: output.weight = token_embd.weight")
 
                 val loader = VoxtralNetworkLoader.fromSafeTensors(
                     metadata = metadata,
@@ -257,89 +259,153 @@ fun main(args: Array<String>) = runBlocking {
                 loader.loadBackbone<FP32, Float>(ctx)
             }
         }
+    }
 
-        // ---- Load tokenizer ----
-        val tokenizerFile = resolveTokenizerFile(modelDir, cliArgs.tokenizerPath)
-        println("Loading tokenizer from $tokenizerFile...")
-        val tokenizer: Tokenizer = if (format == ModelFormat.GGUF && cliArgs.tokenizerPath == null) {
-            val ggufPath = if (cliArgs.modelPath.isDirectory()) {
-                cliArgs.modelPath.toFile().listFiles()?.first { it.extension == "gguf" }!!.toPath()
-            } else {
-                cliArgs.modelPath
-            }
-            GGUFTokenizer.fromRandomAccessSource(
-                JvmRandomAccessSource.open(ggufPath.toString())
-            )
+    println("  Backbone loaded in ${backboneModel.duration}")
+    val model = backboneModel.value
+
+    // ---- Load tokenizer ----
+    val tokenizerFile = resolveTokenizerFile(modelDir, cliArgs.tokenizerPath)
+    println("Loading tokenizer from $tokenizerFile...")
+    val tokenizer: Tokenizer = if (format == ModelFormat.GGUF && cliArgs.tokenizerPath == null) {
+        val ggufPath = if (cliArgs.modelPath.isDirectory()) {
+            cliArgs.modelPath.toFile().listFiles()?.first { it.extension == "gguf" }!!.toPath()
         } else {
-            GGUFTokenizer.fromTokenizerJson(tokenizerFile.readText())
+            cliArgs.modelPath
         }
-
-        // ---- Build runtime ----
-        val runtime = OptimizedLLMRuntime(
-            model = model,
-            ctx = ctx,
-            mode = OptimizedLLMMode.DIRECT,
-            dtype = FP32::class,
-            bos = VoxtralDefaults.AUDIO.bosTokenId
+        GGUFTokenizer.fromRandomAccessSource(
+            JvmRandomAccessSource.open(ggufPath.toString())
         )
+    } else {
+        GGUFTokenizer.fromTokenizerJson(tokenizerFile.readText())
+    }
 
-        // ---- Encode text and generate semantic tokens ----
-        val promptTokens = tokenizer.encode(cliArgs.text)
-        println("Input: ${promptTokens.size} tokens")
-        println("Generating up to ${cliArgs.steps} audio tokens with temperature=${cliArgs.temperature}...")
-        println()
+    // ---- Build backbone runtime (captures hidden states) ----
+    val backboneRuntime = VoxtralBackboneRuntime(
+        model = model,
+        ctx = ctx,
+        dtype = FP32::class,
+        bos = audioConfig.bosTokenId
+    )
 
-        val generatedTokens = mutableListOf<Int>()
-        val genTime = measureTime {
-            runtime.generate(
-                prompt = promptTokens,
-                steps = cliArgs.steps,
-                temperature = cliArgs.temperature
-            ) { tokenId ->
-                generatedTokens.add(tokenId)
+    // ---- Step 1: Generate semantic tokens + capture hidden states ----
+    val promptTokens = tokenizer.encode(cliArgs.text)
+    println()
+    println("Input: ${promptTokens.size} tokens")
+    println("Generating up to ${cliArgs.steps} semantic tokens (temperature=${cliArgs.temperature})...")
+
+    val generatedTokens = mutableListOf<Int>()
+    val genTime = measureTime {
+        backboneRuntime.generate(
+            prompt = promptTokens,
+            steps = cliArgs.steps,
+            temperature = cliArgs.temperature
+        ) { tokenId ->
+            generatedTokens.add(tokenId)
+            // Print progress every 50 tokens
+            if (generatedTokens.size % 50 == 0) {
+                print("\r  ${generatedTokens.size} tokens...")
+                System.out.flush()
             }
         }
+    }
 
-        val tokPerSec = if (genTime.inWholeMilliseconds > 0) {
-            generatedTokens.size / genTime.inWholeMilliseconds.toDouble() * 1000
-        } else 0.0
-        println("Generated ${generatedTokens.size} tokens in $genTime (%.2f tok/s)".format(tokPerSec))
+    val tokPerSec = if (genTime.inWholeMilliseconds > 0) {
+        generatedTokens.size / genTime.inWholeMilliseconds.toDouble() * 1000
+    } else 0.0
+    println("\r  ${generatedTokens.size} tokens in $genTime (%.2f tok/s)".format(tokPerSec))
 
-        // ---- Convert tokens to audio and write WAV ----
-        // The backbone generates semantic token IDs. Full audio synthesis requires
-        // the acoustic model (flow matching) and codec (convolutional decoder).
-        // For now, we write generated tokens as a simple tone-mapped WAV to validate
-        // the pipeline. Each token ID maps to a short sine burst at a frequency
-        // derived from the token ID, producing an audible (if not speech-like) output.
-        val audioConfig = VoxtralDefaults.AUDIO
-        val samplesPerToken = (audioConfig.samplingRate / audioConfig.frameRate).toInt()
-        val totalSamples = generatedTokens.size * samplesPerToken
-        val audioSamples = FloatArray(totalSamples)
+    // ---- Step 2: Get hidden states for acoustic model ----
+    val hiddenStates = backboneRuntime.lastHiddenStates()
+    if (hiddenStates != null) {
+        println("Hidden states: ${hiddenStates.shape} (${hiddenStates.shape[0]} frames x ${hiddenStates.shape[1]} dim)")
+    }
 
-        for ((i, tokenId) in generatedTokens.withIndex()) {
-            // Map token ID to a frequency (200-2000 Hz range)
-            val freq = 200.0 + (tokenId % 1800)
-            val offset = i * samplesPerToken
-            for (s in 0 until samplesPerToken) {
-                val t = s.toDouble() / audioConfig.samplingRate
-                val envelope = if (s < 20) s / 20.0f else if (s > samplesPerToken - 20) (samplesPerToken - s) / 20.0f else 1.0f
-                audioSamples[offset + s] = (Math.sin(2.0 * Math.PI * freq * t) * 0.3 * envelope).toFloat()
-            }
+    // ---- Step 3: Generate acoustic codes via flow matching ----
+    // This step is only meaningful when acoustic model weights are loaded.
+    // For now, we create an acoustic runtime with zero-initialized projections
+    // to demonstrate the pipeline flow. With real weights, this produces actual
+    // acoustic codes that the codec can decode to audio.
+    val nCodebooks = audioConfig.nAcousticCodebooks
+    val codebookLevels = audioConfig.acousticCodebookSize
+    var acousticCodes: IntArray? = null
+
+    if (hiddenStates != null) {
+        println("Running acoustic flow matching (${cliArgs.flowSteps} ${cliArgs.flowMethod} steps, " +
+            "$nCodebooks codebooks x $codebookLevels levels)...")
+        val acousticTime = measureTime {
+            // Build a minimal acoustic runtime (zero projections when no weights available)
+            val acousticRuntime = VoxtralAcousticRuntime(
+                acousticTransformer = sk.ainet.models.voxtral.voxtralAcousticNetwork<FP32, Float>(
+                    VoxtralDefaults.ACOUSTIC_MODEL
+                ),
+                inputProj = createZeroTensor(ctx, hiddenStates.shape[1], nCodebooks * codebookLevels),
+                outputProj = createZeroTensor(ctx, nCodebooks * codebookLevels, hiddenStates.shape[1]),
+                ctx = ctx,
+                dtype = FP32::class,
+                nCodebooks = nCodebooks,
+                codebookLevels = codebookLevels,
+                dim = hiddenStates.shape[1]
+            )
+
+            acousticCodes = acousticRuntime.generate(
+                backboneHidden = hiddenStates,
+                numSteps = cliArgs.flowSteps,
+                method = cliArgs.flowMethod
+            )
         }
+        println("  ${acousticCodes!!.size} acoustic codes in $acousticTime " +
+            "(${acousticCodes!!.size / nCodebooks} frames)")
+    }
 
-        println("Writing WAV: ${cliArgs.outputPath} (${totalSamples} samples, ${audioConfig.samplingRate}Hz, mono)")
-        WavWriter.write(
-            path = cliArgs.outputPath,
-            samples = audioSamples,
-            sampleRate = audioConfig.samplingRate,
-            channels = 1
-        )
+    // ---- Step 4: Convert to audio and write WAV ----
+    // With the codec, this would decode semantic+acoustic tokens to a waveform.
+    // Without it, we tone-map semantic tokens to produce audible output.
+    val samplesPerToken = (audioConfig.samplingRate / audioConfig.frameRate).toInt()
+    val totalSamples = generatedTokens.size * samplesPerToken
+    val audioSamples = FloatArray(totalSamples)
+
+    for ((i, tokenId) in generatedTokens.withIndex()) {
+        val freq = 200.0 + (tokenId % 1800)
+        val offset = i * samplesPerToken
+        for (s in 0 until samplesPerToken) {
+            val t = s.toDouble() / audioConfig.samplingRate
+            val envelope = if (s < 20) s / 20.0f else if (s > samplesPerToken - 20) (samplesPerToken - s) / 20.0f else 1.0f
+            audioSamples[offset + s] = (Math.sin(2.0 * Math.PI * freq * t) * 0.3 * envelope).toFloat()
+        }
     }
 
     println()
-    println("Done in $loadTime")
+    println("Writing WAV: ${cliArgs.outputPath} (${totalSamples} samples, ${audioConfig.samplingRate}Hz, mono)")
+    WavWriter.write(
+        path = cliArgs.outputPath,
+        samples = audioSamples,
+        sampleRate = audioConfig.samplingRate,
+        channels = 1
+    )
+
+    println("Done.")
     println("Output: ${cliArgs.outputPath}")
+    if (acousticCodes != null) {
+        println()
+        println("Pipeline: text -> ${promptTokens.size} prompt tokens -> ${generatedTokens.size} semantic tokens")
+        println("          -> ${acousticCodes!!.size} acoustic codes (${acousticCodes!!.size / nCodebooks} frames)")
+        println("          -> ${totalSamples} audio samples -> WAV")
+    }
     println()
-    println("Note: Full speech synthesis requires the acoustic model and codec decoder.")
-    println("Currently, the backbone generates semantic tokens which are tone-mapped to audio.")
+    println("Note: Audio output is tone-mapped from semantic tokens.")
+    println("Full speech requires loading acoustic model weights + codec decoder.")
 }
+
+@Suppress("UNCHECKED_CAST")
+private fun createZeroTensor(
+    ctx: sk.ainet.context.ExecutionContext,
+    rows: Int,
+    cols: Int
+): sk.ainet.lang.tensor.Tensor<FP32, Float> {
+    val data = FloatArray(rows * cols)
+    return ctx.fromFloatArray<FP32, Float>(
+        sk.ainet.lang.tensor.Shape(rows, cols), FP32::class, data
+    ) as sk.ainet.lang.tensor.Tensor<FP32, Float>
+}
+
