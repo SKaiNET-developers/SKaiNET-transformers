@@ -328,9 +328,22 @@ public class LlamaWeightLoader private constructor(
         val headCount = fields["llama.attention.head_count"]?.toIntValue() ?: 0
         val kvHeadCount = fields["llama.attention.head_count_kv"]?.toIntValue() ?: headCount
         val feedForwardLength = fields["llama.feed_forward_length"]?.toIntValue() ?: 0
-        val ropeDim = fields["llama.rope.dimension_count"]?.toIntValue()
+        var ropeDim = fields["llama.rope.dimension_count"]?.toIntValue()
         val vocabSize = fields["llama.vocab_size"]?.toIntValue()
             ?: inferVocabFromStreamingTensor(tensors)
+
+        // Infer head_dim from Q weight shape when rope dimension not set
+        // Q weight: [q_dim, dim] where q_dim = nHeads * headDim
+        if (ropeDim == null && headCount > 0) {
+            val qTensor = tensors.firstOrNull { it.name == "blk.0.attn_q.weight" }
+            if (qTensor != null && qTensor.shape.size == 2) {
+                val qDim = qTensor.shape.first { it.toInt() != embeddingLength }.toInt()
+                val inferredHeadDim = qDim / headCount
+                if (inferredHeadDim > 0 && inferredHeadDim * headCount == qDim) {
+                    ropeDim = inferredHeadDim
+                }
+            }
+        }
 
         return LlamaModelMetadata(
             architecture = arch,
@@ -403,20 +416,19 @@ public class LlamaWeightLoader private constructor(
                     }
 
                     name.contains("attn_q") || name.contains("attn_output") -> {
-                        val headDim = metadata.ropeDimensionCount ?: (metadata.embeddingLength / metadata.headCount)
-                        val qDim = metadata.headCount * headDim
-                        val expectedProduct = qDim * metadata.embeddingLength
-                        require(dims.size == 2 && dims.product() == expectedProduct) {
-                            "Tensor $name must have product [q_dim=$qDim]*[dim=${metadata.embeddingLength}]=$expectedProduct; got $dims with product ${dims.product()}"
+                        // Q: [q_dim, dim] where q_dim = nHeads * headDim (headDim may differ from dim/nHeads)
+                        // O: [dim, q_dim]
+                        // Accept any 2D tensor where one dimension is dim (the other is q_dim)
+                        require(dims.size == 2 && dims.any { it == metadata.embeddingLength }) {
+                            "Tensor $name must be 2D with one dim=${metadata.embeddingLength}; got $dims"
                         }
                     }
 
                     name.contains("attn_k") || name.contains("attn_v") -> {
-                        val headSize = metadata.embeddingLength / metadata.headCount
-                        val kvDim = metadata.kvHeadCount * headSize
-                        val expectedProduct = metadata.embeddingLength * kvDim
-                        require(dims.size == 2 && dims.product() == expectedProduct) {
-                            "Tensor $name must have product [dim=${metadata.embeddingLength}]*[kv_dim=$kvDim]=$expectedProduct; got $dims with product ${dims.product()}"
+                        // K/V: [kv_dim, dim] where kv_dim = kvHeadCount * headDim
+                        // Accept any 2D tensor where one dimension is dim
+                        require(dims.size == 2 && dims.any { it == metadata.embeddingLength }) {
+                            "Tensor $name must be 2D with one dim=${metadata.embeddingLength}; got $dims"
                         }
                     }
 
@@ -578,9 +590,22 @@ public class LlamaWeightLoader private constructor(
         val headCount = fields["llama.attention.head_count"]?.scalarInt() ?: 0
         val kvHeadCount = fields["llama.attention.head_count_kv"]?.scalarInt() ?: headCount
         val feedForwardLength = fields["llama.feed_forward_length"]?.scalarInt() ?: 0
-        val ropeDim = fields["llama.rope.dimension_count"]?.scalarInt()
+        var ropeDim = fields["llama.rope.dimension_count"]?.scalarInt()
         val vocabSize = fields["llama.vocab_size"]?.scalarInt()
             ?: inferVocabFromTensor(tensors)
+
+        // Infer head_dim from Q weight shape when rope dimension not set
+        if (ropeDim == null && headCount > 0) {
+            val qTensor = tensors.firstOrNull { it.name == "blk.0.attn_q.weight" }
+            if (qTensor != null && qTensor.shape.size == 2) {
+                val embUInt = embeddingLength.toUInt()
+                val qDim = qTensor.shape.first { it != embUInt }.toInt()
+                val inferredHeadDim = qDim / headCount
+                if (inferredHeadDim > 0 && inferredHeadDim * headCount == qDim) {
+                    ropeDim = inferredHeadDim
+                }
+            }
+        }
 
         return LlamaModelMetadata(
             architecture = arch,
@@ -660,22 +685,14 @@ public class LlamaWeightLoader private constructor(
                     }
 
                     name.contains("attn_q") || name.contains("attn_output") -> {
-                        // Q and O projections: [n_heads * head_dim, dim] (may differ from [dim, dim] when head_dim != dim/n_heads)
-                        val headDim = metadata.ropeDimensionCount ?: (metadata.embeddingLength / metadata.headCount)
-                        val qDim = metadata.headCount * headDim
-                        val expectedProduct = qDim * metadata.embeddingLength
-                        require(dims.size == 2 && dims.product() == expectedProduct) {
-                            "Tensor $name must have product [q_dim=$qDim]*[dim=${metadata.embeddingLength}]=$expectedProduct; got $dims with product ${dims.product()}"
+                        require(dims.size == 2 && dims.any { it == metadata.embeddingLength }) {
+                            "Tensor $name must be 2D with one dim=${metadata.embeddingLength}; got $dims"
                         }
                     }
 
                     name.contains("attn_k") || name.contains("attn_v") -> {
-                        // K and V projections support GQA: stored as [dim, kv_dim] in GGUF
-                        val headSize = metadata.embeddingLength / metadata.headCount
-                        val kvDim = metadata.kvHeadCount * headSize
-                        val expectedProduct = metadata.embeddingLength * kvDim
-                        require(dims.size == 2 && dims.product() == expectedProduct) {
-                            "Tensor $name must have product [dim=${metadata.embeddingLength}]*[kv_dim=$kvDim]=$expectedProduct; got $dims with product ${dims.product()}"
+                        require(dims.size == 2 && dims.any { it == metadata.embeddingLength }) {
+                            "Tensor $name must be 2D with one dim=${metadata.embeddingLength}; got $dims"
                         }
                     }
 
