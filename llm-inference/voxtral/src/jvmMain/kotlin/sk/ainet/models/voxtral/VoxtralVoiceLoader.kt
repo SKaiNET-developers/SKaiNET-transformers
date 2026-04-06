@@ -58,24 +58,36 @@ public object VoxtralVoiceLoader {
      * @return [VoxtralVoice] or null if the file doesn't exist
      */
     public fun loadFromDir(modelDir: Path, voiceName: String, dim: Int = DEFAULT_DIM): VoxtralVoice? {
-        val ptFile = modelDir.resolve(VoxtralVoices.filename(voiceName))
-        if (!ptFile.exists()) return null
+        val filename = VoxtralVoices.filename(voiceName)
+        // Check root dir, then voice_embedding/ subdirectory (HuggingFace layout)
+        val candidates = listOf(
+            modelDir.resolve(filename),
+            modelDir.resolve("voice_embedding").resolve(filename)
+        )
+        val ptFile = candidates.firstOrNull { it.exists() } ?: return null
         return load(ptFile, dim)
     }
 
     /**
      * List available voice .pt files in a model directory.
+     * Checks both root and voice_embedding/ subdirectory.
      */
     public fun listAvailable(modelDir: Path): List<String> {
         if (!modelDir.isDirectory()) return emptyList()
-        return Files.list(modelDir).use { stream ->
-            stream
-                .filter { it.name.endsWith(".pt") }
-                .map { it.name.removeSuffix(".pt") }
-                .filter { it in VoxtralVoices.PRESETS }
-                .toList()
-                .sorted()
-        }
+        val dirs = listOf(modelDir, modelDir.resolve("voice_embedding"))
+        return dirs
+            .filter { it.exists() && it.isDirectory() }
+            .flatMap { dir ->
+                Files.list(dir).use { stream ->
+                    stream
+                        .filter { it.name.endsWith(".pt") }
+                        .map { it.name.removeSuffix(".pt") }
+                        .filter { it in VoxtralVoices.PRESETS }
+                        .toList()
+                }
+            }
+            .distinct()
+            .sorted()
     }
 
     /**
