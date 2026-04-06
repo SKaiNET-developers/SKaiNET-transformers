@@ -105,7 +105,7 @@ public class AgentLoop<T : DType>(
             listener?.onAssistantMessage(lastResponse)
 
             // Parse for tool calls
-            val toolCalls = ToolCallParser.parse(lastResponse)
+            val toolCalls = template.parseToolCalls(lastResponse)
 
             if (toolCalls.isEmpty()) {
                 // No tool calls — this is the final response
@@ -192,7 +192,7 @@ public class AgentLoop<T : DType>(
             lastResponse = result.text
             listener?.onAssistantMessage(lastResponse)
 
-            val toolCalls = ToolCallParser.parse(lastResponse)
+            val toolCalls = template.parseToolCalls(lastResponse)
 
             if (toolCalls.isEmpty()) {
                 messages.add(ChatMessage(role = ChatRole.ASSISTANT, content = lastResponse))

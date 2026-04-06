@@ -2,6 +2,7 @@ package sk.ainet.apps.kllama.chat
 
 import kotlin.test.Test
 import kotlin.test.assertContains
+import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -120,5 +121,25 @@ class ChatTemplateTest {
 
         assertContains(result, "<|im_start|>tool")
         assertContains(result, "result data")
+    }
+
+    // --- Default parseToolCalls behavior ---
+
+    @Test
+    fun llama3DefaultParseToolCalls() {
+        val template = Llama3ChatTemplate()
+        val text = """{"name": "calculator", "arguments": {"expression": "1+1"}}"""
+        val calls = template.parseToolCalls(text)
+        assertEquals(1, calls.size)
+        assertEquals("calculator", calls[0].name)
+    }
+
+    @Test
+    fun chatMLDefaultParseToolCalls() {
+        val template = ChatMLTemplate()
+        val text = "<tool_call>{\"name\": \"search\", \"arguments\": {\"query\": \"test\"}}</tool_call>"
+        val calls = template.parseToolCalls(text)
+        assertEquals(1, calls.size)
+        assertEquals("search", calls[0].name)
     }
 }

@@ -34,6 +34,8 @@ public class ToolCallingDemo<T : DType>(
 ) {
     private val template: ChatTemplate = when (templateName.lowercase()) {
         "chatml", "hermes" -> ChatMLTemplate()
+        "qwen" -> QwenChatTemplate()
+        "gemma" -> GemmaChatTemplate()
         else -> Llama3ChatTemplate()
     }
 

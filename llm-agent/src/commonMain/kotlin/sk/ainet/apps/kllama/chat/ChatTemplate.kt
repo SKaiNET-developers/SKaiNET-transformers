@@ -22,4 +22,19 @@ public interface ChatTemplate {
         tools: List<ToolDefinition> = emptyList(),
         addGenerationPrompt: Boolean = true
     ): String
+
+    /**
+     * Parse tool calls from model output text.
+     *
+     * The default implementation delegates to [ToolCallParser]. Templates whose
+     * models use a different tool-call output format should override this method.
+     */
+    public fun parseToolCalls(text: String): List<ToolCall> = ToolCallParser.parse(text)
+
+    /**
+     * Check whether [text] appears to contain a tool call.
+     *
+     * The default implementation delegates to [ToolCallParser].
+     */
+    public fun containsToolCall(text: String): Boolean = ToolCallParser.containsToolCall(text)
 }
