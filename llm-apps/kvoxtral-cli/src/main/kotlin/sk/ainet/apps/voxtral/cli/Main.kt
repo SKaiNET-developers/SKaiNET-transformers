@@ -356,28 +356,45 @@ fun main(args: Array<String>) = runBlocking {
     )
 
     // ---- Load voice (optional) ----
+    // Search for voice files in model dir and tokenizer dir (may differ for standalone GGUF)
+    val voiceDirs = listOfNotNull(
+        modelDir,
+        cliArgs.tokenizerPath?.parent,
+    ).distinct()
+
+    fun findVoice(voiceName: String): sk.ainet.models.voxtral.VoxtralVoice? {
+        for (dir in voiceDirs) {
+            val voice = VoxtralVoiceLoader.loadFromDir(dir, voiceName)
+            if (voice != null) return voice
+        }
+        return null
+    }
+
+    fun listAllVoices(): List<String> {
+        return voiceDirs.flatMap { VoxtralVoiceLoader.listAvailable(it) }.distinct().sorted()
+    }
+
     val voxtralVoice = if (cliArgs.voice != null && cliArgs.voice != "none") {
         val voiceName = cliArgs.voice
         println("Loading voice '$voiceName'...")
-        val available = VoxtralVoiceLoader.listAvailable(modelDir)
-        if (available.isEmpty()) {
-            println("  No voice .pt files found in $modelDir")
-            null
+        val voice = findVoice(voiceName)
+        if (voice != null) {
+            println("  Loaded: ${voice.numFrames} frames x ${voice.dim} dim")
         } else {
-            val voice = VoxtralVoiceLoader.loadFromDir(modelDir, voiceName)
-            if (voice != null) {
-                println("  Loaded: ${voice.numFrames} frames x ${voice.dim} dim")
+            val available = listAllVoices()
+            if (available.isEmpty()) {
+                println("  No voice .pt files found in ${voiceDirs.joinToString(", ")}")
             } else {
                 println("  Voice '$voiceName' not found. Available: ${available.joinToString(", ")}")
             }
-            voice
         }
+        voice
     } else {
         // Auto-detect: try to load default voice if available
-        val available = VoxtralVoiceLoader.listAvailable(modelDir)
+        val available = listAllVoices()
         if (available.isNotEmpty() && cliArgs.voice != "none") {
             val defaultName = if (VoxtralVoices.DEFAULT in available) VoxtralVoices.DEFAULT else available.first()
-            val voice = VoxtralVoiceLoader.loadFromDir(modelDir, defaultName)
+            val voice = findVoice(defaultName)
             if (voice != null) {
                 println("Auto-loaded voice '${voice.name}' (${voice.numFrames} frames)")
             }
