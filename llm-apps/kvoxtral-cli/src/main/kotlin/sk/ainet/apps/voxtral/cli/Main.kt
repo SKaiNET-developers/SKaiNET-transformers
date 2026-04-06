@@ -8,6 +8,7 @@ import sk.ainet.io.model.QuantPolicy
 import sk.ainet.lang.types.FP32
 import sk.ainet.models.voxtral.VoxtralAcousticRuntime
 import sk.ainet.models.voxtral.VoxtralBackboneRuntime
+import sk.ainet.models.voxtral.VoxtralCodecRuntime
 import sk.ainet.models.voxtral.VoxtralConfigParser
 import sk.ainet.models.voxtral.VoxtralDefaults
 import sk.ainet.models.voxtral.VoxtralNetworkLoader
@@ -358,25 +359,38 @@ fun main(args: Array<String>) = runBlocking {
             "(${acousticCodes!!.size / nCodebooks} frames)")
     }
 
-    // ---- Step 4: Convert to audio and write WAV ----
-    // With the codec, this would decode semantic+acoustic tokens to a waveform.
-    // Without it, we tone-map semantic tokens to produce audible output.
-    val samplesPerToken = (audioConfig.samplingRate / audioConfig.frameRate).toInt()
-    val totalSamples = generatedTokens.size * samplesPerToken
-    val audioSamples = FloatArray(totalSamples)
-
-    for ((i, tokenId) in generatedTokens.withIndex()) {
-        val freq = 200.0 + (tokenId % 1800)
-        val offset = i * samplesPerToken
-        for (s in 0 until samplesPerToken) {
-            val t = s.toDouble() / audioConfig.samplingRate
-            val envelope = if (s < 20) s / 20.0f else if (s > samplesPerToken - 20) (samplesPerToken - s) / 20.0f else 1.0f
-            audioSamples[offset + s] = (Math.sin(2.0 * Math.PI * freq * t) * 0.3 * envelope).toFloat()
+    // ---- Step 4: Decode to audio via codec (or tone-map fallback) ----
+    var usedCodec = false
+    val audioSamples: FloatArray = if (acousticCodes != null) {
+        println("Running codec decoder...")
+        try {
+            val codec = VoxtralCodecRuntime<FP32>(
+                weights = emptyMap(), // TODO: load codec weights from model file
+                metadata = VoxtralDefaults.CODEC,
+                ctx = ctx,
+                dtype = FP32::class
+            )
+            var decoded: FloatArray? = null
+            val codecTime = measureTime {
+                decoded = codec.decode(
+                    semanticCodes = generatedTokens.toIntArray(),
+                    acousticCodes = acousticCodes!!
+                )
+            }
+            usedCodec = true
+            println("  Codec decoded ${decoded!!.size} samples in $codecTime")
+            decoded!!
+        } catch (e: Exception) {
+            println("  Codec unavailable (${e.message}), using tone-map fallback")
+            toneMapTokens(generatedTokens, audioConfig)
         }
+    } else {
+        toneMapTokens(generatedTokens, audioConfig)
     }
 
+    // ---- Write WAV ----
     println()
-    println("Writing WAV: ${cliArgs.outputPath} (${totalSamples} samples, ${audioConfig.samplingRate}Hz, mono)")
+    println("Writing WAV: ${cliArgs.outputPath} (${audioSamples.size} samples, ${audioConfig.samplingRate}Hz, mono)")
     WavWriter.write(
         path = cliArgs.outputPath,
         samples = audioSamples,
@@ -386,15 +400,42 @@ fun main(args: Array<String>) = runBlocking {
 
     println("Done.")
     println("Output: ${cliArgs.outputPath}")
-    if (acousticCodes != null) {
-        println()
-        println("Pipeline: text -> ${promptTokens.size} prompt tokens -> ${generatedTokens.size} semantic tokens")
-        println("          -> ${acousticCodes!!.size} acoustic codes (${acousticCodes!!.size / nCodebooks} frames)")
-        println("          -> ${totalSamples} audio samples -> WAV")
-    }
     println()
-    println("Note: Audio output is tone-mapped from semantic tokens.")
-    println("Full speech requires loading acoustic model weights + codec decoder.")
+    println("Pipeline: text -> ${promptTokens.size} prompt tokens -> ${generatedTokens.size} semantic tokens")
+    if (acousticCodes != null) {
+        println("          -> ${acousticCodes!!.size} acoustic codes (${acousticCodes!!.size / nCodebooks} frames)")
+    }
+    println("          -> ${audioSamples.size} audio samples -> WAV")
+    if (!usedCodec) {
+        println()
+        println("Note: Audio is tone-mapped (codec weights not loaded).")
+        println("Load codec weights for actual speech synthesis.")
+    }
+}
+
+/**
+ * Fallback audio: map token IDs to sine bursts for audible (non-speech) output.
+ */
+private fun toneMapTokens(
+    tokens: List<Int>,
+    audioConfig: sk.ainet.models.voxtral.VoxtralAudioConfig
+): FloatArray {
+    val samplesPerToken = (audioConfig.samplingRate / audioConfig.frameRate).toInt()
+    val totalSamples = tokens.size * samplesPerToken
+    val samples = FloatArray(totalSamples)
+
+    for ((i, tokenId) in tokens.withIndex()) {
+        val freq = 200.0 + (tokenId % 1800)
+        val offset = i * samplesPerToken
+        for (s in 0 until samplesPerToken) {
+            val t = s.toDouble() / audioConfig.samplingRate
+            val envelope = if (s < 20) s / 20.0f
+                else if (s > samplesPerToken - 20) (samplesPerToken - s) / 20.0f
+                else 1.0f
+            samples[offset + s] = (Math.sin(2.0 * Math.PI * freq * t) * 0.3 * envelope).toFloat()
+        }
+    }
+    return samples
 }
 
 @Suppress("UNCHECKED_CAST")
