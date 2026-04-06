@@ -6,12 +6,15 @@ import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
 import sk.ainet.io.model.QuantPolicy
 import sk.ainet.lang.types.FP32
+import sk.ainet.lang.tensor.Shape
+import sk.ainet.lang.tensor.Tensor
 import sk.ainet.models.voxtral.VoxtralAcousticRuntime
 import sk.ainet.models.voxtral.VoxtralBackboneRuntime
 import sk.ainet.models.voxtral.VoxtralCodecRuntime
 import sk.ainet.models.voxtral.VoxtralConfigParser
 import sk.ainet.models.voxtral.VoxtralDefaults
 import sk.ainet.models.voxtral.VoxtralNetworkLoader
+import sk.ainet.models.voxtral.VoxtralSafeTensorsLoader
 import kotlinx.coroutines.runBlocking
 import java.nio.file.Path
 import kotlin.io.path.exists
@@ -210,8 +213,10 @@ fun main(args: Array<String>) = runBlocking {
 
     val ctx = DirectCpuExecutionContext()
 
-    // ---- Load backbone model ----
-    println("Loading backbone model...")
+    // ---- Load model (all components) ----
+    println("Loading model...")
+    var allTensors: Map<String, Tensor<FP32, Float>> = emptyMap()
+
     val backboneModel = measureTimedValue {
         when (format) {
             ModelFormat.GGUF -> {
@@ -252,17 +257,22 @@ fun main(args: Array<String>) = runBlocking {
                     "heads=${metadata.headCount}, kvHeads=${metadata.kvHeadCount}, vocab=${metadata.vocabSize}")
                 if (tiedEmbeddings) println("  Tied embeddings: output.weight = token_embd.weight")
 
-                val loader = VoxtralNetworkLoader.fromSafeTensors(
-                    metadata = metadata,
-                    randomAccessProvider = { JvmRandomAccessSource.open(stFile.toString()) },
-                    tiedEmbeddings = tiedEmbeddings
-                )
-                loader.loadBackbone<FP32, Float>(ctx)
+                // Use VoxtralSafeTensorsLoader to capture ALL tensors (backbone + acoustic + codec)
+                val stLoader = VoxtralSafeTensorsLoader<FP32>(ctx, FP32::class, metadata, tiedEmbeddings)
+                val voxtralWeights = stLoader.loadAll { JvmRandomAccessSource.open(stFile.toString()) }
+                allTensors = voxtralWeights.allTensors
+
+                val acousticCount = allTensors.keys.count { it.startsWith("acoustic.") }
+                val codecCount = allTensors.keys.count { it.startsWith("codec.") }
+                println("  Loaded: ${allTensors.size} tensors (backbone=${allTensors.size - acousticCount - codecCount}, acoustic=$acousticCount, codec=$codecCount)")
+
+                // Build backbone from the backbone weights
+                VoxtralNetworkLoader.backboneFromWeights(voxtralWeights.backbone)
             }
         }
     }
 
-    println("  Backbone loaded in ${backboneModel.duration}")
+    println("  Model loaded in ${backboneModel.duration}")
     val model = backboneModel.value
 
     // ---- Load tokenizer ----
@@ -332,21 +342,35 @@ fun main(args: Array<String>) = runBlocking {
     var acousticCodes: IntArray? = null
 
     if (hiddenStates != null) {
+        val hasAcousticWeights = allTensors.keys.any { it.startsWith("acoustic.") }
         println("Running acoustic flow matching (${cliArgs.flowSteps} ${cliArgs.flowMethod} steps, " +
-            "$nCodebooks codebooks x $codebookLevels levels)...")
+            "$nCodebooks codebooks x $codebookLevels levels" +
+            if (hasAcousticWeights) ", with model weights" else ", zero-initialized" +
+            ")...")
         val acousticTime = measureTime {
-            // Build a minimal acoustic runtime (zero projections when no weights available)
+            val dim = hiddenStates.shape[1]
+            val acousticDim = nCodebooks * codebookLevels
+            val acousticMeta = VoxtralDefaults.ACOUSTIC_MODEL
+
+            // Use loaded weights if available, otherwise zero-initialized
+            val inputProj = allTensors[sk.ainet.models.voxtral.VoxtralTensorNames.ACOUSTIC_INPUT_PROJ]
+                ?: createZeroTensor(ctx, dim, acousticDim)
+            val outputProj = allTensors[sk.ainet.models.voxtral.VoxtralTensorNames.ACOUSTIC_OUTPUT_PROJ]
+                ?: createZeroTensor(ctx, acousticDim, dim)
+            val inputProjBias = allTensors[sk.ainet.models.voxtral.VoxtralTensorNames.ACOUSTIC_INPUT_PROJ_BIAS]
+            val outputProjBias = allTensors[sk.ainet.models.voxtral.VoxtralTensorNames.ACOUSTIC_OUTPUT_PROJ_BIAS]
+
             val acousticRuntime = VoxtralAcousticRuntime(
-                acousticTransformer = sk.ainet.models.voxtral.voxtralAcousticNetwork<FP32, Float>(
-                    VoxtralDefaults.ACOUSTIC_MODEL
-                ),
-                inputProj = createZeroTensor(ctx, hiddenStates.shape[1], nCodebooks * codebookLevels),
-                outputProj = createZeroTensor(ctx, nCodebooks * codebookLevels, hiddenStates.shape[1]),
+                acousticTransformer = sk.ainet.models.voxtral.voxtralAcousticNetwork<FP32, Float>(acousticMeta),
+                inputProj = inputProj,
+                outputProj = outputProj,
+                inputProjBias = inputProjBias,
+                outputProjBias = outputProjBias,
                 ctx = ctx,
                 dtype = FP32::class,
                 nCodebooks = nCodebooks,
                 codebookLevels = codebookLevels,
-                dim = hiddenStates.shape[1]
+                dim = dim
             )
 
             acousticCodes = acousticRuntime.generate(
@@ -362,10 +386,12 @@ fun main(args: Array<String>) = runBlocking {
     // ---- Step 4: Decode to audio via codec (or tone-map fallback) ----
     var usedCodec = false
     val audioSamples: FloatArray = if (acousticCodes != null) {
-        println("Running codec decoder...")
+        val codecWeights = allTensors.filterKeys { it.startsWith("codec.") }
+        val hasCodecWeights = codecWeights.isNotEmpty()
+        println("Running codec decoder${if (hasCodecWeights) " (${codecWeights.size} weights)" else " (no weights)"}...")
         try {
             val codec = VoxtralCodecRuntime<FP32>(
-                weights = emptyMap(), // TODO: load codec weights from model file
+                weights = codecWeights,
                 metadata = VoxtralDefaults.CODEC,
                 ctx = ctx,
                 dtype = FP32::class
