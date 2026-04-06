@@ -64,9 +64,11 @@ public class AttentionImpl<T : DType, V>(
 
     private var ropeModule: RoPE<T, V>? = null
     private var kvCacheModule: KVCache<T, V>? = null
+    private var explicitHeadDim: Int? = null
 
     override fun rope(headDim: Int, maxSeqLen: Int, mode: RoPEMode, base: Float) {
         ropeModule = RoPE(headDim = headDim, maxSeqLen = maxSeqLen, base = base, mode = mode, name = "$id.rope")
+        explicitHeadDim = headDim
     }
 
     override fun kvCache(maxSeqLen: Int, nKVHeads: Int, headDim: Int) {
@@ -79,6 +81,8 @@ public class AttentionImpl<T : DType, V>(
     }
 
     public fun create(): MultiHeadAttention<T, V> {
+        // Pass explicit headDim when it differs from dim/nHeads (e.g. Voxtral: dim=3072, head_dim=128, nHeads=32)
+        val needsExplicitHeadDim = explicitHeadDim != null && explicitHeadDim != dim / nHeads
         return MultiHeadAttention(
             dim = dim,
             nHeads = nHeads,
@@ -88,7 +92,8 @@ public class AttentionImpl<T : DType, V>(
             bias = bias,
             name = id,
             rope = ropeModule,
-            kvCache = kvCacheModule
+            kvCache = kvCacheModule,
+            explicitHeadDim = if (needsExplicitHeadDim) explicitHeadDim else null
         )
     }
 }

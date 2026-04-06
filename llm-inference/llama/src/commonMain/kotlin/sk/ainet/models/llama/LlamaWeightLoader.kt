@@ -403,8 +403,11 @@ public class LlamaWeightLoader private constructor(
                     }
 
                     name.contains("attn_q") || name.contains("attn_output") -> {
-                        require(dims.size == 2 && dims.all { it == metadata.embeddingLength }) {
-                            "Tensor $name must be [dim, dim]; got $dims"
+                        val headDim = metadata.ropeDimensionCount ?: (metadata.embeddingLength / metadata.headCount)
+                        val qDim = metadata.headCount * headDim
+                        val expectedProduct = qDim * metadata.embeddingLength
+                        require(dims.size == 2 && dims.product() == expectedProduct) {
+                            "Tensor $name must have product [q_dim=$qDim]*[dim=${metadata.embeddingLength}]=$expectedProduct; got $dims with product ${dims.product()}"
                         }
                     }
 
@@ -657,9 +660,12 @@ public class LlamaWeightLoader private constructor(
                     }
 
                     name.contains("attn_q") || name.contains("attn_output") -> {
-                        // Q and O projections are [dim, dim]
-                        require(dims.size == 2 && dims.all { it == metadata.embeddingLength }) {
-                            "Tensor $name must be [dim, dim]; got $dims"
+                        // Q and O projections: [n_heads * head_dim, dim] (may differ from [dim, dim] when head_dim != dim/n_heads)
+                        val headDim = metadata.ropeDimensionCount ?: (metadata.embeddingLength / metadata.headCount)
+                        val qDim = metadata.headCount * headDim
+                        val expectedProduct = qDim * metadata.embeddingLength
+                        require(dims.size == 2 && dims.product() == expectedProduct) {
+                            "Tensor $name must have product [q_dim=$qDim]*[dim=${metadata.embeddingLength}]=$expectedProduct; got $dims with product ${dims.product()}"
                         }
                     }
 
