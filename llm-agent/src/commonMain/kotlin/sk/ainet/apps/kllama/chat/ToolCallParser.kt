@@ -57,7 +57,13 @@ public object ToolCallParser {
         return trimmed.startsWith("{") && trimmed.contains("\"name\"") && trimmed.contains("\"arguments\"")
     }
 
-    private fun parseJsonToolCall(jsonStr: String): ToolCall? {
+    /**
+     * Parse a single JSON object into a [ToolCall].
+     *
+     * Expects `{"name": "...", "arguments": {...}}` with an optional `"id"` field.
+     * Returns `null` if parsing fails or the `"name"` field is missing.
+     */
+    public fun parseJsonToolCall(jsonStr: String): ToolCall? {
         return try {
             val obj = json.parseToJsonElement(jsonStr).jsonObject
             val name = obj["name"]?.jsonPrimitive?.content ?: return null
@@ -71,7 +77,8 @@ public object ToolCallParser {
 
     private var callCounter = 0
 
-    private fun generateCallId(): String {
+    /** Generate a unique call ID for tool calls that don't include one. */
+    public fun generateCallId(): String {
         return "call_${callCounter++}"
     }
 }
