@@ -47,7 +47,7 @@ import kotlin.reflect.KClass
 
 @NetworkDsl
 public interface ATTENTION<T : DType, V> : NetworkDslItem {
-    public fun rope(headDim: Int, maxSeqLen: Int, mode: RoPEMode = RoPEMode.INTERLEAVED)
+    public fun rope(headDim: Int, maxSeqLen: Int, mode: RoPEMode = RoPEMode.INTERLEAVED, base: Float = 10000.0f)
     public fun kvCache(maxSeqLen: Int, nKVHeads: Int, headDim: Int)
 }
 
@@ -65,8 +65,8 @@ public class AttentionImpl<T : DType, V>(
     private var ropeModule: RoPE<T, V>? = null
     private var kvCacheModule: KVCache<T, V>? = null
 
-    override fun rope(headDim: Int, maxSeqLen: Int, mode: RoPEMode) {
-        ropeModule = RoPE(headDim = headDim, maxSeqLen = maxSeqLen, mode = mode, name = "$id.rope")
+    override fun rope(headDim: Int, maxSeqLen: Int, mode: RoPEMode, base: Float) {
+        ropeModule = RoPE(headDim = headDim, maxSeqLen = maxSeqLen, base = base, mode = mode, name = "$id.rope")
     }
 
     override fun kvCache(maxSeqLen: Int, nKVHeads: Int, headDim: Int) {

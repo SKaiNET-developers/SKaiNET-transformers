@@ -53,9 +53,12 @@ public inline fun <reified T : DType, V> voxtralBackboneNetwork(
  *
  * Default config: dim=3072, heads=32, kv_heads=8, ffn=9216, layers=3,
  *                 rope_theta=10k, head_dim=128
+ *
+ * @param ropeBase RoPE base frequency (default: 10_000 for acoustic model)
  */
 public inline fun <reified T : DType, V> voxtralAcousticNetwork(
-    metadata: LlamaModelMetadata
+    metadata: LlamaModelMetadata,
+    ropeBase: Float = 10_000f
 ): Module<T, V> {
     val dim = metadata.embeddingLength
     val nHeads = metadata.headCount
@@ -80,7 +83,7 @@ public inline fun <reified T : DType, V> voxtralAcousticNetwork(
                 causal = true,
                 id = "attn"
             ) {
-                rope(headDim, seqLen)
+                rope(headDim, seqLen, base = ropeBase)
                 kvCache(seqLen, nKVHeads, headDim)
             }
             stage.residual()
