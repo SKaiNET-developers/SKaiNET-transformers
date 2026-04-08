@@ -511,33 +511,28 @@ fun main(args: Array<String>) = runBlocking {
         println("TEST-CODEC: generated ${acousticCodes!!.size} random acoustic codes ($nFrames frames x $nCodebooks codebooks)")
     }
 
-    val hasAcousticWeights = allTensors.keys.any { it.startsWith("acoustic.") }
+    val acousticTensors = allTensors.filterKeys { it.startsWith("acoustic.") }
+    val hasAcousticWeights = acousticTensors.isNotEmpty()
     if (hiddenStates != null && hasAcousticWeights && acousticCodes == null) {
+        val inputProjShape = allTensors[sk.ainet.models.voxtral.VoxtralTensorNames.ACOUSTIC_INPUT_PROJ]?.shape
+        val outputProjShape = allTensors[sk.ainet.models.voxtral.VoxtralTensorNames.ACOUSTIC_OUTPUT_PROJ]?.shape
         println("Running acoustic flow matching (${cliArgs.flowSteps} ${cliArgs.flowMethod} steps, " +
-            "$nCodebooks codebooks x $codebookLevels levels)...")
+            "$nCodebooks codebooks x $codebookLevels levels)")
+        println("  inputProj: $inputProjShape, outputProj: $outputProjShape")
+
         val acousticTime = measureTime {
-            val dim = hiddenStates.shape[1]
-            // Acoustic model projects to nCodebooks (36), NOT nCodebooks*levels (756).
-            // The FSQ quantization from continuous values to discrete codes happens after.
-            val inputProj = allTensors[sk.ainet.models.voxtral.VoxtralTensorNames.ACOUSTIC_INPUT_PROJ]
-            val outputProj = allTensors[sk.ainet.models.voxtral.VoxtralTensorNames.ACOUSTIC_OUTPUT_PROJ]
-            // Acoustic model operates in nCodebooks-dim space (36), not nCodebooks*levels (756).
-            // inputProj shape: [dim, nCodebooks] e.g. [3072, 36]
-            val acousticDim = inputProj?.shape?.get(1) ?: nCodebooks
-
-            val acousticMeta = VoxtralDefaults.ACOUSTIC_MODEL
-
-            val acousticRuntime = VoxtralAcousticRuntime(
-                acousticTransformer = sk.ainet.models.voxtral.voxtralAcousticNetwork<FP32, Float>(acousticMeta),
-                inputProj = inputProj ?: createZeroTensor(ctx, dim, acousticDim),
-                outputProj = outputProj ?: createZeroTensor(ctx, acousticDim, dim),
-                inputProjBias = allTensors[sk.ainet.models.voxtral.VoxtralTensorNames.ACOUSTIC_INPUT_PROJ_BIAS],
-                outputProjBias = allTensors[sk.ainet.models.voxtral.VoxtralTensorNames.ACOUSTIC_OUTPUT_PROJ_BIAS],
+            // Build acoustic runtime with proper weight loading via VoxtralNetworkLoader
+            val acousticWeights = sk.ainet.models.llama.LlamaWeights<FP32, Float>(
+                metadata = VoxtralDefaults.ACOUSTIC_MODEL,
+                tensors = acousticTensors
+            )
+            val acousticRuntime = VoxtralNetworkLoader.acousticFromWeights<FP32>(
+                weights = acousticWeights,
+                acousticMetadata = VoxtralDefaults.ACOUSTIC_MODEL,
                 ctx = ctx,
-                dtype = FP32::class,
                 nCodebooks = nCodebooks,
                 codebookLevels = codebookLevels,
-                dim = dim
+                debug = true
             )
 
             acousticCodes = acousticRuntime.generate(

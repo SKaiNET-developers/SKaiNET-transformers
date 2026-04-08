@@ -248,7 +248,10 @@ public class VoxtralNetworkLoader @PublishedApi internal constructor(
         codebookLevels: Int
     ): VoxtralAcousticRuntime<T> {
         val dim = acousticMetadata.embeddingLength
-        val acousticDim = nCodebooks * codebookLevels
+
+        // Derive acousticDim from actual weight shape (36), not nCodebooks*levels (756).
+        val inputProjTensor = weights.tensors[VoxtralTensorNames.ACOUSTIC_INPUT_PROJ]
+        val acousticDim = inputProjTensor?.shape?.get(1) ?: nCodebooks
 
         // Map acoustic transformer weights
         val weightTensors = weights.tensors
@@ -278,7 +281,7 @@ public class VoxtralNetworkLoader @PublishedApi internal constructor(
         }
 
         // Extract projection tensors (these are raw linear layers, not part of the DSL module)
-        val inputProj = weights.tensors[VoxtralTensorNames.ACOUSTIC_INPUT_PROJ]
+        val inputProj = inputProjTensor
             ?: createZeroTensor(ctx, dtype, Shape(dim, acousticDim))
         val outputProj = weights.tensors[VoxtralTensorNames.ACOUSTIC_OUTPUT_PROJ]
             ?: createZeroTensor(ctx, dtype, Shape(acousticDim, dim))
