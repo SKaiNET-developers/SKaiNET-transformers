@@ -240,65 +240,20 @@ public class VoxtralNetworkLoader @PublishedApi internal constructor(
     @PublishedApi
     internal fun <T : DType> buildAcousticRuntime(
         weights: LlamaWeights<T, Float>,
-        acousticModel: Module<T, Float>,
+        @Suppress("UNUSED_PARAMETER") acousticModel: Module<T, Float>,
         acousticMetadata: LlamaModelMetadata,
         ctx: ExecutionContext,
         dtype: KClass<T>,
         nCodebooks: Int,
         codebookLevels: Int
     ): VoxtralAcousticRuntime<T> {
-        val dim = acousticMetadata.embeddingLength
-
-        // Derive acousticDim from actual weight shape (36), not nCodebooks*levels (756).
-        val inputProjTensor = weights.tensors[VoxtralTensorNames.ACOUSTIC_INPUT_PROJ]
-        val acousticDim = inputProjTensor?.shape?.get(1) ?: nCodebooks
-
-        // Map acoustic transformer weights
-        val weightTensors = weights.tensors
-            .filter { (name, _) -> name.startsWith("acoustic.blk.") || name.startsWith("acoustic.output_norm") }
-            .map { (name, tensor) ->
-                WeightTensor(
-                    name = name,
-                    shape = tensor.shape.dimensions.toList(),
-                    tensor = tensor
-                )
-            }
-
-        val config = MappingConfig(
-            usePathBasedMatching = false,
-            fallbackToShapeMatching = false,
-            debug = debug,
-            nameResolver = VoxtralGGUFNameResolver()
-        )
-
-        if (weightTensors.isNotEmpty()) {
-            val result = WeightMapper.applyWeights(acousticModel, weightTensors, config)
-            val unmappedNonBias = result.missingParams.filter { !it.contains(".bias") }
-            if (unmappedNonBias.isNotEmpty() && debug) {
-                println("Acoustic model unmapped params (${unmappedNonBias.size}):")
-                unmappedNonBias.forEach { println("  - $it") }
-            }
-        }
-
-        // Extract projection tensors (these are raw linear layers, not part of the DSL module)
-        val inputProj = inputProjTensor
-            ?: createZeroTensor(ctx, dtype, Shape(dim, acousticDim))
-        val outputProj = weights.tensors[VoxtralTensorNames.ACOUSTIC_OUTPUT_PROJ]
-            ?: createZeroTensor(ctx, dtype, Shape(acousticDim, dim))
-        val inputProjBias = weights.tensors[VoxtralTensorNames.ACOUSTIC_INPUT_PROJ_BIAS]
-        val outputProjBias = weights.tensors[VoxtralTensorNames.ACOUSTIC_OUTPUT_PROJ_BIAS]
-
         return VoxtralAcousticRuntime(
-            acousticTransformer = acousticModel,
-            inputProj = inputProj,
-            outputProj = outputProj,
-            inputProjBias = inputProjBias,
-            outputProjBias = outputProjBias,
+            weights = weights.tensors,
             ctx = ctx,
             dtype = dtype,
             nCodebooks = nCodebooks,
             codebookLevels = codebookLevels,
-            dim = dim
+            dim = acousticMetadata.embeddingLength
         )
     }
 

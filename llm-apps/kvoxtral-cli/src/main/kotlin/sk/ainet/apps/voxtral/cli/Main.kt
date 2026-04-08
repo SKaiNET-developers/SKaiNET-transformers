@@ -530,18 +530,13 @@ fun main(args: Array<String>) = runBlocking {
         println("  inputProj: $inputProjShape, outputProj: $outputProjShape")
 
         val acousticTime = measureTime {
-            // Build acoustic runtime with proper weight loading via VoxtralNetworkLoader
-            val acousticWeights = sk.ainet.models.llama.LlamaWeights<FP32, Float>(
-                metadata = VoxtralDefaults.ACOUSTIC_MODEL,
-                tensors = acousticTensors
-            )
-            val acousticRuntime = VoxtralNetworkLoader.acousticFromWeights<FP32>(
-                weights = acousticWeights,
-                acousticMetadata = VoxtralDefaults.ACOUSTIC_MODEL,
+            val acousticRuntime = VoxtralAcousticRuntime<FP32>(
+                weights = acousticTensors,
                 ctx = ctx,
+                dtype = FP32::class,
                 nCodebooks = nCodebooks,
                 codebookLevels = codebookLevels,
-                debug = true
+                dim = hiddenStates.shape[1]
             )
 
             acousticCodes = acousticRuntime.generate(
