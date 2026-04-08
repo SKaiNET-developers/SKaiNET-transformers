@@ -26,15 +26,15 @@ SKaiNET-transformers is a high-performance LLM (Large Language Model) applicatio
 
 ## Current Release
 
-The current release is **0.16.0**. To use SKaiNET-transformers in your project, add the following dependency:
+The current release is **0.18.0**. To use SKaiNET-transformers in your project, add the following dependency:
 
 ```kotlin
 dependencies {
-    implementation("sk.ainet.transformers:llm-core:0.16.0")
+    implementation("sk.ainet.transformers:llm-core:0.18.0")
 }
 ```
 
-Make sure to use a matching version of the SKaiNET engine (`sk.ainet.core:skainet-lang-core:0.16.0`).
+Make sure to use a matching version of the SKaiNET engine (`sk.ainet.core:skainet-lang-core:0.18.0`).
 
 ## Getting Started
 

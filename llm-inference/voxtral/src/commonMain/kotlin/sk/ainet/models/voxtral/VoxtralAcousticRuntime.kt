@@ -250,16 +250,19 @@ public class VoxtralAcousticRuntime<T : DType>(
             val wvData = wv.data.copyToFloatArray()
             val woData = wo.data.copyToFloatArray()
 
-            val qDim = wq.shape[0]  // may differ from dim for GQA
-            val q = matmulFlat(normed, seqLen, dim, wqData, qDim, dim)
-            val k = matmulFlat(normed, seqLen, dim, wkData, kvDim, dim)
-            val v = matmulFlat(normed, seqLen, dim, wvData, kvDim, dim)
+            val qDim = wq.shape[0]
+            val actualKVDim = wk.shape[0]
+            val q = matmulFlat(normed, seqLen, dim, wqData, qDim, wq.shape[1])
+            val k = matmulFlat(normed, seqLen, dim, wkData, actualKVDim, wk.shape[1])
+            val v = matmulFlat(normed, seqLen, dim, wvData, actualKVDim, wv.shape[1])
 
             // Bidirectional multi-head attention
-            val attnOut = bidirectionalMHA(q, k, v, seqLen, nHeads, nKVHeads, headDim)
+            val actualNHeads = qDim / headDim
+            val actualNKVHeads = actualKVDim / headDim
+            val attnOut = bidirectionalMHA(q, k, v, seqLen, actualNHeads, actualNKVHeads, headDim)
 
             // Output projection
-            val projected = matmulFlat(attnOut, seqLen, qDim, woData, dim, qDim)
+            val projected = matmulFlat(attnOut, seqLen, qDim, woData, wo.shape[0], wo.shape[1])
 
             // Residual
             for (i in current.indices) current[i] += projected[i]
@@ -280,8 +283,11 @@ public class VoxtralAcousticRuntime<T : DType>(
             val w2Data = w2.data.copyToFloatArray()
             val w3Data = w3.data.copyToFloatArray()
 
-            val gate = matmulFlat(normedFfn, seqLen, dim, w1Data, ffnDim, dim)
-            val up = matmulFlat(normedFfn, seqLen, dim, w3Data, ffnDim, dim)
+            // Use actual weight shapes (ffnDim from constructor may not match)
+            val actualFfnDim = w1.shape[0]
+            val actualFfnInDim = w1.shape[1]
+            val gate = matmulFlat(normedFfn, seqLen, dim, w1Data, actualFfnDim, actualFfnInDim)
+            val up = matmulFlat(normedFfn, seqLen, dim, w3Data, w3.shape[0], w3.shape[1])
 
             // SiLU(gate) * up
             for (i in gate.indices) {
@@ -289,7 +295,7 @@ public class VoxtralAcousticRuntime<T : DType>(
                 gate[i] = gate[i] * sigmoid * up[i]
             }
 
-            val ffnOut = matmulFlat(gate, seqLen, ffnDim, w2Data, dim, ffnDim)
+            val ffnOut = matmulFlat(gate, seqLen, actualFfnDim, w2Data, w2.shape[0], w2.shape[1])
 
             // Residual
             for (i in current.indices) current[i] += ffnOut[i]
@@ -366,6 +372,12 @@ public class VoxtralAcousticRuntime<T : DType>(
         input: FloatArray, rows: Int, inDim: Int,
         weight: FloatArray, outDim: Int, wInDim: Int
     ): FloatArray {
+        require(input.size >= rows * inDim) {
+            "matmulFlat: input size ${input.size} < rows*inDim=${rows * inDim}"
+        }
+        require(weight.size >= outDim * wInDim) {
+            "matmulFlat: weight size ${weight.size} < outDim*wInDim=${outDim * wInDim} (outDim=$outDim, wInDim=$wInDim)"
+        }
         val output = FloatArray(rows * outDim)
         for (r in 0 until rows) {
             for (o in 0 until outDim) {

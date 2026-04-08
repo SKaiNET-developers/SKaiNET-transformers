@@ -137,12 +137,12 @@ If the backend lives in its own Gradle module or external JAR:
 sourceSets {
     val jvmMain by getting {
         dependencies {
-            implementation("sk.ainet.core:skainet-backend-metal:0.17.0")
+            implementation("sk.ainet.core:skainet-backend-metal:0.18.0")
         }
     }
     val macosMain by getting {
         dependencies {
-            implementation("sk.ainet.core:skainet-backend-metal:0.17.0")
+            implementation("sk.ainet.core:skainet-backend-metal:0.18.0")
         }
     }
 }
