@@ -18,6 +18,7 @@ import sk.ainet.models.voxtral.VoxtralSafeTensorsLoader
 import sk.ainet.models.voxtral.VoxtralVoiceLoader
 import sk.ainet.models.voxtral.VoxtralVoices
 import sk.ainet.models.voxtral.TekkenTokenizerAdapter
+import sk.ainet.apps.llm.validation.PipelineShapeValidator
 import kotlinx.coroutines.runBlocking
 import java.nio.file.Path
 import kotlin.io.path.exists
@@ -551,6 +552,27 @@ fun main(args: Array<String>) = runBlocking {
         }
         println("  ${acousticCodes!!.size} acoustic codes in $acousticTime " +
             "(${acousticCodes!!.size / nCodebooks} frames)")
+    }
+
+    // ---- Pipeline shape validation ----
+    if (acousticCodes != null) {
+        val pv = PipelineShapeValidator()
+        if (hiddenStates != null) {
+            pv.stage("backbone.hiddenStates", hiddenStates.shape)
+            val inputProjShape = allTensors[sk.ainet.models.voxtral.VoxtralTensorNames.ACOUSTIC_INPUT_PROJ]?.shape
+            if (inputProjShape != null) {
+                pv.projection("acoustic.inputProj", inputProjShape.dimensions.toList(), transpose = true)
+            }
+        }
+        pv.matchCount(
+            "semanticTokens", allSemanticTokens.size,
+            "acousticFrames", acousticCodes!!.size / nCodebooks
+        )
+        val pvResult = pv.validate()
+        pvResult.printSummary(prefix = "  ")
+        if (!pvResult.isValid) {
+            System.err.println("WARNING: Pipeline shape mismatch detected (see above)")
+        }
     }
 
     // ---- Step 4: Decode to audio via codec (or tone-map fallback) ----
