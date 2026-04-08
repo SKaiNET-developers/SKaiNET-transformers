@@ -42,23 +42,31 @@ public data class VoxtralCodecMetadata(
     val semanticDim: Int = 256,
     val acousticCodebookSize: Int = 21,
     val acousticDim: Int = 36,
+    /** Codec input dim: semanticDim + acousticDim (256 + 36 = 292). */
+    val inputDim: Int = 292,
     val dim: Int = 1024,
     val hiddenDim: Int = 4096,
     val nHeads: Int = 8,
     val nKVHeads: Int = 8,
     val headDim: Int = 128,
     val causal: Boolean = true,
-    val slidingWindowSize: Int = 16,
     val qkNorm: Boolean = true,
     val qkNormEps: Float = 1e-6f,
     val normEps: Float = 0.01f,
     val layerScaleInit: Float = 0.01f,
+    /** Whether convolutions use weight normalization (g/v decomposition). */
+    val convWeightNorm: Boolean = true,
     /** Transformer layers per decoder stage: [2, 2, 2, 2] = 8 total. */
     val decoderTransformerLengths: List<Int> = listOf(2, 2, 2, 2),
     /** Convolution kernel sizes per decoder stage. */
     val decoderConvsKernels: List<Int> = listOf(3, 4, 4, 4),
     /** Convolution strides per decoder stage (total upsampling = product of strides). */
-    val decoderConvsStrides: List<Int> = listOf(1, 2, 2, 2)
+    val decoderConvsStrides: List<Int> = listOf(1, 2, 2, 2),
+    /**
+     * Sliding window sizes per transformer stage (blocks 1,3,5,7).
+     * Window halves with each downsampling level (half_attn_window_upon_downsampling).
+     */
+    val decoderWindowSizes: List<Int> = listOf(2, 4, 8, 16)
 )
 
 /**

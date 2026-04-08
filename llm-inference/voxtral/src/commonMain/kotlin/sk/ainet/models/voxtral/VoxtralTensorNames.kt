@@ -51,23 +51,54 @@ public object VoxtralTensorNames {
 
     // ========== Codec ==========
 
+    // Codebook
     public const val CODEC_SEMANTIC_CODEBOOK: String = "codec.semantic_codebook.weight"
-    public const val CODEC_ACOUSTIC_CODEBOOK: String = "codec.acoustic_codebook.weight"
-    public const val CODEC_PATCH_PROJ: String = "codec.patch_proj.weight"
-    public const val CODEC_PATCH_PROJ_BIAS: String = "codec.patch_proj.bias"
-    public const val CODEC_OUTPUT_PROJ: String = "codec.output_proj.weight"
-    public const val CODEC_OUTPUT_PROJ_BIAS: String = "codec.output_proj.bias"
 
-    public fun codecDecoderConvWeight(stage: Int): String = "codec.decoder.conv.$stage.weight"
-    public fun codecDecoderConvBias(stage: Int): String = "codec.decoder.conv.$stage.bias"
-    public fun codecDecoderTransformerAttnNorm(stage: Int, layer: Int): String =
-        "codec.decoder.transformer.$stage.blk.$layer.attn_norm.weight"
-    public fun codecDecoderTransformerAttnQ(stage: Int, layer: Int): String =
-        "codec.decoder.transformer.$stage.blk.$layer.attn_q.weight"
-    public fun codecDecoderTransformerAttnK(stage: Int, layer: Int): String =
-        "codec.decoder.transformer.$stage.blk.$layer.attn_k.weight"
-    public fun codecDecoderTransformerAttnV(stage: Int, layer: Int): String =
-        "codec.decoder.transformer.$stage.blk.$layer.attn_v.weight"
-    public fun codecDecoderTransformerAttnOut(stage: Int, layer: Int): String =
-        "codec.decoder.transformer.$stage.blk.$layer.attn_output.weight"
+    // Output projection (weight-normalized conv1d)
+    public const val CODEC_OUTPUT_PROJ_G: String = "codec.output_proj.weight_g"
+    public const val CODEC_OUTPUT_PROJ_V: String = "codec.output_proj.weight_v"
+    public const val CODEC_OUTPUT_PROJ_BIAS: String = "codec.output_proj.bias"
+    // Fallback: pre-composed weight (for non-weight-norm models or pre-composed weights)
+    public const val CODEC_OUTPUT_PROJ: String = "codec.output_proj.weight"
+
+    // Decoder block convolutions (weight-normalized).
+    // Blocks are flat-indexed 0–7: even blocks [0,2,4,6] are convolutions,
+    // odd blocks [1,3,5,7] are transformer stages.
+    public fun codecBlockConvG(block: Int): String = "codec.decoder_blocks.$block.conv.weight_g"
+    public fun codecBlockConvV(block: Int): String = "codec.decoder_blocks.$block.conv.weight_v"
+    public fun codecBlockConvBias(block: Int): String = "codec.decoder_blocks.$block.conv.bias"
+    // Fallback: pre-composed conv weight
+    public fun codecBlockConvWeight(block: Int): String = "codec.decoder_blocks.$block.conv.weight"
+
+    // Decoder block transformer layers (blocks 1,3,5,7 each have 2 layers)
+    // Attention
+    public fun codecTransformerAttnNorm(block: Int, layer: Int): String =
+        "codec.decoder_blocks.$block.layers.$layer.attention_norm.weight"
+    public fun codecTransformerAttnQ(block: Int, layer: Int): String =
+        "codec.decoder_blocks.$block.layers.$layer.attention.wq.weight"
+    public fun codecTransformerAttnK(block: Int, layer: Int): String =
+        "codec.decoder_blocks.$block.layers.$layer.attention.wk.weight"
+    public fun codecTransformerAttnV(block: Int, layer: Int): String =
+        "codec.decoder_blocks.$block.layers.$layer.attention.wv.weight"
+    public fun codecTransformerAttnOut(block: Int, layer: Int): String =
+        "codec.decoder_blocks.$block.layers.$layer.attention.wo.weight"
+    // QK norm
+    public fun codecTransformerQNorm(block: Int, layer: Int): String =
+        "codec.decoder_blocks.$block.layers.$layer.attention.q_norm.weight"
+    public fun codecTransformerKNorm(block: Int, layer: Int): String =
+        "codec.decoder_blocks.$block.layers.$layer.attention.k_norm.weight"
+    // Layer scale
+    public fun codecTransformerAttnScale(block: Int, layer: Int): String =
+        "codec.decoder_blocks.$block.layers.$layer.attention_scale"
+    public fun codecTransformerFfnScale(block: Int, layer: Int): String =
+        "codec.decoder_blocks.$block.layers.$layer.ffn_scale"
+    // FFN
+    public fun codecTransformerFfnNorm(block: Int, layer: Int): String =
+        "codec.decoder_blocks.$block.layers.$layer.ffn_norm.weight"
+    public fun codecTransformerFfnGate(block: Int, layer: Int): String =
+        "codec.decoder_blocks.$block.layers.$layer.feed_forward.w1.weight"
+    public fun codecTransformerFfnDown(block: Int, layer: Int): String =
+        "codec.decoder_blocks.$block.layers.$layer.feed_forward.w2.weight"
+    public fun codecTransformerFfnUp(block: Int, layer: Int): String =
+        "codec.decoder_blocks.$block.layers.$layer.feed_forward.w3.weight"
 }

@@ -40,7 +40,8 @@ private data class CliArgs(
     val flowSteps: Int,
     val flowMethod: String,
     val voice: String?,
-    val beep: Boolean
+    val beep: Boolean,
+    val testCodec: Boolean
 )
 
 private fun usage(errorMessage: String? = null): Nothing {
@@ -61,6 +62,7 @@ private fun usage(errorMessage: String? = null): Nothing {
     println("  --voice             Voice preset name (default: auto-detect, or 'none')")
     println("  --list-voices       List available voice presets and exit")
     println("  --beep              Also write a beep-encoded WAV (token → frequency mapping)")
+    println("  --test-codec        Skip backbone, use random tokens to test acoustic+codec pipeline")
     println("  -h, --help          Show this help")
     println()
     println("Example:")
@@ -81,6 +83,7 @@ private fun parseArgs(args: Array<String>): CliArgs {
     var flowMethod = "euler"
     var voice: String? = null
     var beep = false
+    var testCodec = false
     var text: String? = null
 
     var idx = 0
@@ -129,6 +132,7 @@ private fun parseArgs(args: Array<String>): CliArgs {
             arg == "--voice" -> voice = nextValue(arg)
             arg.startsWith("--voice=") -> voice = arg.substringAfter("=")
             arg == "--beep" -> beep = true
+            arg == "--test-codec" -> testCodec = true
             arg == "--list-voices" -> {
                 println("Available voice presets:")
                 VoxtralVoices.PRESETS.forEach { (name, idx) ->
@@ -152,13 +156,13 @@ private fun parseArgs(args: Array<String>): CliArgs {
         usage("Output file must have .wav extension: $outputPath")
     }
 
-    if (text == null) usage("Text input is required as a positional argument.")
+    if (text == null && !testCodec) usage("Text input is required as a positional argument.")
 
     if (flowMethod !in listOf("euler", "midpoint")) {
         usage("Invalid flow method '$flowMethod'. Expected: euler or midpoint.")
     }
 
-    return CliArgs(modelPath, tokenizer?.let(Path::of), text, outputPath, steps, temperature, flowSteps, flowMethod, voice, beep)
+    return CliArgs(modelPath, tokenizer?.let(Path::of), text ?: "", outputPath, steps, temperature, flowSteps, flowMethod, voice, beep, testCodec)
 }
 
 private fun detectFormat(path: Path): ModelFormat {
@@ -405,36 +409,87 @@ fun main(args: Array<String>) = runBlocking {
     }
 
     // ---- Step 1: Generate semantic tokens + capture hidden states ----
-    val promptTokens = tokenizer.encode(cliArgs.text)
-    println()
-    println("Input: ${promptTokens.size} tokens" +
-        if (voxtralVoice != null) " + ${voxtralVoice.numFrames} voice frames" else "")
-    println("Generating up to ${cliArgs.steps} semantic tokens (temperature=${cliArgs.temperature})...")
-
     val generatedTokens = mutableListOf<Int>()
-    val genTime = measureTime {
-        backboneRuntime.generate(
-            prompt = promptTokens,
-            steps = cliArgs.steps,
-            temperature = cliArgs.temperature,
-            voice = voxtralVoice
-        ) { tokenId ->
-            generatedTokens.add(tokenId)
-            // Print progress every 50 tokens
-            if (generatedTokens.size % 50 == 0) {
-                print("\r  ${generatedTokens.size} tokens...")
-                System.out.flush()
+    val hiddenStates: Tensor<FP32, Float>?
+
+    if (cliArgs.testCodec) {
+        // --test-codec: skip backbone, generate random semantic tokens
+        val rng = kotlin.random.Random(42)
+        val nTokens = cliArgs.steps.coerceAtMost(64)
+        println()
+        println("TEST-CODEC mode: generating $nTokens random semantic tokens (skipping backbone)")
+        for (i in 0 until nTokens) {
+            generatedTokens.add(rng.nextInt(audioConfig.semanticCodebookSize))
+        }
+        hiddenStates = null // will generate random hidden states below
+    } else {
+        val promptTokens = tokenizer.encode(cliArgs.text)
+        println()
+        println("Input: ${promptTokens.size} tokens" +
+            if (voxtralVoice != null) " + ${voxtralVoice.numFrames} voice frames" else "")
+        println("Generating up to ${cliArgs.steps} semantic tokens (temperature=${cliArgs.temperature})...")
+
+        // Phase 1: Voice conditioning (if applicable)
+        if (voxtralVoice != null) {
+            print("  Voice conditioning: 0/${voxtralVoice.numFrames} frames...")
+            System.out.flush()
+            val voiceTime = measureTime {
+                backboneRuntime.reset()
+                for (frame in 0 until voxtralVoice.numFrames) {
+                    backboneRuntime.forwardEmbedding(voxtralVoice.frameEmbedding(frame))
+                    if ((frame + 1) % 10 == 0 || frame == voxtralVoice.numFrames - 1) {
+                        print("\r  Voice conditioning: ${frame + 1}/${voxtralVoice.numFrames} frames...")
+                        System.out.flush()
+                    }
+                }
+            }
+            println("\r  Voice conditioning: ${voxtralVoice.numFrames} frames in $voiceTime")
+        } else {
+            backboneRuntime.reset()
+        }
+
+        // Phase 2: Prompt prefill
+        print("  Prefill: 0/${promptTokens.size} tokens...")
+        System.out.flush()
+        val prefillTime = measureTime {
+            for (i in 0 until promptTokens.size - 1) {
+                backboneRuntime.forward(promptTokens[i])
+                if ((i + 1) % 5 == 0) {
+                    print("\r  Prefill: ${i + 1}/${promptTokens.size} tokens...")
+                    System.out.flush()
+                }
             }
         }
+        println("\r  Prefill: ${promptTokens.size} tokens in $prefillTime")
+
+        // Phase 3: Autoregressive generation
+        println("  Generating up to ${cliArgs.steps} tokens...")
+        val genTime = measureTime {
+            var nextToken = if (promptTokens.isNotEmpty()) {
+                val logits = backboneRuntime.forward(promptTokens.last())
+                backboneRuntime.sample(logits, cliArgs.temperature)
+            } else {
+                VoxtralDefaults.AUDIO.bosTokenId
+            }
+
+            for (step in 0 until cliArgs.steps) {
+                generatedTokens.add(nextToken)
+                print("\r  Generated: ${step + 1}/${cliArgs.steps} tokens...")
+                System.out.flush()
+                val logits = backboneRuntime.forward(nextToken)
+                nextToken = backboneRuntime.sample(logits, cliArgs.temperature)
+            }
+        }
+
+        val tokPerSec = if (genTime.inWholeMilliseconds > 0) {
+            generatedTokens.size / genTime.inWholeMilliseconds.toDouble() * 1000
+        } else 0.0
+        println("\r  Generated: ${generatedTokens.size} tokens in $genTime (%.2f tok/s)".format(tokPerSec))
+
+        hiddenStates = backboneRuntime.lastHiddenStates()
     }
 
-    val tokPerSec = if (genTime.inWholeMilliseconds > 0) {
-        generatedTokens.size / genTime.inWholeMilliseconds.toDouble() * 1000
-    } else 0.0
-    println("\r  ${generatedTokens.size} tokens in $genTime (%.2f tok/s)".format(tokPerSec))
-
     // ---- Step 2: Get hidden states for acoustic model ----
-    val hiddenStates = backboneRuntime.lastHiddenStates()
     if (hiddenStates != null) {
         println("Hidden states: ${hiddenStates.shape} (${hiddenStates.shape[0]} frames x ${hiddenStates.shape[1]} dim)")
     }
@@ -448,8 +503,16 @@ fun main(args: Array<String>) = runBlocking {
     val codebookLevels = audioConfig.acousticCodebookSize
     var acousticCodes: IntArray? = null
 
+    if (cliArgs.testCodec) {
+        // In test-codec mode, generate random acoustic codes
+        val rng = kotlin.random.Random(123)
+        val nFrames = generatedTokens.size
+        acousticCodes = IntArray(nFrames * nCodebooks) { rng.nextInt(codebookLevels) }
+        println("TEST-CODEC: generated ${acousticCodes!!.size} random acoustic codes ($nFrames frames x $nCodebooks codebooks)")
+    }
+
     val hasAcousticWeights = allTensors.keys.any { it.startsWith("acoustic.") }
-    if (hiddenStates != null && hasAcousticWeights) {
+    if (hiddenStates != null && hasAcousticWeights && acousticCodes == null) {
         println("Running acoustic flow matching (${cliArgs.flowSteps} ${cliArgs.flowMethod} steps, " +
             "$nCodebooks codebooks x $codebookLevels levels)...")
         val acousticTime = measureTime {
@@ -493,7 +556,13 @@ fun main(args: Array<String>) = runBlocking {
     val audioSamples: FloatArray = if (acousticCodes != null) {
         val codecWeights = allTensors.filterKeys { it.startsWith("codec.") }
         val hasCodecWeights = codecWeights.isNotEmpty()
-        println("Running codec decoder${if (hasCodecWeights) " (${codecWeights.size} weights)" else " (no weights)"}...")
+        if (hasCodecWeights) {
+            val convCount = codecWeights.keys.count { it.contains(".conv.") }
+            val transformerCount = codecWeights.keys.count { it.contains(".layers.") }
+            println("Running codec decoder (${codecWeights.size} weights: $convCount conv, $transformerCount transformer)...")
+        } else {
+            println("Running codec decoder (no weights)...")
+        }
         try {
             val codec = VoxtralCodecRuntime<FP32>(
                 weights = codecWeights,
@@ -512,7 +581,8 @@ fun main(args: Array<String>) = runBlocking {
             println("  Codec decoded ${decoded!!.size} samples in $codecTime")
             decoded!!
         } catch (e: Exception) {
-            println("  Codec unavailable (${e.message}), using tone-map fallback")
+            println("  Codec failed (${e.message}), using tone-map fallback")
+            e.printStackTrace()
             toneMapTokens(generatedTokens, audioConfig)
         }
     } else {
@@ -549,15 +619,19 @@ fun main(args: Array<String>) = runBlocking {
         println("Beep:   ${cliArgs.outputPath.toString().replace(".wav", ".beep.wav")}")
     }
     println()
-    println("Pipeline: text -> ${promptTokens.size} prompt tokens -> ${generatedTokens.size} semantic tokens")
+    println("Pipeline: text -> ${generatedTokens.size} semantic tokens")
     if (acousticCodes != null) {
         println("          -> ${acousticCodes!!.size} acoustic codes (${acousticCodes!!.size / nCodebooks} frames)")
     }
     println("          -> ${audioSamples.size} audio samples -> WAV")
     if (!usedCodec) {
         println()
-        println("Note: Audio is tone-mapped (codec weights not loaded).")
-        println("Load full SafeTensors model for actual speech synthesis.")
+        println("Note: Audio is tone-mapped (codec not available).")
+        if (format == ModelFormat.GGUF) {
+            println("GGUF only contains backbone weights. Use SafeTensors model for speech synthesis.")
+        } else {
+            println("Load full SafeTensors model with codec weights for actual speech synthesis.")
+        }
     }
 }
 

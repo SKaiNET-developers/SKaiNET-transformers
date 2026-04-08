@@ -177,7 +177,7 @@ public class VoxtralBackboneRuntime<T : DType>(
         }
     }
 
-    private fun sample(logits: Tensor<T, Float>, temperature: Float): Int {
+    public fun sample(logits: Tensor<T, Float>, temperature: Float): Int {
         val data = logits.data.copyToFloatArray()
         if (temperature <= 0f) {
             // Greedy

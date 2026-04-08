@@ -53,7 +53,11 @@ public class VoxtralSafeTensorsLoader<T : DType>(
             for (info in reader.tensors) {
                 if (info.name.endsWith(".qb")) continue
 
-                val canonicalName = VoxtralHfTensorNameMapper.toCanonical(info.name) ?: continue
+                val canonicalName = VoxtralHfTensorNameMapper.toCanonical(info.name)
+                if (canonicalName == null) {
+                    println("  SKIPPED (unmapped): ${info.name} (${info.dtype} ${info.shape})")
+                    continue
+                }
 
                 val tensor = when (info.dataType) {
                     DataType.BFLOAT16 -> {
@@ -107,9 +111,12 @@ public class VoxtralSafeTensorsLoader<T : DType>(
             }
         }
 
-        // Split into backbone weights (for LlamaWeights compat) and full map
+        // Split into backbone weights (for LlamaWeights compat) and full map.
+        // Exclude non-backbone tensors: acoustic, codec, and audio codebook embeddings.
         val backboneTensors = allTensors.filterKeys { name ->
-            !name.startsWith("acoustic.") && !name.startsWith("codec.")
+            !name.startsWith("acoustic.") &&
+                !name.startsWith("codec.") &&
+                !name.startsWith("audio_codebook_embeddings.")
         }
 
         val backbone = LlamaWeights<T, Float>(
