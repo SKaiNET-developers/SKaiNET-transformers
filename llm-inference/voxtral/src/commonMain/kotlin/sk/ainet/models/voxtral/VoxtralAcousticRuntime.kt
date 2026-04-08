@@ -47,7 +47,11 @@ public class VoxtralAcousticRuntime<T : DType>(
     private val cfgAlpha: Float = 1.2f
 ) {
     private val ops get() = ctx.ops
-    private val headDim = dim / nHeads
+    // Derive headDim from Q weight shape if available (model uses headDim=128, not dim/nHeads=96)
+    private val headDim: Int = run {
+        val qWeight = weights[VoxtralTensorNames.acousticAttnQ(0)]
+        if (qWeight != null) qWeight.shape[0] / nHeads else dim / nHeads
+    }
     private val kvDim = nKVHeads * headDim
     private val acousticDim = nCodebooks  // 36: one continuous value per codebook
     private val flowMatching = VoxtralFlowMatching()
