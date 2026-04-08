@@ -46,7 +46,9 @@ public class VoxtralAcousticRuntime<T : DType>(
     private val codebookLevels: Int = 21,
     private val dim: Int = 3072
 ) {
-    private val acousticDim: Int = nCodebooks * codebookLevels
+    // Derive acousticDim from the actual input projection weight shape.
+    // Voxtral uses nCodebooks (36) directly, not nCodebooks * codebookLevels (756).
+    private val acousticDim: Int = inputProj.shape[1]
     private val flowMatching = VoxtralFlowMatching()
 
     /**
