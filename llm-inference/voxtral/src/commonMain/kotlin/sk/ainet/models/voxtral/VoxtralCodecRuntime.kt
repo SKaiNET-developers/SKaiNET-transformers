@@ -506,10 +506,12 @@ public class VoxtralCodecRuntime<T : DType>(
      */
     private fun rmsNorm(input: Tensor<T, Float>, weight: Tensor<T, Float>, eps: Float): Tensor<T, Float> {
         val xSquared = ops.multiply(input, input)
-        val meanSquared = ops.mean(xSquared, -1)
+        val meanSquared = ops.mean(xSquared, -1)  // [seqLen] from [seqLen, dim]
         val meanPlusEps = ops.addScalar(meanSquared, eps)
         val rms = ops.sqrt(meanPlusEps)
-        val normalized = ops.divide(input, rms)
+        // Unsqueeze for broadcasting: [seqLen] → [seqLen, 1] so divide [seqLen, dim] / [seqLen, 1] works
+        val rmsUnsqueezed = ops.unsqueeze(rms, rms.shape.rank)
+        val normalized = ops.divide(input, rmsUnsqueezed)
         return ops.multiply(normalized, weight)
     }
 

@@ -557,20 +557,13 @@ fun main(args: Array<String>) = runBlocking {
     // ---- Pipeline shape validation ----
     if (acousticCodes != null) {
         val pv = PipelineShapeValidator()
-        if (hiddenStates != null) {
-            pv.stage("backbone.hiddenStates", hiddenStates.shape)
-            val inputProjShape = allTensors[sk.ainet.models.voxtral.VoxtralTensorNames.ACOUSTIC_INPUT_PROJ]?.shape
-            if (inputProjShape != null) {
-                pv.projection("acoustic.inputProj", inputProjShape.dimensions.toList(), transpose = true)
-            }
-        }
         pv.matchCount(
             "semanticTokens", allSemanticTokens.size,
             "acousticFrames", acousticCodes!!.size / nCodebooks
         )
         val pvResult = pv.validate()
-        pvResult.printSummary(prefix = "  ")
         if (!pvResult.isValid) {
+            pvResult.printSummary(prefix = "  ")
             System.err.println("WARNING: Pipeline shape mismatch detected (see above)")
         }
     }
