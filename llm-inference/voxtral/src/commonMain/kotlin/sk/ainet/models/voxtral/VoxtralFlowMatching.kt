@@ -127,10 +127,16 @@ public class VoxtralFlowMatching(
      * Apply Finite Scalar Quantization (FSQ) to convert continuous acoustic output to discrete codes.
      *
      * The input tensor has shape [seqLen, nCodebooks * levels]. This is reshaped to
-     * [seqLen, nCodebooks, levels], then argmax is taken over the levels dimension
-     * to produce one discrete code per codebook per frame.
+     * Two modes depending on acoustic dimension:
      *
-     * @param continuous The continuous output from flow matching [seqLen, nCodebooks * levels]
+     * **Continuous mode** (acousticDim == nCodebooks): Each value is a continuous scalar
+     * that maps to a discrete FSQ level via nearest-level quantization.
+     * value in [-1, 1] → code in [0, levels-1].
+     *
+     * **Logits mode** (acousticDim == nCodebooks * levels): Output is reshaped to
+     * [seqLen, nCodebooks, levels] and argmax is taken per codebook.
+     *
+     * @param continuous The continuous output from flow matching [seqLen, acousticDim]
      * @param nCodebooks Number of acoustic codebooks (e.g. 36)
      * @param levels Number of quantization levels per codebook (e.g. 21)
      * @return IntArray of quantized codes, length = seqLen * nCodebooks, each in [0, levels-1]
@@ -143,24 +149,38 @@ public class VoxtralFlowMatching(
         val data = continuous.data.copyToFloatArray()
         val seqLen = continuous.shape[0]
         val acousticDim = continuous.shape[1]
-        require(acousticDim == nCodebooks * levels) {
-            "Expected acousticDim=$acousticDim to equal nCodebooks*levels=${nCodebooks * levels}"
-        }
 
         val codes = IntArray(seqLen * nCodebooks)
-        for (frame in 0 until seqLen) {
-            for (cb in 0 until nCodebooks) {
-                // Find argmax over the levels for this codebook
-                val offset = frame * acousticDim + cb * levels
-                var bestLevel = 0
-                var bestVal = data[offset]
-                for (l in 1 until levels) {
-                    if (data[offset + l] > bestVal) {
-                        bestVal = data[offset + l]
-                        bestLevel = l
-                    }
+
+        if (acousticDim == nCodebooks) {
+            // Continuous mode: one scalar per codebook, map [-1, 1] → [0, levels-1]
+            for (frame in 0 until seqLen) {
+                for (cb in 0 until nCodebooks) {
+                    val value = data[frame * nCodebooks + cb]
+                    // Clamp to [-1, 1], then map to [0, levels-1]
+                    val clamped = value.coerceIn(-1.0f, 1.0f)
+                    val code = ((clamped + 1.0f) / 2.0f * (levels - 1)).toInt().coerceIn(0, levels - 1)
+                    codes[frame * nCodebooks + cb] = code
                 }
-                codes[frame * nCodebooks + cb] = bestLevel
+            }
+        } else {
+            // Logits mode: argmax over levels per codebook
+            require(acousticDim == nCodebooks * levels) {
+                "Expected acousticDim=$acousticDim to equal nCodebooks ($nCodebooks) or nCodebooks*levels (${nCodebooks * levels})"
+            }
+            for (frame in 0 until seqLen) {
+                for (cb in 0 until nCodebooks) {
+                    val offset = frame * acousticDim + cb * levels
+                    var bestLevel = 0
+                    var bestVal = data[offset]
+                    for (l in 1 until levels) {
+                        if (data[offset + l] > bestVal) {
+                            bestVal = data[offset + l]
+                            bestLevel = l
+                        }
+                    }
+                    codes[frame * nCodebooks + cb] = bestLevel
+                }
             }
         }
         return codes

@@ -517,23 +517,22 @@ fun main(args: Array<String>) = runBlocking {
             "$nCodebooks codebooks x $codebookLevels levels)...")
         val acousticTime = measureTime {
             val dim = hiddenStates.shape[1]
-            val acousticDim = nCodebooks * codebookLevels
-            val acousticMeta = VoxtralDefaults.ACOUSTIC_MODEL
-
-            // Use loaded weights if available, otherwise zero-initialized
+            // Acoustic model projects to nCodebooks (36), NOT nCodebooks*levels (756).
+            // The FSQ quantization from continuous values to discrete codes happens after.
             val inputProj = allTensors[sk.ainet.models.voxtral.VoxtralTensorNames.ACOUSTIC_INPUT_PROJ]
-                ?: createZeroTensor(ctx, dim, acousticDim)
             val outputProj = allTensors[sk.ainet.models.voxtral.VoxtralTensorNames.ACOUSTIC_OUTPUT_PROJ]
-                ?: createZeroTensor(ctx, acousticDim, dim)
-            val inputProjBias = allTensors[sk.ainet.models.voxtral.VoxtralTensorNames.ACOUSTIC_INPUT_PROJ_BIAS]
-            val outputProjBias = allTensors[sk.ainet.models.voxtral.VoxtralTensorNames.ACOUSTIC_OUTPUT_PROJ_BIAS]
+            // Acoustic model operates in nCodebooks-dim space (36), not nCodebooks*levels (756).
+            // inputProj shape: [dim, nCodebooks] e.g. [3072, 36]
+            val acousticDim = inputProj?.shape?.get(1) ?: nCodebooks
+
+            val acousticMeta = VoxtralDefaults.ACOUSTIC_MODEL
 
             val acousticRuntime = VoxtralAcousticRuntime(
                 acousticTransformer = sk.ainet.models.voxtral.voxtralAcousticNetwork<FP32, Float>(acousticMeta),
-                inputProj = inputProj,
-                outputProj = outputProj,
-                inputProjBias = inputProjBias,
-                outputProjBias = outputProjBias,
+                inputProj = inputProj ?: createZeroTensor(ctx, dim, acousticDim),
+                outputProj = outputProj ?: createZeroTensor(ctx, acousticDim, dim),
+                inputProjBias = allTensors[sk.ainet.models.voxtral.VoxtralTensorNames.ACOUSTIC_INPUT_PROJ_BIAS],
+                outputProjBias = allTensors[sk.ainet.models.voxtral.VoxtralTensorNames.ACOUSTIC_OUTPUT_PROJ_BIAS],
                 ctx = ctx,
                 dtype = FP32::class,
                 nCodebooks = nCodebooks,
