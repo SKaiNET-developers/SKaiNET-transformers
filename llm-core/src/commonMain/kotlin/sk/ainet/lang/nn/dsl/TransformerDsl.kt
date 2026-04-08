@@ -47,7 +47,7 @@ import kotlin.reflect.KClass
 
 @NetworkDsl
 public interface ATTENTION<T : DType, V> : NetworkDslItem {
-    public fun rope(headDim: Int, maxSeqLen: Int, mode: RoPEMode = RoPEMode.INTERLEAVED)
+    public fun rope(headDim: Int, maxSeqLen: Int, mode: RoPEMode = RoPEMode.INTERLEAVED, base: Float = 10000.0f)
     public fun kvCache(maxSeqLen: Int, nKVHeads: Int, headDim: Int)
 }
 
@@ -64,9 +64,11 @@ public class AttentionImpl<T : DType, V>(
 
     private var ropeModule: RoPE<T, V>? = null
     private var kvCacheModule: KVCache<T, V>? = null
+    private var explicitHeadDim: Int? = null
 
-    override fun rope(headDim: Int, maxSeqLen: Int, mode: RoPEMode) {
-        ropeModule = RoPE(headDim = headDim, maxSeqLen = maxSeqLen, mode = mode, name = "$id.rope")
+    override fun rope(headDim: Int, maxSeqLen: Int, mode: RoPEMode, base: Float) {
+        ropeModule = RoPE(headDim = headDim, maxSeqLen = maxSeqLen, base = base, mode = mode, name = "$id.rope")
+        explicitHeadDim = headDim
     }
 
     override fun kvCache(maxSeqLen: Int, nKVHeads: Int, headDim: Int) {
@@ -79,6 +81,8 @@ public class AttentionImpl<T : DType, V>(
     }
 
     public fun create(): MultiHeadAttention<T, V> {
+        // Pass explicit headDim when it differs from dim/nHeads (e.g. Voxtral: dim=3072, head_dim=128, nHeads=32)
+        val needsExplicitHeadDim = explicitHeadDim != null && explicitHeadDim != dim / nHeads
         return MultiHeadAttention(
             dim = dim,
             nHeads = nHeads,
@@ -88,7 +92,8 @@ public class AttentionImpl<T : DType, V>(
             bias = bias,
             name = id,
             rope = ropeModule,
-            kvCache = kvCacheModule
+            kvCache = kvCacheModule,
+            explicitHeadDim = if (needsExplicitHeadDim) explicitHeadDim else null
         )
     }
 }
@@ -98,10 +103,19 @@ public class AttentionImpl<T : DType, V>(
 // ============================================================================
 
 public fun <T : DType, V> StageImpl<T, V>.embedding(vocabSize: Int, dim: Int, id: String = "") {
+    @Suppress("UNCHECKED_CAST")
+    val voidWeight = sk.ainet.lang.tensor.VoidOpsTensor(
+        object : sk.ainet.lang.tensor.data.TensorData<T, V> {
+            override val shape = sk.ainet.lang.tensor.Shape(vocabSize, dim)
+            override fun get(vararg indices: Int): V = 0.0f as V
+            override fun set(vararg indices: Int, value: V) {}
+        },
+        Any::class as kotlin.reflect.KClass<T>
+    )
     val emb = Embedding<T, V>(
-        ctx = executionContext,
-        dtype = kClass,
-        params = EmbeddingParams(numEmbeddings = vocabSize, embeddingDim = dim),
+        numEmbeddings = vocabSize,
+        embeddingDim = dim,
+        initWeight = voidWeight,
         name = getDefaultName(id, "Embedding", modules.size)
     )
     modules += EmbeddingAdapter(emb)
@@ -166,10 +180,21 @@ public fun <T : DType, V> StageImpl<T, V>.residual() {
 // ============================================================================
 
 public fun <T : DType, V> NeuralNetworkDslImpl<T, V>.embedding(vocabSize: Int, dim: Int, id: String = "") {
+    // Use VoidOpsTensor placeholder to avoid allocating a full [vocabSize, dim] random tensor.
+    // The actual weights will be set by WeightMapper during model loading.
+    @Suppress("UNCHECKED_CAST")
+    val voidWeight = sk.ainet.lang.tensor.VoidOpsTensor(
+        object : sk.ainet.lang.tensor.data.TensorData<T, V> {
+            override val shape = sk.ainet.lang.tensor.Shape(vocabSize, dim)
+            override fun get(vararg indices: Int): V = 0.0f as V
+            override fun set(vararg indices: Int, value: V) {}
+        },
+        Any::class as kotlin.reflect.KClass<T>
+    )
     val emb = Embedding<T, V>(
-        ctx = executionContext,
-        dtype = kClass,
-        params = EmbeddingParams(numEmbeddings = vocabSize, embeddingDim = dim),
+        numEmbeddings = vocabSize,
+        embeddingDim = dim,
+        initWeight = voidWeight,
         name = getDefaultName(id, "Embedding", modules.size)
     )
     modules += EmbeddingAdapter(emb)

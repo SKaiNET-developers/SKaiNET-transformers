@@ -42,10 +42,12 @@ public class MultiHeadAttention<T : DType, V>(
     public val bias: Boolean = false,
     override val name: String = "MultiHeadAttention",
     public var rope: RoPE<T, V>? = null,
-    public var kvCache: KVCache<T, V>? = null
+    public var kvCache: KVCache<T, V>? = null,
+    explicitHeadDim: Int? = null
 ) : Module<T, V>(), ModuleParameters<T, V> {
 
-    public val headDim: Int = dim / nHeads
+    public val headDim: Int = explicitHeadDim ?: (dim / nHeads)
+    public val qDim: Int = headDim * nHeads
     public val kvDim: Int = headDim * nKVHeads
 
     // Weight parameters — placeholder tensors, replaced by WeightMapper
@@ -84,13 +86,13 @@ public class MultiHeadAttention<T : DType, V>(
     private val oWIdx = if (bias) 6 else 3
 
     override val params: List<ModuleParameter<T, V>> = buildList {
-        add(voidWeight("$name.q_proj.weight", dim, dim))
-        if (bias) add(voidBias("$name.q_proj.bias", dim))
+        add(voidWeight("$name.q_proj.weight", qDim, dim))
+        if (bias) add(voidBias("$name.q_proj.bias", qDim))
         add(voidWeight("$name.k_proj.weight", kvDim, dim))
         if (bias) add(voidBias("$name.k_proj.bias", kvDim))
         add(voidWeight("$name.v_proj.weight", kvDim, dim))
         if (bias) add(voidBias("$name.v_proj.bias", kvDim))
-        add(voidWeight("$name.o_proj.weight", dim, dim))
+        add(voidWeight("$name.o_proj.weight", dim, qDim))
         if (bias) add(voidBias("$name.o_proj.bias", dim))
     }
 
@@ -178,9 +180,9 @@ public class MultiHeadAttention<T : DType, V>(
             causal = causal
         )
 
-        // Remove batch dim and merge heads: [1, nHeads, seqLen, headDim] → [seqLen, dim]
+        // Remove batch dim and merge heads: [1, nHeads, seqLen, headDim] → [seqLen, qDim]
         val squeezed = ops.squeeze(attnOut, 0)
-        val merged = ops.reshape(squeezed, Shape(seqLen, dim))
+        val merged = ops.reshape(squeezed, Shape(seqLen, qDim))
 
         // Output projection: merged @ wO^T (+ bias if enabled)
         var output = ops.matmul(merged, ops.transpose(wO))

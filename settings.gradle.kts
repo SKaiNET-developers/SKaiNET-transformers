@@ -8,7 +8,6 @@ pluginManagement {
 
 dependencyResolutionManagement {
     repositories {
-        mavenLocal()
         google()
         mavenCentral()
     }
@@ -23,6 +22,7 @@ include("llm-inference:qwen")
 include("llm-inference:gemma")
 include("llm-inference:apertus")
 include("llm-inference:bert")
+include("llm-inference:voxtral")
 include("llm-runtime:kllama")
 include("llm-runtime:kgemma")
 include("llm-runtime:kapertus")
@@ -30,4 +30,5 @@ include("llm-performance")
 include("llm-apps:kllama-cli")
 include("llm-apps:kbert-cli")
 include("llm-apps:kapertus-cli")
+include("llm-apps:kvoxtral-cli")
 include("llm-bom")
