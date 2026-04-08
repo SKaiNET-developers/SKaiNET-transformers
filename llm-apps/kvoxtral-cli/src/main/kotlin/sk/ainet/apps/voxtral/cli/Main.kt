@@ -410,6 +410,8 @@ fun main(args: Array<String>) = runBlocking {
 
     // ---- Step 1: Generate semantic tokens + capture hidden states ----
     val generatedTokens = mutableListOf<Int>()
+    // allSemanticTokens = prompt + generated (matches hiddenStates frame count)
+    val allSemanticTokens = mutableListOf<Int>()
     val hiddenStates: Tensor<FP32, Float>?
 
     if (cliArgs.testCodec) {
@@ -419,7 +421,9 @@ fun main(args: Array<String>) = runBlocking {
         println()
         println("TEST-CODEC mode: generating $nTokens random semantic tokens (skipping backbone)")
         for (i in 0 until nTokens) {
-            generatedTokens.add(rng.nextInt(audioConfig.semanticCodebookSize))
+            val tok = rng.nextInt(audioConfig.semanticCodebookSize)
+            generatedTokens.add(tok)
+            allSemanticTokens.add(tok)
         }
         hiddenStates = null // will generate random hidden states below
     } else {
@@ -463,6 +467,9 @@ fun main(args: Array<String>) = runBlocking {
         println("\r  Prefill: ${promptTokens.size} tokens in $prefillTime")
 
         // Phase 3: Autoregressive generation
+        // Track all tokens (prompt + generated) to match hidden states frame count
+        allSemanticTokens.addAll(promptTokens.toList())
+
         println("  Generating up to ${cliArgs.steps} tokens...")
         val genTime = measureTime {
             var nextToken = if (promptTokens.isNotEmpty()) {
@@ -474,6 +481,7 @@ fun main(args: Array<String>) = runBlocking {
 
             for (step in 0 until cliArgs.steps) {
                 generatedTokens.add(nextToken)
+                allSemanticTokens.add(nextToken)
                 print("\r  Generated: ${step + 1}/${cliArgs.steps} tokens...")
                 System.out.flush()
                 val logits = backboneRuntime.forward(nextToken)
@@ -567,7 +575,7 @@ fun main(args: Array<String>) = runBlocking {
             var decoded: FloatArray? = null
             val codecTime = measureTime {
                 decoded = codec.decode(
-                    semanticCodes = generatedTokens.toIntArray(),
+                    semanticCodes = allSemanticTokens.toIntArray(),
                     acousticCodes = acousticCodes!!
                 )
             }
