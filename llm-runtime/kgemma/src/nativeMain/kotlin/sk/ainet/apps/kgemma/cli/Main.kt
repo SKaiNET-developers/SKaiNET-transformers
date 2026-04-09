@@ -8,7 +8,7 @@ package sk.ainet.apps.kgemma.cli
  *   ./gradlew :skainet-apps:skainet-kgemma:jvmRun --args='<model> <prompt>'
  */
 fun main(args: Array<String>) {
-    println("kgemma - Kotlin Multiplatform Gemma 3n Runtime")
+    println("kgemma - Kotlin Multiplatform Gemma Runtime (Gemma 3n / Gemma 4)")
     println()
     println("Native CLI support is currently limited.")
     println("For full functionality, use the JVM version:")

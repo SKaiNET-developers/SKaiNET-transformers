@@ -2,7 +2,10 @@ package sk.ainet.apps.kgemma.cli
 
 import sk.ainet.apps.kgemma.Gemma3nIngestion
 import sk.ainet.apps.kgemma.Gemma3nLoadConfig
+import sk.ainet.apps.kgemma.Gemma4Ingestion
+import sk.ainet.apps.kgemma.Gemma4LoadConfig
 import sk.ainet.apps.kllama.GGUFTokenizer
+import sk.ainet.apps.llm.InferenceRuntime
 import sk.ainet.apps.llm.Tokenizer
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
@@ -20,6 +23,28 @@ import kotlin.system.exitProcess
 import kotlin.time.measureTime
 
 private enum class ModelFormat { GGUF, SAFETENSORS }
+
+private enum class GemmaVariant { GEMMA3N, GEMMA4 }
+
+/**
+ * Detect Gemma model variant by reading model_type from config.json.
+ * Falls back to GEMMA3N if config.json is not found or model_type is unrecognized.
+ */
+private fun detectGemmaVariant(modelPath: Path): GemmaVariant {
+    val modelDir = if (modelPath.isDirectory()) modelPath else modelPath.parent ?: modelPath
+    val configFile = modelDir.resolve("config.json")
+    if (configFile.exists()) {
+        val configText = configFile.readText()
+        // Simple check for model_type field
+        val modelTypeRegex = """"model_type"\s*:\s*"(\w+)"""".toRegex()
+        val match = modelTypeRegex.find(configText)
+        if (match != null) {
+            val modelType = match.groupValues[1]
+            if (modelType == "gemma4") return GemmaVariant.GEMMA4
+        }
+    }
+    return GemmaVariant.GEMMA3N
+}
 
 private data class CliArgs(
     val modelPath: Path,
@@ -87,32 +112,61 @@ fun main(args: Array<String>) {
             memSegFactory.close()
         })
 
-        val ingestion = Gemma3nIngestion<FP32>(
-            ctx = ctx,
-            dtype = FP32::class,
-            config = Gemma3nLoadConfig(
-                quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
-                allowQuantized = true
-            )
-        )
+        val variant = detectGemmaVariant(modelPath)
+        println("Detected model variant: $variant")
 
-        val runtime = when (format) {
-            ModelFormat.GGUF -> {
-                println("Loading Gemma GGUF model from $modelPath (streaming mode)...")
-                ingestion.loadRuntimeStreaming {
-                    JvmRandomAccessSource.open(modelPath.toString())
+        val runtime: InferenceRuntime<FP32> = when (variant) {
+            GemmaVariant.GEMMA4 -> {
+                val ingestion = Gemma4Ingestion<FP32>(
+                    ctx = ctx,
+                    dtype = FP32::class,
+                    config = Gemma4LoadConfig(
+                        quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
+                        allowQuantized = true
+                    )
+                )
+                when (format) {
+                    ModelFormat.GGUF -> {
+                        println("Loading Gemma 4 GGUF model from $modelPath (streaming mode)...")
+                        ingestion.loadRuntimeStreaming {
+                            JvmRandomAccessSource.open(modelPath.toString())
+                        }
+                    }
+                    ModelFormat.SAFETENSORS -> {
+                        val modelDir = if (modelPath.isDirectory()) modelPath else modelPath.parent ?: modelPath
+                        val indexPath = modelDir.resolve("model.safetensors.index.json")
+                        val safetensorsPath = if (indexPath.exists()) indexPath.toString()
+                            else modelDir.resolve("model.safetensors").toString()
+                        println("Loading Gemma 4 SafeTensors model from $safetensorsPath...")
+                        ingestion.loadRuntimeFromSafeTensors(safetensorsPath)
+                    }
                 }
             }
-            ModelFormat.SAFETENSORS -> {
-                val modelDir = if (modelPath.isDirectory()) modelPath else modelPath.parent ?: modelPath
-                val indexPath = modelDir.resolve("model.safetensors.index.json")
-                val safetensorsPath = if (indexPath.exists()) {
-                    indexPath.toString()
-                } else {
-                    modelDir.resolve("model.safetensors").toString()
+            GemmaVariant.GEMMA3N -> {
+                val ingestion = Gemma3nIngestion<FP32>(
+                    ctx = ctx,
+                    dtype = FP32::class,
+                    config = Gemma3nLoadConfig(
+                        quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
+                        allowQuantized = true
+                    )
+                )
+                when (format) {
+                    ModelFormat.GGUF -> {
+                        println("Loading Gemma 3n GGUF model from $modelPath (streaming mode)...")
+                        ingestion.loadRuntimeStreaming {
+                            JvmRandomAccessSource.open(modelPath.toString())
+                        }
+                    }
+                    ModelFormat.SAFETENSORS -> {
+                        val modelDir = if (modelPath.isDirectory()) modelPath else modelPath.parent ?: modelPath
+                        val indexPath = modelDir.resolve("model.safetensors.index.json")
+                        val safetensorsPath = if (indexPath.exists()) indexPath.toString()
+                            else modelDir.resolve("model.safetensors").toString()
+                        println("Loading Gemma 3n SafeTensors model from $safetensorsPath...")
+                        ingestion.loadRuntimeFromSafeTensors(safetensorsPath)
+                    }
                 }
-                println("Loading Gemma SafeTensors model from $safetensorsPath...")
-                ingestion.loadRuntimeFromSafeTensors(safetensorsPath)
             }
         }
 
