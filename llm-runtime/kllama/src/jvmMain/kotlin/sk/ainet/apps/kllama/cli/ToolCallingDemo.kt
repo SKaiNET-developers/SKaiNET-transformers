@@ -30,13 +30,20 @@ import java.io.File
 public class ToolCallingDemo<T : DType>(
     private val runtime: LlamaRuntimeInterface<T>,
     private val tokenizer: GGUFTokenizer,
-    private val templateName: String = "llama3"
+    private val templateName: String? = null,
+    private val metadata: ModelMetadata = ModelMetadata()
 ) {
-    private val template: ChatTemplate = when (templateName.lowercase()) {
-        "chatml", "hermes" -> ChatMLTemplate()
-        "qwen" -> QwenChatTemplate()
-        "gemma" -> GemmaChatTemplate()
-        else -> Llama3ChatTemplate()
+    private val provider: ToolCallingSupport = resolveProvider()
+    private val template: ChatTemplate = provider.createChatTemplate()
+
+    private fun resolveProvider(): ToolCallingSupport {
+        val resolved = ToolCallingSupportResolver.resolveOrFallback(
+            metadata = metadata,
+            explicitFamily = templateName
+        )
+        val mode = resolved.toolCallingMode(metadata)
+        println("[ToolCallingDemo] Provider: ${resolved.family} (mode=$mode)")
+        return resolved
     }
 
     private val eosTokenId: Int = tokenizer.eosId
