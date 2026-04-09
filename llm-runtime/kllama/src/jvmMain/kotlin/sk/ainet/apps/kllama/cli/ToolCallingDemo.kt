@@ -37,13 +37,12 @@ public class ToolCallingDemo<T : DType>(
     private val template: ChatTemplate = provider.createChatTemplate()
 
     private fun resolveProvider(): ToolCallingSupport {
-        val resolved = ToolCallingSupportResolver.resolveOrFallback(
+        val result = ToolCallingSupportResolver.resolveWithDiagnostics(
             metadata = metadata,
             explicitFamily = templateName
         )
-        val mode = resolved.toolCallingMode(metadata)
-        println("[ToolCallingDemo] Provider: ${resolved.family} (mode=$mode)")
-        return resolved
+        println("[ToolCallingDemo] Provider: ${result.provider.family} (mode=${result.mode}, reason: ${result.reason})")
+        return result.provider
     }
 
     private val eosTokenId: Int = tokenizer.eosId

@@ -8,15 +8,32 @@ package sk.ainet.apps.kllama.chat
  * 2. **Metadata auto-detection** — iterate registered providers and pick the first
  *    whose [ToolCallingSupport.supports] returns `true`.
  * 3. **No match** — returns `null` (caller can decide whether to use a fallback).
+ *
+ * New model families can be registered at runtime via [register].
  */
 public object ToolCallingSupportResolver {
 
-    private val providers: List<ToolCallingSupport> = listOf(
+    private val providers: MutableList<ToolCallingSupport> = mutableListOf(
         QwenToolCallingSupport(),
         GemmaToolCallingSupport(),
         Llama3ToolCallingSupport(),
         ChatMLToolCallingSupport()
     )
+
+    /**
+     * Register an additional [ToolCallingSupport] provider.
+     *
+     * The new provider is prepended so it takes priority over built-in ones.
+     * If a provider with the same [ToolCallingSupport.family] already exists,
+     * the old one is replaced.
+     */
+    public fun register(provider: ToolCallingSupport) {
+        providers.removeAll { it.family.equals(provider.family, ignoreCase = true) }
+        providers.add(0, provider)
+    }
+
+    /** Return a snapshot of all currently registered provider family names. */
+    public fun registeredFamilies(): List<String> = providers.map { it.family }
 
     /**
      * Resolve a [ToolCallingSupport] provider.
@@ -56,4 +73,30 @@ public object ToolCallingSupportResolver {
     ): ToolCallingSupport {
         return resolve(metadata, explicitFamily) ?: GenericToolCallingSupport()
     }
+
+    /**
+     * Resolve a provider and return a diagnostic [ResolutionResult] explaining
+     * why that provider was selected.
+     */
+    public fun resolveWithDiagnostics(
+        metadata: ModelMetadata = ModelMetadata(),
+        explicitFamily: String? = null
+    ): ResolutionResult {
+        val provider = resolveOrFallback(metadata, explicitFamily)
+        val reason = when {
+            explicitFamily != null -> "explicit family override: $explicitFamily"
+            provider is GenericToolCallingSupport -> "no native provider matched; using generic fallback"
+            else -> "auto-detected from metadata (family=${metadata.family}, arch=${metadata.architecture})"
+        }
+        return ResolutionResult(provider, provider.toolCallingMode(metadata), reason)
+    }
 }
+
+/**
+ * Result of provider resolution with diagnostics explaining the selection.
+ */
+public data class ResolutionResult(
+    val provider: ToolCallingSupport,
+    val mode: ToolCallingMode,
+    val reason: String
+)
