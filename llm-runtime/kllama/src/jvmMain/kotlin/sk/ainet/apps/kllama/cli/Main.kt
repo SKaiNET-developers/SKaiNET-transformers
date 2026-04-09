@@ -48,7 +48,8 @@ private data class CliArgs(
     val agentMode: Boolean,
     val demoMode: Boolean,
     val templateName: String?,
-    val backend: String?
+    val backend: String?,
+    val contextLength: Int?
 )
 
 private fun usage(errorMessage: String? = null): Nothing {
@@ -67,6 +68,7 @@ private fun usage(errorMessage: String? = null): Nothing {
     println("  --agent             Interactive agent mode with tool calling")
     println("  --demo              Tool calling demo with file listing and calculator")
     println("  --template=NAME     Chat template: llama3, chatml, qwen, gemma (auto-detected if omitted)")
+    println("  --context=N         Cap context length to N tokens (reduces memory usage)")
     println("  --backend=NAME      Compute backend: auto-selects best available (see --list-backends)")
     println("  --list-backends     List available compute backends and exit")
     println("  -h, --help          Show this help")
@@ -93,6 +95,7 @@ private fun parseArgs(args: Array<String>): CliArgs {
     var demoMode = false
     var templateName: String? = null
     var backend: String? = null
+    var contextLength: Int? = null
 
     var idx = 0
     while (idx < args.size) {
@@ -131,6 +134,10 @@ private fun parseArgs(args: Array<String>): CliArgs {
             arg == "--agent" -> agentMode = true
             arg == "--demo" -> demoMode = true
             arg.startsWith("--template=") -> templateName = arg.substringAfter("=")
+            arg.startsWith("--context=") -> {
+                val value = arg.substringAfter("=")
+                contextLength = value.toIntOrNull() ?: usage("Invalid context length '$value'. Expected integer.")
+            }
             arg == "--backend" -> backend = nextValue(arg)
             arg.startsWith("--backend=") -> backend = arg.substringAfter("=")
             arg == "--list-backends" -> {
@@ -171,7 +178,8 @@ private fun parseArgs(args: Array<String>): CliArgs {
         agentMode = agentMode,
         demoMode = demoMode,
         templateName = templateName,
-        backend = backend
+        backend = backend,
+        contextLength = contextLength
     )
 }
 
@@ -387,7 +395,10 @@ fun main(args: Array<String>) {
             }
         }
 
-        val backend = CpuAttentionBackend<FP32>(ctx, runtimeWeights, FP32::class)
+        if (cliArgs.contextLength != null) {
+            println("Context length capped to ${cliArgs.contextLength} (model default: ${runtimeWeights.metadata.contextLength})")
+        }
+        val backend = CpuAttentionBackend<FP32>(ctx, runtimeWeights, FP32::class, maxContextLength = cliArgs.contextLength)
         val runtime = LlamaRuntime<FP32>(ctx, runtimeWeights, backend, FP32::class)
 
         val tokenizer: Tokenizer = when {

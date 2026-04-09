@@ -34,5 +34,5 @@ tasks.withType<Test>().configureEach {
 }
 
 tasks.withType<JavaExec>().configureEach {
-    jvmArgs("--enable-preview", "--add-modules", "jdk.incubator.vector")
+    jvmArgs("--enable-preview", "--add-modules", "jdk.incubator.vector", "-Xmx12g")
 }

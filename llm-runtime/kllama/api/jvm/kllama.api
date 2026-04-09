@@ -1,6 +1,6 @@
 public final class sk/ainet/apps/kllama/CpuAttentionBackend : sk/ainet/models/llama/AttentionBackend {
-	public fun <init> (Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/llama/LlamaRuntimeWeights;Lkotlin/reflect/KClass;Lsk/ainet/apps/llm/KvCache;F)V
-	public synthetic fun <init> (Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/llama/LlamaRuntimeWeights;Lkotlin/reflect/KClass;Lsk/ainet/apps/llm/KvCache;FILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/llama/LlamaRuntimeWeights;Lkotlin/reflect/KClass;Lsk/ainet/apps/llm/KvCache;FLjava/lang/Integer;)V
+	public synthetic fun <init> (Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/llama/LlamaRuntimeWeights;Lkotlin/reflect/KClass;Lsk/ainet/apps/llm/KvCache;FLjava/lang/Integer;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun attention (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;II)Lsk/ainet/lang/tensor/Tensor;
 	public fun batchAttention (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;II)Lsk/ainet/lang/tensor/Tensor;
 	public fun reset ()V
