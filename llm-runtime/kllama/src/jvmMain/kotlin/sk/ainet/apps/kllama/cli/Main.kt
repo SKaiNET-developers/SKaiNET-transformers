@@ -33,7 +33,11 @@ import kotlin.system.exitProcess
 import kotlin.time.measureTime
 import kotlinx.coroutines.runBlocking
 import sk.ainet.apps.kllama.chat.ModelMetadata
+import sk.ainet.apps.llm.InferenceRuntime
+import sk.ainet.apps.llm.generate
 import sk.ainet.io.gguf.StreamingGGUFReader
+import sk.ainet.models.llama.LlamaWeightLoader
+import sk.ainet.models.llama.LlamaWeightMapper
 
 private enum class ModelFormat { GGUF, SAFETENSORS, BIN }
 
@@ -287,6 +291,15 @@ private fun peekGgufMetadata(modelPath: Path): ModelMetadata {
     }
 }
 
+/** Peek at the EOS token ID from GGUF metadata. */
+private fun peekEosTokenId(modelPath: Path): Int {
+    return JvmRandomAccessSource.open(modelPath.toString()).use { source ->
+        StreamingGGUFReader.open(source).use { reader ->
+            (reader.fields["tokenizer.ggml.eos_token_id"] as? Number)?.toInt() ?: 2
+        }
+    }
+}
+
 /** Set of GGUF architecture strings that are compatible with the Llama runtime. */
 private val LLAMA_COMPATIBLE_ARCHITECTURES: Set<String> = setOf(
     "llama", "qwen2", "qwen3", "qwen35", "mistral"
@@ -339,74 +352,120 @@ fun main(args: Array<String>) {
             }
         } else null
 
-        val runtimeWeights = when (format) {
-            ModelFormat.GGUF -> {
-                val ingestion = LlamaIngestion<FP32>(
-                    ctx = ctx,
-                    dtype = FP32::class,
-                    config = LlamaLoadConfig(
-                        quantPolicy = QuantPolicy.NATIVE_OPTIMIZED,
-                        allowQuantized = true,
-                        acceptedArchitectures = LLAMA_COMPATIBLE_ARCHITECTURES
+        val isQwen = ggufMetadata?.family == "qwen"
+
+        // Build the inference runtime — Qwen uses the modern DSL path,
+        // Llama/others use the legacy LlamaRuntime path.
+        val runtime: InferenceRuntime<FP32>
+        var eosTokenId: Int = 2
+        var binVocabSize: Int = 0
+
+        if (format == ModelFormat.GGUF && isQwen) {
+            // --- Qwen: LlamaWeightLoader with Qwen architectures → LlamaRuntime ---
+            // Same path as kqwen CLI — uses off-heap MemSeg for quantized tensors.
+            val qwenArchitectures = setOf("qwen2", "qwen3", "qwen35")
+            val loader = LlamaWeightLoader(
+                randomAccessProvider = { JvmRandomAccessSource.open(modelPath.toString()) },
+                quantPolicy = QuantPolicy.NATIVE_OPTIMIZED,
+                acceptedArchitectures = qwenArchitectures
+            )
+            println("Loading GGUF model from $modelPath (Qwen, streaming mode)...")
+            val loaded = loader.loadToMapStreaming<FP32, Float>(ctx, FP32::class)
+            val rawWeights = LlamaWeightMapper.map(loaded)
+
+            val runtimeWeights = if (rawWeights.quantTypes.isNotEmpty()) {
+                println("Converting ${rawWeights.quantTypes.size} quantized tensors to MemorySegment-backed SIMD format...")
+                MemSegWeightConverter.convert(rawWeights, ctx, quantArena)
+            } else {
+                rawWeights
+            }
+
+            if (cliArgs.contextLength != null) {
+                println("Context length capped to ${cliArgs.contextLength} (model default: ${runtimeWeights.metadata.contextLength})")
+            }
+            val qwenBackend = CpuAttentionBackend<FP32>(
+                ctx, runtimeWeights, FP32::class,
+                ropeFreqBase = runtimeWeights.metadata.ropeFreqBase,
+                maxContextLength = cliArgs.contextLength
+            )
+            runtime = LlamaRuntime<FP32>(
+                ctx, runtimeWeights, qwenBackend, FP32::class,
+                eps = runtimeWeights.metadata.rmsNormEps
+            )
+            eosTokenId = runtimeWeights.metadata.eosTokenId
+        } else {
+            // --- Llama / SafeTensors / BIN: legacy LlamaRuntime path ---
+            val runtimeWeights = when (format) {
+                ModelFormat.GGUF -> {
+                    val ingestion = LlamaIngestion<FP32>(
+                        ctx = ctx,
+                        dtype = FP32::class,
+                        config = LlamaLoadConfig(
+                            quantPolicy = QuantPolicy.NATIVE_OPTIMIZED,
+                            allowQuantized = true,
+                            acceptedArchitectures = LLAMA_COMPATIBLE_ARCHITECTURES
+                        )
                     )
-                )
-                println("Loading GGUF model from $modelPath (streaming mode)...")
-                val rawWeights = ingestion.loadStreaming {
-                    JvmRandomAccessSource.open(modelPath.toString())
+                    println("Loading GGUF model from $modelPath (streaming mode)...")
+                    val rawWeights = ingestion.loadStreaming {
+                        JvmRandomAccessSource.open(modelPath.toString())
+                    }
+                    if (rawWeights.quantTypes.isNotEmpty()) {
+                        println("Converting ${rawWeights.quantTypes.size} quantized tensors to MemorySegment-backed SIMD format...")
+                        MemSegWeightConverter.convert(rawWeights, ctx, quantArena)
+                    } else {
+                        rawWeights
+                    }
                 }
-                if (rawWeights.quantTypes.isNotEmpty()) {
-                    println("Converting ${rawWeights.quantTypes.size} quantized tensors to MemorySegment-backed SIMD format...")
-                    MemSegWeightConverter.convert(rawWeights, ctx, quantArena)
-                } else {
-                    rawWeights
-                }
-            }
-            ModelFormat.SAFETENSORS -> {
-                val modelDir = resolveModelDir(modelPath)
-                val safetensorsFile = if (modelPath.isDirectory()) {
-                    modelDir.resolve("model.safetensors")
-                } else {
-                    modelPath
-                }
-                val configFile = modelDir.resolve("config.json")
-                if (!configFile.exists()) error("config.json not found in $modelDir")
+                ModelFormat.SAFETENSORS -> {
+                    val modelDir = resolveModelDir(modelPath)
+                    val safetensorsFile = if (modelPath.isDirectory()) {
+                        modelDir.resolve("model.safetensors")
+                    } else {
+                        modelPath
+                    }
+                    val configFile = modelDir.resolve("config.json")
+                    if (!configFile.exists()) error("config.json not found in $modelDir")
 
-                println("Loading SafeTensors model from $safetensorsFile...")
-                val configJson = configFile.readText()
-                val metadata = LlamaConfigParser.parse(configJson)
-                val tiedEmbeddings = LlamaConfigParser.isTiedEmbeddings(configJson)
-                println("  Architecture: ${metadata.architecture}, layers=${metadata.blockCount}, " +
-                    "dim=${metadata.embeddingLength}, heads=${metadata.headCount}, " +
-                    "kvHeads=${metadata.kvHeadCount}, vocab=${metadata.vocabSize}")
-                if (tiedEmbeddings) println("  Tied word embeddings: output.weight = embed_tokens.weight")
+                    println("Loading SafeTensors model from $safetensorsFile...")
+                    val configJson = configFile.readText()
+                    val metadata = LlamaConfigParser.parse(configJson)
+                    val tiedEmbeddings = LlamaConfigParser.isTiedEmbeddings(configJson)
+                    println("  Architecture: ${metadata.architecture}, layers=${metadata.blockCount}, " +
+                        "dim=${metadata.embeddingLength}, heads=${metadata.headCount}, " +
+                        "kvHeads=${metadata.kvHeadCount}, vocab=${metadata.vocabSize}")
+                    if (tiedEmbeddings) println("  Tied word embeddings: output.weight = embed_tokens.weight")
 
-                val ingestion = LlamaIngestion<FP32>(ctx = ctx, dtype = FP32::class)
-                ingestion.loadSafeTensors(
-                    randomAccessProvider = { JvmRandomAccessSource.open(safetensorsFile.toString()) },
-                    metadata = metadata,
-                    tiedEmbeddings = tiedEmbeddings
-                )
-            }
-            ModelFormat.BIN -> {
-                println("Loading Karpathy .bin model from $modelPath...")
-                modelPath.inputStream().use { input ->
-                    Llama2DotCWeightLoader.load(ctx, input.asSource().buffered())
+                    val ingestion = LlamaIngestion<FP32>(ctx = ctx, dtype = FP32::class)
+                    ingestion.loadSafeTensors(
+                        randomAccessProvider = { JvmRandomAccessSource.open(safetensorsFile.toString()) },
+                        metadata = metadata,
+                        tiedEmbeddings = tiedEmbeddings
+                    )
+                }
+                ModelFormat.BIN -> {
+                    println("Loading Karpathy .bin model from $modelPath...")
+                    modelPath.inputStream().use { input ->
+                        Llama2DotCWeightLoader.load(ctx, input.asSource().buffered())
+                    }
                 }
             }
+
+            if (cliArgs.contextLength != null) {
+                println("Context length capped to ${cliArgs.contextLength} (model default: ${runtimeWeights.metadata.contextLength})")
+            }
+            val backend = CpuAttentionBackend<FP32>(
+                ctx, runtimeWeights, FP32::class,
+                ropeFreqBase = runtimeWeights.metadata.ropeFreqBase,
+                maxContextLength = cliArgs.contextLength
+            )
+            runtime = LlamaRuntime<FP32>(
+                ctx, runtimeWeights, backend, FP32::class,
+                eps = runtimeWeights.metadata.rmsNormEps
+            )
+            eosTokenId = runtimeWeights.metadata.eosTokenId
+            binVocabSize = runtimeWeights.metadata.vocabSize
         }
-
-        if (cliArgs.contextLength != null) {
-            println("Context length capped to ${cliArgs.contextLength} (model default: ${runtimeWeights.metadata.contextLength})")
-        }
-        val backend = CpuAttentionBackend<FP32>(
-            ctx, runtimeWeights, FP32::class,
-            ropeFreqBase = runtimeWeights.metadata.ropeFreqBase,
-            maxContextLength = cliArgs.contextLength
-        )
-        val runtime = LlamaRuntime<FP32>(
-            ctx, runtimeWeights, backend, FP32::class,
-            eps = runtimeWeights.metadata.rmsNormEps
-        )
 
         val tokenizer: Tokenizer = when {
             format == ModelFormat.SAFETENSORS -> {
@@ -426,7 +485,7 @@ fun main(args: Array<String>) {
                 if (!tPath.exists()) error("Tokenizer not found: $tPath")
                 println("Loading tokenizer from $tPath...")
                 tPath.inputStream().use { input ->
-                    TokenizerUtils.buildTokenizer(input.asSource().buffered(), runtimeWeights.metadata.vocabSize)
+                    TokenizerUtils.buildTokenizer(input.asSource().buffered(), binVocabSize)
                 }
             }
         }
@@ -453,14 +512,11 @@ fun main(args: Array<String>) {
             return@runBlocking
         }
 
-        // Standard generation mode
+        // Standard generation mode — raw prompt, no chat template wrapping
         val promptText = cliArgs.prompt ?: error("Prompt is required for standard generation mode.")
-        val effectivePrompt = buildEffectivePrompt(promptText, cliArgs.systemPrompt)
-        val promptTokens = tokenizer.encode(effectivePrompt)
+        val promptTokens = tokenizer.encode(promptText)
 
-        if (cliArgs.systemPrompt.isNullOrBlank()) {
-            println("Using default system prompt.")
-        } else {
+        if (!cliArgs.systemPrompt.isNullOrBlank()) {
             println("Using system prompt.")
         }
         println("Generating ${cliArgs.steps} tokens with temperature=${cliArgs.temperature}...")

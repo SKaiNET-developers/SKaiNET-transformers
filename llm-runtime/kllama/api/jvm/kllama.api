@@ -203,8 +203,8 @@ public abstract interface class sk/ainet/apps/kllama/chat/java/JavaTool {
 }
 
 public final class sk/ainet/apps/kllama/cli/AgentCli {
-	public fun <init> (Lsk/ainet/models/llama/LlamaRuntimeInterface;Lsk/ainet/apps/kllama/GGUFTokenizer;Ljava/lang/String;Lsk/ainet/apps/kllama/chat/ModelMetadata;)V
-	public synthetic fun <init> (Lsk/ainet/models/llama/LlamaRuntimeInterface;Lsk/ainet/apps/kllama/GGUFTokenizer;Ljava/lang/String;Lsk/ainet/apps/kllama/chat/ModelMetadata;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lsk/ainet/apps/llm/InferenceRuntime;Lsk/ainet/apps/kllama/GGUFTokenizer;Ljava/lang/String;Lsk/ainet/apps/kllama/chat/ModelMetadata;)V
+	public synthetic fun <init> (Lsk/ainet/apps/llm/InferenceRuntime;Lsk/ainet/apps/kllama/GGUFTokenizer;Ljava/lang/String;Lsk/ainet/apps/kllama/chat/ModelMetadata;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun runAgent (Ljava/lang/String;IF)V
 	public static synthetic fun runAgent$default (Lsk/ainet/apps/kllama/cli/AgentCli;Ljava/lang/String;IFILjava/lang/Object;)V
 	public final fun runChat (Ljava/lang/String;IF)V
@@ -216,8 +216,8 @@ public final class sk/ainet/apps/kllama/cli/MainKt {
 }
 
 public final class sk/ainet/apps/kllama/cli/ToolCallingDemo {
-	public fun <init> (Lsk/ainet/models/llama/LlamaRuntimeInterface;Lsk/ainet/apps/kllama/GGUFTokenizer;Ljava/lang/String;Lsk/ainet/apps/kllama/chat/ModelMetadata;)V
-	public synthetic fun <init> (Lsk/ainet/models/llama/LlamaRuntimeInterface;Lsk/ainet/apps/kllama/GGUFTokenizer;Ljava/lang/String;Lsk/ainet/apps/kllama/chat/ModelMetadata;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lsk/ainet/apps/llm/InferenceRuntime;Lsk/ainet/apps/kllama/GGUFTokenizer;Ljava/lang/String;Lsk/ainet/apps/kllama/chat/ModelMetadata;)V
+	public synthetic fun <init> (Lsk/ainet/apps/llm/InferenceRuntime;Lsk/ainet/apps/kllama/GGUFTokenizer;Ljava/lang/String;Lsk/ainet/apps/kllama/chat/ModelMetadata;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun run (IF)V
 	public static synthetic fun run$default (Lsk/ainet/apps/kllama/cli/ToolCallingDemo;IFILjava/lang/Object;)V
 }

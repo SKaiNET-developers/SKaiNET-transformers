@@ -1,7 +1,7 @@
 package sk.ainet.apps.kllama.cli
 
 import sk.ainet.apps.kllama.GGUFTokenizer
-import sk.ainet.models.llama.LlamaRuntimeInterface
+import sk.ainet.apps.llm.InferenceRuntime
 import sk.ainet.apps.kllama.chat.*
 import sk.ainet.lang.types.DType
 import kotlinx.serialization.json.JsonObject
@@ -28,7 +28,7 @@ import java.io.File
  * ```
  */
 public class ToolCallingDemo<T : DType>(
-    private val runtime: LlamaRuntimeInterface<T>,
+    private val runtime: InferenceRuntime<T>,
     private val tokenizer: GGUFTokenizer,
     private val templateName: String? = null,
     private val metadata: ModelMetadata = ModelMetadata()

@@ -1,7 +1,7 @@
 package sk.ainet.apps.kllama.cli
 
 import sk.ainet.apps.kllama.GGUFTokenizer
-import sk.ainet.models.llama.LlamaRuntimeInterface
+import sk.ainet.apps.llm.InferenceRuntime
 import sk.ainet.apps.kllama.chat.*
 import sk.ainet.apps.kllama.agent.generateUntilStop
 import sk.ainet.lang.types.DType
@@ -21,7 +21,7 @@ import kotlinx.serialization.json.jsonPrimitive
  * - **Agent mode**: Interactive conversation with tool calling support.
  */
 public class AgentCli<T : DType>(
-    private val runtime: LlamaRuntimeInterface<T>,
+    private val runtime: InferenceRuntime<T>,
     private val tokenizer: GGUFTokenizer,
     private val templateName: String? = null,
     private val metadata: ModelMetadata = ModelMetadata()
