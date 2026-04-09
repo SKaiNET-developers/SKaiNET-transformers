@@ -533,29 +533,69 @@ public class Gemma4WeightLoader private constructor(
         metadata: Gemma4ModelMetadata
     ): Tensor<T, V> {
         val shape = Shape(*rt.shape.map { it.toInt() }.toIntArray())
+        return when (rt.tensorType) {
+            GGMLQuantizationType.F32 -> {
+                @Suppress("UNCHECKED_CAST")
+                val floats = (if (rt.data.isEmpty()) reader.materialize(rt) else rt.data) as List<Float>
+                createTensor(ctx, dtype, shape, floats.toFloatArray())
+            }
 
-        return when {
-            quantPolicy == QuantPolicy.DEQUANTIZE_TO_FP32 || rt.tensorType == GGMLQuantizationType.F32 -> {
-                val data = if (rt.tensorType == GGMLQuantizationType.F32) {
-                    DequantOps.bytesToFloatArray(rt.data)
-                } else {
-                    DequantOps.dequantize(rt.data, rt.tensorType, shape.totalElements)
+            GGMLQuantizationType.F16,
+            GGMLQuantizationType.BF16 -> {
+                when (quantPolicy) {
+                    QuantPolicy.RAW_BYTES -> {
+                        val raw = if (rt.data.isEmpty()) reader.materialize(rt) else rt.data
+                        val bytes = DequantOps.toByteArray(raw, rt.name)
+                        ctx.fromByteArray<Int8, Byte>(shape, Int8::class, bytes) as Tensor<T, V>
+                    }
+                    QuantPolicy.DEQUANTIZE_TO_FP32,
+                    QuantPolicy.NATIVE_OPTIMIZED -> {
+                        val raw = if (rt.data.isEmpty()) reader.materialize(rt) else rt.data
+                        val floats = when (rt.tensorType) {
+                            GGMLQuantizationType.F16 -> DequantOps.dequantF16(raw)
+                            GGMLQuantizationType.BF16 -> DequantOps.dequantBF16(raw)
+                            else -> error("Unreachable")
+                        }
+                        createTensor(ctx, dtype, shape, floats)
+                    }
                 }
-                ctx.fromFloatArray<T, Float>(shape, dtype, data) as Tensor<T, V>
             }
-            rt.tensorType == GGMLQuantizationType.F16 -> {
-                val data = DequantOps.dequantF16FromBytes(rt.data)
-                ctx.fromFloatArray<T, Float>(shape, dtype, data) as Tensor<T, V>
+
+            GGMLQuantizationType.Q4_0,
+            GGMLQuantizationType.Q4_1,
+            GGMLQuantizationType.Q5_0,
+            GGMLQuantizationType.Q5_1,
+            GGMLQuantizationType.Q8_0,
+            GGMLQuantizationType.Q8_1,
+            GGMLQuantizationType.Q2_K,
+            GGMLQuantizationType.Q3_K,
+            GGMLQuantizationType.Q4_K,
+            GGMLQuantizationType.Q5_K,
+            GGMLQuantizationType.Q6_K,
+            GGMLQuantizationType.Q8_K,
+            GGMLQuantizationType.IQ4_NL,
+            GGMLQuantizationType.IQ4_XS,
+            GGMLQuantizationType.TQ1_0,
+            GGMLQuantizationType.TQ2_0 -> {
+                when (quantPolicy) {
+                    QuantPolicy.RAW_BYTES,
+                    QuantPolicy.NATIVE_OPTIMIZED -> {
+                        val raw = if (rt.data.isEmpty()) reader.materialize(rt) else rt.data
+                        val bytes = DequantOps.toByteArray(raw, rt.name)
+                        ctx.fromByteArray<Int8, Byte>(shape, Int8::class, bytes) as Tensor<T, V>
+                    }
+                    QuantPolicy.DEQUANTIZE_TO_FP32 -> {
+                        val raw = if (rt.data.isEmpty()) reader.materialize(rt) else rt.data
+                        val floats = dequantize(raw, rt.tensorType, rt.nElements)
+                        createTensor(ctx, dtype, shape, floats)
+                    }
+                }
             }
-            rt.tensorType == GGMLQuantizationType.BF16 -> {
-                val data = DequantOps.dequantBF16FromBytes(rt.data)
-                ctx.fromFloatArray<T, Float>(shape, dtype, data) as Tensor<T, V>
-            }
+
             else -> {
-                // Raw quantized bytes as Int8 tensor
-                val byteData = rt.data
-                val int8Shape = Shape(byteData.size)
-                ctx.fromByteArray<T>(int8Shape, dtype, byteData) as Tensor<T, V>
+                val raw = if (rt.data.isEmpty()) reader.materialize(rt) else rt.data
+                val bytes = DequantOps.toByteArray(raw, rt.name)
+                ctx.fromByteArray<Int8, Byte>(shape, Int8::class, bytes) as Tensor<T, V>
             }
         }
     }
@@ -571,40 +611,106 @@ public class Gemma4WeightLoader private constructor(
         val shape = Shape(*st.shape.map { it.toInt() }.toIntArray())
         val bytes = reader.loadTensorData(st)
 
-        return when {
-            quantPolicy == QuantPolicy.DEQUANTIZE_TO_FP32 || st.tensorType == GGMLQuantizationType.F32 -> {
-                val data = if (st.tensorType == GGMLQuantizationType.F32) {
-                    DequantOps.bytesToFloatArray(bytes)
-                } else {
-                    DequantOps.dequantize(bytes, st.tensorType, shape.totalElements)
+        return when (st.tensorType) {
+            GGMLQuantizationType.F32 -> {
+                val floats = bytesToFloatArray(bytes)
+                createTensor(ctx, dtype, shape, floats)
+            }
+
+            GGMLQuantizationType.F16,
+            GGMLQuantizationType.BF16 -> {
+                when (quantPolicy) {
+                    QuantPolicy.RAW_BYTES -> {
+                        ctx.fromByteArray<Int8, Byte>(shape, Int8::class, bytes) as Tensor<T, V>
+                    }
+                    QuantPolicy.DEQUANTIZE_TO_FP32,
+                    QuantPolicy.NATIVE_OPTIMIZED -> {
+                        val floats = when (st.tensorType) {
+                            GGMLQuantizationType.F16 -> dequantF16FromBytes(bytes)
+                            GGMLQuantizationType.BF16 -> dequantBF16FromBytes(bytes)
+                            else -> error("Unreachable")
+                        }
+                        createTensor(ctx, dtype, shape, floats)
+                    }
                 }
-                ctx.fromFloatArray<T, Float>(shape, dtype, data) as Tensor<T, V>
             }
-            st.tensorType == GGMLQuantizationType.F16 -> {
-                val data = DequantOps.dequantF16FromBytes(bytes)
-                ctx.fromFloatArray<T, Float>(shape, dtype, data) as Tensor<T, V>
+
+            GGMLQuantizationType.Q4_0,
+            GGMLQuantizationType.Q4_1,
+            GGMLQuantizationType.Q5_0,
+            GGMLQuantizationType.Q5_1,
+            GGMLQuantizationType.Q8_0,
+            GGMLQuantizationType.Q8_1,
+            GGMLQuantizationType.Q2_K,
+            GGMLQuantizationType.Q3_K,
+            GGMLQuantizationType.Q4_K,
+            GGMLQuantizationType.Q5_K,
+            GGMLQuantizationType.Q6_K,
+            GGMLQuantizationType.Q8_K,
+            GGMLQuantizationType.IQ4_NL,
+            GGMLQuantizationType.IQ4_XS,
+            GGMLQuantizationType.TQ1_0,
+            GGMLQuantizationType.TQ2_0 -> {
+                when (quantPolicy) {
+                    QuantPolicy.RAW_BYTES,
+                    QuantPolicy.NATIVE_OPTIMIZED -> {
+                        ctx.fromByteArray<Int8, Byte>(shape, Int8::class, bytes) as Tensor<T, V>
+                    }
+                    QuantPolicy.DEQUANTIZE_TO_FP32 -> {
+                        val floats = dequantFromBytes(bytes, st.tensorType, st.nElements.toInt())
+                        createTensor(ctx, dtype, shape, floats)
+                    }
+                }
             }
-            st.tensorType == GGMLQuantizationType.BF16 -> {
-                val data = DequantOps.dequantBF16FromBytes(bytes)
-                ctx.fromFloatArray<T, Float>(shape, dtype, data) as Tensor<T, V>
-            }
+
             else -> {
-                val int8Shape = Shape(bytes.size)
-                ctx.fromByteArray<T>(int8Shape, dtype, bytes) as Tensor<T, V>
+                ctx.fromByteArray<Int8, Byte>(shape, Int8::class, bytes) as Tensor<T, V>
             }
         }
     }
 
-    // ============== Inference helpers ==============
+    private fun dequantize(raw: List<Any>, tensorType: GGMLQuantizationType, nElems: Int): FloatArray =
+        DequantOps.dequantFromList(raw, tensorType, nElems)
+
+    private fun dequantFromBytes(bytes: ByteArray, tensorType: GGMLQuantizationType, nElems: Int): FloatArray =
+        DequantOps.dequantFromBytes(bytes, tensorType, nElems)
+
+    @Suppress("UNCHECKED_CAST")
+    private fun <T : DType, V> createTensor(
+        ctx: ExecutionContext,
+        dtype: KClass<T>,
+        originalShape: Shape,
+        data: FloatArray
+    ): Tensor<T, V> {
+        return if (originalShape.rank == 2) {
+            val rows = originalShape[0]
+            val cols = originalShape[1]
+            val transposed = DequantOps.transposeColumnMajorToRowMajor(data, rows, cols)
+            val newShape = Shape(cols, rows)
+            ctx.fromFloatArray<T, Float>(newShape, dtype, transposed) as Tensor<T, V>
+        } else {
+            ctx.fromFloatArray<T, Float>(originalShape, dtype, data) as Tensor<T, V>
+        }
+    }
+
+    // ============== Helper methods ==============
+
+    private fun bytesToFloatArray(bytes: ByteArray): FloatArray = DequantOps.bytesToFloatArray(bytes)
+    private fun dequantF16FromBytes(bytes: ByteArray): FloatArray = DequantOps.dequantF16FromBytes(bytes)
+    private fun dequantBF16FromBytes(bytes: ByteArray): FloatArray = DequantOps.dequantBF16FromBytes(bytes)
 
     private fun inferEmbeddingFromTensor(tensors: List<ReaderTensor>): Int {
-        val embd = tensors.firstOrNull { it.name == Gemma4TensorNames.TOKEN_EMBEDDINGS }
-        return embd?.shape?.getOrNull(1)?.toInt() ?: 2304
+        val token = tensors.firstOrNull { it.name == Gemma4TensorNames.TOKEN_EMBEDDINGS }
+            ?: error("Cannot infer embedding length without token embeddings tensor")
+        return token.shape.map { it.toInt() }.minOrNull()
+            ?: error("Cannot infer embedding length from tensor shape ${token.shape}")
     }
 
     private fun inferVocabFromTensor(tensors: List<ReaderTensor>): Int {
-        val embd = tensors.firstOrNull { it.name == Gemma4TensorNames.TOKEN_EMBEDDINGS }
-        return embd?.shape?.getOrNull(0)?.toInt() ?: 262144
+        val token = tensors.firstOrNull { it.name == Gemma4TensorNames.TOKEN_EMBEDDINGS }
+            ?: error("Cannot infer vocab size without token embeddings tensor")
+        return token.shape.map { it.toInt() }.maxOrNull()
+            ?: error("Cannot infer vocab size from tensor shape ${token.shape}")
     }
 
     private fun inferEmbeddingFromStreamingTensor(tensors: List<StreamingTensorInfo>): Int {
@@ -617,44 +723,81 @@ public class Gemma4WeightLoader private constructor(
         return embd?.shape?.getOrNull(0)?.toInt() ?: 262144
     }
 
-    private fun ReaderField.scalarInt(): Int? = when (val v = this.value) {
-        is Number -> v.toInt()
-        is List<*> -> (v.firstOrNull() as? Number)?.toInt()
-        else -> null
+    private fun ReaderField.scalarInt(): Int {
+        val idx = data.firstOrNull() ?: 0
+        val part = parts.getOrNull(idx) ?: error("Missing data part for field $name")
+        val value = (part as List<*>).firstOrNull()
+            ?: error("Empty data part for field $name")
+        return when (value) {
+            is Int -> value
+            is UInt -> value.toInt()
+            is Long -> value.toInt()
+            is ULong -> value.toInt()
+            is Short -> value.toInt()
+            is UShort -> value.toInt()
+            is Byte -> value.toInt()
+            is UByte -> value.toInt()
+            else -> error("Unsupported scalar type ${value::class} for field $name")
+        }
     }
 
-    private fun ReaderField.scalarFloat(): Float? = when (val v = this.value) {
-        is Number -> v.toFloat()
-        is List<*> -> (v.firstOrNull() as? Number)?.toFloat()
-        else -> null
+    private fun ReaderField.scalarFloat(): Float {
+        val idx = data.firstOrNull() ?: 0
+        val part = parts.getOrNull(idx) ?: error("Missing data part for field $name")
+        val value = (part as List<*>).firstOrNull()
+            ?: error("Empty data part for field $name")
+        return when (value) {
+            is Float -> value
+            is Double -> value.toFloat()
+            is Number -> value.toFloat()
+            else -> error("Unsupported scalar type ${value::class} for field $name")
+        }
     }
 
-    private fun ReaderField.stringValue(): String? = when (val v = this.value) {
-        is String -> v
-        is ByteArray -> v.decodeToString()
-        is List<*> -> (v.firstOrNull() as? String)
-        else -> v?.toString()
+    private fun ReaderField.stringValue(): String {
+        val idx = data.firstOrNull() ?: 0
+        val part = parts.getOrNull(idx) ?: error("Missing data part for field $name")
+        @Suppress("UNCHECKED_CAST")
+        val bytes = (part as List<Any>).mapNotNull {
+            when (it) {
+                is UByte -> it.toByte()
+                is Byte -> it
+                else -> null
+            }
+        }
+        return bytes.toByteArray().decodeToString()
     }
 
-    private fun ReaderField.stringListValue(): List<String> = when (val v = this.value) {
-        is List<*> -> v.mapNotNull { it as? String }
-        else -> emptyList()
+    private fun ReaderField.stringListValue(): List<String> {
+        val idx = data.firstOrNull() ?: 0
+        val part = parts.getOrNull(idx) ?: error("Missing data part for field $name")
+        @Suppress("UNCHECKED_CAST")
+        return (part as List<*>).mapNotNull { it as? String }
     }
 
-    private fun ReaderField.intListValue(): List<Int> = when (val v = this.value) {
-        is List<*> -> v.mapNotNull { (it as? Number)?.toInt() }
-        else -> emptyList()
+    private fun ReaderField.intListValue(): List<Int> {
+        val idx = data.firstOrNull() ?: 0
+        val part = parts.getOrNull(idx) ?: error("Missing data part for field $name")
+        @Suppress("UNCHECKED_CAST")
+        return (part as List<*>).mapNotNull { (it as? Number)?.toInt() }
     }
 
     private fun Any?.toIntValue(): Int? = when (this) {
-        is Number -> this.toInt()
-        is List<*> -> (this.firstOrNull() as? Number)?.toInt()
+        is Int -> this
+        is UInt -> this.toInt()
+        is Long -> this.toInt()
+        is ULong -> this.toInt()
+        is Short -> this.toInt()
+        is UShort -> this.toInt()
+        is Byte -> this.toInt()
+        is UByte -> this.toInt()
         else -> null
     }
 
     private fun Any?.toFloatValue(): Float? = when (this) {
+        is Float -> this
+        is Double -> this.toFloat()
         is Number -> this.toFloat()
-        is List<*> -> (this.firstOrNull() as? Number)?.toFloat()
         else -> null
     }
 }

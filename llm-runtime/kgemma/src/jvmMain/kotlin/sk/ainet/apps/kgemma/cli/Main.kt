@@ -5,7 +5,7 @@ import sk.ainet.apps.kgemma.Gemma3nLoadConfig
 import sk.ainet.apps.kgemma.Gemma4Ingestion
 import sk.ainet.apps.kgemma.Gemma4LoadConfig
 import sk.ainet.apps.kllama.GGUFTokenizer
-import sk.ainet.apps.llm.InferenceRuntime
+import sk.ainet.apps.llm.DecoderRuntime
 import sk.ainet.apps.llm.Tokenizer
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
@@ -115,7 +115,7 @@ fun main(args: Array<String>) {
         val variant = detectGemmaVariant(modelPath)
         println("Detected model variant: $variant")
 
-        val runtime: InferenceRuntime<FP32> = when (variant) {
+        val runtime: DecoderRuntime<FP32> = when (variant) {
             GemmaVariant.GEMMA4 -> {
                 val ingestion = Gemma4Ingestion<FP32>(
                     ctx = ctx,
