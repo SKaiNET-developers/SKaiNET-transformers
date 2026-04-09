@@ -20,6 +20,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+MODELS_ROOT="${MODELS_ROOT:-$REPO_ROOT}"
 GRADLE="./gradlew --no-configuration-cache"
 
 RED='\033[0;31m'
@@ -37,30 +39,42 @@ separator() {
 # Maps runner name → Gradle task
 runner_task() {
   case "$1" in
-    kllama) echo ":llm-apps:kllama-cli:run" ;;
-    kgemma) echo ":llm-runtime:kgemma:jvmRun" ;;
-    kbert)  echo ":llm-apps:kbert-cli:run" ;;
-    *)      echo "UNKNOWN"; return 1 ;;
+    kllama)   echo ":llm-apps:kllama-cli:run" ;;
+    kgemma)   echo ":llm-runtime:kgemma:jvmRun" ;;
+    kqwen)    echo ":llm-runtime:kqwen:jvmRun" ;;
+    kbert)    echo ":llm-apps:kbert-cli:run" ;;
+    kapertus) echo ":llm-apps:kapertus-cli:run" ;;
+    kvoxtral) echo ":llm-apps:kvoxtral-cli:run" ;;
+    *)        echo "UNKNOWN"; return 1 ;;
   esac
 }
 
 # Maps runner name → compile task
 runner_compile_task() {
   case "$1" in
-    kllama) echo ":llm-apps:kllama-cli:classes" ;;
-    kgemma) echo ":llm-runtime:kgemma:jvmMainClasses" ;;
-    kbert)  echo ":llm-apps:kbert-cli:mainClasses" ;;
-    *)      echo "UNKNOWN"; return 1 ;;
+    kllama)   echo ":llm-apps:kllama-cli:classes" ;;
+    kgemma)   echo ":llm-runtime:kgemma:jvmMainClasses" ;;
+    kqwen)    echo ":llm-runtime:kqwen:jvmMainClasses" ;;
+    kbert)    echo ":llm-apps:kbert-cli:mainClasses" ;;
+    kapertus) echo ":llm-apps:kapertus-cli:classes" ;;
+    kvoxtral) echo ":llm-apps:kvoxtral-cli:classes" ;;
+    *)        echo "UNKNOWN"; return 1 ;;
   esac
 }
 
 # Builds Gradle args string based on the runner type
 runner_args() {
-  local runner="$1" model="$2" prompt="$3" steps="$4" temp="$5" doc="${6:-}"
+  local runner="$1" model="$2" prompt="$3" steps="$4" temp="$5" doc="${6:-}" output="${7:-}"
 
   case "$runner" in
-    kllama) echo "-m ${model} -s ${steps} -k ${temp} \"${prompt}\"" ;;
-    kgemma) echo "${model} \"${prompt}\" ${steps} ${temp}" ;;
+    kllama)   echo "-m ${model} -s ${steps} -k ${temp} \"${prompt}\"" ;;
+    kgemma)   echo "${model} \"${prompt}\" ${steps} ${temp}" ;;
+    kqwen)    echo "${model} \"${prompt}\" ${steps} ${temp}" ;;
+    kapertus) echo "-m ${model} -s ${steps} -k ${temp} \"${prompt}\"" ;;
+    kvoxtral)
+      local out="${output:-smoke-test-output.wav}"
+      echo "--model ${model} --output ${out} \"${prompt}\""
+      ;;
     kbert)
       if [[ -n "$doc" ]]; then
         echo "${model} \"${prompt}\" \"${doc}\""
@@ -182,6 +196,7 @@ print(f'M_PROMPT={repr(m.get(\"prompt\", d.get(\"prompt\", \"The capital of Fran
 print(f'M_STEPS={m.get(\"steps\", d.get(\"steps\", 32))}')
 print(f'M_TEMP={m.get(\"temperature\", d.get(\"temperature\", 0.0))}')
 print(f'M_DOC={repr(m.get(\"doc\", \"\"))}')
+print(f'M_OUTPUT={repr(m.get(\"output\", \"\"))}')
 ")"
 
     M_MODEL=$(expand_path "$M_MODEL")
@@ -207,7 +222,7 @@ print(f'M_DOC={repr(m.get(\"doc\", \"\"))}')
     fi
 
     task=$(runner_task "$M_RUNNER")
-    args=$(runner_args "$M_RUNNER" "$M_MODEL" "$M_PROMPT" "$M_STEPS" "$M_TEMP" "$M_DOC")
+    args=$(runner_args "$M_RUNNER" "$M_MODEL" "$M_PROMPT" "$M_STEPS" "$M_TEMP" "$M_DOC" "$M_OUTPUT")
 
     start_ts=$(python3 -c 'import time; print(time.time())')
     output_file=$(mktemp)

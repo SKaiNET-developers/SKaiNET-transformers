@@ -38,6 +38,9 @@ import kotlin.jvm.JvmName
  * val model = QwenNetworkLoader.fromWeights(llamaWeights)
  * ```
  */
+@PublishedApi
+internal val QWEN_ARCHITECTURES: Set<String> = setOf("qwen2", "qwen3")
+
 public class QwenNetworkLoader @PublishedApi internal constructor(
     @PublishedApi internal val weightsProvider: WeightsProvider,
     @PublishedApi internal val debug: Boolean = false
@@ -115,11 +118,19 @@ public class QwenNetworkLoader @PublishedApi internal constructor(
     ): Module<T, V> {
         val weights: LlamaWeights<T, V> = when (val wp = weightsProvider) {
             is WeightsProvider.GgufSource -> {
-                val loader = LlamaWeightLoader(wp.sourceProvider, quantPolicy = wp.quantPolicy)
+                val loader = LlamaWeightLoader(
+                    wp.sourceProvider,
+                    quantPolicy = wp.quantPolicy,
+                    acceptedArchitectures = QWEN_ARCHITECTURES
+                )
                 loader.loadToMap<T, V>(ctx)
             }
             is WeightsProvider.GgufRandomAccess -> {
-                val loader = LlamaWeightLoader(wp.randomAccessProvider, quantPolicy = wp.quantPolicy)
+                val loader = LlamaWeightLoader(
+                    wp.randomAccessProvider,
+                    quantPolicy = wp.quantPolicy,
+                    acceptedArchitectures = QWEN_ARCHITECTURES
+                )
                 loader.loadToMapStreaming<T, V>(ctx)
             }
             is WeightsProvider.SafeTensors -> {
