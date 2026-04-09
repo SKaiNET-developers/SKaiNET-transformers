@@ -398,8 +398,15 @@ fun main(args: Array<String>) {
         if (cliArgs.contextLength != null) {
             println("Context length capped to ${cliArgs.contextLength} (model default: ${runtimeWeights.metadata.contextLength})")
         }
-        val backend = CpuAttentionBackend<FP32>(ctx, runtimeWeights, FP32::class, maxContextLength = cliArgs.contextLength)
-        val runtime = LlamaRuntime<FP32>(ctx, runtimeWeights, backend, FP32::class)
+        val backend = CpuAttentionBackend<FP32>(
+            ctx, runtimeWeights, FP32::class,
+            ropeFreqBase = runtimeWeights.metadata.ropeFreqBase,
+            maxContextLength = cliArgs.contextLength
+        )
+        val runtime = LlamaRuntime<FP32>(
+            ctx, runtimeWeights, backend, FP32::class,
+            eps = runtimeWeights.metadata.rmsNormEps
+        )
 
         val tokenizer: Tokenizer = when {
             format == ModelFormat.SAFETENSORS -> {
