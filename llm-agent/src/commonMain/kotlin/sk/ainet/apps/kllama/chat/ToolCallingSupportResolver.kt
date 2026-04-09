@@ -45,4 +45,15 @@ public object ToolCallingSupportResolver {
         // Auto-detection from metadata
         return providers.firstOrNull { it.supports(metadata) }
     }
+
+    /**
+     * Like [resolve], but falls back to [GenericToolCallingSupport] instead of
+     * returning `null`. Use this when the caller always needs a provider.
+     */
+    public fun resolveOrFallback(
+        metadata: ModelMetadata = ModelMetadata(),
+        explicitFamily: String? = null
+    ): ToolCallingSupport {
+        return resolve(metadata, explicitFamily) ?: GenericToolCallingSupport()
+    }
 }
