@@ -32,6 +32,8 @@ import kotlin.io.path.readText
 import kotlin.system.exitProcess
 import kotlin.time.measureTime
 import kotlinx.coroutines.runBlocking
+import sk.ainet.apps.kllama.chat.ModelMetadata
+import sk.ainet.io.gguf.StreamingGGUFReader
 
 private enum class ModelFormat { GGUF, SAFETENSORS, BIN }
 
@@ -45,7 +47,7 @@ private data class CliArgs(
     val chatMode: Boolean,
     val agentMode: Boolean,
     val demoMode: Boolean,
-    val templateName: String,
+    val templateName: String?,
     val backend: String?
 )
 
@@ -64,7 +66,7 @@ private fun usage(errorMessage: String? = null): Nothing {
     println("  --chat              Interactive chat mode")
     println("  --agent             Interactive agent mode with tool calling")
     println("  --demo              Tool calling demo with file listing and calculator")
-    println("  --template=NAME     Chat template: llama3 (default) or chatml")
+    println("  --template=NAME     Chat template: llama3, chatml, qwen, gemma (auto-detected if omitted)")
     println("  --backend=NAME      Compute backend: auto-selects best available (see --list-backends)")
     println("  --list-backends     List available compute backends and exit")
     println("  -h, --help          Show this help")
@@ -89,7 +91,7 @@ private fun parseArgs(args: Array<String>): CliArgs {
     var chatMode = false
     var agentMode = false
     var demoMode = false
-    var templateName = "llama3"
+    var templateName: String? = null
     var backend: String? = null
 
     var idx = 0
@@ -251,6 +253,37 @@ private fun detectFormat(path: Path): ModelFormat {
 private fun resolveModelDir(path: Path): Path =
     if (path.isDirectory()) path else path.parent ?: path
 
+/**
+ * Peek at the architecture and chat template fields from a GGUF file without loading weights.
+ * Returns a [ModelMetadata] for capability detection.
+ */
+private fun peekGgufMetadata(modelPath: Path): ModelMetadata {
+    return JvmRandomAccessSource.open(modelPath.toString()).use { source ->
+        StreamingGGUFReader.open(source).use { reader ->
+            val fields = reader.fields
+            val arch = (fields["general.architecture"] as? String) ?: "unknown"
+            val chatTemplate = fields["tokenizer.chat_template"] as? String
+            val family = when {
+                arch.startsWith("qwen") -> "qwen"
+                arch.startsWith("gemma") -> "gemma"
+                arch == "llama" -> "llama"
+                else -> arch
+            }
+            ModelMetadata(
+                family = family,
+                architecture = arch,
+                chatTemplate = chatTemplate,
+                sourceFormat = "gguf"
+            )
+        }
+    }
+}
+
+/** Set of GGUF architecture strings that are compatible with the Llama runtime. */
+private val LLAMA_COMPATIBLE_ARCHITECTURES: Set<String> = setOf(
+    "llama", "qwen2", "qwen3", "qwen35", "mistral"
+)
+
 fun main(args: Array<String>) {
     runBlocking {
         val cliArgs = parseArgs(args)
@@ -291,6 +324,13 @@ fun main(args: Array<String>) {
             memSegFactory.close()
         })
 
+        // Peek GGUF metadata for architecture-aware loading and auto-detection
+        val ggufMetadata: ModelMetadata? = if (format == ModelFormat.GGUF) {
+            peekGgufMetadata(modelPath).also {
+                println("GGUF architecture: ${it.architecture}, family: ${it.family}")
+            }
+        } else null
+
         val runtimeWeights = when (format) {
             ModelFormat.GGUF -> {
                 val ingestion = LlamaIngestion<FP32>(
@@ -298,7 +338,8 @@ fun main(args: Array<String>) {
                     dtype = FP32::class,
                     config = LlamaLoadConfig(
                         quantPolicy = QuantPolicy.NATIVE_OPTIMIZED,
-                        allowQuantized = true
+                        allowQuantized = true,
+                        acceptedArchitectures = LLAMA_COMPATIBLE_ARCHITECTURES
                     )
                 )
                 println("Loading GGUF model from $modelPath (streaming mode)...")
@@ -376,17 +417,18 @@ fun main(args: Array<String>) {
         if (cliArgs.chatMode || cliArgs.agentMode || cliArgs.demoMode) {
             val ggufTokenizer = tokenizer as? GGUFTokenizer
                 ?: error("Chat/agent/demo modes require a GGUF model with embedded tokenizer")
+            val metadata = ggufMetadata ?: ModelMetadata()
             when {
                 cliArgs.demoMode -> {
-                    val demo = ToolCallingDemo(runtime, ggufTokenizer, cliArgs.templateName)
+                    val demo = ToolCallingDemo(runtime, ggufTokenizer, cliArgs.templateName, metadata)
                     demo.run(maxTokens = cliArgs.steps, temperature = cliArgs.temperature)
                 }
                 cliArgs.agentMode -> {
-                    val agentCli = AgentCli(runtime, ggufTokenizer, cliArgs.templateName)
+                    val agentCli = AgentCli(runtime, ggufTokenizer, cliArgs.templateName, metadata)
                     agentCli.runAgent(maxTokens = cliArgs.steps, temperature = cliArgs.temperature)
                 }
                 else -> {
-                    val agentCli = AgentCli(runtime, ggufTokenizer, cliArgs.templateName)
+                    val agentCli = AgentCli(runtime, ggufTokenizer, cliArgs.templateName, metadata)
                     agentCli.runChat(maxTokens = cliArgs.steps, temperature = cliArgs.temperature)
                 }
             }

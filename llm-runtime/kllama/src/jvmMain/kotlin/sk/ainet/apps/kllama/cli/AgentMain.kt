@@ -23,12 +23,11 @@ import kotlinx.serialization.json.jsonPrimitive
 public class AgentCli<T : DType>(
     private val runtime: LlamaRuntimeInterface<T>,
     private val tokenizer: GGUFTokenizer,
-    private val templateName: String = "llama3"
+    private val templateName: String? = null,
+    private val metadata: ModelMetadata = ModelMetadata()
 ) {
-    private val template: ChatTemplate = when (templateName.lowercase()) {
-        "chatml", "hermes" -> ChatMLTemplate()
-        else -> Llama3ChatTemplate()
-    }
+    private val provider: ToolCallingSupport = ToolCallingSupportResolver.resolveOrFallback(metadata, templateName)
+    private val template: ChatTemplate = provider.createChatTemplate()
 
     private val eosTokenId: Int = tokenizer.eosId
 

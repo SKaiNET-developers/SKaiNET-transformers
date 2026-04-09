@@ -39,7 +39,7 @@ import kotlin.jvm.JvmName
  * ```
  */
 @PublishedApi
-internal val QWEN_ARCHITECTURES: Set<String> = setOf("qwen2", "qwen3")
+internal val QWEN_ARCHITECTURES: Set<String> = setOf("qwen2", "qwen3", "qwen35")
 
 public class QwenNetworkLoader @PublishedApi internal constructor(
     @PublishedApi internal val weightsProvider: WeightsProvider,
