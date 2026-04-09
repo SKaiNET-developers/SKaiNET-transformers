@@ -20,7 +20,9 @@ public data class LlamaLayerWeights<T : DType>(
     val ffnNorm: Tensor<T, Float>,
     val ffnGate: Tensor<T, Float>,
     val ffnDown: Tensor<T, Float>,
-    val ffnUp: Tensor<T, Float>
+    val ffnUp: Tensor<T, Float>,
+    val qNorm: Tensor<T, Float>? = null,
+    val kNorm: Tensor<T, Float>? = null
 )
 
 public data class LlamaRuntimeWeights<T : DType>(
@@ -120,6 +122,9 @@ public object LlamaWeightMapper {
                 // After transpose: [ff_dim, dim] (was [dim, ff_dim] in GGUF)
                 require2D(metadata.feedForwardLength, metadata.embeddingLength, "blk.$layer.ffn_up.weight", LlamaTensorNames.ffnUp(layer))
             }
+            val qNorm = weights.tensors[LlamaTensorNames.attnQNorm(layer)]
+            val kNorm = weights.tensors[LlamaTensorNames.attnKNorm(layer)]
+
             LlamaLayerWeights(
                 attnNorm = attnNorm,
                 wq = wq,
@@ -129,7 +134,9 @@ public object LlamaWeightMapper {
                 ffnNorm = ffnNorm,
                 ffnGate = ffnGate,
                 ffnDown = ffnDown,
-                ffnUp = ffnUp
+                ffnUp = ffnUp,
+                qNorm = qNorm,
+                kNorm = kNorm
             )
         }
 

@@ -42,7 +42,8 @@ import kotlin.reflect.KClass
  * @param filePath path to the GGUF model file
  */
 public class MmapLlamaLoader(
-    filePath: Path
+    filePath: Path,
+    private val acceptedArchitectures: Set<String> = setOf("llama")
 ) : AutoCloseable {
 
     private val fileChannel: FileChannel = FileInputStream(filePath.toFile()).channel
@@ -150,17 +151,22 @@ public class MmapLlamaLoader(
         tensors: List<ReaderTensor>
     ): LlamaModelMetadata {
         val arch = fields["general.architecture"]?.stringValue() ?: "unknown"
+        val prefix = arch
 
-        val embeddingLength = fields["llama.embedding_length"]?.scalarInt()
+        val embeddingLength = fields["$prefix.embedding_length"]?.scalarInt()
             ?: inferEmbeddingFromTensor(tensors)
-        val contextLength = fields["llama.context_length"]?.scalarInt() ?: 0
-        val blockCount = fields["llama.block_count"]?.scalarInt() ?: 0
-        val headCount = fields["llama.attention.head_count"]?.scalarInt() ?: 0
-        val kvHeadCount = fields["llama.attention.head_count_kv"]?.scalarInt() ?: headCount
-        val feedForwardLength = fields["llama.feed_forward_length"]?.scalarInt() ?: 0
-        val ropeDim = fields["llama.rope.dimension_count"]?.scalarInt()
-        val vocabSize = fields["llama.vocab_size"]?.scalarInt()
+        val contextLength = fields["$prefix.context_length"]?.scalarInt() ?: 0
+        val blockCount = fields["$prefix.block_count"]?.scalarInt() ?: 0
+        val headCount = fields["$prefix.attention.head_count"]?.scalarInt() ?: 0
+        val kvHeadCount = fields["$prefix.attention.head_count_kv"]?.scalarInt() ?: headCount
+        val feedForwardLength = fields["$prefix.feed_forward_length"]?.scalarInt() ?: 0
+        val ropeDim = fields["$prefix.rope.dimension_count"]?.scalarInt()
+        val vocabSize = fields["$prefix.vocab_size"]?.scalarInt()
             ?: inferVocabFromTensor(tensors)
+        val ropeFreqBase = fields["$prefix.rope.freq_base"]?.scalarFloat() ?: 10_000f
+        val rmsNormEps = fields["$prefix.attention.layer_norm_rms_epsilon"]?.scalarFloat() ?: 1e-5f
+        val bosTokenId = fields["tokenizer.ggml.bos_token_id"]?.scalarInt() ?: 1
+        val eosTokenId = fields["tokenizer.ggml.eos_token_id"]?.scalarInt() ?: 2
 
         return LlamaModelMetadata(
             architecture = arch,
@@ -171,13 +177,17 @@ public class MmapLlamaLoader(
             kvHeadCount = kvHeadCount,
             feedForwardLength = feedForwardLength,
             ropeDimensionCount = ropeDim,
-            vocabSize = vocabSize
+            vocabSize = vocabSize,
+            ropeFreqBase = ropeFreqBase,
+            rmsNormEps = rmsNormEps,
+            bosTokenId = bosTokenId,
+            eosTokenId = eosTokenId
         )
     }
 
     private fun validateMetadata(metadata: LlamaModelMetadata) {
-        require(metadata.architecture == "llama") {
-            "Unsupported architecture: ${metadata.architecture}"
+        require(metadata.architecture in acceptedArchitectures) {
+            "Unsupported architecture: ${metadata.architecture}. Accepted: $acceptedArchitectures"
         }
         require(metadata.embeddingLength > 0) { "Invalid embedding length ${metadata.embeddingLength}" }
         require(metadata.blockCount > 0) { "Invalid block count ${metadata.blockCount}" }
@@ -251,6 +261,19 @@ public class MmapLlamaLoader(
             is Int -> value
             is ULong -> value.toInt()
             is Long -> value.toInt()
+            else -> null
+        }
+    }
+
+    private fun sk.ainet.io.gguf.ReaderField.scalarFloat(): Float? {
+        val value = parts.getOrNull(0)?.getOrNull(0) ?: return null
+        return when (value) {
+            is Float -> value
+            is Double -> value.toFloat()
+            is Int -> value.toFloat()
+            is UInt -> value.toFloat()
+            is Long -> value.toFloat()
+            is ULong -> value.toFloat()
             else -> null
         }
     }

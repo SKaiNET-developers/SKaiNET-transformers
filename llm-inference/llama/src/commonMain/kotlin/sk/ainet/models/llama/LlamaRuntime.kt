@@ -13,6 +13,7 @@ import sk.ainet.lang.tensor.t
 import sk.ainet.lang.tensor.times
 import sk.ainet.lang.nn.normalization.RMSNormalization
 import sk.ainet.lang.types.DType
+import kotlin.math.sqrt
 import kotlin.reflect.KClass
 
 /**
@@ -50,7 +51,7 @@ public class LlamaRuntime<T : DType>(
 ) : DecoderRuntime<T>(random), LlamaRuntimeInterface<T> {
 
     private companion object {
-        const val BOS_TOKEN: Int = 1
+        const val DEFAULT_BOS_TOKEN: Int = 1
     }
 
     /** Pre-transposed weight tensors per layer — avoids re-creating lazy transpose wrappers every forward pass. */
@@ -82,7 +83,12 @@ public class LlamaRuntime<T : DType>(
     override val seqLen: Int = weights.metadata.contextLength
     override val vocabSize: Int = weights.metadata.vocabSize
     override val nLayers: Int = weights.layers.size
-    override val bosToken: Int = BOS_TOKEN
+    override val bosToken: Int = weights.metadata.bosTokenId
+
+    private val nHeads: Int = weights.metadata.headCount
+    private val nKvHeads: Int = weights.metadata.kvHeadCount
+    private val headDim: Int = dim / nHeads
+    private val hasQKNorm: Boolean = weights.layers.firstOrNull()?.qNorm != null
 
     private val embedding = Embedding(
         numEmbeddings = vocabSize,
@@ -126,9 +132,10 @@ public class LlamaRuntime<T : DType>(
 
     override fun runLayer(layerIdx: Int, x: Tensor<T, Float>): Tensor<T, Float> {
         val tl = transposedLayers[layerIdx]
+        val layer = weights.layers[layerIdx]
 
         // QKV: try compiled graph first, fall back to individual ops
-        val (q, k, v) = graphAccelerator?.runQKV(layerIdx, x)?.let {
+        var (q, k, v) = graphAccelerator?.runQKV(layerIdx, x)?.let {
             Triple(it.q, it.k, it.v)
         } ?: run {
             val attnNorm = attnNorms[layerIdx].forward(x, ctx)
@@ -137,6 +144,12 @@ public class LlamaRuntime<T : DType>(
                 attnNorm.matmul(tl.wkT),
                 attnNorm.matmul(tl.wvT)
             )
+        }
+
+        // QK-norm (Qwen3, Apertus-style): per-head RMSNorm on Q and K before RoPE
+        if (hasQKNorm) {
+            q = applyPerHeadRMSNorm(q, nHeads, headDim, layer.qNorm!!)
+            k = applyPerHeadRMSNorm(k, nKvHeads, headDim, layer.kNorm!!)
         }
 
         // Delegate attention (RoPE + KV cache + scoring) to backend
@@ -163,6 +176,37 @@ public class LlamaRuntime<T : DType>(
 
     override fun resetState() {
         attentionBackend.reset()
+    }
+
+    // ---- QK-norm (per-head RMSNorm on Q/K) ----
+
+    private fun applyPerHeadRMSNorm(
+        x: Tensor<T, Float>,
+        numHeads: Int,
+        headDim: Int,
+        weight: Tensor<T, Float>
+    ): Tensor<T, Float> {
+        val buf = x.expectFloatBuffer().copyOf()
+        val w = weight.expectFloatBuffer()
+        val totalDim = numHeads * headDim
+        val batchSize = if (x.shape.rank == 2) x.shape[0] else 1
+
+        for (b in 0 until batchSize) {
+            val batchOffset = b * totalDim
+            for (h in 0 until numHeads) {
+                val headOffset = batchOffset + h * headDim
+                var sumSq = 0f
+                for (i in 0 until headDim) {
+                    val v = buf[headOffset + i]
+                    sumSq += v * v
+                }
+                val rms = sqrt(sumSq / headDim + eps)
+                for (i in 0 until headDim) {
+                    buf[headOffset + i] = (buf[headOffset + i] / rms) * w[i]
+                }
+            }
+        }
+        return ctx.fromFloatArray<T, Float>(x.shape, dtype, buf)
     }
 
     // ---- LLaMA-specific batch optimization ----
@@ -242,12 +286,17 @@ public class LlamaRuntime<T : DType>(
         // Embed all tokens: produces [batchSize, dim]
         var x = embedding.forward(tokenIds, ctx)
 
-        weights.layers.forEachIndexed { layerIdx, _ ->
+        weights.layers.forEachIndexed { layerIdx, layer ->
             val tl = transposedLayers[layerIdx]
             val attnNorm = attnNorms[layerIdx].forward(x, ctx)
-            val q = attnNorm.matmul(tl.wqT)
-            val k = attnNorm.matmul(tl.wkT)
+            var q = attnNorm.matmul(tl.wqT)
+            var k = attnNorm.matmul(tl.wkT)
             val v = attnNorm.matmul(tl.wvT)
+
+            if (hasQKNorm) {
+                q = applyPerHeadRMSNorm(q, nHeads, headDim, layer.qNorm!!)
+                k = applyPerHeadRMSNorm(k, nKvHeads, headDim, layer.kNorm!!)
+            }
 
             val attnOut = attentionBackend.batchAttention(q, k, v, layerIdx, startPos)
                 ?: return batchForwardFallback(tokenIds, startPos) // shouldn't happen but be safe

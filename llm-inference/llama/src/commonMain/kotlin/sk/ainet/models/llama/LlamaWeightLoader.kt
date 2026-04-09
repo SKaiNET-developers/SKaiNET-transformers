@@ -33,7 +33,11 @@ public data class LlamaModelMetadata(
     val kvHeadCount: Int,
     val feedForwardLength: Int,
     val ropeDimensionCount: Int?,
-    val vocabSize: Int
+    val vocabSize: Int,
+    val ropeFreqBase: Float = 10_000f,
+    val rmsNormEps: Float = 1e-5f,
+    val bosTokenId: Int = 1,
+    val eosTokenId: Int = 2
 )
 
 public data class LlamaWeights<T : DType, V>(
@@ -58,6 +62,8 @@ public object LlamaTensorNames {
     fun ffnGate(layer: Int): String = "blk.$layer.ffn_gate.weight"
     fun ffnDown(layer: Int): String = "blk.$layer.ffn_down.weight"
     fun ffnUp(layer: Int): String = "blk.$layer.ffn_up.weight"
+    fun attnQNorm(layer: Int): String = "blk.$layer.attn_q_norm.weight"
+    fun attnKNorm(layer: Int): String = "blk.$layer.attn_k_norm.weight"
 }
 
 /**
@@ -69,38 +75,49 @@ public class LlamaWeightLoader private constructor(
     private val sourceProvider: (() -> Source)?,
     private val randomAccessProvider: (() -> RandomAccessSource)?,
     private val loadTensorData: Boolean = true,
-    private val quantPolicy: QuantPolicy = QuantPolicy.RAW_BYTES
-    // Note: set loadTensorData=false to only validate metadata; tensors will be materialized
-    // lazily when needed.
+    private val quantPolicy: QuantPolicy = QuantPolicy.RAW_BYTES,
+    private val acceptedArchitectures: Set<String> = setOf("llama")
 ) {
     /**
      * Primary constructor for sequential Source-based loading.
      * Loads entire file into memory - suitable for models under 2GB.
+     *
+     * @param acceptedArchitectures GGUF architecture strings accepted by this loader.
+     *   Defaults to `setOf("llama")`. Consumers loading compatible architectures
+     *   (e.g. Qwen, Mistral) pass their own set — no changes needed here.
      */
     public constructor(
         sourceProvider: () -> Source,
         loadTensorData: Boolean = true,
-        quantPolicy: QuantPolicy = QuantPolicy.RAW_BYTES
+        quantPolicy: QuantPolicy = QuantPolicy.RAW_BYTES,
+        acceptedArchitectures: Set<String> = setOf("llama")
     ) : this(
         sourceProvider = sourceProvider,
         randomAccessProvider = null,
         loadTensorData = loadTensorData,
-        quantPolicy = quantPolicy
+        quantPolicy = quantPolicy,
+        acceptedArchitectures = acceptedArchitectures
     )
 
     /**
      * Secondary constructor for streaming RandomAccessSource-based loading.
      * Parses metadata only (~1MB memory) and loads tensors on-demand.
      * Suitable for models of any size (100+ GB).
+     *
+     * @param acceptedArchitectures GGUF architecture strings accepted by this loader.
+     *   Defaults to `setOf("llama")`. Consumers loading compatible architectures
+     *   (e.g. Qwen, Mistral) pass their own set — no changes needed here.
      */
     public constructor(
         randomAccessProvider: () -> RandomAccessSource,
-        quantPolicy: QuantPolicy = QuantPolicy.RAW_BYTES
+        quantPolicy: QuantPolicy = QuantPolicy.RAW_BYTES,
+        acceptedArchitectures: Set<String> = setOf("llama")
     ) : this(
         sourceProvider = null,
         randomAccessProvider = randomAccessProvider,
         loadTensorData = true,  // Ignored for streaming
-        quantPolicy = quantPolicy
+        quantPolicy = quantPolicy,
+        acceptedArchitectures = acceptedArchitectures
     )
 
     /**
@@ -237,16 +254,20 @@ public class LlamaWeightLoader private constructor(
             }
         }
 
-        // Optional tensors (e.g., precomputed RoPE tables) if present and float32
-        listOf(
+        // Optional tensors (e.g., precomputed RoPE tables, QK-norm) if present
+        val optionalNames = mutableListOf(
             LlamaTensorNames.ROPE_FREQS_REAL,
             LlamaTensorNames.ROPE_FREQS_IMAG
-        ).forEach { name ->
+        )
+        repeat(metadata.blockCount) { layer ->
+            optionalNames += LlamaTensorNames.attnQNorm(layer)
+            optionalNames += LlamaTensorNames.attnKNorm(layer)
+        }
+        optionalNames.forEach { name ->
             val rt = tensorByName[name]
-            if (rt != null && rt.tensorType == GGMLQuantizationType.F32) {
+            if (rt != null) {
                 val tensor: Tensor<T, V> = readerTensorToTensor(ctx, dtype, reader, rt)
                 onTensorLoaded(name, tensor)
-                // optional tensors are expected to be F32; quant types are ignored here
             }
         }
 
@@ -296,13 +317,18 @@ public class LlamaWeightLoader private constructor(
                 }
             }
 
-            // Optional tensors (e.g., precomputed RoPE tables) if present and float32
-            listOf(
+            // Optional tensors (e.g., precomputed RoPE tables, QK-norm) if present
+            val optionalNames = mutableListOf(
                 LlamaTensorNames.ROPE_FREQS_REAL,
                 LlamaTensorNames.ROPE_FREQS_IMAG
-            ).forEach { name ->
+            )
+            repeat(metadata.blockCount) { layer ->
+                optionalNames += LlamaTensorNames.attnQNorm(layer)
+                optionalNames += LlamaTensorNames.attnKNorm(layer)
+            }
+            optionalNames.forEach { name ->
                 val st = tensorByName[name]
-                if (st != null && st.tensorType == GGMLQuantizationType.F32) {
+                if (st != null) {
                     val tensor: Tensor<T, V> = streamingTensorToTensor(ctx, dtype, reader, st)
                     onTensorLoaded(name, tensor)
                 }
@@ -320,24 +346,30 @@ public class LlamaWeightLoader private constructor(
         tensors: List<StreamingTensorInfo>
     ): LlamaModelMetadata {
         val arch = (fields["general.architecture"] as? String) ?: "unknown"
+        val prefix = arch
 
-        val embeddingLength = fields["llama.embedding_length"]?.toIntValue()
+        val embeddingLength = fields["$prefix.embedding_length"]?.toIntValue()
             ?: inferEmbeddingFromStreamingTensor(tensors)
-        val contextLength = fields["llama.context_length"]?.toIntValue() ?: 0
-        val blockCount = fields["llama.block_count"]?.toIntValue() ?: 0
-        val headCount = fields["llama.attention.head_count"]?.toIntValue() ?: 0
-        val kvHeadCount = fields["llama.attention.head_count_kv"]?.toIntValue() ?: headCount
-        val feedForwardLength = fields["llama.feed_forward_length"]?.toIntValue() ?: 0
-        var ropeDim = fields["llama.rope.dimension_count"]?.toIntValue()
-        val vocabSize = fields["llama.vocab_size"]?.toIntValue()
+        val contextLength = fields["$prefix.context_length"]?.toIntValue() ?: 0
+        val blockCount = fields["$prefix.block_count"]?.toIntValue() ?: 0
+        val headCount = fields["$prefix.attention.head_count"]?.toIntValue() ?: 0
+        val kvHeadCount = fields["$prefix.attention.head_count_kv"]?.toIntValue() ?: headCount
+        val feedForwardLength = fields["$prefix.feed_forward_length"]?.toIntValue() ?: 0
+        var ropeDim = fields["$prefix.rope.dimension_count"]?.toIntValue()
+        val vocabSize = fields["$prefix.vocab_size"]?.toIntValue()
             ?: inferVocabFromStreamingTensor(tensors)
+        val ropeFreqBase = fields["$prefix.rope.freq_base"]?.toFloatValue() ?: 10_000f
+        val rmsNormEps = fields["$prefix.attention.layer_norm_rms_epsilon"]?.toFloatValue() ?: 1e-5f
+        val bosTokenId = fields["tokenizer.ggml.bos_token_id"]?.toIntValue() ?: 1
+        val eosTokenId = fields["tokenizer.ggml.eos_token_id"]?.toIntValue() ?: 2
 
         // Infer head_dim from Q weight shape when rope dimension not set
         // Q weight: [q_dim, dim] where q_dim = nHeads * headDim
         if (ropeDim == null && headCount > 0) {
             val qTensor = tensors.firstOrNull { it.name == "blk.0.attn_q.weight" }
             if (qTensor != null && qTensor.shape.size == 2) {
-                val qDim = qTensor.shape.first { it.toInt() != embeddingLength }.toInt()
+                val qDim = qTensor.shape.firstOrNull { it.toInt() != embeddingLength }?.toInt()
+                    ?: qTensor.shape[0].toInt() // square weight: both dims equal embeddingLength
                 val inferredHeadDim = qDim / headCount
                 if (inferredHeadDim > 0 && inferredHeadDim * headCount == qDim) {
                     ropeDim = inferredHeadDim
@@ -354,7 +386,11 @@ public class LlamaWeightLoader private constructor(
             kvHeadCount = kvHeadCount,
             feedForwardLength = feedForwardLength,
             ropeDimensionCount = ropeDim,
-            vocabSize = vocabSize
+            vocabSize = vocabSize,
+            ropeFreqBase = ropeFreqBase,
+            rmsNormEps = rmsNormEps,
+            bosTokenId = bosTokenId,
+            eosTokenId = eosTokenId
         )
     }
 
@@ -367,6 +403,16 @@ public class LlamaWeightLoader private constructor(
         is UShort -> this.toInt()
         is Byte -> this.toInt()
         is UByte -> this.toInt()
+        else -> null
+    }
+
+    private fun Any?.toFloatValue(): Float? = when (this) {
+        is Float -> this
+        is Double -> this.toFloat()
+        is Int -> this.toFloat()
+        is UInt -> this.toFloat()
+        is Long -> this.toFloat()
+        is ULong -> this.toFloat()
         else -> null
     }
 
@@ -582,24 +628,29 @@ public class LlamaWeightLoader private constructor(
         tensors: List<ReaderTensor>
     ): LlamaModelMetadata {
         val arch = fields["general.architecture"]?.stringValue() ?: "unknown"
+        val prefix = arch
 
-        val embeddingLength = fields["llama.embedding_length"]?.scalarInt()
+        val embeddingLength = fields["$prefix.embedding_length"]?.scalarInt()
             ?: inferEmbeddingFromTensor(tensors)
-        val contextLength = fields["llama.context_length"]?.scalarInt() ?: 0
-        val blockCount = fields["llama.block_count"]?.scalarInt() ?: 0
-        val headCount = fields["llama.attention.head_count"]?.scalarInt() ?: 0
-        val kvHeadCount = fields["llama.attention.head_count_kv"]?.scalarInt() ?: headCount
-        val feedForwardLength = fields["llama.feed_forward_length"]?.scalarInt() ?: 0
-        var ropeDim = fields["llama.rope.dimension_count"]?.scalarInt()
-        val vocabSize = fields["llama.vocab_size"]?.scalarInt()
+        val contextLength = fields["$prefix.context_length"]?.scalarInt() ?: 0
+        val blockCount = fields["$prefix.block_count"]?.scalarInt() ?: 0
+        val headCount = fields["$prefix.attention.head_count"]?.scalarInt() ?: 0
+        val kvHeadCount = fields["$prefix.attention.head_count_kv"]?.scalarInt() ?: headCount
+        val feedForwardLength = fields["$prefix.feed_forward_length"]?.scalarInt() ?: 0
+        var ropeDim = fields["$prefix.rope.dimension_count"]?.scalarInt()
+        val vocabSize = fields["$prefix.vocab_size"]?.scalarInt()
             ?: inferVocabFromTensor(tensors)
+        val ropeFreqBase = fields["$prefix.rope.freq_base"]?.scalarFloat() ?: 10_000f
+        val rmsNormEps = fields["$prefix.attention.layer_norm_rms_epsilon"]?.scalarFloat() ?: 1e-5f
+        val bosTokenId = fields["tokenizer.ggml.bos_token_id"]?.scalarInt() ?: 1
+        val eosTokenId = fields["tokenizer.ggml.eos_token_id"]?.scalarInt() ?: 2
 
         // Infer head_dim from Q weight shape when rope dimension not set
         if (ropeDim == null && headCount > 0) {
             val qTensor = tensors.firstOrNull { it.name == "blk.0.attn_q.weight" }
             if (qTensor != null && qTensor.shape.size == 2) {
                 val embUInt = embeddingLength.toUInt()
-                val qDim = qTensor.shape.first { it != embUInt }.toInt()
+                val qDim = (qTensor.shape.firstOrNull { it != embUInt } ?: qTensor.shape[0]).toInt()
                 val inferredHeadDim = qDim / headCount
                 if (inferredHeadDim > 0 && inferredHeadDim * headCount == qDim) {
                     ropeDim = inferredHeadDim
@@ -616,13 +667,17 @@ public class LlamaWeightLoader private constructor(
             kvHeadCount = kvHeadCount,
             feedForwardLength = feedForwardLength,
             ropeDimensionCount = ropeDim,
-            vocabSize = vocabSize
+            vocabSize = vocabSize,
+            ropeFreqBase = ropeFreqBase,
+            rmsNormEps = rmsNormEps,
+            bosTokenId = bosTokenId,
+            eosTokenId = eosTokenId
         )
     }
 
     private fun validateMetadata(metadata: LlamaModelMetadata) {
-        require(metadata.architecture == "llama") {
-            "Unsupported architecture: ${metadata.architecture}"
+        require(metadata.architecture in acceptedArchitectures) {
+            "Unsupported architecture: ${metadata.architecture}. Accepted: $acceptedArchitectures"
         }
         require(metadata.embeddingLength > 0) { "Invalid embedding length ${metadata.embeddingLength}" }
         require(metadata.blockCount > 0) { "Invalid block count ${metadata.blockCount}" }
@@ -728,6 +783,22 @@ public class LlamaWeightLoader private constructor(
             is UShort -> value.toInt()
             is Byte -> value.toInt()
             is UByte -> value.toInt()
+            else -> error("Unsupported scalar type ${value::class} for field $name")
+        }
+    }
+
+    private fun ReaderField.scalarFloat(): Float {
+        val idx = data.firstOrNull() ?: 0
+        val part = parts.getOrNull(idx) ?: error("Missing data part for field $name")
+        val value = (part as List<*>).firstOrNull()
+            ?: error("Empty data part for field $name")
+        return when (value) {
+            is Float -> value
+            is Double -> value.toFloat()
+            is Int -> value.toFloat()
+            is UInt -> value.toFloat()
+            is Long -> value.toFloat()
+            is ULong -> value.toFloat()
             else -> error("Unsupported scalar type ${value::class} for field $name")
         }
     }

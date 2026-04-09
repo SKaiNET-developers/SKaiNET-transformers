@@ -33,6 +33,8 @@ public object QwenConfigParser {
         val contextLength = map.intOrNull("max_position_embeddings") ?: 32768
         val headDim = map.intOrNull("head_dim") ?: (hiddenSize / numHeads)
         val architecture = map.stringOrNull("model_type") ?: "qwen2"
+        val ropeTheta = map.floatOrNull("rope_theta") ?: 1_000_000f
+        val rmsNormEps = map.floatOrNull("rms_norm_eps") ?: 1e-6f
 
         return LlamaModelMetadata(
             architecture = architecture,
@@ -43,7 +45,9 @@ public object QwenConfigParser {
             kvHeadCount = numKvHeads,
             feedForwardLength = intermediateSize,
             ropeDimensionCount = headDim,
-            vocabSize = vocabSize
+            vocabSize = vocabSize,
+            ropeFreqBase = ropeTheta,
+            rmsNormEps = rmsNormEps
         )
     }
 
@@ -141,6 +145,9 @@ public object QwenConfigParser {
 
     private fun Map<String, String>.intOrNull(key: String): Int? =
         this[key]?.toIntOrNull()
+
+    private fun Map<String, String>.floatOrNull(key: String): Float? =
+        this[key]?.toFloatOrNull()
 
     private fun Map<String, String>.stringOrNull(key: String): String? =
         this[key]?.takeIf { it.isNotBlank() }
