@@ -236,22 +236,31 @@ public class Gemma4WeightLoader private constructor(
         val blockCount = fields["$prefix.block_count"]?.scalarInt() ?: 34
         val headCount = fields["$prefix.attention.head_count"]?.scalarInt() ?: 8
         val kvHeadCount = fields["$prefix.attention.head_count_kv"]?.scalarInt() ?: 4
-        val headDim = fields["$prefix.attention.head_dim"]?.scalarInt() ?: 256
-        val globalHeadDim = fields["$prefix.attention.global_head_dim"]?.scalarInt() ?: headDim
+        // GGUF uses attention.key_length_swa for sliding head dim, attention.key_length for global
+        val headDim = fields["$prefix.attention.key_length_swa"]?.scalarInt()
+            ?: fields["$prefix.attention.head_dim"]?.scalarInt()
+            ?: 256
+        val globalHeadDim = fields["$prefix.attention.key_length"]?.scalarInt()
+            ?: fields["$prefix.attention.global_head_dim"]?.scalarInt()
+            ?: headDim
         val vocabSize = fields["$prefix.vocab_size"]?.scalarInt()
             ?: inferVocabFromTensor(tensors)
         val intermediateSize = fields["$prefix.feed_forward_length"]?.scalarInt()
             ?: (embeddingLength * 4)
         val slidingWindow = fields["$prefix.attention.sliding_window"]?.scalarInt()
             ?: Gemma4ModelMetadata.DEFAULT_SLIDING_WINDOW
-        val kvSharedLayers = fields["$prefix.kv_shared_layers"]?.scalarInt()
-            ?: fields["$prefix.attention.shared_kv_layers"]?.scalarInt()
+        val kvSharedLayers = fields["$prefix.attention.shared_kv_layers"]?.scalarInt()
+            ?: fields["$prefix.kv_shared_layers"]?.scalarInt()
             ?: Gemma4ModelMetadata.DEFAULT_KV_SHARED_LAYERS
+        val perLayerEmbeddingLength = fields["$prefix.embedding_length_per_layer_input"]?.scalarInt() ?: 0
 
         val layerTypes = extractLayerTypes(fields, prefix, blockCount)
 
         val ropeBase = fields["$prefix.rope.freq_base"]?.scalarFloat() ?: 1000000f
-        val ropeBaseLocal = fields["$prefix.rope.freq_base_local"]?.scalarFloat() ?: 10000f
+        // GGUF uses rope.freq_base_swa for sliding window RoPE base
+        val ropeBaseLocal = fields["$prefix.rope.freq_base_swa"]?.scalarFloat()
+            ?: fields["$prefix.rope.freq_base_local"]?.scalarFloat()
+            ?: 10000f
         val ropeFactor = fields["$prefix.rope.factor"]?.scalarFloat() ?: 1.0f
         val partialRotaryFactor = fields["$prefix.rope.partial_rotary_factor"]?.scalarFloat() ?: 1.0f
 
@@ -279,7 +288,8 @@ public class Gemma4WeightLoader private constructor(
                 base = ropeBaseLocal,
                 ropeType = "default"
             ),
-            maxPositionEmbeddings = contextLength
+            maxPositionEmbeddings = contextLength,
+            perLayerEmbeddingLength = perLayerEmbeddingLength
         )
     }
 
@@ -296,22 +306,29 @@ public class Gemma4WeightLoader private constructor(
         val blockCount = fields["$prefix.block_count"]?.toIntValue() ?: 34
         val headCount = fields["$prefix.attention.head_count"]?.toIntValue() ?: 8
         val kvHeadCount = fields["$prefix.attention.head_count_kv"]?.toIntValue() ?: 4
-        val headDim = fields["$prefix.attention.head_dim"]?.toIntValue() ?: 256
-        val globalHeadDim = fields["$prefix.attention.global_head_dim"]?.toIntValue() ?: headDim
+        val headDim = fields["$prefix.attention.key_length_swa"]?.toIntValue()
+            ?: fields["$prefix.attention.head_dim"]?.toIntValue()
+            ?: 256
+        val globalHeadDim = fields["$prefix.attention.key_length"]?.toIntValue()
+            ?: fields["$prefix.attention.global_head_dim"]?.toIntValue()
+            ?: headDim
         val vocabSize = fields["$prefix.vocab_size"]?.toIntValue()
             ?: inferVocabFromStreamingTensor(tensors)
         val intermediateSize = fields["$prefix.feed_forward_length"]?.toIntValue()
             ?: (embeddingLength * 4)
         val slidingWindow = fields["$prefix.attention.sliding_window"]?.toIntValue()
             ?: Gemma4ModelMetadata.DEFAULT_SLIDING_WINDOW
-        val kvSharedLayers = fields["$prefix.kv_shared_layers"]?.toIntValue()
-            ?: fields["$prefix.attention.shared_kv_layers"]?.toIntValue()
+        val kvSharedLayers = fields["$prefix.attention.shared_kv_layers"]?.toIntValue()
+            ?: fields["$prefix.kv_shared_layers"]?.toIntValue()
             ?: Gemma4ModelMetadata.DEFAULT_KV_SHARED_LAYERS
+        val perLayerEmbeddingLength = fields["$prefix.embedding_length_per_layer_input"]?.toIntValue() ?: 0
 
         val layerTypes = extractStreamingLayerTypes(fields, prefix, blockCount)
 
         val ropeBase = fields["$prefix.rope.freq_base"]?.toFloatValue() ?: 1000000f
-        val ropeBaseLocal = fields["$prefix.rope.freq_base_local"]?.toFloatValue() ?: 10000f
+        val ropeBaseLocal = fields["$prefix.rope.freq_base_swa"]?.toFloatValue()
+            ?: fields["$prefix.rope.freq_base_local"]?.toFloatValue()
+            ?: 10000f
         val ropeFactor = fields["$prefix.rope.factor"]?.toFloatValue() ?: 1.0f
         val partialRotaryFactor = fields["$prefix.rope.partial_rotary_factor"]?.toFloatValue() ?: 1.0f
 
@@ -339,6 +356,7 @@ public class Gemma4WeightLoader private constructor(
                 base = ropeBaseLocal,
                 ropeType = "default"
             ),
+            perLayerEmbeddingLength = perLayerEmbeddingLength,
             maxPositionEmbeddings = contextLength
         )
     }
@@ -501,8 +519,7 @@ public class Gemma4WeightLoader private constructor(
         ).forEach { name ->
             val st = tensorByName[name]
             if (st != null) {
-                val tensor: Tensor<T, V> = streamingTensorToTensor(ctx, dtype, reader, st, metadata)
-                onTensorLoaded(name, tensor)
+                tryLoadOptionalStreamingTensor(ctx, dtype, reader, st, name, onTensorLoaded)
             }
         }
 
@@ -515,10 +532,39 @@ public class Gemma4WeightLoader private constructor(
             ).forEach { name ->
                 val st = tensorByName[name]
                 if (st != null) {
-                    val tensor: Tensor<T, V> = streamingTensorToTensor(ctx, dtype, reader, st, metadata)
-                    onTensorLoaded(name, tensor)
+                    tryLoadOptionalStreamingTensor(ctx, dtype, reader, st, name, onTensorLoaded)
                 }
             }
+        }
+    }
+
+    /** Load an optional streaming tensor, skipping silently if it exceeds size limits. */
+    private fun <T : DType, V> tryLoadOptionalStreamingTensor(
+        ctx: ExecutionContext,
+        dtype: KClass<T>,
+        reader: StreamingGGUFReader,
+        st: StreamingTensorInfo,
+        name: String,
+        onTensorLoaded: (String, Tensor<T, V>) -> Unit
+    ) {
+        try {
+            val shape = Shape(*st.shape.map { it.toInt() }.toIntArray())
+            val bytes = reader.loadTensorData(st)
+            val floats = when (st.tensorType) {
+                GGMLQuantizationType.F32 -> bytesToFloatArray(bytes)
+                GGMLQuantizationType.F16 -> dequantF16FromBytes(bytes)
+                GGMLQuantizationType.BF16 -> dequantBF16FromBytes(bytes)
+                else -> when (quantPolicy) {
+                    QuantPolicy.DEQUANTIZE_TO_FP32 -> dequantFromBytes(bytes, st.tensorType, st.nElements.toInt())
+                    else -> null
+                }
+            }
+            if (floats != null) {
+                val tensor = createTensor<T, V>(ctx, dtype, shape, floats)
+                onTensorLoaded(name, tensor)
+            }
+        } catch (_: IllegalArgumentException) {
+            // Skip tensors that exceed streaming reader limits (e.g., >2GB PLE tables)
         }
     }
 
@@ -714,13 +760,17 @@ public class Gemma4WeightLoader private constructor(
     }
 
     private fun inferEmbeddingFromStreamingTensor(tensors: List<StreamingTensorInfo>): Int {
-        val embd = tensors.firstOrNull { it.name == Gemma4TensorNames.TOKEN_EMBEDDINGS }
-        return embd?.shape?.getOrNull(1)?.toInt() ?: 2304
+        val token = tensors.firstOrNull { it.name == Gemma4TensorNames.TOKEN_EMBEDDINGS }
+            ?: return 2304
+        // GGUF stores shapes in column-major order; embedding is the smaller dimension
+        return token.shape.map { it.toInt() }.minOrNull() ?: 2304
     }
 
     private fun inferVocabFromStreamingTensor(tensors: List<StreamingTensorInfo>): Int {
-        val embd = tensors.firstOrNull { it.name == Gemma4TensorNames.TOKEN_EMBEDDINGS }
-        return embd?.shape?.getOrNull(0)?.toInt() ?: 262144
+        val token = tensors.firstOrNull { it.name == Gemma4TensorNames.TOKEN_EMBEDDINGS }
+            ?: return 262144
+        // GGUF stores shapes in column-major order; vocab is the larger dimension
+        return token.shape.map { it.toInt() }.maxOrNull() ?: 262144
     }
 
     private fun ReaderField.scalarInt(): Int {

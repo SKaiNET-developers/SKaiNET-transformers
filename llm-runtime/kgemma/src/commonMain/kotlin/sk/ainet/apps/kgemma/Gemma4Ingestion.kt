@@ -76,7 +76,11 @@ public class Gemma4Ingestion<T : DType>(
 
     private fun buildRuntime(weights: Gemma4RuntimeWeights<T>): Gemma4Runtime<T> {
         val modelConfig = Gemma4Config.fromMetadata(weights.metadata)
-        val kvCache = createOptimalGemma4KvCache(modelConfig, weights.metadata.contextLength)
+        // Cap KV cache seqLen to avoid OOM on heap — full 128K/256K requires
+        // off-heap or memory-mapped caches (future TurboQuant integration)
+        val maxHeapSeqLen = 4096
+        val seqLen = minOf(weights.metadata.contextLength, maxHeapSeqLen)
+        val kvCache = createOptimalGemma4KvCache(modelConfig, seqLen)
         val attentionBackend = Gemma4AttentionBackend(ctx, weights, dtype, modelConfig, kvCache)
         return Gemma4Runtime(ctx, weights, attentionBackend, dtype, modelConfig)
     }

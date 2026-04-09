@@ -36,10 +36,10 @@
       }
     },
     {
-      "name": "Gemma4-E2B-SafeTensors",
+      "name": "Gemma4-E4B-GGUF",
       "runner": "kgemma",
-      "model": "~/.cache/huggingface/models/google/gemma-4-2b-it",
-      "format": "safetensors",
+      "model": "~/.lmstudio/models/lmstudio-community/gemma-4-E4B-it-GGUF/gemma-4-E4B-it-Q4_K_M.gguf",
+      "format": "gguf",
       "steps": 16
     }
   ]

@@ -34,13 +34,12 @@ public class Gemma4AttentionBackend<T : DType>(
     kvCache: Gemma4KvCache? = null
 ) : AttentionBackend<T> {
 
-    private val seqLen = config.maxPositionEmbeddings
+    private val cache: Gemma4KvCache = kvCache ?: HeapGemma4KvCache.fromConfig(config, 4096)
+    private val seqLen: Int = cache.seqLen
     private val nHeads = config.numAttentionHeads
     private val nKvHeads = config.numKvHeads
     private val nHeadsPerKv = config.numHeadsPerKv
     private val slidingWindow = config.slidingWindow
-
-    private val cache: Gemma4KvCache = kvCache ?: HeapGemma4KvCache.fromConfig(config, seqLen)
 
     override fun attention(
         q: Tensor<T, Float>,
@@ -60,8 +59,18 @@ public class Gemma4AttentionBackend<T : DType>(
         // Apply RoPE with layer-specific parameters
         applyRopeGqa(qBuf, kBuf, position, ropeBase, layerHeadDim, rotaryDim)
 
-        // Store to KV cache
-        cache.store(layerIdx, position, kBuf, 0, vBuf, 0)
+        // Store to KV cache — pad to maxKvDim if layer has smaller KV dim
+        val layerKvDim = nKvHeads * layerHeadDim
+        val maxKvDim = cache.kvDim
+        if (layerKvDim < maxKvDim) {
+            val paddedK = FloatArray(maxKvDim)
+            kBuf.copyInto(paddedK, 0, 0, layerKvDim)
+            val paddedV = FloatArray(maxKvDim)
+            vBuf.copyInto(paddedV, 0, 0, layerKvDim)
+            cache.store(layerIdx, position, paddedK, 0, paddedV, 0)
+        } else {
+            cache.store(layerIdx, position, kBuf, 0, vBuf, 0)
+        }
 
         // Compute attention
         val layerType = config.getLayerType(layerIdx)

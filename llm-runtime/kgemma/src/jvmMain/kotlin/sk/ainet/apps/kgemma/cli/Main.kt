@@ -27,22 +27,52 @@ private enum class ModelFormat { GGUF, SAFETENSORS }
 private enum class GemmaVariant { GEMMA3N, GEMMA4 }
 
 /**
- * Detect Gemma model variant by reading model_type from config.json.
- * Falls back to GEMMA3N if config.json is not found or model_type is unrecognized.
+ * Detect Gemma model variant from config.json or GGUF metadata.
+ * For SafeTensors directories: reads model_type from config.json.
+ * For GGUF files: peeks at general.architecture metadata field.
+ * Falls back to GEMMA3N if detection fails.
  */
-private fun detectGemmaVariant(modelPath: Path): GemmaVariant {
+private fun detectGemmaVariant(modelPath: Path, format: ModelFormat): GemmaVariant {
+    // Try config.json in model directory
     val modelDir = if (modelPath.isDirectory()) modelPath else modelPath.parent ?: modelPath
     val configFile = modelDir.resolve("config.json")
     if (configFile.exists()) {
         val configText = configFile.readText()
-        // Simple check for model_type field
         val modelTypeRegex = """"model_type"\s*:\s*"(\w+)"""".toRegex()
         val match = modelTypeRegex.find(configText)
         if (match != null) {
             val modelType = match.groupValues[1]
             if (modelType == "gemma4") return GemmaVariant.GEMMA4
+            if (modelType.startsWith("gemma3") || modelType == "gemma3n") return GemmaVariant.GEMMA3N
         }
     }
+
+    // For GGUF: peek at architecture from metadata
+    if (format == ModelFormat.GGUF && modelPath.exists()) {
+        try {
+            JvmRandomAccessSource.open(modelPath.toString()).use { source ->
+                val reader = sk.ainet.io.gguf.StreamingGGUFReader.open(source)
+                val arch = reader.fields["general.architecture"]
+                if (arch is String && arch.contains("gemma4", ignoreCase = true)) {
+                    return GemmaVariant.GEMMA4
+                }
+                // Also check filename as last resort
+                val filename = modelPath.fileName.toString().lowercase()
+                if (filename.contains("gemma-4") || filename.contains("gemma4")) {
+                    return GemmaVariant.GEMMA4
+                }
+            }
+        } catch (_: Exception) {
+            // Fall through to default
+        }
+    }
+
+    // Filename heuristic for non-GGUF too
+    val filename = modelPath.fileName?.toString()?.lowercase() ?: ""
+    if (filename.contains("gemma-4") || filename.contains("gemma4")) {
+        return GemmaVariant.GEMMA4
+    }
+
     return GemmaVariant.GEMMA3N
 }
 
@@ -112,7 +142,7 @@ fun main(args: Array<String>) {
             memSegFactory.close()
         })
 
-        val variant = detectGemmaVariant(modelPath)
+        val variant = detectGemmaVariant(modelPath, format)
         println("Detected model variant: $variant")
 
         val runtime: DecoderRuntime<FP32> = when (variant) {
