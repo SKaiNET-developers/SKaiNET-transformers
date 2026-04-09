@@ -34,6 +34,13 @@
         "prompt": "What is 2 + 2?",
         "steps": 256
       }
+    },
+    {
+      "name": "Gemma4-E2B-SafeTensors",
+      "runner": "kgemma",
+      "model": "~/.cache/huggingface/models/google/gemma-4-2b-it",
+      "format": "safetensors",
+      "steps": 16
     }
   ]
 }
