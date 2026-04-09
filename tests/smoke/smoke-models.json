@@ -36,13 +36,6 @@
       }
     },
     {
-      "name": "Qwen3.5-9B-Q4_K_M",
-      "runner": "kqwen",
-      "model": "Qwen3.5-9B-Q4_K_M.gguf",
-      "format": "gguf",
-      "steps": 16
-    },
-    {
       "name": "Gemma4-E4B-GGUF",
       "runner": "kgemma",
       "model": "~/.lmstudio/models/lmstudio-community/gemma-4-E4B-it-GGUF/gemma-4-E4B-it-Q4_K_M.gguf",
