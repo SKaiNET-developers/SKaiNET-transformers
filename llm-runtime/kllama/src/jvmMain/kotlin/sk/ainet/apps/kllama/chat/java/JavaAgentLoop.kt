@@ -24,7 +24,8 @@ public class JavaAgentLoop private constructor(
     private val tools: List<JavaTool>,
     private val systemPrompt: String,
     private val config: AgentConfig,
-    private val templateName: String
+    private val templateName: String?,
+    private val metadata: ModelMetadata
 ) {
     private val messages = mutableListOf<ChatMessage>()
     private val toolRegistry = ToolRegistry()
@@ -43,10 +44,8 @@ public class JavaAgentLoop private constructor(
     public fun chat(userMessage: String): String {
         messages.add(ChatMessage(role = ChatRole.USER, content = userMessage))
 
-        val template: ChatTemplate = when (templateName.lowercase()) {
-            "chatml" -> ChatMLTemplate()
-            else -> Llama3ChatTemplate()
-        }
+        val provider = ToolCallingSupportResolver.resolveOrFallback(metadata, templateName)
+        val template: ChatTemplate = provider.createChatTemplate()
 
         val agentLoop = AgentLoop(
             runtime = session.runtime,
@@ -75,10 +74,8 @@ public class JavaAgentLoop private constructor(
     public fun chat(userMessage: String, tokenConsumer: Consumer<String>): String {
         messages.add(ChatMessage(role = ChatRole.USER, content = userMessage))
 
-        val template: ChatTemplate = when (templateName.lowercase()) {
-            "chatml" -> ChatMLTemplate()
-            else -> Llama3ChatTemplate()
-        }
+        val provider = ToolCallingSupportResolver.resolveOrFallback(metadata, templateName)
+        val template: ChatTemplate = provider.createChatTemplate()
 
         val agentLoop = AgentLoop(
             runtime = session.runtime,
@@ -120,7 +117,8 @@ public class JavaAgentLoop private constructor(
         private val tools = mutableListOf<JavaTool>()
         private var systemPrompt: String = "You are a helpful assistant."
         private var config: AgentConfig = AgentConfig()
-        private var templateName: String = "llama3"
+        private var templateName: String? = null
+        private var metadata: ModelMetadata = ModelMetadata()
 
         public fun session(session: KLlamaSession): Builder {
             this.session = session
@@ -147,13 +145,19 @@ public class JavaAgentLoop private constructor(
             return this
         }
 
+        public fun metadata(metadata: ModelMetadata): Builder {
+            this.metadata = metadata
+            return this
+        }
+
         public fun build(): JavaAgentLoop {
             return JavaAgentLoop(
                 session = requireNotNull(session) { "session must be set" },
                 tools = tools.toList(),
                 systemPrompt = systemPrompt,
                 config = config,
-                templateName = templateName
+                templateName = templateName,
+                metadata = metadata
             )
         }
     }

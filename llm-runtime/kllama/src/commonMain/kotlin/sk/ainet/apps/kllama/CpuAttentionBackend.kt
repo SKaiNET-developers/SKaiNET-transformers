@@ -30,11 +30,13 @@ public class CpuAttentionBackend<T : DType>(
     private val weights: LlamaRuntimeWeights<T>,
     private val dtype: KClass<T>,
     kvCache: KvCache? = null,
-    private val ropeFreqBase: Float = 10000f
+    private val ropeFreqBase: Float = 10000f,
+    maxContextLength: Int? = null
 ) : AttentionBackend<T> {
 
     private val dim = weights.metadata.embeddingLength
-    private val seqLen = weights.metadata.contextLength
+    private val seqLen = maxContextLength?.let { minOf(it, weights.metadata.contextLength) }
+        ?: weights.metadata.contextLength
     private val nLayers = weights.metadata.blockCount
     private val nHeads = weights.metadata.headCount
     private val nKvHeads = weights.metadata.kvHeadCount

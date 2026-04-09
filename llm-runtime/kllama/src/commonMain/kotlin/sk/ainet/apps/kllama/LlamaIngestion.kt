@@ -18,7 +18,8 @@ import kotlin.reflect.KClass
  */
 public data class LlamaLoadConfig(
     val quantPolicy: QuantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
-    val allowQuantized: Boolean = false
+    val allowQuantized: Boolean = false,
+    val acceptedArchitectures: Set<String> = setOf("llama")
 )
 
 public class LlamaIngestion<T : DType>(
@@ -60,7 +61,8 @@ public class LlamaIngestion<T : DType>(
             randomAccessProvider = randomAccessProvider,
             dtype = dtype,
             quantPolicy = config.quantPolicy,
-            allowQuantized = config.allowQuantized
+            allowQuantized = config.allowQuantized,
+            acceptedArchitectures = config.acceptedArchitectures
         )
     }
 

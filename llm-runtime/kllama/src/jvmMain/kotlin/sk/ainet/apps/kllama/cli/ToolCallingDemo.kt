@@ -1,7 +1,7 @@
 package sk.ainet.apps.kllama.cli
 
 import sk.ainet.apps.kllama.GGUFTokenizer
-import sk.ainet.models.llama.LlamaRuntimeInterface
+import sk.ainet.apps.llm.InferenceRuntime
 import sk.ainet.apps.kllama.chat.*
 import sk.ainet.lang.types.DType
 import kotlinx.serialization.json.JsonObject
@@ -28,15 +28,21 @@ import java.io.File
  * ```
  */
 public class ToolCallingDemo<T : DType>(
-    private val runtime: LlamaRuntimeInterface<T>,
+    private val runtime: InferenceRuntime<T>,
     private val tokenizer: GGUFTokenizer,
-    private val templateName: String = "llama3"
+    private val templateName: String? = null,
+    private val metadata: ModelMetadata = ModelMetadata()
 ) {
-    private val template: ChatTemplate = when (templateName.lowercase()) {
-        "chatml", "hermes" -> ChatMLTemplate()
-        "qwen" -> QwenChatTemplate()
-        "gemma" -> GemmaChatTemplate()
-        else -> Llama3ChatTemplate()
+    private val provider: ToolCallingSupport = resolveProvider()
+    private val template: ChatTemplate = provider.createChatTemplate()
+
+    private fun resolveProvider(): ToolCallingSupport {
+        val result = ToolCallingSupportResolver.resolveWithDiagnostics(
+            metadata = metadata,
+            explicitFamily = templateName
+        )
+        println("[ToolCallingDemo] Provider: ${result.provider.family} (mode=${result.mode}, reason: ${result.reason})")
+        return result.provider
     }
 
     private val eosTokenId: Int = tokenizer.eosId

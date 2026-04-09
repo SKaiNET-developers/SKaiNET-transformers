@@ -6,7 +6,6 @@ import sk.ainet.lang.nn.transformer.MultiHeadAttention
 import sk.ainet.lang.nn.transformer.ResidualAdd
 import sk.ainet.lang.nn.transformer.SwiGLUFFN
 import sk.ainet.lang.types.DType
-import kotlin.reflect.KClass
 
 /**
  * Dry-run shape validation for DSL module pipelines.
@@ -166,14 +165,10 @@ public object ShapeValidator {
         return outputShape
     }
 
-    private fun collectParamShapes(module: Module<*, *>): Map<String, List<Int>> {
-        val shapes = mutableMapOf<String, List<Int>>()
-        try {
-            val params = module::class.members.firstOrNull { it.name == "params" }
-            // Can't easily reflect on params without the ModuleParameters interface
-            // This is best-effort — modules that expose params will be traced
-        } catch (_: Exception) { }
-        return shapes
+    private fun collectParamShapes(@Suppress("UNUSED_PARAMETER") module: Module<*, *>): Map<String, List<Int>> {
+        // Parameter shape collection requires modules to expose shapes explicitly
+        // (e.g. via a ModuleParameters interface). No reflection-based fallback.
+        return emptyMap()
     }
 
     private fun walkModules(module: Module<*, *>, visitor: (Module<*, *>) -> Unit) {

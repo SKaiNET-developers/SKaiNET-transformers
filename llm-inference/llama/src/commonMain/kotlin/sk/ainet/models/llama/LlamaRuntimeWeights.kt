@@ -224,11 +224,13 @@ public suspend fun <T : DType> loadLlamaRuntimeWeightsStreaming(
     randomAccessProvider: () -> RandomAccessSource,
     dtype: KClass<T>,
     quantPolicy: QuantPolicy = QuantPolicy.RAW_BYTES,
-    allowQuantized: Boolean = false
+    allowQuantized: Boolean = false,
+    acceptedArchitectures: Set<String> = setOf("llama")
 ): LlamaRuntimeWeights<T> {
     val loader = LlamaWeightLoader(
         randomAccessProvider = randomAccessProvider,
-        quantPolicy = quantPolicy
+        quantPolicy = quantPolicy,
+        acceptedArchitectures = acceptedArchitectures
     )
     val loaded = loader.loadToMapStreaming<T, Float>(ctx, dtype)
     if (!allowQuantized && loaded.quantTypes.isNotEmpty()) {

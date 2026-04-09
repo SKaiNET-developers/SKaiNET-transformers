@@ -32,6 +32,12 @@ import kotlin.io.path.readText
 import kotlin.system.exitProcess
 import kotlin.time.measureTime
 import kotlinx.coroutines.runBlocking
+import sk.ainet.apps.kllama.chat.ModelMetadata
+import sk.ainet.apps.llm.InferenceRuntime
+import sk.ainet.apps.llm.generate
+import sk.ainet.io.gguf.StreamingGGUFReader
+import sk.ainet.models.llama.LlamaWeightLoader
+import sk.ainet.models.llama.LlamaWeightMapper
 
 private enum class ModelFormat { GGUF, SAFETENSORS, BIN }
 
@@ -45,8 +51,9 @@ private data class CliArgs(
     val chatMode: Boolean,
     val agentMode: Boolean,
     val demoMode: Boolean,
-    val templateName: String,
-    val backend: String?
+    val templateName: String?,
+    val backend: String?,
+    val contextLength: Int?
 )
 
 private fun usage(errorMessage: String? = null): Nothing {
@@ -64,7 +71,8 @@ private fun usage(errorMessage: String? = null): Nothing {
     println("  --chat              Interactive chat mode")
     println("  --agent             Interactive agent mode with tool calling")
     println("  --demo              Tool calling demo with file listing and calculator")
-    println("  --template=NAME     Chat template: llama3 (default) or chatml")
+    println("  --template=NAME     Chat template: llama3, chatml, qwen, gemma (auto-detected if omitted)")
+    println("  --context=N         Cap context length to N tokens (reduces memory usage)")
     println("  --backend=NAME      Compute backend: auto-selects best available (see --list-backends)")
     println("  --list-backends     List available compute backends and exit")
     println("  -h, --help          Show this help")
@@ -89,8 +97,9 @@ private fun parseArgs(args: Array<String>): CliArgs {
     var chatMode = false
     var agentMode = false
     var demoMode = false
-    var templateName = "llama3"
+    var templateName: String? = null
     var backend: String? = null
+    var contextLength: Int? = null
 
     var idx = 0
     while (idx < args.size) {
@@ -129,6 +138,10 @@ private fun parseArgs(args: Array<String>): CliArgs {
             arg == "--agent" -> agentMode = true
             arg == "--demo" -> demoMode = true
             arg.startsWith("--template=") -> templateName = arg.substringAfter("=")
+            arg.startsWith("--context=") -> {
+                val value = arg.substringAfter("=")
+                contextLength = value.toIntOrNull() ?: usage("Invalid context length '$value'. Expected integer.")
+            }
             arg == "--backend" -> backend = nextValue(arg)
             arg.startsWith("--backend=") -> backend = arg.substringAfter("=")
             arg == "--list-backends" -> {
@@ -169,7 +182,8 @@ private fun parseArgs(args: Array<String>): CliArgs {
         agentMode = agentMode,
         demoMode = demoMode,
         templateName = templateName,
-        backend = backend
+        backend = backend,
+        contextLength = contextLength
     )
 }
 
@@ -251,6 +265,46 @@ private fun detectFormat(path: Path): ModelFormat {
 private fun resolveModelDir(path: Path): Path =
     if (path.isDirectory()) path else path.parent ?: path
 
+/**
+ * Peek at the architecture and chat template fields from a GGUF file without loading weights.
+ * Returns a [ModelMetadata] for capability detection.
+ */
+private fun peekGgufMetadata(modelPath: Path): ModelMetadata {
+    return JvmRandomAccessSource.open(modelPath.toString()).use { source ->
+        StreamingGGUFReader.open(source).use { reader ->
+            val fields = reader.fields
+            val arch = (fields["general.architecture"] as? String) ?: "unknown"
+            val chatTemplate = fields["tokenizer.chat_template"] as? String
+            val family = when {
+                arch.startsWith("qwen") -> "qwen"
+                arch.startsWith("gemma") -> "gemma"
+                arch == "llama" -> "llama"
+                else -> arch
+            }
+            ModelMetadata(
+                family = family,
+                architecture = arch,
+                chatTemplate = chatTemplate,
+                sourceFormat = "gguf"
+            )
+        }
+    }
+}
+
+/** Peek at the EOS token ID from GGUF metadata. */
+private fun peekEosTokenId(modelPath: Path): Int {
+    return JvmRandomAccessSource.open(modelPath.toString()).use { source ->
+        StreamingGGUFReader.open(source).use { reader ->
+            (reader.fields["tokenizer.ggml.eos_token_id"] as? Number)?.toInt() ?: 2
+        }
+    }
+}
+
+/** Set of GGUF architecture strings that are compatible with the Llama runtime. */
+private val LLAMA_COMPATIBLE_ARCHITECTURES: Set<String> = setOf(
+    "llama", "qwen2", "qwen3", "qwen35", "mistral"
+)
+
 fun main(args: Array<String>) {
     runBlocking {
         val cliArgs = parseArgs(args)
@@ -291,63 +345,127 @@ fun main(args: Array<String>) {
             memSegFactory.close()
         })
 
-        val runtimeWeights = when (format) {
-            ModelFormat.GGUF -> {
-                val ingestion = LlamaIngestion<FP32>(
-                    ctx = ctx,
-                    dtype = FP32::class,
-                    config = LlamaLoadConfig(
-                        quantPolicy = QuantPolicy.NATIVE_OPTIMIZED,
-                        allowQuantized = true
+        // Peek GGUF metadata for architecture-aware loading and auto-detection
+        val ggufMetadata: ModelMetadata? = if (format == ModelFormat.GGUF) {
+            peekGgufMetadata(modelPath).also {
+                println("GGUF architecture: ${it.architecture}, family: ${it.family}")
+            }
+        } else null
+
+        val isQwen = ggufMetadata?.family == "qwen"
+
+        // Build the inference runtime — Qwen uses the modern DSL path,
+        // Llama/others use the legacy LlamaRuntime path.
+        val runtime: InferenceRuntime<FP32>
+        var eosTokenId: Int = 2
+        var binVocabSize: Int = 0
+
+        if (format == ModelFormat.GGUF && isQwen) {
+            // --- Qwen: LlamaWeightLoader with Qwen architectures → LlamaRuntime ---
+            // Same path as kqwen CLI — uses off-heap MemSeg for quantized tensors.
+            val qwenArchitectures = setOf("qwen2", "qwen3", "qwen35")
+            val loader = LlamaWeightLoader(
+                randomAccessProvider = { JvmRandomAccessSource.open(modelPath.toString()) },
+                quantPolicy = QuantPolicy.NATIVE_OPTIMIZED,
+                acceptedArchitectures = qwenArchitectures
+            )
+            println("Loading GGUF model from $modelPath (Qwen, streaming mode)...")
+            val loaded = loader.loadToMapStreaming<FP32, Float>(ctx, FP32::class)
+            val rawWeights = LlamaWeightMapper.map(loaded)
+
+            val runtimeWeights = if (rawWeights.quantTypes.isNotEmpty()) {
+                println("Converting ${rawWeights.quantTypes.size} quantized tensors to MemorySegment-backed SIMD format...")
+                MemSegWeightConverter.convert(rawWeights, ctx, quantArena)
+            } else {
+                rawWeights
+            }
+
+            if (cliArgs.contextLength != null) {
+                println("Context length capped to ${cliArgs.contextLength} (model default: ${runtimeWeights.metadata.contextLength})")
+            }
+            val qwenBackend = CpuAttentionBackend<FP32>(
+                ctx, runtimeWeights, FP32::class,
+                ropeFreqBase = runtimeWeights.metadata.ropeFreqBase,
+                maxContextLength = cliArgs.contextLength
+            )
+            runtime = LlamaRuntime<FP32>(
+                ctx, runtimeWeights, qwenBackend, FP32::class,
+                eps = runtimeWeights.metadata.rmsNormEps
+            )
+            eosTokenId = runtimeWeights.metadata.eosTokenId
+        } else {
+            // --- Llama / SafeTensors / BIN: legacy LlamaRuntime path ---
+            val runtimeWeights = when (format) {
+                ModelFormat.GGUF -> {
+                    val ingestion = LlamaIngestion<FP32>(
+                        ctx = ctx,
+                        dtype = FP32::class,
+                        config = LlamaLoadConfig(
+                            quantPolicy = QuantPolicy.NATIVE_OPTIMIZED,
+                            allowQuantized = true,
+                            acceptedArchitectures = LLAMA_COMPATIBLE_ARCHITECTURES
+                        )
                     )
-                )
-                println("Loading GGUF model from $modelPath (streaming mode)...")
-                val rawWeights = ingestion.loadStreaming {
-                    JvmRandomAccessSource.open(modelPath.toString())
+                    println("Loading GGUF model from $modelPath (streaming mode)...")
+                    val rawWeights = ingestion.loadStreaming {
+                        JvmRandomAccessSource.open(modelPath.toString())
+                    }
+                    if (rawWeights.quantTypes.isNotEmpty()) {
+                        println("Converting ${rawWeights.quantTypes.size} quantized tensors to MemorySegment-backed SIMD format...")
+                        MemSegWeightConverter.convert(rawWeights, ctx, quantArena)
+                    } else {
+                        rawWeights
+                    }
                 }
-                if (rawWeights.quantTypes.isNotEmpty()) {
-                    println("Converting ${rawWeights.quantTypes.size} quantized tensors to MemorySegment-backed SIMD format...")
-                    MemSegWeightConverter.convert(rawWeights, ctx, quantArena)
-                } else {
-                    rawWeights
-                }
-            }
-            ModelFormat.SAFETENSORS -> {
-                val modelDir = resolveModelDir(modelPath)
-                val safetensorsFile = if (modelPath.isDirectory()) {
-                    modelDir.resolve("model.safetensors")
-                } else {
-                    modelPath
-                }
-                val configFile = modelDir.resolve("config.json")
-                if (!configFile.exists()) error("config.json not found in $modelDir")
+                ModelFormat.SAFETENSORS -> {
+                    val modelDir = resolveModelDir(modelPath)
+                    val safetensorsFile = if (modelPath.isDirectory()) {
+                        modelDir.resolve("model.safetensors")
+                    } else {
+                        modelPath
+                    }
+                    val configFile = modelDir.resolve("config.json")
+                    if (!configFile.exists()) error("config.json not found in $modelDir")
 
-                println("Loading SafeTensors model from $safetensorsFile...")
-                val configJson = configFile.readText()
-                val metadata = LlamaConfigParser.parse(configJson)
-                val tiedEmbeddings = LlamaConfigParser.isTiedEmbeddings(configJson)
-                println("  Architecture: ${metadata.architecture}, layers=${metadata.blockCount}, " +
-                    "dim=${metadata.embeddingLength}, heads=${metadata.headCount}, " +
-                    "kvHeads=${metadata.kvHeadCount}, vocab=${metadata.vocabSize}")
-                if (tiedEmbeddings) println("  Tied word embeddings: output.weight = embed_tokens.weight")
+                    println("Loading SafeTensors model from $safetensorsFile...")
+                    val configJson = configFile.readText()
+                    val metadata = LlamaConfigParser.parse(configJson)
+                    val tiedEmbeddings = LlamaConfigParser.isTiedEmbeddings(configJson)
+                    println("  Architecture: ${metadata.architecture}, layers=${metadata.blockCount}, " +
+                        "dim=${metadata.embeddingLength}, heads=${metadata.headCount}, " +
+                        "kvHeads=${metadata.kvHeadCount}, vocab=${metadata.vocabSize}")
+                    if (tiedEmbeddings) println("  Tied word embeddings: output.weight = embed_tokens.weight")
 
-                val ingestion = LlamaIngestion<FP32>(ctx = ctx, dtype = FP32::class)
-                ingestion.loadSafeTensors(
-                    randomAccessProvider = { JvmRandomAccessSource.open(safetensorsFile.toString()) },
-                    metadata = metadata,
-                    tiedEmbeddings = tiedEmbeddings
-                )
-            }
-            ModelFormat.BIN -> {
-                println("Loading Karpathy .bin model from $modelPath...")
-                modelPath.inputStream().use { input ->
-                    Llama2DotCWeightLoader.load(ctx, input.asSource().buffered())
+                    val ingestion = LlamaIngestion<FP32>(ctx = ctx, dtype = FP32::class)
+                    ingestion.loadSafeTensors(
+                        randomAccessProvider = { JvmRandomAccessSource.open(safetensorsFile.toString()) },
+                        metadata = metadata,
+                        tiedEmbeddings = tiedEmbeddings
+                    )
+                }
+                ModelFormat.BIN -> {
+                    println("Loading Karpathy .bin model from $modelPath...")
+                    modelPath.inputStream().use { input ->
+                        Llama2DotCWeightLoader.load(ctx, input.asSource().buffered())
+                    }
                 }
             }
+
+            if (cliArgs.contextLength != null) {
+                println("Context length capped to ${cliArgs.contextLength} (model default: ${runtimeWeights.metadata.contextLength})")
+            }
+            val backend = CpuAttentionBackend<FP32>(
+                ctx, runtimeWeights, FP32::class,
+                ropeFreqBase = runtimeWeights.metadata.ropeFreqBase,
+                maxContextLength = cliArgs.contextLength
+            )
+            runtime = LlamaRuntime<FP32>(
+                ctx, runtimeWeights, backend, FP32::class,
+                eps = runtimeWeights.metadata.rmsNormEps
+            )
+            eosTokenId = runtimeWeights.metadata.eosTokenId
+            binVocabSize = runtimeWeights.metadata.vocabSize
         }
-
-        val backend = CpuAttentionBackend<FP32>(ctx, runtimeWeights, FP32::class)
-        val runtime = LlamaRuntime<FP32>(ctx, runtimeWeights, backend, FP32::class)
 
         val tokenizer: Tokenizer = when {
             format == ModelFormat.SAFETENSORS -> {
@@ -367,7 +485,7 @@ fun main(args: Array<String>) {
                 if (!tPath.exists()) error("Tokenizer not found: $tPath")
                 println("Loading tokenizer from $tPath...")
                 tPath.inputStream().use { input ->
-                    TokenizerUtils.buildTokenizer(input.asSource().buffered(), runtimeWeights.metadata.vocabSize)
+                    TokenizerUtils.buildTokenizer(input.asSource().buffered(), binVocabSize)
                 }
             }
         }
@@ -376,31 +494,29 @@ fun main(args: Array<String>) {
         if (cliArgs.chatMode || cliArgs.agentMode || cliArgs.demoMode) {
             val ggufTokenizer = tokenizer as? GGUFTokenizer
                 ?: error("Chat/agent/demo modes require a GGUF model with embedded tokenizer")
+            val metadata = ggufMetadata ?: ModelMetadata()
             when {
                 cliArgs.demoMode -> {
-                    val demo = ToolCallingDemo(runtime, ggufTokenizer, cliArgs.templateName)
+                    val demo = ToolCallingDemo(runtime, ggufTokenizer, cliArgs.templateName, metadata)
                     demo.run(maxTokens = cliArgs.steps, temperature = cliArgs.temperature)
                 }
                 cliArgs.agentMode -> {
-                    val agentCli = AgentCli(runtime, ggufTokenizer, cliArgs.templateName)
+                    val agentCli = AgentCli(runtime, ggufTokenizer, cliArgs.templateName, metadata)
                     agentCli.runAgent(maxTokens = cliArgs.steps, temperature = cliArgs.temperature)
                 }
                 else -> {
-                    val agentCli = AgentCli(runtime, ggufTokenizer, cliArgs.templateName)
+                    val agentCli = AgentCli(runtime, ggufTokenizer, cliArgs.templateName, metadata)
                     agentCli.runChat(maxTokens = cliArgs.steps, temperature = cliArgs.temperature)
                 }
             }
             return@runBlocking
         }
 
-        // Standard generation mode
+        // Standard generation mode — raw prompt, no chat template wrapping
         val promptText = cliArgs.prompt ?: error("Prompt is required for standard generation mode.")
-        val effectivePrompt = buildEffectivePrompt(promptText, cliArgs.systemPrompt)
-        val promptTokens = tokenizer.encode(effectivePrompt)
+        val promptTokens = tokenizer.encode(promptText)
 
-        if (cliArgs.systemPrompt.isNullOrBlank()) {
-            println("Using default system prompt.")
-        } else {
+        if (!cliArgs.systemPrompt.isNullOrBlank()) {
             println("Using system prompt.")
         }
         println("Generating ${cliArgs.steps} tokens with temperature=${cliArgs.temperature}...")
