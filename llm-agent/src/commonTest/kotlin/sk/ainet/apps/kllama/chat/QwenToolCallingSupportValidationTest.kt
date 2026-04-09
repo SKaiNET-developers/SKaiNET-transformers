@@ -5,6 +5,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertContains
+import kotlin.test.assertFalse
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
@@ -114,9 +115,9 @@ class QwenToolCallingSupportValidationTest {
             messages = listOf(ChatMessage(ChatRole.USER, "hello")),
             tools = listOf(sampleTool)
         )
-        assert(!prompt.contains("Alibaba Cloud")) {
+        assertFalse(prompt.contains("Alibaba Cloud"),
             "Generic fallback should not contain Qwen-specific text"
-        }
+        )
     }
 
     @Test
