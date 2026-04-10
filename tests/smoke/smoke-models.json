@@ -34,6 +34,42 @@
         "prompt": "What is 2 + 2?",
         "steps": 256
       }
+    },
+    {
+      "name": "Qwen3.5-9B-Q4",
+      "runner": "kllama",
+      "model": "Qwen3.5-9B-Q4_K_M.gguf",
+      "format": "gguf",
+      "toolCalling": {
+        "prompt": "What is 2 + 2?",
+        "steps": 256
+      }
+    },
+    {
+      "name": "Apertus-8B-Q2",
+      "runner": "kapertus",
+      "model": "~/.lmstudio/models/unsloth/Apertus-8B-Instruct-2509-GGUF/Apertus-8B-Instruct-2509-Q2_K_L.gguf",
+      "format": "gguf"
+    },
+    {
+      "name": "Gemma-4-E4B-Q4",
+      "runner": "kgemma",
+      "model": "~/.lmstudio/models/lmstudio-community/gemma-4-E4B-it-GGUF/gemma-4-E4B-it-Q4_K_M.gguf",
+      "format": "gguf",
+      "instruct": true,
+      "prompt": "What is the capital of France?",
+      "toolCalling": {
+        "prompt": "What is 2 + 2?",
+        "steps": 256
+      }
+    },
+    {
+      "name": "Voxtral-4B-TTS-Q8",
+      "runner": "kvoxtral",
+      "model": "Voxtral-4B-TTS-2603-Q8_0.gguf",
+      "format": "gguf",
+      "prompt": "Hello, this is a smoke test.",
+      "output": "smoke-test-output.wav"
     }
   ]
 }

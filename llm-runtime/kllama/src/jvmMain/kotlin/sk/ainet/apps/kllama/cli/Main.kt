@@ -71,7 +71,7 @@ private fun usage(errorMessage: String? = null): Nothing {
     println("  -p, --systemprompt  Optional system prompt prepended to user prompt")
     println("  --chat              Interactive chat mode")
     println("  --agent             Interactive agent mode with tool calling")
-    println("  --demo              Tool calling demo with file listing and calculator")
+    println("  --demo              Tool calling demo with file listing and calculator (add prompt for single-shot mode)")
     println("  --template=NAME     Chat template: llama3, chatml, qwen, gemma (auto-detected if omitted)")
     println("  --context=N         Cap context length to N tokens (reduces memory usage)")
     println("  --backend=NAME      Compute backend: auto-selects best available (see --list-backends)")

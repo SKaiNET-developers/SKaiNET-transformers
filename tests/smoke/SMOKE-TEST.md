@@ -53,6 +53,7 @@ Define models in `smoke-models.json`:
 | `steps`       | no       | Overrides the default step count               |
 | `temperature` | no       | Overrides the default temperature              |
 | `doc`         | no       | Document text for kbert similarity comparisons |
+| `toolCalling` | no       | Object with `prompt` and `steps` to enable tool calling test (uses kllama `--demo` mode) |
 
 ### Runners
 

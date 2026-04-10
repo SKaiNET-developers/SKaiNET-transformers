@@ -263,6 +263,7 @@ print(f'M_INSTRUCT={repr(m.get(\"instruct\", False))}')
   done
 
   # ── Tool Calling Tests ───────────────────────────────────────────
+  # Collect models that have toolCalling config
   TC_COUNT=$(python3 -c "
 import json
 cfg = json.load(open('${CONFIG_FILE}'))
@@ -278,6 +279,7 @@ print(sum(1 for m in cfg['models'] if m.get('toolCalling')))
     echo -e "${BOLD}Tool Calling Tests${RESET} ($TC_COUNT models)"
     separator
 
+    # Ensure kllama is compiled (tool calling always uses kllama)
     kllama_task=$(runner_task "kllama")
 
     for i in $(seq 0 $((MODEL_COUNT - 1))); do
@@ -315,6 +317,7 @@ else:
       output_file=$(mktemp)
       exit_code=0
 
+      # Run kllama in --demo single-shot mode (prompt as positional arg).
       $GRADLE "$kllama_task" --quiet \
         --args="-m ${M_MODEL} --demo -s ${TC_STEPS} -k 0.7 \"${TC_PROMPT}\"" \
         > "$output_file" 2>&1 || exit_code=$?
@@ -387,6 +390,11 @@ else:
     echo -e "  ${GREEN}Pass: $tc_pass${RESET}  ${RED}Fail: $tc_fail${RESET}  Total: ${TC_COUNT}"
   fi
 
+  total_pass=$((pass + tc_pass))
+  total_fail=$((fail + tc_fail))
+  total_tests=$((MODEL_COUNT + TC_COUNT))
+  echo ""
+  echo -e "${BOLD}Overall:${RESET} ${GREEN}Pass: $total_pass${RESET}  ${RED}Fail: $total_fail${RESET}  Total: ${total_tests}"
   echo ""
   exit 0
 fi

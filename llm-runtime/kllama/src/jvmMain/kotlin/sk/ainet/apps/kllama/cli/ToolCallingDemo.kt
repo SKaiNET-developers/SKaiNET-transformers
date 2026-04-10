@@ -45,6 +45,9 @@ public class ToolCallingDemo<T : DType>(
 
     /**
      * Run the tool-calling demo with `list_files` and `calculator` tools.
+     *
+     * @param singlePrompt If non-null, run a single non-interactive round with this prompt and exit.
+     *                     Used by smoke tests. When null, runs the interactive loop.
      */
     /**
      * Run a single non-interactive tool calling round. Used by smoke tests.
@@ -112,7 +115,8 @@ Always use a tool when one is relevant — do not guess file listings."""
      */
     public fun run(
         maxTokens: Int = 512,
-        temperature: Float = 0.7f
+        temperature: Float = 0.7f,
+        singlePrompt: String? = null
     ) {
         val registry = ToolRegistry()
         registry.register(ListFilesTool())
@@ -128,14 +132,6 @@ Always use a tool when one is relevant — do not guess file listings."""
         val messages = mutableListOf(
             ChatMessage(role = ChatRole.SYSTEM, content = systemPrompt)
         )
-
-        println("KLlama Tool Calling Demo (type 'quit' to exit)")
-        println("Available tools: ${registry.definitions().joinToString { it.name }}")
-        println("---")
-        println("Try: \"What files are in the current directory?\"")
-        println("     \"List files in /tmp\"")
-        println("     \"How many bytes is 1024 * 1024 * 512?\"")
-        println("---")
 
         val listener = object : AgentListener {
             override fun onToken(token: String) {
@@ -163,6 +159,36 @@ Always use a tool when one is relevant — do not guess file listings."""
                 // Already printed via onToken
             }
         }
+
+        // Single-shot mode: run one prompt and exit (used by smoke tests)
+        if (singlePrompt != null) {
+            println("Tool Calling Smoke Test")
+            println("Available tools: ${registry.definitions().joinToString { it.name }}")
+            println("Prompt: \"$singlePrompt\"")
+            println("---")
+
+            messages.add(ChatMessage(role = ChatRole.USER, content = singlePrompt))
+
+            print("Assistant: ")
+            System.out.flush()
+
+            agentLoop.runWithEncoder(
+                messages = messages,
+                encode = { text -> tokenizer.encode(text) },
+                listener = listener
+            )
+            println()
+            return
+        }
+
+        // Interactive mode
+        println("KLlama Tool Calling Demo (type 'quit' to exit)")
+        println("Available tools: ${registry.definitions().joinToString { it.name }}")
+        println("---")
+        println("Try: \"What files are in the current directory?\"")
+        println("     \"List files in /tmp\"")
+        println("     \"How many bytes is 1024 * 1024 * 512?\"")
+        println("---")
 
         while (true) {
             print("\nUser: ")
