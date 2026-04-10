@@ -249,10 +249,19 @@ public class Qwen35Runtime<T : DType>(
     private val convPositions = IntArray(deltaNetLayerIndices.size)
 
     init {
+        val firstDelta = deltaNetLayerIndices.first()
+        val qkvShape = get("blk.$firstDelta.attn_qkv.weight").shape
+        val ssmAShape = get("blk.$firstDelta.ssm_a").shape
         println("Qwen35Runtime: dim=$dim nHeads=$nHeads nKvHeads=$nKvHeads headDim=$headDim ropeDim=$ropeDim")
         println("  fullAttnQHeadDim=$fullAttnQHeadDim fullAttnKHeadDim=$fullAttnKHeadDim")
         println("  ssmQkvDim=$ssmQkvDim numKHeads=$numKHeads numVHeads=$numVHeads keyDim=$keyDim valueDim=$valueDim headRatio=$headRatio ssmStateSize=$ssmStateSize")
-        println("  nLayers=$nLayers fullAttnInterval=$fullAttentionInterval ropeFreqBase=$ropeFreqBase")
+        println("  nLayers=$nLayers fullAttnInterval=$fullAttentionInterval ropeFreqBase=$ropeFreqBase eps=$eps")
+        println("  GGUF shapes: attn_qkv=$qkvShape ssm_a=$ssmAShape")
+        println("  matmul convention: shape[0]=${qkvShape[0]} shape[1]=${qkvShape[1]}")
+        // Validate dimensional consistency
+        require(ssmQkvDim == 2 * keyDim + valueDim) { "QKV dim mismatch: $ssmQkvDim != 2*$keyDim + $valueDim" }
+        require(numVHeads * ssmStateSize == valueDim) { "V dim mismatch" }
+        require(numKHeads * headRatio == numVHeads) { "Head ratio mismatch" }
     }
 
     private fun get(name: String): Tensor<T, Float> =
