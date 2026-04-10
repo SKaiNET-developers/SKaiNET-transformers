@@ -76,7 +76,8 @@ public class LlamaWeightLoader private constructor(
     private val randomAccessProvider: (() -> RandomAccessSource)?,
     private val loadTensorData: Boolean = true,
     private val quantPolicy: QuantPolicy = QuantPolicy.RAW_BYTES,
-    private val acceptedArchitectures: Set<String> = setOf("llama")
+    private val acceptedArchitectures: Set<String> = setOf("llama"),
+    private val loadAllTensors: Boolean = false
 ) {
     /**
      * Primary constructor for sequential Source-based loading.
@@ -111,13 +112,15 @@ public class LlamaWeightLoader private constructor(
     public constructor(
         randomAccessProvider: () -> RandomAccessSource,
         quantPolicy: QuantPolicy = QuantPolicy.RAW_BYTES,
-        acceptedArchitectures: Set<String> = setOf("llama")
+        acceptedArchitectures: Set<String> = setOf("llama"),
+        loadAllTensors: Boolean = false
     ) : this(
         sourceProvider = null,
         randomAccessProvider = randomAccessProvider,
         loadTensorData = true,  // Ignored for streaming
         quantPolicy = quantPolicy,
-        acceptedArchitectures = acceptedArchitectures
+        acceptedArchitectures = acceptedArchitectures,
+        loadAllTensors = loadAllTensors
     )
 
     /**
@@ -308,56 +311,75 @@ public class LlamaWeightLoader private constructor(
             val metadata = metadataFromStreamingGguf(reader.fields, reader.tensors)
             validateMetadata(metadata)
 
-            val required = requiredTensorNames(metadata)
             val tensorByName = reader.tensors.associateBy { it.name }
 
-            // Tied embeddings: small models (Qwen2.5-0.5B/1.5B, etc.) omit output.weight
-            // and reuse token_embd.weight as the LM head. Detect and alias.
-            val tiedEmbeddings = tensorByName[LlamaTensorNames.OUTPUT_WEIGHT] == null &&
-                tensorByName[LlamaTensorNames.TOKEN_EMBEDDINGS] != null
-            if (tiedEmbeddings) {
-                println("Tied word embeddings: output.weight = token_embd.weight")
-            }
+            if (loadAllTensors) {
+                // Load every tensor without validation (for hybrid architectures like Qwen3.5)
+                for (st in reader.tensors) {
+                    val tensor: Tensor<T, V> = streamingTensorToTensor(ctx, dtype, reader, st)
+                    onTensorLoaded(st.name, tensor)
+                    val isRawQuant = when (quantPolicy) {
+                        QuantPolicy.RAW_BYTES -> st.tensorType != GGMLQuantizationType.F32
+                        QuantPolicy.NATIVE_OPTIMIZED -> st.tensorType != GGMLQuantizationType.F32
+                            && st.tensorType != GGMLQuantizationType.F16
+                            && st.tensorType != GGMLQuantizationType.BF16
+                        QuantPolicy.DEQUANTIZE_TO_FP32 -> false
+                    }
+                    if (isRawQuant) {
+                        quantCallback?.invoke(st.name, st.tensorType)
+                    }
+                }
+            } else {
+                // Tied embeddings: small models (Qwen2.5-0.5B/1.5B, etc.) omit output.weight
+                // and reuse token_embd.weight as the LM head. Detect and alias.
+                val tiedEmbeddings = tensorByName[LlamaTensorNames.OUTPUT_WEIGHT] == null &&
+                    tensorByName[LlamaTensorNames.TOKEN_EMBEDDINGS] != null
+                if (tiedEmbeddings) {
+                    println("Tied word embeddings: output.weight = token_embd.weight")
+                }
 
-            required.forEach { name ->
-                val lookupName = if (name == LlamaTensorNames.OUTPUT_WEIGHT && tiedEmbeddings) {
-                    LlamaTensorNames.TOKEN_EMBEDDINGS
-                } else {
-                    name
-                }
-                val st = tensorByName[lookupName]
-                    ?: error("Missing required tensor in GGUF payload: $name")
-                // Shape validation uses the logical name (e.g., OUTPUT_WEIGHT) even when
-                // the physical tensor is TOKEN_EMBEDDINGS — both must have [vocab, dim] shape.
-                validateStreamingTensorShape(name, st, metadata)
-                val tensor: Tensor<T, V> = streamingTensorToTensor(ctx, dtype, reader, st)
-                onTensorLoaded(name, tensor)
-                val isRawQuant = when (quantPolicy) {
-                    QuantPolicy.RAW_BYTES -> st.tensorType != GGMLQuantizationType.F32
-                    QuantPolicy.NATIVE_OPTIMIZED -> st.tensorType != GGMLQuantizationType.F32
-                        && st.tensorType != GGMLQuantizationType.F16
-                        && st.tensorType != GGMLQuantizationType.BF16
-                    QuantPolicy.DEQUANTIZE_TO_FP32 -> false
-                }
-                if (isRawQuant) {
-                    quantCallback?.invoke(name, st.tensorType)
-                }
-            }
+                val required = requiredTensorNames(metadata)
 
-            // Optional tensors (e.g., precomputed RoPE tables, QK-norm) if present
-            val optionalNames = mutableListOf(
-                LlamaTensorNames.ROPE_FREQS_REAL,
-                LlamaTensorNames.ROPE_FREQS_IMAG
-            )
-            repeat(metadata.blockCount) { layer ->
-                optionalNames += LlamaTensorNames.attnQNorm(layer)
-                optionalNames += LlamaTensorNames.attnKNorm(layer)
-            }
-            optionalNames.forEach { name ->
-                val st = tensorByName[name]
-                if (st != null) {
+                required.forEach { name ->
+                    val lookupName = if (name == LlamaTensorNames.OUTPUT_WEIGHT && tiedEmbeddings) {
+                        LlamaTensorNames.TOKEN_EMBEDDINGS
+                    } else {
+                        name
+                    }
+                    val st = tensorByName[lookupName]
+                        ?: error("Missing required tensor in GGUF payload: $name")
+                    // Shape validation uses the logical name (e.g., OUTPUT_WEIGHT) even when
+                    // the physical tensor is TOKEN_EMBEDDINGS — both must have [vocab, dim] shape.
+                    validateStreamingTensorShape(name, st, metadata)
                     val tensor: Tensor<T, V> = streamingTensorToTensor(ctx, dtype, reader, st)
                     onTensorLoaded(name, tensor)
+                    val isRawQuant = when (quantPolicy) {
+                        QuantPolicy.RAW_BYTES -> st.tensorType != GGMLQuantizationType.F32
+                        QuantPolicy.NATIVE_OPTIMIZED -> st.tensorType != GGMLQuantizationType.F32
+                            && st.tensorType != GGMLQuantizationType.F16
+                            && st.tensorType != GGMLQuantizationType.BF16
+                        QuantPolicy.DEQUANTIZE_TO_FP32 -> false
+                    }
+                    if (isRawQuant) {
+                        quantCallback?.invoke(name, st.tensorType)
+                    }
+                }
+
+                // Optional tensors (e.g., precomputed RoPE tables, QK-norm) if present
+                val optionalNames = mutableListOf(
+                    LlamaTensorNames.ROPE_FREQS_REAL,
+                    LlamaTensorNames.ROPE_FREQS_IMAG
+                )
+                repeat(metadata.blockCount) { layer ->
+                    optionalNames += LlamaTensorNames.attnQNorm(layer)
+                    optionalNames += LlamaTensorNames.attnKNorm(layer)
+                }
+                optionalNames.forEach { name ->
+                    val st = tensorByName[name]
+                    if (st != null) {
+                        val tensor: Tensor<T, V> = streamingTensorToTensor(ctx, dtype, reader, st)
+                        onTensorLoaded(name, tensor)
+                    }
                 }
             }
 

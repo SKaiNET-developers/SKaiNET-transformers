@@ -7,6 +7,7 @@ import sk.ainet.apps.kllama.LlamaLoadConfig
 import sk.ainet.apps.llm.Tokenizer
 import sk.ainet.models.llama.LlamaRuntime
 import sk.ainet.apps.kllama.CpuAttentionBackend
+import sk.ainet.apps.kllama.Qwen35Runtime
 import sk.ainet.apps.kllama.Llama2DotCWeightLoader
 import sk.ainet.models.llama.MemSegWeightConverter
 import sk.ainet.apps.kllama.TokenizerUtils
@@ -276,6 +277,7 @@ private fun peekGgufMetadata(modelPath: Path): ModelMetadata {
             val arch = (fields["general.architecture"] as? String) ?: "unknown"
             val chatTemplate = fields["tokenizer.chat_template"] as? String
             val family = when {
+                arch == "qwen35" || arch.startsWith("qwen3_5") -> "qwen35"
                 arch.startsWith("qwen") -> "qwen"
                 arch.startsWith("gemma") -> "gemma"
                 arch == "llama" -> "llama"
@@ -352,7 +354,8 @@ fun main(args: Array<String>) {
             }
         } else null
 
-        val isQwen = ggufMetadata?.family == "qwen"
+        val isQwen35 = ggufMetadata?.family == "qwen35"
+        val isQwen = ggufMetadata?.family == "qwen" || isQwen35
 
         // Build the inference runtime — Qwen uses the modern DSL path,
         // Llama/others use the legacy LlamaRuntime path.
@@ -360,8 +363,44 @@ fun main(args: Array<String>) {
         var eosTokenId: Int = 2
         var binVocabSize: Int = 0
 
-        if (format == ModelFormat.GGUF && isQwen) {
-            // --- Qwen: LlamaWeightLoader with Qwen architectures → LlamaRuntime ---
+        if (format == ModelFormat.GGUF && isQwen35) {
+            // --- Qwen3.5: Hybrid DeltaNet + full attention runtime ---
+            val qwenArchitectures = setOf("qwen2", "qwen3", "qwen35")
+            val loader = LlamaWeightLoader(
+                randomAccessProvider = { JvmRandomAccessSource.open(modelPath.toString()) },
+                quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
+                acceptedArchitectures = qwenArchitectures,
+                loadAllTensors = true
+            )
+            println("Loading GGUF model from $modelPath (Qwen3.5 hybrid, streaming mode)...")
+            val loaded = loader.loadToMapStreaming<FP32, Float>(ctx, FP32::class)
+            println("Loaded ${loaded.tensors.size} tensors, metadata: arch=${loaded.metadata.architecture}")
+
+            // Extract Qwen3.5-specific GGUF metadata
+            val ggufFields = JvmRandomAccessSource.open(modelPath.toString()).use { source ->
+                StreamingGGUFReader.open(source).use { reader -> reader.fields }
+            }
+            val fullAttnInterval = (ggufFields["qwen35.full_attention_interval"] as? Number)?.toInt() ?: 4
+            val ssmStateSize = (ggufFields["qwen35.ssm.state_size"] as? Number)?.toInt() ?: 128
+            val ssmConvKernel = (ggufFields["qwen35.ssm.conv_kernel"] as? Number)?.toInt() ?: 4
+
+            if (cliArgs.contextLength != null) {
+                println("Context length capped to ${cliArgs.contextLength} (model default: ${loaded.metadata.contextLength})")
+            }
+            runtime = Qwen35Runtime<FP32>(
+                ctx = ctx,
+                metadata = loaded.metadata,
+                tensors = loaded.tensors,
+                dtype = FP32::class,
+                fullAttentionInterval = fullAttnInterval,
+                ssmStateSize = ssmStateSize,
+                ssmConvKernel = ssmConvKernel,
+                ropeFreqBase = loaded.metadata.ropeFreqBase,
+                maxContextLength = cliArgs.contextLength ?: 4096
+            )
+            eosTokenId = loaded.metadata.eosTokenId
+        } else if (format == ModelFormat.GGUF && isQwen) {
+            // --- Qwen2/3: LlamaWeightLoader with Qwen architectures → LlamaRuntime ---
             // Same path as kqwen CLI — uses off-heap MemSeg for quantized tensors.
             val qwenArchitectures = setOf("qwen2", "qwen3", "qwen35")
             val loader = LlamaWeightLoader(

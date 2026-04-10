@@ -3,11 +3,15 @@ package sk.ainet.models.qwen
 import sk.ainet.models.llama.LlamaModelMetadata
 
 /**
- * Parses HuggingFace `config.json` for Qwen2 models into [LlamaModelMetadata].
+ * Parses HuggingFace `config.json` for Qwen2 / Qwen3 / Qwen3.5 models into [LlamaModelMetadata].
  *
- * Qwen2 uses the same transformer architecture as LLaMA (GQA + SwiGLU FFN + RoPE),
- * so it shares the same metadata structure. The config field names are identical
+ * Qwen2/3 use the same transformer architecture as LLaMA (GQA + SwiGLU FFN + RoPE),
+ * so they share the same metadata structure. The config field names are identical
  * to LLaMA (`hidden_size`, `num_hidden_layers`, etc.).
+ *
+ * Qwen3.5 `model_type` values (`qwen3_5`, `qwen3_5_moe`) are normalized to
+ * architecture string `"qwen35"` so downstream code can distinguish Qwen3.5 from
+ * earlier Qwen variants.
  *
  * Qwen-specific fields like `max_window_layers` and `sliding_window` are parsed
  * but not yet exposed in the metadata (they don't affect basic inference).
@@ -32,7 +36,8 @@ public object QwenConfigParser {
         val vocabSize = map.requireInt("vocab_size")
         val contextLength = map.intOrNull("max_position_embeddings") ?: 32768
         val headDim = map.intOrNull("head_dim") ?: (hiddenSize / numHeads)
-        val architecture = map.stringOrNull("model_type") ?: "qwen2"
+        val rawModelType = map.stringOrNull("model_type") ?: "qwen2"
+        val architecture = normalizeArchitecture(rawModelType)
         val ropeTheta = map.floatOrNull("rope_theta") ?: 1_000_000f
         val rmsNormEps = map.floatOrNull("rms_norm_eps") ?: 1e-6f
 
@@ -57,6 +62,17 @@ public object QwenConfigParser {
     public fun isTiedEmbeddings(json: String): Boolean {
         val map = parseJsonObject(json.trim())
         return map["tie_word_embeddings"] == "true"
+    }
+
+    /**
+     * Normalize Qwen `model_type` values to canonical architecture strings.
+     *
+     * Qwen3.5 configs may use `qwen3_5`, `qwen3_5_moe`, or similar variants;
+     * all are normalized to `"qwen35"`. Earlier types pass through unchanged.
+     */
+    private fun normalizeArchitecture(modelType: String): String = when {
+        modelType.startsWith("qwen3_5") || modelType.startsWith("qwen3.5") -> "qwen35"
+        else -> modelType
     }
 
     // ========== Lightweight JSON parsing ==========

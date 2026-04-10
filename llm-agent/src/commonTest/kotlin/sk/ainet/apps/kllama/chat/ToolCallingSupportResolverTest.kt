@@ -129,6 +129,55 @@ class ToolCallingSupportResolverTest {
         assertIs<GemmaToolCallingSupport>(provider)
     }
 
+    // --- Qwen3.5 ---
+
+    @Test
+    fun explicitQwen35() {
+        val provider = ToolCallingSupportResolver.resolve(explicitFamily = "qwen35")
+        assertNotNull(provider)
+        assertIs<Qwen35ToolCallingSupport>(provider)
+    }
+
+    @Test
+    fun autoDetectQwen35ByFamily() {
+        val metadata = ModelMetadata(family = "qwen35")
+        val provider = ToolCallingSupportResolver.resolve(metadata)
+        assertNotNull(provider)
+        assertIs<Qwen35ToolCallingSupport>(provider)
+    }
+
+    @Test
+    fun autoDetectQwen35ByArchitecture() {
+        val metadata = ModelMetadata(architecture = "qwen3_5")
+        val provider = ToolCallingSupportResolver.resolve(metadata)
+        assertNotNull(provider)
+        assertIs<Qwen35ToolCallingSupport>(provider)
+    }
+
+    @Test
+    fun autoDetectQwen35ByMoeArchitecture() {
+        val metadata = ModelMetadata(architecture = "qwen3_5_moe")
+        val provider = ToolCallingSupportResolver.resolve(metadata)
+        assertNotNull(provider)
+        assertIs<Qwen35ToolCallingSupport>(provider)
+    }
+
+    @Test
+    fun qwen35DoesNotMatchPlainQwenFamily() {
+        // family="qwen" should still resolve to QwenToolCallingSupport, not Qwen3.5
+        val metadata = ModelMetadata(family = "qwen")
+        val provider = ToolCallingSupportResolver.resolve(metadata)
+        assertNotNull(provider)
+        assertIs<QwenToolCallingSupport>(provider)
+    }
+
+    @Test
+    fun qwen35ToolCallingModeIsNative() {
+        val metadata = ModelMetadata(family = "qwen35")
+        val provider = ToolCallingSupportResolver.resolve(metadata)!!
+        assertEquals(ToolCallingMode.NATIVE, provider.toolCallingMode(metadata))
+    }
+
     // --- No match ---
 
     @Test

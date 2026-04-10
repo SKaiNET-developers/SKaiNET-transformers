@@ -82,7 +82,42 @@ public class ChatMLToolCallingSupport : ToolCallingSupport {
         ToolCallingMode.NATIVE
 }
 
-/** Tool-calling support for Qwen 3 / 3.5 family. */
+/**
+ * Tool-calling support for Qwen3.5 family with canonical XML-like tool call format.
+ *
+ * Qwen3.5 emits tool calls as `<tool_call><function=...><parameter=...>` blocks,
+ * which differs from the JSON-in-XML format used by Qwen3 and earlier.
+ * This provider is checked before [QwenToolCallingSupport] so that Qwen3.5 models
+ * get the correct template and parser.
+ */
+public class Qwen35ToolCallingSupport : ToolCallingSupport {
+    override val family: String = "qwen35"
+
+    private val qwen35Parser = Qwen35ToolCallParserStrategy()
+    private val hermesParser = HermesToolCallParserStrategy()
+
+    override fun supports(metadata: ModelMetadata): Boolean {
+        val f = metadata.family?.lowercase()
+        if (f == "qwen35" || f == "qwen3.5") return true
+        val arch = metadata.architecture?.lowercase()
+        if (arch == "qwen35" || arch == "qwen3_5" || arch == "qwen3_5_moe") return true
+        return false
+    }
+
+    override fun createChatTemplate(): ChatTemplate = Qwen35ChatTemplate()
+
+    override fun parseToolCalls(content: String): List<ToolCall> {
+        // Try Qwen3.5 format first, fall back to Hermes JSON-in-XML
+        val calls = qwen35Parser.parse(content)
+        if (calls.isNotEmpty()) return calls
+        return hermesParser.parse(content)
+    }
+
+    override fun toolCallingMode(metadata: ModelMetadata): ToolCallingMode =
+        ToolCallingMode.NATIVE
+}
+
+/** Tool-calling support for Qwen 2 / 3 family (JSON-in-XML format). */
 public class QwenToolCallingSupport : ToolCallingSupport {
     override val family: String = "qwen"
 

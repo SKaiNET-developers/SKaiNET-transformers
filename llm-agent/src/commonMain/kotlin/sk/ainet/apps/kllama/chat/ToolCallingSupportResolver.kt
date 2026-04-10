@@ -14,6 +14,7 @@ package sk.ainet.apps.kllama.chat
 public object ToolCallingSupportResolver {
 
     private val providers: MutableList<ToolCallingSupport> = mutableListOf(
+        Qwen35ToolCallingSupport(),
         QwenToolCallingSupport(),
         GemmaToolCallingSupport(),
         Llama3ToolCallingSupport(),

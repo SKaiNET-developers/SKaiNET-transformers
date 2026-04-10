@@ -35,6 +35,55 @@ class QwenConfigParserTest {
     }
 
     @Test
+    fun parseQwen35DenseConfig() {
+        val json = """
+        {
+            "hidden_size": 4096,
+            "num_hidden_layers": 36,
+            "num_attention_heads": 32,
+            "num_key_value_heads": 8,
+            "intermediate_size": 14336,
+            "vocab_size": 152064,
+            "max_position_embeddings": 262144,
+            "model_type": "qwen3_5",
+            "rope_theta": 1000000.0,
+            "rms_norm_eps": 1e-6
+        }
+        """.trimIndent()
+
+        val metadata = QwenConfigParser.parse(json)
+
+        assertEquals("qwen35", metadata.architecture)
+        assertEquals(4096, metadata.embeddingLength)
+        assertEquals(36, metadata.blockCount)
+        assertEquals(32, metadata.headCount)
+        assertEquals(8, metadata.kvHeadCount)
+        assertEquals(14336, metadata.feedForwardLength)
+        assertEquals(152064, metadata.vocabSize)
+        assertEquals(262144, metadata.contextLength)
+        assertEquals(128, metadata.ropeDimensionCount) // 4096 / 32
+    }
+
+    @Test
+    fun parseQwen35MoeConfig() {
+        val json = """
+        {
+            "hidden_size": 2048,
+            "num_hidden_layers": 24,
+            "num_attention_heads": 16,
+            "num_key_value_heads": 4,
+            "intermediate_size": 8192,
+            "vocab_size": 152064,
+            "max_position_embeddings": 131072,
+            "model_type": "qwen3_5_moe"
+        }
+        """.trimIndent()
+
+        val metadata = QwenConfigParser.parse(json)
+        assertEquals("qwen35", metadata.architecture)
+    }
+
+    @Test
     fun tiedEmbeddings() {
         val json = """{"tie_word_embeddings": true, "hidden_size": 1}"""
         assertEquals(true, QwenConfigParser.isTiedEmbeddings(json))
