@@ -105,9 +105,22 @@ public class Qwen35Runtime<T : DType>(
     private val kvDim: Int = nKvHeads * headDim
     private val nHeadsPerKv: Int = nHeads / nKvHeads
 
-    // DeltaNet parameters
-    private val ssmInner: Int = dim
-    private val ssmNumHeads: Int = ssmInner / ssmStateSize
+    // DeltaNet parameters — derived from tensor shapes for correct 3-way QKV split
+    // QKV projection: [Q(keyDim) | K(keyDim) | V(valueDim)] where keyDim + keyDim + valueDim = ssmQkvDim
+    private val deltaNetLayerIndices = (0 until nLayers).filter { !isFullAttentionLayer(it) }
+    private val ssmQkvDim: Int = run {
+        val firstDelta = deltaNetLayerIndices.first()
+        get("blk.$firstDelta.attn_qkv.weight").shape[0] // 8192
+    }
+    // V-heads: from ssm_a which has one entry per V-head
+    private val numVHeads: Int = run {
+        val firstDelta = deltaNetLayerIndices.first()
+        get("blk.$firstDelta.ssm_a").shape[0] // 32
+    }
+    private val valueDim: Int = numVHeads * ssmStateSize // 32 * 128 = 4096
+    private val keyDim: Int = (ssmQkvDim - valueDim) / 2 // (8192 - 4096) / 2 = 2048
+    private val numKHeads: Int = keyDim / ssmStateSize // 2048 / 128 = 16
+    private val headRatio: Int = numVHeads / numKHeads // 32 / 16 = 2
     private val ropeDim: Int = metadata.ropeDimensionCount ?: 64
 
     // Full attention Q has doubled head dim (e.g. 512 vs 256 for K/V)
@@ -223,23 +236,22 @@ public class Qwen35Runtime<T : DType>(
     private val kvCache = HeapKvCache(fullAttnLayerIndices.size, seqLen, kvDim)
     private val scoreBuffer = FloatArray(seqLen)
 
-    // DeltaNet recurrent state
-    private val deltaNetLayerIndices = (0 until nLayers).filter { !isFullAttentionLayer(it) }
+    // DeltaNet recurrent state — deltaNetLayerIndices is declared above (needed early for tensor shape reads)
     private val deltaNetLayerToSlot = deltaNetLayerIndices.withIndex().associate { (slot, layer) -> layer to slot }
     private val deltaNetStates = Array(deltaNetLayerIndices.size) {
-        FloatArray(ssmNumHeads * ssmStateSize * ssmStateSize)
+        FloatArray(numVHeads * ssmStateSize * ssmStateSize)
     }
 
     // DeltaNet conv1d state
     private val convStates = Array(deltaNetLayerIndices.size) {
-        FloatArray(ssmConvKernel * ssmInner * 2)
+        FloatArray(ssmConvKernel * ssmQkvDim)
     }
     private val convPositions = IntArray(deltaNetLayerIndices.size)
 
     init {
         println("Qwen35Runtime: dim=$dim nHeads=$nHeads nKvHeads=$nKvHeads headDim=$headDim ropeDim=$ropeDim")
         println("  fullAttnQHeadDim=$fullAttnQHeadDim fullAttnKHeadDim=$fullAttnKHeadDim")
-        println("  ssmInner=$ssmInner ssmNumHeads=$ssmNumHeads ssmStateSize=$ssmStateSize")
+        println("  ssmQkvDim=$ssmQkvDim numKHeads=$numKHeads numVHeads=$numVHeads keyDim=$keyDim valueDim=$valueDim headRatio=$headRatio ssmStateSize=$ssmStateSize")
         println("  nLayers=$nLayers fullAttnInterval=$fullAttentionInterval ropeFreqBase=$ropeFreqBase")
     }
 
@@ -353,6 +365,15 @@ public class Qwen35Runtime<T : DType>(
             }
         }
 
+        // Apply sigmoid gate from the second half of each Q head (joint Q+Gate projection)
+        for (h in 0 until nHeads) {
+            val gateOffset = h * fullAttnQHeadDim + fullAttnKHeadDim
+            val outOffset = h * fullAttnKHeadDim
+            for (i in 0 until fullAttnKHeadDim) {
+                out[outOffset + i] *= sigmoid(qBuf[gateOffset + i])
+            }
+        }
+
         val attnOutTensor = ctx.fromFloatArray<T, Float>(Shape(1, nHeads * fullAttnKHeadDim), dtype, out)
         return residual + matmulTransposed(attnOutTensor, weights.wo)
     }
@@ -369,72 +390,117 @@ public class Qwen35Runtime<T : DType>(
         val state = deltaNetStates[slot]
         val convState = convStates[slot]
 
-        // 1. Project to QK: [1, dim] @ [dim, 2*ssmInner] → [1, 2*ssmInner]
-        val qkTensor = matmulTransposed(normed, w.qkv)
-        val qkBuf = qkTensor.toFloatBuffer()
+        // 1. Project to QKV: [1, dim] @ [dim, ssmQkvDim] → [1, ssmQkvDim=8192]
+        val qkvTensor = matmulTransposed(normed, w.qkv)
+        val qkvBuf = qkvTensor.toFloatBuffer()
 
-        // 2. Causal conv1d on concatenated QK
-        val qkConved = applyCausalConv1d(qkBuf, convState, w.ssmConv1d, slot)
+        // 2. Causal conv1d on full QKV channels
+        val qkvConved = applyCausalConv1d(qkvBuf, convState, w.ssmConv1d, slot)
 
-        // 3. Split into Q and K, apply SiLU
-        val q = FloatArray(ssmInner)
-        val k = FloatArray(ssmInner)
-        for (i in 0 until ssmInner) {
-            q[i] = siluScalar(qkConved[i])
-            k[i] = siluScalar(qkConved[ssmInner + i])
+        // 3. Apply SiLU to entire conv output before split
+        for (i in qkvConved.indices) {
+            qkvConved[i] = siluScalar(qkvConved[i])
         }
 
-        // 4. Compute alpha and beta
+        // 4. Split into Q [keyDim=2048], K [keyDim=2048], V [valueDim=4096]
+        val q = FloatArray(keyDim)
+        val k = FloatArray(keyDim)
+        val v = FloatArray(valueDim)
+        qkvConved.copyInto(q, 0, 0, keyDim)
+        qkvConved.copyInto(k, 0, keyDim, 2 * keyDim)
+        qkvConved.copyInto(v, 0, 2 * keyDim, ssmQkvDim)
+
+        // 5. L2-normalize Q and K per head (numKHeads=16 heads, ssmStateSize=128 dims)
+        l2NormalizePerHead(q, numKHeads, ssmStateSize)
+        l2NormalizePerHead(k, numKHeads, ssmStateSize)
+
+        // 6. Repeat Q/K heads: 16 → 32 to match V heads
+        val qRep = FloatArray(valueDim) // numVHeads * ssmStateSize
+        val kRep = FloatArray(valueDim)
+        for (kh in 0 until numKHeads) {
+            val srcOff = kh * ssmStateSize
+            for (r in 0 until headRatio) {
+                val dstOff = (kh * headRatio + r) * ssmStateSize
+                q.copyInto(qRep, dstOff, srcOff, srcOff + ssmStateSize)
+                k.copyInto(kRep, dstOff, srcOff, srcOff + ssmStateSize)
+            }
+        }
+
+        // 7. Compute alpha (decay gate) and beta (update gate) — per V-head (32 values)
         val alphaTensor = matmulTransposed(normed, w.ssmAlpha)
         val betaTensor = matmulTransposed(normed, w.ssmBeta)
         val alphaRaw = alphaTensor.toFloatBuffer()
         val betaRaw = betaTensor.toFloatBuffer()
 
-        // 5. Run DeltaNet recurrence per head
-        val output = FloatArray(ssmInner)
-        for (h in 0 until ssmNumHeads) {
-            val qOffset = h * ssmStateSize
-            val stateOffset = h * ssmStateSize * ssmStateSize
+        // 8. Delta rule recurrence per V-head
+        val output = FloatArray(valueDim)
+        for (vh in 0 until numVHeads) {
+            val qkOffset = vh * ssmStateSize
+            val vOffset = vh * ssmStateSize
+            val stateOffset = vh * ssmStateSize * ssmStateSize
 
-            val aVal = softplus(w.ssmA[h])
-            val alphaVal = sigmoid(alphaRaw[h] + w.ssmDtBias[h])
-            val betaVal = sigmoid(betaRaw[h])
-            val decay = exp(-aVal * alphaVal)
+            // Decay: g = softplus(alpha + dt_bias) * ssm_a → decay = exp(g)
+            // ssm_a is already -exp(A_log), so g is negative → decay < 1
+            val g = softplus(alphaRaw[vh] + w.ssmDtBias[vh]) * w.ssmA[vh]
+            val decay = exp(g)
+            val betaVal = sigmoid(betaRaw[vh])
 
-            // State update: state = decay * state + beta * outer(k, q)
+            // M = decay * M
             for (i in 0 until ssmStateSize) {
                 for (j in 0 until ssmStateSize) {
-                    val idx = stateOffset + i * ssmStateSize + j
-                    state[idx] = decay * state[idx] + betaVal * k[qOffset + i] * q[qOffset + j]
+                    state[stateOffset + i * ssmStateSize + j] *= decay
                 }
             }
 
-            // Output: y_h = state @ q_h, then RMS normalize
+            // u = M @ k (predict current value from key)
+            val u = FloatArray(ssmStateSize)
+            for (i in 0 until ssmStateSize) {
+                var sum = 0f
+                for (j in 0 until ssmStateSize) {
+                    sum += state[stateOffset + i * ssmStateSize + j] * kRep[qkOffset + j]
+                }
+                u[i] = sum
+            }
+
+            // d = beta * (v - u) (prediction error scaled by update gate)
+            val d = FloatArray(ssmStateSize)
+            for (i in 0 until ssmStateSize) {
+                d[i] = betaVal * (v[vOffset + i] - u[i])
+            }
+
+            // M = M + outer(d, k) (update state with delta)
+            for (i in 0 until ssmStateSize) {
+                for (j in 0 until ssmStateSize) {
+                    state[stateOffset + i * ssmStateSize + j] += d[i] * kRep[qkOffset + j]
+                }
+            }
+
+            // o = M @ q (read output using query)
             var sumSq = 0f
             for (i in 0 until ssmStateSize) {
                 var sum = 0f
                 for (j in 0 until ssmStateSize) {
-                    sum += state[stateOffset + i * ssmStateSize + j] * q[qOffset + j]
+                    sum += state[stateOffset + i * ssmStateSize + j] * qRep[qkOffset + j]
                 }
-                output[qOffset + i] = sum
+                output[vOffset + i] = sum
                 sumSq += sum * sum
             }
 
+            // Per-head RMSNorm on output (ssm_norm shared across heads)
             val rms = sqrt(sumSq / ssmStateSize + eps)
             for (i in 0 until ssmStateSize) {
-                output[qOffset + i] = (output[qOffset + i] / rms) * w.ssmNorm[i]
+                output[vOffset + i] = (output[vOffset + i] / rms) * w.ssmNorm[i]
             }
         }
 
-        // 6. Output projection: [1, ssmInner] @ ssmOut → [1, dim]
-        val outputTensor = ctx.fromFloatArray<T, Float>(Shape(1, ssmInner), dtype, output)
-        val projected = matmulTransposed(outputTensor, w.ssmOut)
-
-        // 7. Gating: gate = silu(input @ gate_weight)
+        // 9. Gate then project (correct order per llama.cpp):
+        //    gated = output * SiLU(W_gate @ x), then y = W_out @ gated
+        val outputTensor = ctx.fromFloatArray<T, Float>(Shape(1, valueDim), dtype, output)
         val gateTensor = matmulTransposed(normed, w.gate).silu()
-        val gated = projected * gateTensor
+        val gated = outputTensor * gateTensor
+        val projected = matmulTransposed(gated, w.ssmOut)
 
-        return residual + gated
+        return residual + projected
     }
 
     // ---- Causal Conv1d ----
@@ -445,7 +511,7 @@ public class Qwen35Runtime<T : DType>(
         convWeight: FloatArray,
         slot: Int
     ): FloatArray {
-        val innerDim = ssmInner * 2
+        val innerDim = ssmQkvDim
         val pos = convPositions[slot]
 
         // Store input in circular buffer
@@ -453,13 +519,14 @@ public class Qwen35Runtime<T : DType>(
         input.copyInto(convState, stateOffset, 0, innerDim)
         convPositions[slot] = pos + 1
 
-        // Apply depthwise conv1d — weight layout is [channels, kernel] in row-major
+        // Apply depthwise conv1d — weight layout is [channels, kernel] per llama.cpp:
+        // flat index = channel * d_conv + tap
         val output = FloatArray(innerDim)
         for (d in 0 until innerDim) {
             var sum = 0f
             for (k in 0 until ssmConvKernel) {
                 val stateIdx = ((pos + 1 - ssmConvKernel + k + ssmConvKernel * ssmConvKernel) % ssmConvKernel)
-                sum += convState[stateIdx * innerDim + d] * convWeight[k * innerDim + d]
+                sum += convState[stateIdx * innerDim + d] * convWeight[d * ssmConvKernel + k]
             }
             output[d] = sum
         }
@@ -497,6 +564,20 @@ public class Qwen35Runtime<T : DType>(
     private fun sigmoid(x: Float): Float = 1f / (1f + exp(-x))
     private fun softplus(x: Float): Float = ln(1f + exp(x))
     private fun siluScalar(x: Float): Float = x * sigmoid(x)
+
+    private fun l2NormalizePerHead(buf: FloatArray, numHeads: Int, headSize: Int) {
+        for (h in 0 until numHeads) {
+            val offset = h * headSize
+            var sumSq = 0f
+            for (i in 0 until headSize) {
+                sumSq += buf[offset + i] * buf[offset + i]
+            }
+            val norm = sqrt(sumSq + 1e-12f)
+            for (i in 0 until headSize) {
+                buf[offset + i] /= norm
+            }
+        }
+    }
 
     // ---- Apply RoPE ----
 
