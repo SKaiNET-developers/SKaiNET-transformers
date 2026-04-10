@@ -315,34 +315,48 @@ public class Qwen35Runtime<T : DType>(
     ): Tensor<T, Float> {
         val weights = fullAttnWeights[layerIdx]!!
 
-        // Q/K/V projections
-        var qTensor = matmulTransposed(normed, weights.wq)
-        var kTensor = matmulTransposed(normed, weights.wk)
+        // Joint Q+Gate projection: W_q outputs [Q(4096) | Gate(4096)] = [8192]
+        val qgFull = matmulTransposed(normed, weights.wq).toFloatBuffer()
+
+        // Split Q and Gate BEFORE norm/RoPE (per llama.cpp: project → split → norm → RoPE)
+        val qDim = nHeads * fullAttnKHeadDim // 16 * 256 = 4096
+        val qBuf = FloatArray(qDim)
+        val gateBuf = FloatArray(qDim)
+        for (h in 0 until nHeads) {
+            val srcOffset = h * fullAttnQHeadDim // stride 512 in joint buffer
+            val dstOffset = h * fullAttnKHeadDim // stride 256 in split buffers
+            for (i in 0 until fullAttnKHeadDim) {
+                qBuf[dstOffset + i] = qgFull[srcOffset + i]
+                gateBuf[dstOffset + i] = qgFull[srcOffset + fullAttnKHeadDim + i]
+            }
+        }
+
+        // K/V projections
+        val kTensor = matmulTransposed(normed, weights.wk)
         val vTensor = matmulTransposed(normed, weights.wv)
 
-        // Per-head QK-norm
-        qTensor = applyPerHeadRMSNorm(qTensor, nHeads, fullAttnQHeadDim, weights.qNorm)
-        kTensor = applyPerHeadRMSNorm(kTensor, nKvHeads, fullAttnKHeadDim, weights.kNorm)
-
-        val qBuf = qTensor.toFloatBuffer()
+        // Per-head RMSNorm on Q (nHeads x fullAttnKHeadDim) and K
+        val qNormed = qBuf.copyOf()
+        applyPerHeadRMSNormBuf(qNormed, nHeads, fullAttnKHeadDim, weights.qNorm.toFloatBuffer())
         val kBuf = kTensor.toFloatBuffer()
+        applyPerHeadRMSNormBuf(kBuf, nKvHeads, fullAttnKHeadDim, weights.kNorm.toFloatBuffer())
         val vBuf = vTensor.toFloatBuffer()
 
-        // Apply RoPE to the first ropeDim elements of each head
-        applyRopeRotation(qBuf, nHeads, fullAttnQHeadDim, ropeDim, position, ropeFreqBase)
+        // Apply RoPE to Q and K (only over the Q portion, not gate)
+        applyRopeRotation(qNormed, nHeads, fullAttnKHeadDim, ropeDim, position, ropeFreqBase)
         applyRopeRotation(kBuf, nKvHeads, fullAttnKHeadDim, ropeDim, position, ropeFreqBase)
 
         // KV cache
         val cacheSlot = fullAttnLayerToSlot[layerIdx]!!
         kvCache.store(cacheSlot, position, kBuf, 0, vBuf, 0)
 
-        // GQA attention — score uses first fullAttnKHeadDim dims of each Q head
+        // GQA attention
         val out = FloatArray(nHeads * fullAttnKHeadDim)
         val scale = 1f / sqrt(fullAttnKHeadDim.toDouble()).toFloat()
         val scores = scoreBuffer
 
         for (h in 0 until nHeads) {
-            val qOffset = h * fullAttnQHeadDim
+            val qOffset = h * fullAttnKHeadDim
             val kvHeadIdx = h / nHeadsPerKv
             val kvOffset = kvHeadIdx * fullAttnKHeadDim
             val outOffset = h * fullAttnKHeadDim
@@ -350,7 +364,7 @@ public class Qwen35Runtime<T : DType>(
             for (t in 0..position) {
                 var score = 0f
                 for (i in 0 until fullAttnKHeadDim) {
-                    score += qBuf[qOffset + i] * kvCache.getKey(cacheSlot, t, kvOffset, i)
+                    score += qNormed[qOffset + i] * kvCache.getKey(cacheSlot, t, kvOffset, i)
                 }
                 scores[t] = score * scale
             }
@@ -365,12 +379,11 @@ public class Qwen35Runtime<T : DType>(
             }
         }
 
-        // Apply sigmoid gate from the second half of each Q head (joint Q+Gate projection)
+        // Apply sigmoid gate to attention output
         for (h in 0 until nHeads) {
-            val gateOffset = h * fullAttnQHeadDim + fullAttnKHeadDim
-            val outOffset = h * fullAttnKHeadDim
+            val offset = h * fullAttnKHeadDim
             for (i in 0 until fullAttnKHeadDim) {
-                out[outOffset + i] *= sigmoid(qBuf[gateOffset + i])
+                out[offset + i] *= sigmoid(gateBuf[offset + i])
             }
         }
 
@@ -535,15 +548,12 @@ public class Qwen35Runtime<T : DType>(
 
     // ---- Per-head RMS Norm ----
 
-    private fun applyPerHeadRMSNorm(
-        x: Tensor<T, Float>,
+    private fun applyPerHeadRMSNormBuf(
+        buf: FloatArray,
         numHeads: Int,
         headDim: Int,
-        weight: Tensor<T, Float>
-    ): Tensor<T, Float> {
-        val buf = x.toFloatBuffer().copyOf()
-        val w = weight.toFloatBuffer()
-
+        w: FloatArray
+    ) {
         for (h in 0 until numHeads) {
             val offset = h * headDim
             var sumSq = 0f
@@ -556,7 +566,6 @@ public class Qwen35Runtime<T : DType>(
                 buf[offset + i] = (buf[offset + i] / rms) * w[i % w.size]
             }
         }
-        return ctx.fromFloatArray<T, Float>(x.shape, dtype, buf)
     }
 
     // ---- Math utilities ----
