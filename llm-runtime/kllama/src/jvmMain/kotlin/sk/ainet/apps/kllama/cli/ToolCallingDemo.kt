@@ -46,6 +46,70 @@ public class ToolCallingDemo<T : DType>(
     /**
      * Run the tool-calling demo with `list_files` and `calculator` tools.
      */
+    /**
+     * Run a single non-interactive tool calling round. Used by smoke tests.
+     *
+     * @param prompt The user prompt.
+     * @param maxTokens Maximum tokens per round.
+     * @param temperature Sampling temperature.
+     */
+    public fun runSingleShot(
+        prompt: String,
+        maxTokens: Int = 256,
+        temperature: Float = 0.7f
+    ) {
+        val registry = ToolRegistry()
+        registry.register(ListFilesTool())
+        registry.register(CalculatorTool())
+
+        println("Tool Calling Smoke Test")
+        println("Available tools: ${registry.definitions().joinToString { it.name }}")
+        println("Prompt: \"$prompt\"")
+        println("---")
+
+        val agentLoop = session.createAgentLoop(registry, maxTokens, temperature)
+
+        val systemPrompt = """You are a helpful assistant with access to tools.
+When the user asks about files or directories, use the list_files tool to look up the actual contents.
+When the user asks to calculate something, use the calculator tool.
+Always use a tool when one is relevant — do not guess file listings."""
+
+        val messages = mutableListOf(
+            ChatMessage(role = ChatRole.SYSTEM, content = systemPrompt),
+            ChatMessage(role = ChatRole.USER, content = prompt)
+        )
+
+        val listener = object : AgentListener {
+            override fun onToken(token: String) {
+                print(token)
+                System.out.flush()
+            }
+            override fun onAssistantMessage(text: String) { println() }
+            override fun onToolCalls(calls: List<ToolCall>) {
+                for (call in calls) println("[Tool Call] ${call.name}(${call.arguments})")
+            }
+            override fun onToolResult(call: ToolCall, result: String) {
+                println("[Tool Result] ${call.name} -> $result")
+                print("Assistant: ")
+                System.out.flush()
+            }
+            override fun onComplete(finalResponse: String) {}
+        }
+
+        print("Assistant: ")
+        System.out.flush()
+
+        agentLoop.runWithEncoder(
+            messages = messages,
+            encode = { text -> tokenizer.encode(text) },
+            listener = listener
+        )
+        println()
+    }
+
+    /**
+     * Run the interactive tool-calling demo.
+     */
     public fun run(
         maxTokens: Int = 512,
         temperature: Float = 0.7f

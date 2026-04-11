@@ -496,7 +496,11 @@ fun main(args: Array<String>) {
             when {
                 cliArgs.demoMode -> {
                     val demo = ToolCallingDemo(runtime, tokenizer, cliArgs.templateName, metadata)
-                    demo.run(maxTokens = cliArgs.steps, temperature = cliArgs.temperature)
+                    if (cliArgs.prompt != null) {
+                        demo.runSingleShot(cliArgs.prompt, maxTokens = cliArgs.steps, temperature = cliArgs.temperature)
+                    } else {
+                        demo.run(maxTokens = cliArgs.steps, temperature = cliArgs.temperature)
+                    }
                 }
                 cliArgs.agentMode -> {
                     val agentCli = AgentCli(runtime, tokenizer, cliArgs.templateName, metadata)

@@ -69,6 +69,7 @@ runner_args() {
   local runner="$1" model="$2" prompt="$3" steps="$4" temp="$5" doc="${6:-}" output="${7:-}"
 
   case "$runner" in
+    skainet)  echo "-m ${model} -s ${steps} -k ${temp} \"${prompt}\"" ;;
     kllama)   echo "-m ${model} -s ${steps} -k ${temp} \"${prompt}\"" ;;
     kgemma)   echo "${model} \"${prompt}\" ${steps} ${temp}" ;;
     kqwen)    echo "${model} \"${prompt}\" ${steps} ${temp}" ;;
@@ -254,9 +255,93 @@ print(f'M_OUTPUT={repr(m.get(\"output\", \"\"))}')
     separator
   done
 
+  # ── Tool Calling Tests ───────────────────────────────────────────
+  TC_COUNT=$(python3 -c "
+import json
+cfg = json.load(open('${CONFIG_FILE}'))
+print(sum(1 for m in cfg['models'] if m.get('toolCalling')))
+")
+
+  declare -a tc_results=()
+  tc_pass=0
+  tc_fail=0
+
+  if [[ "$TC_COUNT" -gt 0 ]]; then
+    echo ""
+    echo -e "${BOLD}Tool Calling Tests${RESET} ($TC_COUNT models)"
+    separator
+
+    kllama_task=$(runner_task "kllama")
+
+    for i in $(seq 0 $((MODEL_COUNT - 1))); do
+      eval "$(python3 -c "
+import json
+cfg = json.load(open('${CONFIG_FILE}'))
+m = cfg['models'][$i]
+tc = m.get('toolCalling')
+if tc is None:
+    print('TC_ENABLED=false')
+else:
+    print('TC_ENABLED=true')
+    print(f'TC_PROMPT={repr(tc.get(\"prompt\", \"What is 2 + 2?\"))}')
+    print(f'TC_STEPS={tc.get(\"steps\", 256)}')
+    print(f'M_NAME={repr(m[\"name\"])}')
+    print(f'M_MODEL={repr(m[\"model\"])}')
+")"
+
+      [[ "$TC_ENABLED" != "true" ]] && continue
+
+      M_MODEL=$(expand_path "$M_MODEL")
+
+      echo -e "\n${BOLD}Model:${RESET}  $M_NAME (tool calling)"
+      echo -e "${BOLD}Prompt:${RESET} \"$TC_PROMPT\""
+
+      if [[ ! -e "$M_MODEL" ]]; then
+        echo -e "  ${RED}FAIL${RESET} (model path not found)"
+        tc_fail=$((tc_fail + 1))
+        tc_results+=("FAIL|$M_NAME|not found|-")
+        separator
+        continue
+      fi
+
+      start_ts=$(python3 -c 'import time; print(time.time())')
+      output_file=$(mktemp)
+      exit_code=0
+
+      $GRADLE "$kllama_task" --quiet \
+        --args="-m ${M_MODEL} --demo -s ${TC_STEPS} -k 0.7 \"${TC_PROMPT}\"" \
+        > "$output_file" 2>&1 || exit_code=$?
+
+      end_ts=$(python3 -c 'import time; print(time.time())')
+      wall_sec=$(python3 -c "print(f'{$end_ts - $start_ts:.1f}')")
+
+      if [[ $exit_code -ne 0 ]]; then
+        echo -e "  ${RED}FAIL${RESET} (exit $exit_code, wall ${wall_sec}s)"
+        tail -5 "$output_file" | sed 's/^/  │ /'
+        tc_fail=$((tc_fail + 1))
+        tc_results+=("FAIL|$M_NAME|exit $exit_code|${wall_sec}s")
+      elif grep -q '\[Tool Call\]' "$output_file"; then
+        tool_name=$(grep -oE '\[Tool Call\] [a-z_]+' "$output_file" | head -1 | sed 's/\[Tool Call\] //')
+        echo -e "  ${GREEN}OK${RESET}   tool called: ${CYAN}${tool_name}${RESET}  wall: ${wall_sec}s"
+        grep '\[Tool Call\]' "$output_file" | head -2 | sed 's/^/  │ /'
+        grep '\[Tool Result\]' "$output_file" | head -2 | sed 's/^/  │ /'
+        tc_pass=$((tc_pass + 1))
+        tc_results+=("OK|$M_NAME|$tool_name|${wall_sec}s")
+      else
+        echo -e "  ${YELLOW}WARN${RESET} (no tool call detected, wall ${wall_sec}s)"
+        tail -5 "$output_file" | sed 's/^/  │ /'
+        tc_fail=$((tc_fail + 1))
+        tc_results+=("WARN|$M_NAME|no tool call|${wall_sec}s")
+      fi
+
+      rm -f "$output_file"
+      separator
+    done
+  fi
+
   # ── Summary ──────────────────────────────────────────────────────
   echo ""
-  echo -e "${BOLD}Summary${RESET}"
+  echo -e "${BOLD}Summary — Generation${RESET}"
   separator
   printf "  %-6s %-30s %-8s %8s %10s %8s\n" "Status" "Model" "Runner" "Size" "tok/s" "Wall"
   separator
@@ -272,6 +357,29 @@ print(f'M_OUTPUT={repr(m.get(\"output\", \"\"))}')
   done
   separator
   echo -e "  ${GREEN}Pass: $pass${RESET}  ${RED}Fail: $fail${RESET}  Total: ${MODEL_COUNT}"
+
+  if [[ "$TC_COUNT" -gt 0 ]]; then
+    echo ""
+    echo -e "${BOLD}Summary — Tool Calling${RESET}"
+    separator
+    printf "  %-6s %-30s %-15s %8s\n" "Status" "Model" "Tool" "Wall"
+    separator
+    for r in "${tc_results[@]}"; do
+      IFS='|' read -r status name tool wall <<< "$r"
+      if [[ "$status" == "OK" ]]; then
+        color="$GREEN"
+      elif [[ "$status" == "WARN" ]]; then
+        color="$YELLOW"
+      else
+        color="$RED"
+      fi
+      printf "  ${color}%-6s${RESET} %-30s %-15s %8s\n" \
+        "$status" "${name:0:30}" "$tool" "$wall"
+    done
+    separator
+    echo -e "  ${GREEN}Pass: $tc_pass${RESET}  ${RED}Fail: $tc_fail${RESET}  Total: ${TC_COUNT}"
+  fi
+
   echo ""
   exit 0
 fi
