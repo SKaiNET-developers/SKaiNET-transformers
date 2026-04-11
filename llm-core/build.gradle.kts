@@ -48,6 +48,8 @@ kotlin {
             implementation(libs.skainet.compile.dag)
             implementation(libs.skainet.compile.opt)
             implementation(libs.skainet.io.core)
+            implementation(libs.skainet.io.gguf)
+            implementation(libs.kotlinx.io.core)
         }
 
         commonTest.dependencies {

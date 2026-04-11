@@ -83,31 +83,23 @@ ChatPipeline (template formatting, tool calling, agent loop)
 - `llm-core/.../weights/LLMWeightNameResolvers.kt` — already maps DSL paths -> GGUF names
 - New: per-model DSL network definitions
 
-## Phase 3: Tokenization as Pipeline Stage
+## Phase 3: Tokenization as Pipeline Stage -- DONE
 
-**Problem:** Tokenization is split between `GGUFTokenizer` (kllama module), `QwenByteLevelBPETokenizer` (llm-core), and model-specific code. The byte-level BPE fix we just made shows the fragility.
+**What was done:**
 
-**Changes:**
+1. **Enhanced `Tokenizer` interface** with `eosTokenId`, `bosTokenId`, `vocabSize` (done in Phase 1)
 
-1. **Enhance `Tokenizer` interface** (`llm-core`):
-   ```kotlin
-   interface Tokenizer {
-       fun encode(text: String): IntArray
-       fun decode(token: Int): String
-       fun decode(tokens: IntArray): String
-       val eosTokenId: Int
-       val bosTokenId: Int
-       val vocabSize: Int
-       val specialTokens: Set<String>
-   }
-   ```
+2. **Moved `GGUFTokenizer` from kllama to `llm-core`**
+   - New location: `llm-core/.../tokenizer/GGUFTokenizer.kt`
+   - Old location has a typealias for backwards compatibility
+   - Added `skainet-io-gguf` and `kotlinx-io-core` dependencies to `llm-core`
 
-2. **Unified tokenizer factory:**
-   - `TokenizerFactory.fromGGUF(source)` — auto-detects BPE/SentencePiece/WordPiece
-   - `TokenizerFactory.fromTokenizerJson(json)` — HuggingFace format
-   - Returns the correct implementation (byte-level BPE for GPT-2/Qwen, SentencePiece for LLaMA, etc.)
+3. **Created `TokenizerFactory`** in `llm-core/.../tokenizer/TokenizerFactory.kt`
+   - `TokenizerFactory.fromGGUF(source)` — from GGUF file metadata
+   - `TokenizerFactory.fromTokenizerJson(json)` — from HuggingFace tokenizer.json
+   - `TokenizerFactory.fromHuggingFace(json, config)` — full HF BPE tokenizer
 
-3. **Move `GGUFTokenizer` to `llm-core`** so all runners can use it without depending on kllama
+4. All runners can now use `GGUFTokenizer` and `TokenizerFactory` directly from `llm-core`
 
 ## Phase 4: Unified Runner (single CLI entry point)
 
