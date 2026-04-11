@@ -7,17 +7,19 @@ This tutorial shows how to use `ChatSession` to add tool calling to any model ru
 
 The tool calling pipeline is decoupled from the model runtime:
 
-----
-InferenceRuntime + Tokenizer + ModelMetadata
-        |
-    ChatSession
-        |
-    AgentLoop (generate -> parse -> execute -> re-prompt)
-        |
-    ChatTemplate (format messages, parse tool calls)
-        |
-    ToolRegistry (execute tool functions)
-----
+[mermaid]
+....
+graph TD
+    A[InferenceRuntime + Tokenizer + ModelMetadata] --> B[ChatSession]
+    B --> C[AgentLoop]
+    C --> D{Tool calls?}
+    D -->|Yes| E[ToolRegistry<br/>execute tool functions]
+    E --> F[Append result to messages]
+    F --> C
+    D -->|No| G[Final response]
+    B --> H[ChatTemplate<br/>format messages, parse tool calls]
+    H --> C
+....
 
 Any model that implements `InferenceRuntime` and has a `Tokenizer` can use tool calling.
 

@@ -14,7 +14,29 @@ This led to:
 
 The pipeline is split into stages that are independently replaceable:
 
-[horizontal]
+[mermaid]
+....
+graph LR
+    subgraph "Model Format"
+        A[Weight Loading]
+    end
+    subgraph "Architecture"
+        B[Network Definition]
+    end
+    subgraph "Framework"
+        C[Graph Compilation]
+        D[Inference Runtime]
+    end
+    subgraph "I/O"
+        E[Tokenization]
+    end
+    subgraph "Application"
+        F[Chat Pipeline]
+    end
+
+    A --> B --> C --> D --> E --> F
+....
+
 Weight Loading:: Parse GGUF/SafeTensors into typed tensor maps. Model-format concern, not architecture concern.
 Network Definition:: Pure functions (`llamaNetwork()`, `apertusNetwork()`) that return a `Module` tree. Architecture concern only.
 Graph Compilation:: Trace the module tree into a DAG, apply optimization passes. Framework concern.

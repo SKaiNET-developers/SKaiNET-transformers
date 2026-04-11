@@ -3,37 +3,22 @@
 
 == Pipeline Stages
 
-[source]
-----
-GGUF/SafeTensors File
-    |
-    v
-[1] WeightLoader         Parse metadata + tensor data
-    |
-    v
-[2] DSL Network Def      llamaNetwork(), qwenNetwork(), apertusNetwork()
-    |
-    v
-[3] ComputeGraph (DAG)   Record forward pass into directed acyclic graph
-    |
-    v
-[4] Optimization          TransposeElim -> WeightDedup -> LLMFusion -> DCE
-    |
-    v
-[5] Executor              ComputeGraphExecutor with fused kernels
-    |
-    v
-[6] InferenceRuntime      forward(tokenId) -> logits, generate(), sample()
-    |
-    v
-[7] Tokenizer             encode(text) -> IntArray, decode(token) -> String
-    |
-    v
-[8] ChatPipeline          ChatTemplate + AgentLoop + ToolRegistry
-    |
-    v
-    Generated text / Tool call results
-----
+[mermaid]
+....
+graph TD
+    A[GGUF / SafeTensors File] --> B["[1] WeightLoader<br/>Parse metadata + tensor data"]
+    B --> C["[2] DSL Network Def<br/>llamaNetwork(), qwenNetwork()"]
+    C --> D["[3] ComputeGraph (DAG)<br/>Record forward pass"]
+    D --> E["[4] Optimization<br/>TransposeElim → WeightDedup → LLMFusion → DCE"]
+    E --> F["[5] Executor<br/>ComputeGraphExecutor with fused kernels"]
+    F --> G["[6] InferenceRuntime<br/>forward(tokenId) → logits"]
+    G --> H["[7] Tokenizer<br/>encode(text) → IntArray"]
+    H --> I["[8] ChatPipeline<br/>ChatTemplate + AgentLoop + ToolRegistry"]
+    I --> J[Generated text / Tool call results]
+
+    style A fill:#f9f,stroke:#333
+    style J fill:#9f9,stroke:#333
+....
 
 == Stage Details
 

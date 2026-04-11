@@ -28,23 +28,62 @@ llm-performance/            Benchmarking module
 
 == Dependency Graph
 
-----
-llm-apps/skainet-cli
-  -> llm-runtime/kllama -> llm-inference/llama -> llm-core
-  -> llm-agent -> llm-core
-  -> skainet-backend-cpu (SIMD tensor ops)
-  -> skainet-io-gguf (GGUF parsing)
+[mermaid]
+....
+graph LR
+    subgraph Apps
+        skainet-cli
+        kllama-cli
+    end
 
-llm-agent
-  -> llm-core (InferenceRuntime, Tokenizer)
+    subgraph Runtime
+        kllama
+        kqwen
+        kgemma
+        kapertus
+    end
 
-llm-core
-  -> skainet-lang-core (tensor types, DSL)
-  -> skainet-compile-dag (compute graph)
-  -> skainet-compile-opt (optimization passes)
-  -> skainet-io-core (I/O abstractions)
-  -> skainet-io-gguf (GGUF reader)
-----
+    subgraph Inference
+        llama
+        gemma
+        apertus
+        bert
+        voxtral
+    end
+
+    subgraph Core
+        llm-core
+        llm-agent
+    end
+
+    subgraph SKaiNET
+        skainet-lang-core
+        skainet-compile-dag
+        skainet-compile-opt
+        skainet-io-gguf
+        skainet-backend-cpu
+    end
+
+    skainet-cli --> kllama
+    skainet-cli --> llm-agent
+    kllama-cli --> kllama
+    kllama --> llama
+    kllama --> llm-agent
+    kqwen --> llama
+    kgemma --> gemma
+    kapertus --> apertus
+    llama --> llm-core
+    gemma --> llm-core
+    apertus --> llm-core
+    bert --> llm-core
+    voxtral --> llm-core
+    llm-agent --> llm-core
+    llm-core --> skainet-lang-core
+    llm-core --> skainet-compile-dag
+    llm-core --> skainet-compile-opt
+    llm-core --> skainet-io-gguf
+    kllama --> skainet-backend-cpu
+....
 
 == Key Interfaces
 
