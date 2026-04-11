@@ -6,31 +6,30 @@
   },
   "models": [
     {
-      "name": "Llama-3.2-1B-Q8",
+      "name": "TinyLlama-1.1B-Q8",
       "runner": "kllama",
-      "model": "TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/tinyllama-1.1b-chat-v1.0.Q8_0.gguf",
+      "model": "tinyllama-1.1b-chat-v1.0.Q8_0.gguf",
       "format": "gguf"
     },
     {
-      "name": "Gemma-2B-SafeTensors",
-      "runner": "kgemma",
-      "model": "unsloth/gemma-3-270m-it-GGUF/gemma-3-270m-it-Q8_0.gguf",
+      "name": "Qwen3-1.7B-Q8",
+      "runner": "kqwen",
+      "model": "Qwen3-1.7B-Q8_0.gguf",
       "format": "gguf",
-      "steps": 16
+      "toolCalling": {
+        "prompt": "What is 2 + 2?",
+        "steps": 256
+      }
     },
     {
-      "name": "Qwen3-1.7B",
-      "runner": "qwen",
-      "model": "Qwen3-1.7B-GGUF/Qwen3-1.7B-Q8_0.gguf",
-      "format": "safetensors",
-      "prompt": "Hello world",
-    },
-    {
-      "name": "BERT-MiniLM",
-      "runner": "kbert",
-      "model": "~/.cache/huggingface/models/all-MiniLM-L6-v2",
-      "format": "safetensors",
-      "prompt": "Hello world"
+      "name": "Qwen3-8B-Q4",
+      "runner": "kllama",
+      "model": "Qwen3-8B-Q4_K_M.gguf",
+      "format": "gguf",
+      "toolCalling": {
+        "prompt": "What is 2 + 2?",
+        "steps": 256
+      }
     }
   ]
 }

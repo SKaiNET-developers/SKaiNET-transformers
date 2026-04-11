@@ -1,0 +1,69 @@
+= Pipeline Design Decisions
+:description: Why the inference pipeline is structured as separate stages.
+
+== The Problem
+
+Early SKaiNET had a monolithic approach: each model family (LLaMA, Gemma, Apertus) had its own hand-coded runtime that handled everything -- weight loading, forward pass, KV cache, tokenization, and generation.
+This led to:
+
+* *Duplicated logic* -- each runtime reimplemented `generate()`, `sample()`, `forward()`.
+* *Tight coupling* -- tool calling only worked with kllama because `ToolCallingDemo` depended on `GGUFTokenizer`, a kllama-specific class.
+* *No optimization* -- hand-coded runtimes couldn't benefit from compute graph optimization passes.
+
+== The Solution: Separated Pipeline Stages
+
+The pipeline is split into stages that are independently replaceable:
+
+[mermaid]
+....
+graph LR
+    subgraph "Model Format"
+        A[Weight Loading]
+    end
+    subgraph "Architecture"
+        B[Network Definition]
+    end
+    subgraph "Framework"
+        C[Graph Compilation]
+        D[Inference Runtime]
+    end
+    subgraph "I/O"
+        E[Tokenization]
+    end
+    subgraph "Application"
+        F[Chat Pipeline]
+    end
+
+    A --> B --> C --> D --> E --> F
+....
+
+Weight Loading:: Parse GGUF/SafeTensors into typed tensor maps. Model-format concern, not architecture concern.
+Network Definition:: Pure functions (`llamaNetwork()`, `apertusNetwork()`) that return a `Module` tree. Architecture concern only.
+Graph Compilation:: Trace the module tree into a DAG, apply optimization passes. Framework concern.
+Inference Runtime:: `forward(tokenId)` and `generate()`. Pure inference, no I/O.
+Tokenization:: `encode()`/`decode()`. Completely independent of model architecture.
+Chat Pipeline:: `ChatSession`, `AgentLoop`, `ChatTemplate`. Independent of both model and tokenizer implementation.
+
+== Key Design Decisions
+
+=== Tokenizer Interface with Metadata
+
+The `Tokenizer` interface includes `eosTokenId`, `bosTokenId`, and `vocabSize`.
+This eliminated the need for the `GGUFTokenizer` downcast that previously coupled tool calling to kllama.
+Any tokenizer implementation works with `ChatSession` and `AgentLoop`.
+
+=== ChatSession as the Composition Root
+
+Rather than having each CLI wire up `InferenceRuntime` + `Tokenizer` + `ChatTemplate` + `ToolRegistry` individually, `ChatSession` bundles them.
+A runner creates one `ChatSession` and gets chat, agent, and demo modes for free.
+
+=== ModelRegistry for Auto-Detection
+
+Instead of if/else chains in each CLI to determine which loader to use, `ModelRegistry.detect(architecture)` returns a `ModelFamily` enum with capabilities (tool calling support, chat template family).
+The unified `skainet` CLI uses this to load any GGUF model without architecture-specific flags.
+
+=== GGUFTokenizer in llm-core
+
+Moving `GGUFTokenizer` from `kllama` to `llm-core` was essential.
+Every runner needed it, but depending on `kllama` just for the tokenizer created circular dependency pressure.
+The `TokenizerFactory` in `llm-core` provides a clean entry point.

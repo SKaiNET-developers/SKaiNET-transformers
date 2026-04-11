@@ -490,22 +490,24 @@ fun main(args: Array<String>) {
             }
         }
 
-        // Dispatch to chat/agent/demo mode
+        // Dispatch to chat/agent/demo mode — works with any Tokenizer, not just GGUFTokenizer
         if (cliArgs.chatMode || cliArgs.agentMode || cliArgs.demoMode) {
-            val ggufTokenizer = tokenizer as? GGUFTokenizer
-                ?: error("Chat/agent/demo modes require a GGUF model with embedded tokenizer")
             val metadata = ggufMetadata ?: ModelMetadata()
             when {
                 cliArgs.demoMode -> {
-                    val demo = ToolCallingDemo(runtime, ggufTokenizer, cliArgs.templateName, metadata)
-                    demo.run(maxTokens = cliArgs.steps, temperature = cliArgs.temperature)
+                    val demo = ToolCallingDemo(runtime, tokenizer, cliArgs.templateName, metadata)
+                    if (cliArgs.prompt != null) {
+                        demo.runSingleShot(cliArgs.prompt, maxTokens = cliArgs.steps, temperature = cliArgs.temperature)
+                    } else {
+                        demo.run(maxTokens = cliArgs.steps, temperature = cliArgs.temperature)
+                    }
                 }
                 cliArgs.agentMode -> {
-                    val agentCli = AgentCli(runtime, ggufTokenizer, cliArgs.templateName, metadata)
+                    val agentCli = AgentCli(runtime, tokenizer, cliArgs.templateName, metadata)
                     agentCli.runAgent(maxTokens = cliArgs.steps, temperature = cliArgs.temperature)
                 }
                 else -> {
-                    val agentCli = AgentCli(runtime, ggufTokenizer, cliArgs.templateName, metadata)
+                    val agentCli = AgentCli(runtime, tokenizer, cliArgs.templateName, metadata)
                     agentCli.runChat(maxTokens = cliArgs.steps, temperature = cliArgs.temperature)
                 }
             }

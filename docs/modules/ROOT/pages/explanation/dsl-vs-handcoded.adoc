@@ -1,0 +1,124 @@
+= DSL Networks vs Hand-Coded Runtimes
+:description: Why DSL network definitions replace hand-coded runtimes.
+
+== Two Approaches to Model Definition
+
+SKaiNET Transformers supports two ways to define a model's forward pass:
+
+=== Hand-Coded Runtime (Legacy)
+
+A class that extends `DecoderRuntime` and implements each layer explicitly:
+
+[source,kotlin]
+----
+class LlamaRuntime<T>(/* ... */) : DecoderRuntime<T>(ctx, dtype) {
+    override fun runLayer(layerIdx: Int, x: Tensor<T, Float>): Tensor<T, Float> {
+        val normed = rmsNorm(x, weights.attnNorm[layerIdx])
+        val q = matmul(normed, weights.wq[layerIdx])
+        val k = matmul(normed, weights.wk[layerIdx])
+        // ... 50+ lines of attention + FFN
+    }
+}
+----
+
+=== DSL Network Definition (Current)
+
+A pure function that declares the architecture using the network DSL:
+
+[source,kotlin]
+----
+fun <T : DType, V> llamaNetwork(metadata: LlamaModelMetadata): Module<T, V> {
+    return sequential<T, V> {
+        embedding(vocabSize, dim, id = "token_embd")
+        for (layer in 0 until nLayers) {
+            rmsNorm(dim, eps, id = "attn_norm")
+            multiHeadAttention(dim, nHeads, nKVHeads, causal = true) {
+                rope(headDim, seqLen)
+                kvCache(seqLen, nKVHeads, headDim)
+            }
+            residual()
+            rmsNorm(dim, eps, id = "ffn_norm")
+            swiGluFFN(dim, ffnDim)
+            residual()
+        }
+        rmsNorm(dim, eps, id = "output_norm")
+    }
+}
+----
+
+== Why DSL is Preferred
+
+=== Compute Graph Optimization
+
+DSL networks can be traced into a ComputeGraph (DAG) and optimized:
+
+* *TransposeEliminationPass* -- folds weight transposes into matmul, eliminating O(n^2) copies
+* *LLMFusionPass* -- fuses RMSNorm (7 ops -> 1), SwiGLU FFN (5 ops -> 1), QKV projections (3 -> 1)
+* *DeadCodeEliminationPass* -- removes unused intermediate tensors
+
+Hand-coded runtimes cannot benefit from these optimizations because operations are imperative, not declarative.
+
+=== Weight Loading is Automatic
+
+DSL modules have named parameters (e.g., `"blk.0/attn/q_proj"`).
+`WeightMapper` matches these to GGUF tensor names via `WeightNameResolver`.
+No manual weight loading code needed.
+
+=== Multiple Execution Modes
+
+The same DSL definition supports:
+
+`DIRECT`:: Execute the module tree directly (debugging, correctness testing)
+`HYBRID`:: Compile compute-heavy subgraphs, run attention imperatively (best balance)
+`OPTIMIZED`:: Full DAG compilation and execution (maximum performance)
+
+=== Adding New Architectures is Simpler
+
+A new architecture is a single function, not a 500-line class.
+If the architecture uses standard building blocks (MHA, RMSNorm, FFN), the DSL already has them.
+
+== When Hand-Coded Runtimes Are Needed
+
+Some architectures have components the DSL cannot express:
+
+* *Qwen3.5 DeltaNet* -- hybrid DeltaNet (linear attention + SSM) layers with causal 1D convolution
+* *Gemma3n* -- variable FFN dimensions per layer (MatFormer), per-layer embeddings
+* *Voxtral* -- ODE flow matching for audio codec
+
+These use `DecoderRuntime` directly.
+The goal is to extend the DSL to support these patterns over time.
+
+== Current Status
+
+[cols="1,1,1"]
+|===
+|Model |DSL |Status
+
+|LLaMA/Mistral
+|`llamaNetwork()`
+|`LlamaRuntime` deprecated
+
+|Qwen2/3
+|`qwenNetwork()`
+|Delegates to `llamaNetwork()`
+
+|Apertus
+|`apertusNetwork()`
+|`ApertusRuntime` deprecated
+
+|BERT
+|`bertNetwork()`
+|`BertRuntime` deprecated
+
+|Voxtral
+|`voxtralBackboneNetwork()`
+|Partial DSL
+
+|Gemma3n
+|_none_
+|Hand-coded only
+
+|Qwen3.5
+|_none_
+|Hand-coded (DeltaNet)
+|===

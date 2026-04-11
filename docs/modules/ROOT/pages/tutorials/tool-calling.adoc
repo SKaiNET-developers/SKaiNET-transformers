@@ -1,0 +1,133 @@
+= Tool Calling with Any Model
+:description: Use tool calling with any model that supports chat templates.
+
+This tutorial shows how to use `ChatSession` to add tool calling to any model runtime, not just kllama.
+
+== How Tool Calling Works
+
+The tool calling pipeline is decoupled from the model runtime:
+
+[mermaid]
+....
+graph TD
+    A[InferenceRuntime + Tokenizer + ModelMetadata] --> B[ChatSession]
+    B --> C[AgentLoop]
+    C --> D{Tool calls?}
+    D -->|Yes| E[ToolRegistry<br/>execute tool functions]
+    E --> F[Append result to messages]
+    F --> C
+    D -->|No| G[Final response]
+    B --> H[ChatTemplate<br/>format messages, parse tool calls]
+    H --> C
+....
+
+Any model that implements `InferenceRuntime` and has a `Tokenizer` can use tool calling.
+
+== Step 1: Create a ChatSession
+
+[source,kotlin]
+----
+val session = ChatSession(
+    runtime = myRuntime,       // any InferenceRuntime<T>
+    tokenizer = myTokenizer,   // any Tokenizer
+    metadata = ModelMetadata(family = "qwen", architecture = "qwen3")
+)
+----
+
+The `ChatSession` auto-detects the right chat template from `ModelMetadata`.
+
+== Step 2: Run a Single Tool Calling Round
+
+[source,kotlin]
+----
+val tools = listOf(myCalculatorTool, myFilesTool)
+val response = session.runSingleTurn(
+    prompt = "What is 2 + 2?",
+    tools = tools,
+    maxTokens = 256,
+    temperature = 0.7f
+)
+println(response)  // "2 + 2 = 4"
+----
+
+== Step 3: Build a Multi-Turn Agent
+
+[source,kotlin]
+----
+val registry = ToolRegistry()
+registry.register(CalculatorTool())
+registry.register(ListFilesTool())
+
+val agentLoop = session.createAgentLoop(registry, maxTokens = 512)
+
+val messages = mutableListOf(
+    ChatMessage(role = ChatRole.SYSTEM, content = "You are a helpful assistant."),
+    ChatMessage(role = ChatRole.USER, content = "List files in /tmp and count them")
+)
+
+val response = agentLoop.runWithEncoder(
+    messages = messages,
+    encode = { session.encode(it) }
+)
+----
+
+The agent loop automatically:
+
+1. Formats the conversation using the chat template
+2. Generates tokens until EOS
+3. Parses tool calls from the output
+4. Executes tools and appends results
+5. Repeats until no more tool calls or max rounds reached
+
+== Step 4: Implement a Custom Tool
+
+[source,kotlin]
+----
+class WeatherTool : Tool {
+    override val definition = ToolDefinition(
+        name = "get_weather",
+        description = "Get current weather for a city",
+        parameters = buildJsonObject {
+            put("type", "object")
+            putJsonObject("properties") {
+                putJsonObject("city") {
+                    put("type", "string")
+                    put("description", "City name")
+                }
+            }
+            putJsonArray("required") { add(JsonPrimitive("city")) }
+        }
+    )
+
+    override fun execute(arguments: JsonObject): String {
+        val city = arguments["city"]?.jsonPrimitive?.content
+            ?: return "Error: missing city"
+        return "Weather in $city: 22C, sunny"
+    }
+}
+----
+
+== Supported Chat Templates
+
+Tool calling support is auto-detected from model metadata:
+
+[cols="1,1,2"]
+|===
+|Family |Template |Format
+
+|Qwen2/3
+|`QwenChatTemplate`
+|JSON in `<tool_call>` XML tags
+
+|LLaMA 3
+|`Llama3ChatTemplate`
+|JSON in `<tool_call>` XML tags
+
+|Gemma
+|`GemmaChatTemplate`
+|Gemma-specific format
+
+|ChatML/Hermes
+|`ChatMLTemplate`
+|JSON in `<tool_call>` XML tags
+|===

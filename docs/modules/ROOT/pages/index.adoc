@@ -1,0 +1,66 @@
+= SKaiNET Transformers
+:description: Kotlin Multiplatform LLM inference engine with tool calling, compute graph optimization, and unified model pipeline.
+
+SKaiNET Transformers is a Kotlin Multiplatform inference engine for large language models.
+It loads GGUF and SafeTensors models, builds compute graphs from DSL network definitions, applies optimization passes, and executes inference on CPU (with SIMD acceleration) or GPU backends.
+
+== Key Features
+
+* *Unified pipeline* -- load any supported model with a single CLI, auto-detected from GGUF metadata
+* *Tool calling* -- agent loop with tool execution for any model that supports chat templates
+* *Compute graph optimization* -- transpose elimination, weight deduplication, RMSNorm/SwiGLU/QKV fusion
+* *Kotlin Multiplatform* -- runs on JVM, macOS Native, Linux Native, JS, and WASM
+* *Quantization support* -- Q4_K_M, Q8_0, and other GGUF quantization formats with SIMD dequantization
+
+== Supported Model Families
+
+[cols="1,2,1,1"]
+|===
+|Family |Models |Tool Calling |DSL Network
+
+|LLaMA
+|LLaMA 2/3, Mistral
+|Yes
+|`llamaNetwork()`
+
+|Qwen
+|Qwen2, Qwen3, Qwen3.5
+|Yes
+|`qwenNetwork()`
+
+|Gemma
+|Gemma 2, Gemma 3n, Gemma 4
+|Yes
+|Hand-coded
+
+|Apertus
+|Apertus 8B
+|No
+|`apertusNetwork()`
+
+|BERT
+|MiniLM, BERT variants
+|No
+|`bertNetwork()`
+
+|Voxtral
+|Voxtral TTS
+|No
+|`voxtralBackboneNetwork()`
+|===
+
+== Documentation Structure
+
+This documentation follows the https://documentation.divio.com/[Divio documentation system]:
+
+xref:tutorials/getting-started.adoc[Tutorials]::
+Step-by-step lessons to get you started.
+
+xref:how-to/run-unified-cli.adoc[How-to Guides]::
+Practical recipes for specific tasks.
+
+xref:reference/architecture.adoc[Reference]::
+Technical descriptions of APIs and components.
+
+xref:explanation/pipeline-design.adoc[Explanation]::
+Background and design decisions.

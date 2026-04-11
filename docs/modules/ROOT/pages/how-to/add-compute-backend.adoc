@@ -1,0 +1,59 @@
+= Add a Compute Backend
+:description: Implement and register a new compute backend (Metal, CUDA, etc.).
+
+Compute backends provide tensor operations for a specific hardware target.
+The system auto-selects the best available backend at startup.
+
+== 1. Implement BackendProvider
+
+[source,kotlin]
+----
+class MetalBackendProvider : BackendProvider {
+    override val name: String = "metal"
+    override val displayName: String = "Apple Metal GPU"
+    override val priority: Int = 100  // higher = preferred
+
+    override fun isAvailable(): Boolean {
+        // Check if Metal is available on this platform
+    }
+
+    override fun createOps(): CpuOps {
+        // Return Metal-accelerated tensor operations
+    }
+}
+----
+
+== 2. Register via ServiceLoader (JVM)
+
+Create `META-INF/services/sk.ainet.lang.backend.BackendProvider`:
+
+[source]
+----
+com.example.MetalBackendProvider
+----
+
+== 3. Register Manually (Native/JS/WASM)
+
+[source,kotlin]
+----
+BackendRegistry.register(MetalBackendProvider())
+----
+
+== 4. Verify
+
+[source,bash]
+----
+./gradlew :llm-apps:skainet-cli:run \
+  --args="-m model.gguf --list-backends"
+----
+
+Output:
+
+----
+Available backends:
+  metal        Apple Metal GPU (priority=100, available)
+  cpu          CPU (SIMD) (priority=0, available)
+----
+
+The backend with the highest priority that is available is auto-selected.
+Override with `--backend=cpu` to force a specific backend.

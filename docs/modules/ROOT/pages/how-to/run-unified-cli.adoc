@@ -1,0 +1,91 @@
+= Use the Unified CLI
+:description: Run any GGUF model with the skainet CLI.
+
+The `skainet` CLI auto-detects model architecture from GGUF metadata, so you don't need to pick the right runner.
+
+== Text Generation
+
+[source,bash]
+----
+./gradlew :llm-apps:skainet-cli:run \
+  --args="-m model.gguf 'Your prompt here'"
+----
+
+== Chat Mode
+
+[source,bash]
+----
+./gradlew :llm-apps:skainet-cli:run \
+  --args="-m model.gguf --chat"
+----
+
+== Agent Mode (with Tool Calling)
+
+[source,bash]
+----
+./gradlew :llm-apps:skainet-cli:run \
+  --args="-m model.gguf --agent"
+----
+
+== Tool Calling Demo
+
+Interactive:
+
+[source,bash]
+----
+./gradlew :llm-apps:skainet-cli:run \
+  --args="-m model.gguf --demo"
+----
+
+Single-shot (for scripts/testing):
+
+[source,bash]
+----
+./gradlew :llm-apps:skainet-cli:run \
+  --args="-m model.gguf --demo 'What is 2 + 2?'"
+----
+
+== All Options
+
+[source]
+----
+skainet -m <model.gguf> [options] [prompt]
+
+Options:
+  -m, --model       Path to .gguf model (required)
+  -s, --steps       Generation steps (default: 64)
+  -k, --temperature Sampling temperature (default: 0.8)
+  --chat            Interactive chat mode
+  --agent           Interactive agent with tool calling
+  --demo            Tool calling demo (add prompt for single-shot)
+  --template=NAME   Chat template override: llama3, chatml, qwen, gemma
+  --context=N       Cap context length to N tokens
+  -h, --help        Show help
+----
+
+== Model-Specific CLIs
+
+The per-model CLIs are still available for advanced use cases:
+
+[cols="1,2"]
+|===
+|CLI |Gradle Task
+
+|kllama
+|`:llm-apps:kllama-cli:run`
+
+|kgemma
+|`:llm-runtime:kgemma:jvmRun`
+
+|kqwen
+|`:llm-runtime:kqwen:jvmRun`
+
+|kapertus
+|`:llm-apps:kapertus-cli:run`
+
+|kvoxtral
+|`:llm-apps:kvoxtral-cli:run`
+
+|kbert
+|`:llm-apps:kbert-cli:run`
+|===

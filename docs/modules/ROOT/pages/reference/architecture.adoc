@@ -1,0 +1,108 @@
+= Architecture Overview
+:description: Module structure and dependency graph of SKaiNET Transformers.
+
+== Module Structure
+
+----
+llm-core                    Core abstractions (Tokenizer, InferenceRuntime, ModelRegistry)
+llm-agent                   Chat templates, tool calling, AgentLoop, ChatSession
+llm-inference/
+  llama/                    LLaMA/Qwen network definition and weight loading
+  apertus/                  Apertus network definition and weight loading
+  gemma/                    Gemma runtime and weight loading
+  bert/                     BERT network definition
+  voxtral/                  Voxtral TTS runtimes
+llm-runtime/
+  kllama/                   LLaMA/Qwen CPU runtime, attention backend, tokenizer
+  kqwen/                    Qwen-specific runner CLI
+  kgemma/                   Gemma runner CLI
+  kapertus/                 Apertus runner CLI
+llm-apps/
+  skainet-cli/              Unified CLI (auto-detects architecture)
+  kllama-cli/               LLaMA-specific CLI
+  kapertus-cli/             Apertus-specific CLI
+  kbert-cli/                BERT CLI
+  kvoxtral-cli/             Voxtral TTS CLI
+llm-performance/            Benchmarking module
+----
+
+== Dependency Graph
+
+[mermaid]
+....
+graph LR
+    subgraph Apps
+        skainet-cli
+        kllama-cli
+    end
+
+    subgraph Runtime
+        kllama
+        kqwen
+        kgemma
+        kapertus
+    end
+
+    subgraph Inference
+        llama
+        gemma
+        apertus
+        bert
+        voxtral
+    end
+
+    subgraph Core
+        llm-core
+        llm-agent
+    end
+
+    subgraph SKaiNET
+        skainet-lang-core
+        skainet-compile-dag
+        skainet-compile-opt
+        skainet-io-gguf
+        skainet-backend-cpu
+    end
+
+    skainet-cli --> kllama
+    skainet-cli --> llm-agent
+    kllama-cli --> kllama
+    kllama --> llama
+    kllama --> llm-agent
+    kqwen --> llama
+    kgemma --> gemma
+    kapertus --> apertus
+    llama --> llm-core
+    gemma --> llm-core
+    apertus --> llm-core
+    bert --> llm-core
+    voxtral --> llm-core
+    llm-agent --> llm-core
+    llm-core --> skainet-lang-core
+    llm-core --> skainet-compile-dag
+    llm-core --> skainet-compile-opt
+    llm-core --> skainet-io-gguf
+    kllama --> skainet-backend-cpu
+....
+
+== Key Interfaces
+
+`InferenceRuntime<T>`::
+Minimal inference contract: `forward(tokenId): Tensor` and `reset()`.
+All model runtimes implement this.
+
+`Tokenizer`::
+Encode/decode text with `eosTokenId`, `bosTokenId`, `vocabSize`.
+Implementations: `GGUFTokenizer`, `HuggingFaceBPETokenizer`, `TekkenTokenizerAdapter`.
+
+`ChatTemplate`::
+Format conversation messages into prompt strings and parse tool calls from output.
+Implementations: `QwenChatTemplate`, `Llama3ChatTemplate`, `GemmaChatTemplate`, `ChatMLTemplate`.
+
+`DecoderRuntime<T>`::
+Template method base class for decoder-only transformers.
+Provides shared `forward()`, `generate()`, `sample()` logic.
+
+`AttentionBackend<T>`::
+Pluggable attention computation with KV cache.
+Implementations: `CpuAttentionBackend`, `GpuAttentionBackend`.

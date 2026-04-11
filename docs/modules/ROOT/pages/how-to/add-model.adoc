@@ -1,0 +1,86 @@
+= Add a New Model Architecture
+:description: How to add support for a new transformer architecture.
+
+== Option A: DSL Network Definition (Recommended)
+
+If the architecture is a standard transformer variant, define it using the network DSL.
+
+=== 1. Create the Network Definition
+
+Create a new file in `llm-inference/<family>/src/commonMain/kotlin/`:
+
+[source,kotlin]
+----
+public inline fun <reified T : DType, V> myModelNetwork(
+    metadata: LlamaModelMetadata
+): Module<T, V> {
+    return sequential<T, V> {
+        val dslImpl = this as NeuralNetworkDslImpl<T, V>
+        dslImpl.embedding(metadata.vocabSize, metadata.embeddingLength, id = "token_embd")
+
+        val nnCtx = DefaultNeuralNetworkExecutionContext()
+        for (layer in 0 until metadata.blockCount) {
+            val stage = StageImpl<T, V>(nnCtx, "blk.$layer", T::class)
+            // Define your layer architecture here
+            stage.rmsNorm(dim, eps, id = "attn_norm")
+            stage.multiHeadAttention(dim, nHeads, nKVHeads, causal = true, id = "attn") {
+                rope(headDim, seqLen)
+                kvCache(seqLen, nKVHeads, headDim)
+            }
+            stage.residual()
+            stage.rmsNorm(dim, eps, id = "ffn_norm")
+            stage.swiGluFFN(dim, ffnDim, id = "ffn")
+            stage.residual()
+
+            dslImpl.modules += HybridTransformerBlock(stage.modules.toList(), name = "blk.$layer")
+        }
+
+        dslImpl.rmsNorm(dim, eps, id = "output_norm")
+        dslImpl.modules += VoidDenseModule<T, V>("output", vocabSize, dim)
+    }
+}
+----
+
+=== 2. Create a Weight Name Resolver
+
+Map DSL module paths to GGUF tensor names:
+
+[source,kotlin]
+----
+object MyModelGGUFNameResolver : WeightNameResolver {
+    override fun resolve(modulePath: String, paramName: String): String? {
+        // Map "blk.0/attn/q_proj" -> "blk.0.attn_q.weight"
+    }
+}
+----
+
+=== 3. Register in ModelRegistry
+
+Add the architecture to `ModelFamily` enum in `llm-core/.../ModelRegistry.kt`:
+
+[source,kotlin]
+----
+MY_MODEL("mymodel", "My Model", true, "chatml");
+----
+
+And update `ModelRegistry.detect()`.
+
+== Option B: Hand-Coded Runtime
+
+For architectures with non-standard components (e.g., DeltaNet, sliding window), extend `DecoderRuntime`:
+
+[source,kotlin]
+----
+class MyModelRuntime<T : DType>(
+    // ...
+) : DecoderRuntime<T>(ctx, dtype) {
+    override fun embedToken(tokenId: Int): Tensor<T, Float> { ... }
+    override fun runLayer(layerIdx: Int, x: Tensor<T, Float>): Tensor<T, Float> { ... }
+    override fun outputNorm(x: Tensor<T, Float>): Tensor<T, Float> { ... }
+    override fun outputProject(x: Tensor<T, Float>): Tensor<T, Float> { ... }
+    override fun resetState() { ... }
+}
+----
+
+NOTE: DSL definitions are preferred because they enable compute graph optimization.
+Hand-coded runtimes should only be used for architectures the DSL cannot express.

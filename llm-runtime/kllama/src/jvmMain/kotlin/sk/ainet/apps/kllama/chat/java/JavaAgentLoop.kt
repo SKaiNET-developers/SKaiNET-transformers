@@ -51,9 +51,7 @@ public class JavaAgentLoop private constructor(
             runtime = session.runtime,
             template = template,
             toolRegistry = toolRegistry,
-            eosTokenId = session.tokenizer.let {
-                if (it is sk.ainet.apps.kllama.GGUFTokenizer) it.eosId else 2
-            },
+            eosTokenId = session.tokenizer.eosTokenId,
             config = config,
             decode = { session.tokenizer.decode(it) }
         )
@@ -81,9 +79,7 @@ public class JavaAgentLoop private constructor(
             runtime = session.runtime,
             template = template,
             toolRegistry = toolRegistry,
-            eosTokenId = session.tokenizer.let {
-                if (it is sk.ainet.apps.kllama.GGUFTokenizer) it.eosId else 2
-            },
+            eosTokenId = session.tokenizer.eosTokenId,
             config = config,
             decode = { session.tokenizer.decode(it) }
         )

@@ -40,6 +40,9 @@ public class HuggingFaceTokenizer private constructor(
     private val maxLength: Int = 512
 ) : Tokenizer {
 
+    override val eosTokenId: Int get() = tokenToId[SEP_TOKEN] ?: 102
+    override val bosTokenId: Int get() = tokenToId[CLS_TOKEN] ?: 101
+
     public companion object {
         private const val CLS_TOKEN = "[CLS]"
         private const val SEP_TOKEN = "[SEP]"
@@ -112,7 +115,7 @@ public class HuggingFaceTokenizer private constructor(
     private val sepId: Int = tokenToId[SEP_TOKEN] ?: error("Vocab missing $SEP_TOKEN")
     private val unkId: Int = tokenToId[UNK_TOKEN] ?: error("Vocab missing $UNK_TOKEN")
 
-    public val vocabSize: Int get() = tokenToId.size
+    override val vocabSize: Int get() = tokenToId.size
 
     /**
      * Encode text into token IDs with [CLS] and [SEP] tokens.

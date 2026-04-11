@@ -5,9 +5,11 @@ import sk.ainet.apps.llm.Tokenizer
 class TokenizerImpl(
     private val vocab: Array<String?>,
     private val vocabScores: FloatArray,
+    override val bosTokenId: Int = 1,
+    override val eosTokenId: Int = 2,
 ) : Tokenizer {
 
-    private val vocabSize = vocab.size
+    override val vocabSize: Int = vocab.size
     // ----------------------------------------------------------------------------
     // byte pair encoding (BPE) tokenizer, encodes strings into tokens so we can prompt
     private fun strLookup(str: String, vocabSize: Int): Int {

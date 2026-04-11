@@ -15,14 +15,14 @@ public class HuggingFaceBPETokenizer internal constructor(
     private val vocab: List<String>,
     private val tokenToId: Map<String, Int>,
     private val scores: FloatArray,
-    private val bosTokenId: Int,
-    private val eosTokenId: Int,
+    override val bosTokenId: Int,
+    override val eosTokenId: Int,
     private val unkTokenId: Int,
     private val addBosToken: Boolean,
     private val addEosToken: Boolean
 ) : Tokenizer {
 
-    public val vocabSize: Int get() = vocab.size
+    override val vocabSize: Int get() = vocab.size
 
     override fun encode(text: String): IntArray {
         if (text.isEmpty()) return intArrayOf()

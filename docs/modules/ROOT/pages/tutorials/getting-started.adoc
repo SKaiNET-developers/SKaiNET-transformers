@@ -1,0 +1,66 @@
+= Getting Started
+:description: Run your first LLM inference with SKaiNET Transformers.
+
+This tutorial walks you through running text generation with a GGUF model using the unified `skainet` CLI.
+
+== Prerequisites
+
+* JDK 21+ with preview features (Vector API)
+* A GGUF model file (e.g., `tinyllama-1.1b-chat-v1.0.Q8_0.gguf`)
+
+== Step 1: Build the Project
+
+[source,bash]
+----
+./gradlew :llm-apps:skainet-cli:classes
+----
+
+== Step 2: Run Text Generation
+
+[source,bash]
+----
+./gradlew :llm-apps:skainet-cli:run \
+  --args="-m tinyllama-1.1b-chat-v1.0.Q8_0.gguf 'The capital of France is'"
+----
+
+Expected output:
+
+----
+Architecture: llama, Family: LLaMA / Mistral
+Backend: CPU (SIMD)
+Loading GGUF model (LLaMA / Mistral, streaming)...
+Generating 64 tokens with temperature=0.8...
+---
+The capital of France is Paris. It is also the largest city in France...
+---
+tok/s: 3.4
+----
+
+The CLI auto-detects the model architecture from GGUF metadata -- no need to specify which runner to use.
+
+== Step 3: Interactive Chat
+
+[source,bash]
+----
+./gradlew :llm-apps:skainet-cli:run \
+  --args="-m Qwen3-1.7B-Q8_0.gguf --chat"
+----
+
+This starts a multi-turn conversation with the model using the auto-detected chat template.
+
+== Step 4: Tool Calling Demo
+
+[source,bash]
+----
+./gradlew :llm-apps:skainet-cli:run \
+  --args="-m Qwen3-1.7B-Q8_0.gguf --demo"
+----
+
+The demo provides `calculator` and `list_files` tools.
+Type a question like "What is 2 + 2?" and the model will call the calculator tool.
+
+== What's Next
+
+* xref:tutorials/tool-calling.adoc[Tool calling in depth] -- integrate tool calling into your own application
+* xref:how-to/run-unified-cli.adoc[CLI reference] -- all available flags and options
+* xref:reference/architecture.adoc[Architecture overview] -- understand the pipeline
