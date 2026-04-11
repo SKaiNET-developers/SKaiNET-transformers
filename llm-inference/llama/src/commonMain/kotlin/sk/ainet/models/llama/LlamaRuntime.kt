@@ -54,29 +54,9 @@ public class LlamaRuntime<T : DType>(
         const val DEFAULT_BOS_TOKEN: Int = 1
     }
 
-    /** Pre-transposed weight tensors per layer — avoids re-creating lazy transpose wrappers every forward pass. */
-    private class TransposedLayerWeights<T : DType>(
-        val wqT: Tensor<T, Float>,
-        val wkT: Tensor<T, Float>,
-        val wvT: Tensor<T, Float>,
-        val woT: Tensor<T, Float>,
-        val ffnGateT: Tensor<T, Float>,
-        val ffnDownT: Tensor<T, Float>,
-        val ffnUpT: Tensor<T, Float>,
-    )
-
-    private val transposedLayers: List<TransposedLayerWeights<T>> = weights.layers.map { layer ->
-        TransposedLayerWeights(
-            wqT = layer.wq.t(),
-            wkT = layer.wk.t(),
-            wvT = layer.wv.t(),
-            woT = layer.wo.t(),
-            ffnGateT = layer.ffnGate.t(),
-            ffnDownT = layer.ffnDown.t(),
-            ffnUpT = layer.ffnUp.t(),
-        )
-    }
-    private val outputWeightT: Tensor<T, Float> = weights.outputWeight.t()
+    // NOTE: weights are transposed on-the-fly during forward pass rather than
+    // pre-transposed at init. This halves peak memory (~31GB saved for 8B models)
+    // at the cost of per-token transpose allocations that the GC reclaims.
 
     // ---- DecoderRuntime abstract properties ----
     override val dim: Int = weights.metadata.embeddingLength
@@ -131,7 +111,6 @@ public class LlamaRuntime<T : DType>(
         embedding.forward(intArrayOf(tokenId), ctx)
 
     override fun runLayer(layerIdx: Int, x: Tensor<T, Float>): Tensor<T, Float> {
-        val tl = transposedLayers[layerIdx]
         val layer = weights.layers[layerIdx]
 
         // QKV: try compiled graph first, fall back to individual ops
@@ -140,9 +119,9 @@ public class LlamaRuntime<T : DType>(
         } ?: run {
             val attnNorm = attnNorms[layerIdx].forward(x, ctx)
             Triple(
-                attnNorm.matmul(tl.wqT),
-                attnNorm.matmul(tl.wkT),
-                attnNorm.matmul(tl.wvT)
+                attnNorm.matmul(layer.wq.t()),
+                attnNorm.matmul(layer.wk.t()),
+                attnNorm.matmul(layer.wv.t())
             )
         }
 
@@ -156,14 +135,14 @@ public class LlamaRuntime<T : DType>(
         val attnOut = attentionBackend.attention(q, k, v, layerIdx, position)
 
         // Output projection + residual
-        val afterAttn = x + attnOut.matmul(tl.woT)
+        val afterAttn = x + attnOut.matmul(layer.wo.t())
 
         // FFN: try compiled graph first, fall back to individual ops
         return graphAccelerator?.runFFN(layerIdx, afterAttn) ?: run {
             val ffnNorm = ffnNorms[layerIdx].forward(afterAttn, ctx)
-            val gate = ffnNorm.matmul(tl.ffnGateT).silu()
-            val up = ffnNorm.matmul(tl.ffnUpT)
-            val ffnOut = (gate * up).matmul(tl.ffnDownT)
+            val gate = ffnNorm.matmul(layer.ffnGate.t()).silu()
+            val up = ffnNorm.matmul(layer.ffnUp.t())
+            val ffnOut = (gate * up).matmul(layer.ffnDown.t())
             afterAttn + ffnOut
         }
     }
@@ -172,7 +151,7 @@ public class LlamaRuntime<T : DType>(
         outputNormLayer.forward(x, ctx)
 
     override fun outputProject(x: Tensor<T, Float>): Tensor<T, Float> =
-        x.matmul(outputWeightT)
+        x.matmul(weights.outputWeight.t())
 
     override fun resetState() {
         attentionBackend.reset()
@@ -287,11 +266,10 @@ public class LlamaRuntime<T : DType>(
         var x = embedding.forward(tokenIds, ctx)
 
         weights.layers.forEachIndexed { layerIdx, layer ->
-            val tl = transposedLayers[layerIdx]
             val attnNorm = attnNorms[layerIdx].forward(x, ctx)
-            var q = attnNorm.matmul(tl.wqT)
-            var k = attnNorm.matmul(tl.wkT)
-            val v = attnNorm.matmul(tl.wvT)
+            var q = attnNorm.matmul(layer.wq.t())
+            var k = attnNorm.matmul(layer.wk.t())
+            val v = attnNorm.matmul(layer.wv.t())
 
             if (hasQKNorm) {
                 q = applyPerHeadRMSNorm(q, nHeads, headDim, layer.qNorm!!)
@@ -299,19 +277,19 @@ public class LlamaRuntime<T : DType>(
             }
 
             val attnOut = attentionBackend.batchAttention(q, k, v, layerIdx, startPos)
-                ?: return batchForwardFallback(tokenIds, startPos) // shouldn't happen but be safe
+                ?: return batchForwardFallback(tokenIds, startPos)
 
-            val afterAttn = x + attnOut.matmul(tl.woT)
+            val afterAttn = x + attnOut.matmul(layer.wo.t())
 
             val ffnNorm = ffnNorms[layerIdx].forward(afterAttn, ctx)
-            val gate = ffnNorm.matmul(tl.ffnGateT).silu()
-            val up = ffnNorm.matmul(tl.ffnUpT)
-            val ffnOut = (gate * up).matmul(tl.ffnDownT)
+            val gate = ffnNorm.matmul(layer.ffnGate.t()).silu()
+            val up = ffnNorm.matmul(layer.ffnUp.t())
+            val ffnOut = (gate * up).matmul(layer.ffnDown.t())
             x = afterAttn + ffnOut
         }
 
         val norm = outputNormLayer.forward(x, ctx)
-        val logits = norm.matmul(outputWeightT)
+        val logits = norm.matmul(weights.outputWeight.t())
         position = startPos + tokenIds.size
         return logits
     }
