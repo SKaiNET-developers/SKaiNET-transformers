@@ -24,20 +24,27 @@ permissions:
 jobs:
   build-docs:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+
+      - name: Build custom Antora image
+        run: |
+          docker build \
+            -t skainet-antora:local \
+            -f docs/.docker/Dockerfile \
+            docs/.docker/
 
       - name: Build Antora site
         run: |
           docker run --rm \
             -v "${{ github.workspace }}:/antora" \
             --workdir /antora/docs \
-            --entrypoint sh \
-            docker.io/antora/antora:3.1 \
-            -c "npm i asciidoctor-kroki && antora --stacktrace antora-playbook.yml"
+            skainet-antora:local \
+            --stacktrace \
+            antora-playbook.yml
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3

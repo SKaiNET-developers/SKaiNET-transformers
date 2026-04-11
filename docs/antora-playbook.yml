@@ -11,10 +11,10 @@ content:
 asciidoc:
   extensions:
     - asciidoctor-kroki
-
-kroki:
-  server-url: https://kroki.io
-  fetch-diagram: true
+  attributes:
+    # Use local mermaid-cli via Kroki (no external server needed when
+    # built with the custom Docker image in docs/.docker/Dockerfile)
+    kroki-fetch-diagram: true
 
 ui:
   bundle:
