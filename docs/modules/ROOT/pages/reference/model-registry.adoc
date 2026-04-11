@@ -1,0 +1,106 @@
+= Model Registry
+:description: Architecture auto-detection and model family enumeration.
+
+== ModelFamily
+
+.`llm-core/src/commonMain/kotlin/sk/ainet/apps/llm/ModelRegistry.kt`
+
+[source,kotlin]
+----
+enum class ModelFamily(
+    val id: String,
+    val displayName: String,
+    val supportsToolCalling: Boolean,
+    val chatTemplateFamily: String?
+)
+----
+
+[cols="1,2,1,1,1"]
+|===
+|Family |Display Name |Tool Calling |Template |GGUF Architectures
+
+|`LLAMA`
+|LLaMA / Mistral
+|Yes
+|`llama3`
+|`llama`, `mistral`
+
+|`QWEN`
+|Qwen
+|Yes
+|`qwen`
+|`qwen2`, `qwen3`, `qwen35`
+
+|`GEMMA`
+|Gemma
+|Yes
+|`gemma`
+|`gemma`, `gemma2`, `gemma3`, `gemma3n`
+
+|`APERTUS`
+|Apertus
+|No
+|`chatml`
+|`apertus`
+
+|`BERT`
+|BERT
+|No
+|--
+|`bert`
+
+|`VOXTRAL`
+|Voxtral TTS
+|No
+|--
+|`voxtral`
+|===
+
+== ModelRegistry
+
+[source,kotlin]
+----
+object ModelRegistry {
+    fun detect(architecture: String): ModelFamily
+    fun detect(architecture: String, chatTemplate: String?): ModelFamily
+}
+----
+
+Detects model family from the GGUF `general.architecture` field.
+
+== UnifiedModelLoader
+
+.`llm-core/src/commonMain/kotlin/sk/ainet/apps/llm/UnifiedModelLoader.kt`
+
+[source,kotlin]
+----
+object UnifiedModelLoader {
+    fun peek(sourceProvider: () -> RandomAccessSource): GGUFModelInfo
+}
+----
+
+Extracts model info without loading weights:
+
+[source,kotlin]
+----
+data class GGUFModelInfo(
+    val architecture: String,    // e.g., "qwen3"
+    val family: ModelFamily,     // e.g., ModelFamily.QWEN
+    val contextLength: Int,
+    val vocabSize: Int,
+    val blockCount: Int,
+    val embeddingLength: Int,
+    val fields: Map<String, Any?>
+)
+----
+
+== Usage
+
+[source,kotlin]
+----
+val info = UnifiedModelLoader.peek {
+    JvmRandomAccessSource.open(modelPath)
+}
+println("${info.family.displayName}: ${info.blockCount} layers, ${info.vocabSize} vocab")
+// "Qwen: 36 layers, 151936 vocab"
+----

@@ -1,0 +1,71 @@
+= Tokenizer API
+:description: Tokenizer interface and implementations.
+
+== Interface
+
+.`llm-core/src/commonMain/kotlin/sk/ainet/apps/llm/Tokenizer.kt`
+[source,kotlin]
+----
+interface Tokenizer {
+    fun encode(text: String): IntArray
+    fun decode(tokens: IntArray): String
+    fun decode(token: Int): String
+    val eosTokenId: Int
+    val bosTokenId: Int
+    val vocabSize: Int
+}
+----
+
+== Implementations
+
+=== GGUFTokenizer
+
+.`llm-core/src/commonMain/kotlin/sk/ainet/apps/llm/tokenizer/GGUFTokenizer.kt`
+
+Auto-detects tokenizer type from GGUF metadata:
+
+* *BPE* (GPT-2 style) -- used by Qwen, Mistral
+* *SentencePiece* -- used by LLaMA
+* *WordPiece* -- used by BERT
+
+Factory methods:
+
+[source,kotlin]
+----
+// From GGUF file (streaming, memory-efficient)
+val tokenizer = GGUFTokenizer.fromRandomAccessSource(source)
+
+// From HuggingFace tokenizer.json
+val tokenizer = GGUFTokenizer.fromTokenizerJson(jsonString)
+----
+
+=== HuggingFaceBPETokenizer
+
+.`llm-core/src/commonMain/kotlin/sk/ainet/apps/llm/tokenizer/HuggingFaceBPETokenizer.kt`
+
+SentencePiece-style BPE with `\u2581` space marker.
+Used for Gemma, LLaMA models loaded from SafeTensors.
+
+=== TekkenTokenizerAdapter
+
+.`llm-inference/voxtral/src/commonMain/kotlin/sk/ainet/models/voxtral/TekkenTokenizerAdapter.kt`
+
+Wraps the Tekken tokenizer from skainet-io-core for Voxtral TTS models.
+
+== TokenizerFactory
+
+.`llm-core/src/commonMain/kotlin/sk/ainet/apps/llm/tokenizer/TokenizerFactory.kt`
+
+Unified factory for creating tokenizers:
+
+[source,kotlin]
+----
+// From GGUF file
+val tokenizer = TokenizerFactory.fromGGUF(randomAccessSource)
+
+// From tokenizer.json string
+val tokenizer = TokenizerFactory.fromTokenizerJson(jsonString)
+
+// From HuggingFace format with optional config
+val tokenizer = TokenizerFactory.fromHuggingFace(tokenizerJson, configJson)
+----

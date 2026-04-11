@@ -1,0 +1,128 @@
+= CLI Reference
+:description: Complete reference for skainet and model-specific CLI tools.
+
+== skainet (Unified CLI)
+
+[source]
+----
+skainet -m <model.gguf> [options] [prompt]
+----
+
+=== Options
+
+[cols="2,1,3"]
+|===
+|Flag |Default |Description
+
+|`-m, --model`
+|_(required)_
+|Path to `.gguf` model file
+
+|`-s, --steps`
+|`64`
+|Number of tokens to generate
+
+|`-k, --temperature`
+|`0.8`
+|Sampling temperature (0 = greedy)
+
+|`--chat`
+|
+|Interactive multi-turn chat mode
+
+|`--agent`
+|
+|Interactive agent mode with tool calling
+
+|`--demo`
+|
+|Tool calling demo (interactive or single-shot with prompt)
+
+|`--template=NAME`
+|_(auto)_
+|Force chat template: `llama3`, `chatml`, `qwen`, `gemma`
+
+|`--context=N`
+|`4096`
+|Cap context length (reduces memory)
+
+|`-h, --help`
+|
+|Show help text
+|===
+
+=== Examples
+
+[source,bash]
+----
+# Text generation
+skainet -m model.gguf "The meaning of life is"
+
+# Chat
+skainet -m model.gguf --chat
+
+# Tool calling demo (interactive)
+skainet -m model.gguf --demo
+
+# Tool calling demo (single-shot, for testing)
+skainet -m model.gguf --demo "What is 2 + 2?"
+
+# Low temperature, more tokens
+skainet -m model.gguf -s 128 -k 0.3 "Explain quantum computing"
+----
+
+== kllama
+
+[source]
+----
+kllama -m <model> [-t <tokenizer>] [-s <steps>] [-k <temp>] [-p <systemprompt>] [--chat] [--agent] [--demo] [--template=NAME] <prompt>
+----
+
+Same options as `skainet`, plus:
+
+[cols="2,3"]
+|===
+|Flag |Description
+
+|`-t, --tokenizer`
+|Path to external tokenizer file (auto-detected for GGUF)
+
+|`-p, --systemprompt`
+|System prompt prepended to user message
+
+|`--backend=NAME`
+|Force compute backend (see `--list-backends`)
+
+|`--list-backends`
+|List available compute backends and exit
+|===
+
+Supports `.gguf`, `.safetensors`, and `.bin` (Karpathy) model formats.
+
+== Gradle Tasks
+
+[cols="2,3"]
+|===
+|Task |Description
+
+|`:llm-apps:skainet-cli:run`
+|Unified CLI (auto-detects architecture)
+
+|`:llm-apps:kllama-cli:run`
+|LLaMA/Qwen/Mistral CLI
+
+|`:llm-runtime:kqwen:jvmRun`
+|Qwen CLI (basic generation)
+
+|`:llm-runtime:kgemma:jvmRun`
+|Gemma CLI
+
+|`:llm-apps:kapertus-cli:run`
+|Apertus CLI
+
+|`:llm-apps:kvoxtral-cli:run`
+|Voxtral TTS CLI
+
+|`:llm-apps:kbert-cli:run`
+|BERT embeddings CLI
+|===

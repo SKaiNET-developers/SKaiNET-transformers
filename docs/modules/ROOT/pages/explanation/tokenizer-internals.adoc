@@ -1,0 +1,68 @@
+= Tokenizer Internals
+:description: How tokenization works across different model families.
+
+== Tokenizer Types
+
+Different model families use different tokenization strategies.
+The `GGUFTokenizer` auto-detects the type from GGUF metadata.
+
+=== SentencePiece (LLaMA, Gemma)
+
+* Space is encoded as `\u2581` (lower one eighth block)
+* Subword units are learned from training data
+* GGUF metadata field: `tokenizer.ggml.model = "llama"` or `"sentencepiece"`
+
+=== BPE (Qwen, Mistral, GPT-2)
+
+* Byte-level BPE: text is converted to UTF-8 bytes, each byte mapped to a Unicode character
+* The byte-to-Unicode mapping avoids control characters (bytes 0-32 map to U+0100+)
+* Space is represented as `\u0120` (Latin capital G with dot above)
+* GGUF metadata field: `tokenizer.ggml.model = "gpt2"` or `"bpe"`
+
+=== WordPiece (BERT)
+
+* Subwords prefixed with `##` (e.g., "playing" -> `["play", "##ing"]`)
+* Uses `[CLS]`, `[SEP]`, `[UNK]`, `[PAD]` special tokens
+
+== Special Token Handling
+
+Chat templates use special tokens like `<|im_start|>` and `<|im_end|>` to delimit messages.
+These must be encoded as single tokens, not character-split.
+
+The `GGUFTokenizer` collects special tokens from the vocabulary (tokens matching `<|...|>`) and splits text around them before applying BPE.
+This ensures `<|im_start|>system` encodes as `[151644, 8948]` (two tokens), not as individual characters.
+
+== GGUF Tokenizer Fields
+
+[cols="2,3"]
+|===
+|Field |Description
+
+|`tokenizer.ggml.model`
+|Tokenizer type: `"llama"`, `"gpt2"`, `"bert"`
+
+|`tokenizer.ggml.tokens`
+|Vocabulary as string array
+
+|`tokenizer.ggml.scores`
+|BPE merge scores (SentencePiece)
+
+|`tokenizer.ggml.merges`
+|BPE merge pairs (GPT-2 style)
+
+|`tokenizer.ggml.bos_token_id`
+|Beginning-of-sequence token ID
+
+|`tokenizer.ggml.eos_token_id`
+|End-of-sequence token ID
+
+|`tokenizer.ggml.token_type`
+|Per-token type (normal, control, unknown, byte)
+|===
+
+== TokenizerFactory
+
+`TokenizerFactory` in `llm-core` provides a unified entry point.
+It delegates to `GGUFTokenizer` or `HuggingFaceBPETokenizer` based on the source format.
+
+The factory is the recommended way to create tokenizers -- callers don't need to know which implementation is used.

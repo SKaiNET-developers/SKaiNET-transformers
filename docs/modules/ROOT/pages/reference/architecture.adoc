@@ -1,0 +1,69 @@
+= Architecture Overview
+:description: Module structure and dependency graph of SKaiNET Transformers.
+
+== Module Structure
+
+----
+llm-core                    Core abstractions (Tokenizer, InferenceRuntime, ModelRegistry)
+llm-agent                   Chat templates, tool calling, AgentLoop, ChatSession
+llm-inference/
+  llama/                    LLaMA/Qwen network definition and weight loading
+  apertus/                  Apertus network definition and weight loading
+  gemma/                    Gemma runtime and weight loading
+  bert/                     BERT network definition
+  voxtral/                  Voxtral TTS runtimes
+llm-runtime/
+  kllama/                   LLaMA/Qwen CPU runtime, attention backend, tokenizer
+  kqwen/                    Qwen-specific runner CLI
+  kgemma/                   Gemma runner CLI
+  kapertus/                 Apertus runner CLI
+llm-apps/
+  skainet-cli/              Unified CLI (auto-detects architecture)
+  kllama-cli/               LLaMA-specific CLI
+  kapertus-cli/             Apertus-specific CLI
+  kbert-cli/                BERT CLI
+  kvoxtral-cli/             Voxtral TTS CLI
+llm-performance/            Benchmarking module
+----
+
+== Dependency Graph
+
+----
+llm-apps/skainet-cli
+  -> llm-runtime/kllama -> llm-inference/llama -> llm-core
+  -> llm-agent -> llm-core
+  -> skainet-backend-cpu (SIMD tensor ops)
+  -> skainet-io-gguf (GGUF parsing)
+
+llm-agent
+  -> llm-core (InferenceRuntime, Tokenizer)
+
+llm-core
+  -> skainet-lang-core (tensor types, DSL)
+  -> skainet-compile-dag (compute graph)
+  -> skainet-compile-opt (optimization passes)
+  -> skainet-io-core (I/O abstractions)
+  -> skainet-io-gguf (GGUF reader)
+----
+
+== Key Interfaces
+
+`InferenceRuntime<T>`::
+Minimal inference contract: `forward(tokenId): Tensor` and `reset()`.
+All model runtimes implement this.
+
+`Tokenizer`::
+Encode/decode text with `eosTokenId`, `bosTokenId`, `vocabSize`.
+Implementations: `GGUFTokenizer`, `HuggingFaceBPETokenizer`, `TekkenTokenizerAdapter`.
+
+`ChatTemplate`::
+Format conversation messages into prompt strings and parse tool calls from output.
+Implementations: `QwenChatTemplate`, `Llama3ChatTemplate`, `GemmaChatTemplate`, `ChatMLTemplate`.
+
+`DecoderRuntime<T>`::
+Template method base class for decoder-only transformers.
+Provides shared `forward()`, `generate()`, `sample()` logic.
+
+`AttentionBackend<T>`::
+Pluggable attention computation with KV cache.
+Implementations: `CpuAttentionBackend`, `GpuAttentionBackend`.

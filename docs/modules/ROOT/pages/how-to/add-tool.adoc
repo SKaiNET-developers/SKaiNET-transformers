@@ -1,0 +1,79 @@
+= Add a Custom Tool
+:description: Implement a tool that models can call during agent mode.
+
+== Implement the Tool Interface
+
+[source,kotlin]
+----
+import sk.ainet.apps.kllama.chat.*
+import kotlinx.serialization.json.*
+
+class DatabaseQueryTool(private val db: Database) : Tool {
+
+    override val definition = ToolDefinition(
+        name = "query_db",
+        description = "Execute a read-only SQL query and return results.",
+        parameters = buildJsonObject {
+            put("type", "object")
+            putJsonObject("properties") {
+                putJsonObject("sql") {
+                    put("type", "string")
+                    put("description", "The SQL SELECT query to execute")
+                }
+            }
+            putJsonArray("required") { add(JsonPrimitive("sql")) }
+        }
+    )
+
+    override fun execute(arguments: JsonObject): String {
+        val sql = arguments["sql"]?.jsonPrimitive?.content
+            ?: return "Error: missing 'sql' argument"
+        if (!sql.trimStart().startsWith("SELECT", ignoreCase = true)) {
+            return "Error: only SELECT queries are allowed"
+        }
+        return db.query(sql).toString()
+    }
+}
+----
+
+== Register and Use
+
+[source,kotlin]
+----
+val session = ChatSession(runtime, tokenizer, metadata)
+val response = session.runSingleTurn(
+    prompt = "How many users signed up last week?",
+    tools = listOf(DatabaseQueryTool(db))
+)
+----
+
+Or register in a `ToolRegistry` for multi-turn conversations:
+
+[source,kotlin]
+----
+val registry = ToolRegistry()
+registry.register(DatabaseQueryTool(db))
+registry.register(CalculatorTool())
+
+val agentLoop = session.createAgentLoop(registry)
+----
+
+== Tool Definition Format
+
+The `parameters` field follows https://json-schema.org/[JSON Schema]:
+
+[source,json]
+----
+{
+  "type": "object",
+  "properties": {
+    "param_name": {
+      "type": "string",
+      "description": "What this parameter does"
+    }
+  },
+  "required": ["param_name"]
+}
+----
+
+The model receives this schema in the system prompt and generates tool calls matching it.

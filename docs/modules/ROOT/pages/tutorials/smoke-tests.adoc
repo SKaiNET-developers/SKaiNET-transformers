@@ -1,0 +1,117 @@
+= Running Smoke Tests
+:description: Quick validation that models load and generate correctly.
+
+The smoke test suite verifies model loading, text generation, and optionally tool calling across all configured models.
+
+== Quick Start
+
+[source,bash]
+----
+./tests/smoke/smoke-test.sh
+----
+
+This uses `tests/smoke/smoke-models.json` to determine which models to test.
+
+== Configuration
+
+Edit `tests/smoke/smoke-models.json`:
+
+[source,json]
+----
+{
+  "defaults": {
+    "prompt": "The capital of France is",
+    "steps": 32,
+    "temperature": 0.0
+  },
+  "models": [
+    {
+      "name": "TinyLlama-1.1B-Q8",
+      "runner": "kllama",
+      "model": "tinyllama-1.1b-chat-v1.0.Q8_0.gguf",
+      "format": "gguf"
+    },
+    {
+      "name": "Qwen3-1.7B-Q8",
+      "runner": "kqwen",
+      "model": "Qwen3-1.7B-Q8_0.gguf",
+      "format": "gguf",
+      "toolCalling": {
+        "prompt": "What is 2 + 2?",
+        "steps": 256
+      }
+    }
+  ]
+}
+----
+
+=== Model Fields
+
+[cols="1,1,3"]
+|===
+|Field |Required |Description
+
+|`name`
+|Yes
+|Display name in the summary table
+
+|`runner`
+|Yes
+|Runner to use: `skainet`, `kllama`, `kqwen`, `kgemma`, `kapertus`, `kvoxtral`, `kbert`
+
+|`model`
+|Yes
+|Path to model file (`~` is expanded, relative paths use `MODELS_ROOT`)
+
+|`format`
+|No
+|`gguf` or `safetensors` (informational)
+
+|`prompt`
+|No
+|Override the default prompt
+
+|`steps`
+|No
+|Override the default step count
+
+|`toolCalling`
+|No
+|Object with `prompt` and `steps` to enable tool calling test
+|===
+
+== Tool Calling Tests
+
+Models with a `toolCalling` field get an additional test phase.
+The smoke test runs `kllama --demo` in single-shot mode and checks for `[Tool Call]` in the output.
+
+Results are classified as:
+
+* *OK* -- model produced a tool call
+* *WARN* -- model ran but did not produce a tool call (model too small or prompt not triggering)
+* *FAIL* -- model crashed or failed to load
+
+== Output
+
+The test produces two summary tables:
+
+----
+Summary -- Generation
+  Status Model                          Runner       Size      tok/s     Wall
+  OK     TinyLlama-1.1B-Q8              kllama       1.1G       3.4    11.8s
+  OK     Qwen3-1.7B-Q8                  kqwen        2.0G       2.0    20.8s
+  Pass: 2  Fail: 0  Total: 2
+
+Summary -- Tool Calling
+  Status Model                          Tool                Wall
+  OK     Qwen3-1.7B-Q8                  calculator        45.2s
+  Pass: 1  Fail: 0  Total: 1
+----
+
+== Adding a New Model
+
+1. Download or locate the GGUF file
+2. Add an entry to `smoke-models.json`
+3. Set `runner` to match the model architecture
+4. Optionally add `toolCalling` for models that support it
+5. Run `./tests/smoke/smoke-test.sh`

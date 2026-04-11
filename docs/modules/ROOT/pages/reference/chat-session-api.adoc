@@ -1,0 +1,89 @@
+= ChatSession API
+:description: Unified abstraction for chat and tool calling with any model.
+
+== Overview
+
+`ChatSession` bundles an `InferenceRuntime`, `Tokenizer`, and `ModelMetadata` to provide chat and tool calling capabilities for any model.
+It lives in the `llm-agent` module and has no dependencies on specific runners.
+
+.`llm-agent/src/commonMain/kotlin/sk/ainet/apps/kllama/chat/ChatSession.kt`
+
+== Constructor
+
+[source,kotlin]
+----
+class ChatSession<T : DType>(
+    val runtime: InferenceRuntime<T>,
+    val tokenizer: Tokenizer,
+    val metadata: ModelMetadata = ModelMetadata(),
+    templateName: String? = null       // override auto-detection
+)
+----
+
+== Methods
+
+=== runSingleTurn
+
+Run a single agent round with the given prompt and tools.
+
+[source,kotlin]
+----
+fun runSingleTurn(
+    prompt: String,
+    tools: List<Tool> = emptyList(),
+    maxTokens: Int = 256,
+    temperature: Float = 0.7f,
+    listener: AgentListener? = null
+): String
+----
+
+=== createAgentLoop
+
+Create an `AgentLoop` configured for this session.
+
+[source,kotlin]
+----
+fun createAgentLoop(
+    toolRegistry: ToolRegistry,
+    maxTokens: Int = 512,
+    temperature: Float = 0.7f
+): AgentLoop<T>
+----
+
+=== Properties
+
+`chatTemplate: ChatTemplate`:: The resolved chat template for this session.
+`providerFamily: String`:: The resolved tool calling provider family name (e.g., "qwen", "llama3").
+
+=== Convenience Methods
+
+`encode(text: String): IntArray`:: Encode text using the session's tokenizer.
+`decode(tokenId: Int): String`:: Decode a token ID using the session's tokenizer.
+
+== Usage Example
+
+[source,kotlin]
+----
+// Any runner can create a ChatSession
+val session = ChatSession(
+    runtime = myRuntime,
+    tokenizer = myTokenizer,
+    metadata = ModelMetadata(family = "qwen", architecture = "qwen3")
+)
+
+// Single-shot tool calling
+val answer = session.runSingleTurn(
+    prompt = "What is 42 * 7?",
+    tools = listOf(CalculatorTool())
+)
+
+// Multi-turn agent
+val registry = ToolRegistry()
+registry.register(CalculatorTool())
+val loop = session.createAgentLoop(registry)
+val messages = mutableListOf(
+    ChatMessage(role = ChatRole.SYSTEM, content = "You are helpful."),
+    ChatMessage(role = ChatRole.USER, content = "Calculate 42 * 7")
+)
+loop.runWithEncoder(messages, encode = { session.encode(it) })
+----

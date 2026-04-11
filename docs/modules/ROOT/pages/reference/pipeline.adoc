@@ -1,0 +1,90 @@
+= Inference Pipeline
+:description: Data flow from GGUF file to generated text.
+
+== Pipeline Stages
+
+[source]
+----
+GGUF/SafeTensors File
+    |
+    v
+[1] WeightLoader         Parse metadata + tensor data
+    |
+    v
+[2] DSL Network Def      llamaNetwork(), qwenNetwork(), apertusNetwork()
+    |
+    v
+[3] ComputeGraph (DAG)   Record forward pass into directed acyclic graph
+    |
+    v
+[4] Optimization          TransposeElim -> WeightDedup -> LLMFusion -> DCE
+    |
+    v
+[5] Executor              ComputeGraphExecutor with fused kernels
+    |
+    v
+[6] InferenceRuntime      forward(tokenId) -> logits, generate(), sample()
+    |
+    v
+[7] Tokenizer             encode(text) -> IntArray, decode(token) -> String
+    |
+    v
+[8] ChatPipeline          ChatTemplate + AgentLoop + ToolRegistry
+    |
+    v
+    Generated text / Tool call results
+----
+
+== Stage Details
+
+=== [1] Weight Loading
+
+`LlamaWeightLoader` supports:
+
+* *Sequential loading* -- entire file in memory (small models < 2GB)
+* *Streaming loading* -- metadata-only in memory, tensors on demand (any size)
+* *Quantization policies* -- `DEQUANTIZE_TO_FP32`, `NATIVE_OPTIMIZED` (SIMD dequant at inference)
+
+=== [2] DSL Network Definition
+
+Pure functions that return a `Module<T, V>` tree:
+
+[source,kotlin]
+----
+val model = llamaNetwork<FP32, Float>(metadata)
+----
+
+The DSL provides: `embedding()`, `multiHeadAttention()`, `swiGluFFN()`, `rmsNorm()`, `residual()`.
+
+=== [3-5] Compute Graph Compilation
+
+`OptimizedLLMRuntime` traces the module tree into a DAG and applies optimization passes:
+
+* *TransposeEliminationPass* -- fold transposes into matmul parameters
+* *SharedWeightDeduplicationPass* -- eliminate redundant weight loads
+* *LLMFusionPass* -- fuse RMSNorm, SwiGLU FFN, and QKV projections
+* *DeadCodeEliminationPass* -- remove unused operations
+
+=== [6] Inference Runtime
+
+Three execution modes via `OptimizedLLMMode`:
+
+`DIRECT`:: Module tree executes forward passes directly (debugging)
+`OPTIMIZED`:: Full DAG execution with fused kernels
+`HYBRID`:: Direct execution with per-layer compiled subgraphs
+
+=== [7] Tokenization
+
+`TokenizerFactory` auto-detects the right tokenizer:
+
+* `fromGGUF(source)` -- reads vocab and merges from GGUF metadata
+* `fromTokenizerJson(json)` -- parses HuggingFace tokenizer.json
+* `fromHuggingFace(json, config)` -- full HF BPE with config
+
+=== [8] Chat Pipeline
+
+`ChatSession` bundles runtime + tokenizer + metadata:
+
+* Auto-detects chat template from `ModelMetadata`
+* `createAgentLoop()` -- multi-turn tool calling
+* `runSingleTurn()` -- one-shot tool calling
