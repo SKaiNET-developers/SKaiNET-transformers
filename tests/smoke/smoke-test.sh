@@ -39,6 +39,7 @@ separator() {
 # Maps runner name → Gradle task
 runner_task() {
   case "$1" in
+    skainet)  echo ":llm-apps:skainet-cli:run" ;;
     kllama)   echo ":llm-apps:kllama-cli:run" ;;
     kgemma)   echo ":llm-runtime:kgemma:jvmRun" ;;
     kqwen)    echo ":llm-runtime:kqwen:jvmRun" ;;
@@ -52,6 +53,7 @@ runner_task() {
 # Maps runner name → compile task
 runner_compile_task() {
   case "$1" in
+    skainet)  echo ":llm-apps:skainet-cli:classes" ;;
     kllama)   echo ":llm-apps:kllama-cli:classes" ;;
     kgemma)   echo ":llm-runtime:kgemma:jvmMainClasses" ;;
     kqwen)    echo ":llm-runtime:kqwen:jvmMainClasses" ;;

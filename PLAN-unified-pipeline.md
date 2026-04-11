@@ -93,39 +93,38 @@ ChatPipeline (template formatting, tool calling, agent loop)
 
 4. All runners can now use `GGUFTokenizer` and `TokenizerFactory` directly from `llm-core`
 
-## Phase 4: Unified Runner (single CLI entry point)
+## Phase 4: Unified Runner (single CLI entry point) -- DONE
 
-**Problem:** 6 separate CLI apps with duplicated argument parsing, model loading, and dispatch logic.
+**What was done:**
 
-**Changes:**
+1. **Created `llm-apps/skainet-cli`** — new unified CLI module
+   - Auto-detects architecture from GGUF metadata via `UnifiedModelLoader.peek()`
+   - Loads any LLaMA-compatible model (LLaMA, Qwen, Mistral)
+   - Supports `--chat`, `--agent`, `--demo` modes with tool calling
+   - Uses `TokenizerFactory.fromGGUF()` for tokenizer loading
+   - Registered as `skainet` runner in smoke test script
 
-1. **Single `skainet` CLI** that auto-detects model architecture from GGUF metadata:
+2. **Usage:**
    ```bash
-   skainet -m model.gguf "prompt"                    # auto-detect, generate
-   skainet -m model.gguf --chat                      # auto-detect, chat mode
-   skainet -m model.gguf --demo "What is 2+2?"       # auto-detect, tool calling
+   skainet -m model.gguf "The capital of France is"   # auto-detect, generate
+   skainet -m model.gguf --chat                        # interactive chat
+   skainet -m model.gguf --demo "What is 2+2?"         # tool calling demo
    ```
 
-2. **Architecture registry:**
-   ```kotlin
-   ModelRegistry.register("llama", ::llamaNetwork)
-   ModelRegistry.register("qwen3", ::qwenNetwork)
-   ModelRegistry.register("gemma", ::gemmaNetwork)
-   ```
+3. **Existing per-model CLIs are preserved** — no breaking changes
 
-3. **Auto-detection from GGUF metadata** (already exists in `peekGgufMetadata()`)
+**Remaining (future work):**
+- Add Gemma3n loading path to unified CLI (requires gemmaNetwork() DSL)
+- Add Apertus loading path to unified CLI
+- Eventually deprecate per-model CLIs
 
-## Verification
+## All Phases Complete
 
-- All existing unit tests pass (`llm-agent`, `llm-runtime:kllama`, `llm-core`)
-- Smoke test suite passes (generation + tool calling)
-- Basic generation produces identical output for all model families
-- Tool calling works for any model that supports ChatML/Qwen/Llama3 templates
-- `OptimizedLLMRuntime` in HYBRID mode matches hand-coded runtime output
-
-## Suggested Implementation Order
-
-1. **Phase 1** first — immediately unblocks tool calling for all models
-2. **Phase 3** next — reduces fragility (the GGUFTokenizer byte-level BPE issue)
+| Phase | Status | Summary |
+|-------|--------|---------|
+| 1. Decouple tool calling | DONE | ChatSession, Tokenizer interface, no GGUFTokenizer coupling |
+| 2. Model registry | DONE | ModelRegistry, UnifiedModelLoader, ModelFamily enum |
+| 3. Tokenization pipeline | DONE | GGUFTokenizer in llm-core, TokenizerFactory |
+| 4. Unified runner | DONE | skainet-cli with auto-detection |
 3. **Phase 2** then — biggest refactor, needs per-model validation
 4. **Phase 4** last — depends on all other phases
