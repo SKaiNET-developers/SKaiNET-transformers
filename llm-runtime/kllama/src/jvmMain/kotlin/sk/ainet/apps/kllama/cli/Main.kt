@@ -508,7 +508,11 @@ fun main(args: Array<String>) {
                 }
                 else -> {
                     val agentCli = AgentCli(runtime, tokenizer, cliArgs.templateName, metadata)
-                    agentCli.runChat(maxTokens = cliArgs.steps, temperature = cliArgs.temperature)
+                    if (cliArgs.prompt != null) {
+                        agentCli.runChatOnce(cliArgs.prompt, maxTokens = cliArgs.steps, temperature = cliArgs.temperature)
+                    } else {
+                        agentCli.runChat(maxTokens = cliArgs.steps, temperature = cliArgs.temperature)
+                    }
                 }
             }
             return@runBlocking

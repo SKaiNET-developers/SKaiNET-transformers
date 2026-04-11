@@ -200,6 +200,7 @@ print(f'M_STEPS={m.get(\"steps\", d.get(\"steps\", 32))}')
 print(f'M_TEMP={m.get(\"temperature\", d.get(\"temperature\", 0.0))}')
 print(f'M_DOC={repr(m.get(\"doc\", \"\"))}')
 print(f'M_OUTPUT={repr(m.get(\"output\", \"\"))}')
+print(f'M_INSTRUCT={repr(m.get(\"instruct\", False))}')
 ")"
 
     M_MODEL=$(expand_path "$M_MODEL")
@@ -225,7 +226,13 @@ print(f'M_OUTPUT={repr(m.get(\"output\", \"\"))}')
     fi
 
     task=$(runner_task "$M_RUNNER")
-    args=$(runner_args "$M_RUNNER" "$M_MODEL" "$M_PROMPT" "$M_STEPS" "$M_TEMP" "$M_DOC" "$M_OUTPUT")
+
+    # Instruct models: use --chat with prompt for proper chat template formatting
+    if [[ "$M_INSTRUCT" == "True" ]]; then
+      args="-m ${M_MODEL} --chat -s ${M_STEPS} -k ${M_TEMP} \"${M_PROMPT}\""
+    else
+      args=$(runner_args "$M_RUNNER" "$M_MODEL" "$M_PROMPT" "$M_STEPS" "$M_TEMP" "$M_DOC" "$M_OUTPUT")
+    fi
 
     start_ts=$(python3 -c 'import time; print(time.time())')
     output_file=$(mktemp)

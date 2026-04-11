@@ -30,6 +30,47 @@ public class AgentCli<T : DType>(
     private val template: ChatTemplate = session.chatTemplate
 
     /**
+     * Run a single non-interactive chat round. Used by smoke tests for instruct models.
+     */
+    public fun runChatOnce(
+        userPrompt: String,
+        systemPrompt: String = "You are a helpful assistant. Answer concisely.",
+        maxTokens: Int = 64,
+        temperature: Float = 0.0f
+    ) {
+        val messages = mutableListOf(
+            ChatMessage(role = ChatRole.SYSTEM, content = systemPrompt),
+            ChatMessage(role = ChatRole.USER, content = userPrompt)
+        )
+
+        runtime.reset()
+        val prompt = template.apply(messages, emptyList(), addGenerationPrompt = true)
+        val promptTokens = tokenizer.encode(prompt)
+
+        print("Assistant: ")
+        System.out.flush()
+
+        val startTime = System.nanoTime()
+        val result = runtime.generateUntilStop(
+            prompt = promptTokens,
+            maxTokens = maxTokens,
+            eosTokenId = tokenizer.eosTokenId,
+            temperature = temperature,
+            onToken = { tokenId ->
+                print(tokenizer.decode(tokenId))
+                System.out.flush()
+            },
+            decode = { tokenId -> tokenizer.decode(tokenId) }
+        )
+        val elapsed = (System.nanoTime() - startTime) / 1_000_000.0
+
+        println()
+        println("---")
+        val tokPerSec = if (elapsed > 0) result.tokens.size / elapsed * 1000 else 0.0
+        println("tok/s: $tokPerSec")
+    }
+
+    /**
      * Run interactive chat mode (no tool calling).
      */
     public fun runChat(
