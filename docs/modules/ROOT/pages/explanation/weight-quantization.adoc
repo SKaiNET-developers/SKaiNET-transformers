@@ -1,0 +1,332 @@
+= Weight Quantization and Numeric Representation
+:description: Deep technical guide to how model weights flow through quantization, dequantization, transpose, and SIMD kernel dispatch.
+
+== Overview
+
+A model weight tensor goes through several numeric representation changes between the GGUF file on disk and the final matmul during inference.
+Understanding each stage is essential for debugging memory issues, correctness problems, and performance optimization.
+
+[mermaid]
+....
+graph TD
+    A["GGUF File<br/>(Q4_K_M: 4.7 GB)"] -->|StreamingGGUFReader| B["Raw Bytes<br/>IntArrayTensorData"]
+    B -->|MemSegWeightConverter| C{Quant Type?}
+    C -->|Q4_0| D["Q4MemorySegmentTensorData<br/>64-byte aligned, Arena-managed"]
+    C -->|Q8_0| E["Q8MemorySegmentTensorData<br/>64-byte aligned, Arena-managed"]
+    C -->|Q4_K / Q6_K| F["DequantOps.dequantFromBytes()<br/>→ FloatArray"]
+    C -->|FP32| G["tensor.t()<br/>MemorySegmentTensorData"]
+    F -->|"Array transpose<br/>[out,in] → [in,out]"| H["FloatArrayTensorData<br/>Pre-transposed"]
+    D --> I["SIMD Matmul<br/>QuantizedMatmul.matmulQ4_0()"]
+    E --> J["SIMD Matmul<br/>QuantizedMatmul.matmulQ8_0()"]
+    H --> K["Scalar Matmul<br/>DefaultCpuOps.matmul()"]
+    G --> K
+
+    style A fill:#f9f,stroke:#333
+    style I fill:#9f9,stroke:#333
+    style J fill:#9f9,stroke:#333
+    style K fill:#ff9,stroke:#333
+....
+
+== Stage 1: GGUF File on Disk
+
+GGUF stores each weight tensor as a contiguous byte region with a header describing its quantization type, shape, and byte offset.
+
+=== Quantization Types in Q4_K_M Format
+
+The `Q4_K_M` quantization scheme uses a **mixed-precision strategy**:
+
+[cols="1,2,2,1"]
+|===
+|Type |Used For |Block Format |Bits/Param
+
+|Q4_K
+|Large projections (wq, wk, wv, wo, ffn_gate, ffn_up, ffn_down) in ~50% of layers
+|144 bytes per 256 elements: 2×f16 scale + 2×f16 min + 12 scale bytes + 128 nibble codes
+|~4.5
+
+|Q6_K
+|Same projections in the other ~50% of layers, plus output weight
+|210 bytes per 256 elements: higher precision for critical layers
+|~6.5
+
+|Q8_0
+|Not used in Q4_K_M (used in Q8_0 format models)
+|34 bytes per 32 elements: 1×f16 scale + 32×int8 codes
+|~8.5
+
+|FP32
+|Norms (attn_norm, ffn_norm, output_norm) — 1D tensors
+|4 bytes per element
+|32
+|===
+
+=== Tensor Layout in GGUF
+
+All 2D weight tensors are stored in **row-major [out_dim, in_dim]** order:
+
+----
+wq:       Shape(dim, dim)        = [4096, 4096]    "4096 output neurons, each with 4096 input weights"
+wk:       Shape(kvDim, dim)      = [1024, 4096]    "1024 KV outputs (8 heads × 128 head_dim)"
+ffn_gate: Shape(ffnDim, dim)     = [14336, 4096]   "14336 FFN hidden units"
+ffn_down: Shape(dim, ffnDim)     = [4096, 14336]   "project back to model dim"
+----
+
+The matmul convention `y = x @ W^T` requires weights in `[in_dim, out_dim]` form, so a transpose is needed before or during the matmul.
+
+== Stage 2: Loading Raw Bytes
+
+`LlamaWeightLoader.loadToMapStreaming()` reads the GGUF file via `StreamingGGUFReader`:
+
+[source,kotlin]
+----
+// QuantPolicy.NATIVE_OPTIMIZED: store as raw Int8 bytes
+val tensor = streamingTensorToTensor(reader, tensorInfo, ctx)
+// tensor.data is IntArrayTensorData containing the raw quantized bytes
+----
+
+At this stage, the tensor holds the original GGUF bytes unchanged.
+A `quantTypes` map records each tensor's quantization type for later processing.
+
+.Memory at Stage 2
+----
+Qwen3-8B-Q4_K_M: ~4.7 GB (raw bytes, same as file size)
+----
+
+== Stage 3: MemSegWeightConverter
+
+`MemSegWeightConverter.convert()` transforms raw bytes into runtime-ready tensors.
+This is where the numeric representation diverges by quantization type.
+
+=== Path A: Q4_0 → Q4MemorySegmentTensorData
+
+[source,kotlin]
+----
+Q4MemorySegmentTensorData.fromRawBytes(logicalShape, bytes, arena)
+----
+
+* Copies raw bytes into a 64-byte-aligned `MemorySegment` (Arena-managed, off-heap)
+* The data stays in Q4_0 block format (no dequantization)
+* The `MemorySegment` alignment enables SIMD vector loads
+
+.Memory: same as raw bytes (~4.5 bits/param)
+
+=== Path B: Q8_0 → Q8MemorySegmentTensorData
+
+Same as Q4_0 but with Q8_0 block format (8 bits per code + f16 scale per 32 elements).
+
+.Memory: ~8.5 bits/param
+
+=== Path C: Q4_K / Q5_K / Q6_K → FP32 + Pre-Transpose
+
+[source,kotlin]
+----
+// 1. Dequantize to float array
+val floats = DequantOps.dequantFromBytes(bytes, quantType, rows * cols)
+
+// 2. Pre-transpose from [out, in] to [in, out]
+val transposed = FloatArray(rows * cols)
+for (r in 0 until rows) {
+    for (c in 0 until cols) {
+        transposed[c * rows + r] = floats[r * cols + c]
+    }
+}
+
+// 3. Store as heap-based FloatArrayTensorData
+return ctx.fromFloatArray(Shape(cols, rows), FP32::class, transposed)
+----
+
+**Why dequantize?** No native SIMD kernel exists for K-quant block formats yet.
+
+**Why pre-transpose?** The `.t()` operation on tensors allocates a new `MemorySegmentTensorData` in direct buffer memory.
+The JVM's direct buffer allocator does not reclaim memory eagerly, causing OOM on memory-constrained machines (48GB).
+Pre-transposing during loading avoids all runtime `.t()` calls.
+
+.Memory per K-quant tensor
+----
+Original Q4_K: ~4.5 bits/param
+After dequant: 32 bits/param (8× expansion)
+Temporary: 2× (original float array + transposed array, then original is GC'd)
+----
+
+.Total memory for Qwen3-8B-Q4_K_M after Stage 3
+----
+Q4_K tensors (dequantized + transposed):  ~15 GB
+Q6_K tensors (dequantized + transposed):  ~12 GB
+Token embedding (dequantized, not transposed): ~2.4 GB
+Norms (FP32, 1D, tiny):                   ~0.01 GB
+Total:                                     ~30 GB
+----
+
+=== Path D: FP32 → Pre-Transpose
+
+[source,kotlin]
+----
+return tensor.t()  // one-time transpose during loading
+----
+
+Norms are 1D so `.t()` is a no-op. For FP32 projection weights (rare), a standard transpose copies to direct memory once.
+
+=== Special Case: Token Embedding
+
+[source,kotlin]
+----
+tokenEmbedding = maybeDequantize(weights.tokenEmbedding, ...)
+----
+
+Token embeddings are always dequantized to FP32 and **not transposed** because `Embedding.forward()` does row gather (lookup by token ID), not matmul.
+
+== Stage 4: LlamaRuntime.linearProject()
+
+During inference, each projection uses `linearProject()`:
+
+[source,kotlin]
+----
+private fun linearProject(x: Tensor<T, Float>, w: Tensor<T, Float>): Tensor<T, Float> {
+    val xCols = if (x.shape.rank >= 2) x.shape[x.shape.rank - 1] else x.shape[0]
+    val wRows = w.shape[0]
+    return if (wRows == xCols) {
+        x.matmul(w)       // weight is [in, out] — pre-transposed
+    } else {
+        x.matmul(w.t())   // weight is [out, in] — legacy path (tests)
+    }
+}
+----
+
+The shape check auto-detects the weight layout:
+
+* **Pre-transposed** `[in, out]`: `wRows == xCols` → direct `matmul`, no allocation
+* **Original** `[out, in]`: `wRows != xCols` → `.t()` then `matmul` (legacy/test path)
+
+== Stage 5: Matmul Kernel Dispatch
+
+The `Tensor.matmul()` extension dispatches based on the runtime `TensorData` type:
+
+[cols="1,2,2"]
+|===
+|TensorData Type |Kernel |Implementation
+
+|`Q4MemorySegmentTensorData`
+|`QuantizedMatmul.matmulQ4_0()`
+|SIMD (Vector API): processes 32 Q4 values per vector lane
+
+|`Q8MemorySegmentTensorData`
+|`QuantizedMatmul.matmulQ8_0()`
+|SIMD (Vector API): dot product of int8 codes × float scale
+
+|`Q4_KBlockTensorData`
+|`QuantizedMatmul.matmulQ4_K()`
+|SIMD: unpacks K-quant blocks with dual scales + min values
+
+|`FloatArrayTensorData`
+|`DefaultCpuOps.matmul()`
+|Scalar FP32 double loop (no SIMD)
+
+|`MemorySegmentTensorData`
+|`DefaultCpuOpsJvm.matmul()`
+|SIMD FP32 via Vector API
+|===
+
+=== SIMD Q4_0 Matmul (Simplified)
+
+[source]
+----
+For each output row:
+  For each block of 32 input elements:
+    Load 16 bytes of Q4 codes from MemorySegment    (128 bits)
+    Unpack low/high nibbles into two int8 vectors    (256 bits each)
+    Subtract zero-point (8)
+    Convert to float vectors
+    Multiply by block scale (f16 → f32)
+    FMA with input vector → accumulate into output
+----
+
+=== Why Q4_K Cannot Be Trivially Transposed
+
+Q4_K blocks encode 256 elements with a complex internal structure:
+
+----
+Block (144 bytes):
+  [0..1]    d (f16)         — primary scale
+  [2..3]    dmin (f16)      — minimum offset
+  [4..15]   scales (12 bytes) — per-subblock scales (6-bit packed)
+  [16..143] qs (128 bytes)  — quantized codes (4-bit packed, 256 values)
+----
+
+The 256 values in each block correspond to **256 contiguous elements in the original row**.
+Transposing the matrix would scatter these elements across different rows, breaking the block structure.
+A proper Q4_K transpose would require:
+
+1. Dequantize all blocks → FP32
+2. Transpose the FP32 matrix
+3. Re-quantize into new Q4_K blocks
+
+This is why `MemSegWeightConverter` currently dequantizes K-quant types to FP32 rather than keeping them quantized.
+
+== Memory Budget: Qwen3-8B-Q4_K_M on 48GB Mac
+
+[cols="2,1,3"]
+|===
+|Component |Size |Notes
+
+|K-quant weights (FP32 pre-transposed)
+|~27 GB
+|Q4_K + Q6_K dequantized, no runtime `.t()` copies
+
+|Token embedding (FP32)
+|2.4 GB
+|151936 × 4096 × 4 bytes
+
+|Norms (FP32)
+|~10 MB
+|1D tensors, negligible
+
+|KV cache (context=512)
+|~128 MB
+|2 × 36 layers × 512 × 1024 × 4 bytes
+
+|JVM + tokenizer
+|~1 GB
+|Heap overhead, vocab structures
+
+|**Total**
+|**~31 GB**
+|Fits in 48 GB with OS headroom
+|===
+
+== Performance Characteristics
+
+[cols="2,1,1,2"]
+|===
+|Path |Bits/Param |Memory |Speed (8B, M-series CPU)
+
+|Q4_K SIMD (future)
+|4.5
+|~5 GB
+|~1-3 tok/s (projected)
+
+|Q8_0 SIMD
+|8.5
+|~9 GB
+|~1-2 tok/s
+
+|FP32 pre-transposed (current)
+|32
+|~30 GB
+|~0.002 tok/s (scalar)
+
+|FP32 + runtime .t() (old, OOM)
+|32 + 32 (copy)
+|~60 GB
+|OOM on 48GB
+|===
+
+== Future: Block-Aware Q4_K Transpose
+
+To use the Q4_K SIMD kernel with GGUF weights, the skainet core library would need:
+
+1. **`Q4_KBlockTensorData.transpose()`** — dequantize → rearrange → re-quantize at the block level
+2. Or **`QuantizedMatmul.matmulQ4_K_transposed()`** — a kernel variant that reads blocks in column-major order
+3. Or **GGUF pre-transposed storage** — store weights as `[in, out]` in the GGUF file during quantization
+
+Option 2 is the most practical: modify the SIMD kernel to iterate over columns instead of rows when reading Q4_K blocks.
+This would reduce memory from ~30GB to ~5GB for the 8B model.
