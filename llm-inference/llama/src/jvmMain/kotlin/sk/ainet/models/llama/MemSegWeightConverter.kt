@@ -11,7 +11,6 @@ import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.tensor.t
 import sk.ainet.lang.tensor.data.IntArrayTensorData
 import sk.ainet.lang.tensor.data.Q4MemorySegmentTensorData
-import sk.ainet.lang.tensor.data.Q4_KBlockTensorData
 import sk.ainet.lang.tensor.data.Q8MemorySegmentTensorData
 import sk.ainet.lang.tensor.data.TensorData
 import sk.ainet.lang.types.FP32
@@ -100,21 +99,12 @@ public object MemSegWeightConverter {
                 Q4MemorySegmentTensorData.fromRawBytes(logicalShape, bytes, arena)
             GGMLQuantizationType.Q8_0 ->
                 Q8MemorySegmentTensorData.fromRawBytes(logicalShape, bytes, arena)
-            GGMLQuantizationType.Q4_K -> {
-                // Q4_K has a native SIMD matmul kernel — keep quantized.
-                // GGUF stores weights as [out, in], but matmul expects [in, out],
-                // so we pass the transposed shape. The block data layout stays
-                // the same — Q4_K matmul reads rows in the transposed order.
-                val transposedShape = Shape(logicalShape[1], logicalShape[0])
-                val q4kData = Q4_KBlockTensorData.fromRawBytes(transposedShape, bytes)
-                @Suppress("UNCHECKED_CAST")
-                return ctx.fromData(q4kData as TensorData<FP32, Float>, FP32::class)
-            }
+            GGMLQuantizationType.Q4_K,
             GGMLQuantizationType.Q5_K,
             GGMLQuantizationType.Q6_K -> {
-                // Q5_K/Q6_K: no native SIMD kernel yet, dequantize to FP32.
-                // Pre-transpose to [in, out] so LlamaRuntime never calls .t()
-                // (which allocates direct buffers that aren't GC'd eagerly).
+                // Dequantize K-quant types to FP32 and pre-transpose to [in, out].
+                // Pre-transposing at load time avoids .t() at runtime, which
+                // allocates direct buffers the JVM doesn't GC eagerly (OOM on 48GB).
                 val rows = logicalShape[0]
                 val cols = logicalShape[1]
                 val floats = DequantOps.dequantFromBytes(bytes, quantType, rows * cols)
