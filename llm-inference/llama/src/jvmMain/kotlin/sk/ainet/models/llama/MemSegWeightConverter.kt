@@ -96,8 +96,12 @@ public object MemSegWeightConverter {
             GGMLQuantizationType.Q8_0 ->
                 Q8MemorySegmentTensorData.fromRawBytes(logicalShape, bytes, arena)
             GGMLQuantizationType.Q4_K -> {
-                // Q4_K has a native SIMD matmul kernel — keep quantized
-                val q4kData = Q4_KBlockTensorData.fromRawBytes(logicalShape, bytes)
+                // Q4_K has a native SIMD matmul kernel — keep quantized.
+                // GGUF stores weights as [out, in], but matmul expects [in, out],
+                // so we pass the transposed shape. The block data layout stays
+                // the same — Q4_K matmul reads rows in the transposed order.
+                val transposedShape = Shape(logicalShape[1], logicalShape[0])
+                val q4kData = Q4_KBlockTensorData.fromRawBytes(transposedShape, bytes)
                 @Suppress("UNCHECKED_CAST")
                 return ctx.fromData(q4kData as TensorData<FP32, Float>, FP32::class)
             }

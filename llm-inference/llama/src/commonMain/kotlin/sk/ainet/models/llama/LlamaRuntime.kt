@@ -6,6 +6,7 @@ import sk.ainet.context.ExecutionContext
 import sk.ainet.models.llama.LlamaRuntimeWeights
 import sk.ainet.lang.nn.layers.Embedding
 import sk.ainet.lang.tensor.Tensor
+import sk.ainet.lang.tensor.data.Q4_KTensorData
 import sk.ainet.lang.tensor.matmul
 import sk.ainet.lang.tensor.plus
 import sk.ainet.lang.tensor.silu
@@ -57,6 +58,21 @@ public class LlamaRuntime<T : DType>(
     // NOTE: weights are transposed on-the-fly during forward pass rather than
     // pre-transposed at init. This halves peak memory (~31GB saved for 8B models)
     // at the cost of per-token transpose allocations that the GC reclaims.
+    // Quantized weights (Q4_K) skip transpose entirely — their matmul kernel
+    // handles the [out, in] layout directly.
+
+    /**
+     * Linear projection: y = x @ W^T.
+     * For FP32 weights, transposes and matmuls. For quantized weights (Q4_K),
+     * calls matmul directly (the quantized kernel handles the layout).
+     */
+    private fun linearProject(x: Tensor<T, Float>, w: Tensor<T, Float>): Tensor<T, Float> {
+        return if (w.data is Q4_KTensorData) {
+            x.matmul(w)  // quantized kernel handles [out, in] layout
+        } else {
+            x.matmul(w.t())
+        }
+    }
 
     // ---- DecoderRuntime abstract properties ----
     override val dim: Int = weights.metadata.embeddingLength
@@ -119,9 +135,9 @@ public class LlamaRuntime<T : DType>(
         } ?: run {
             val attnNorm = attnNorms[layerIdx].forward(x, ctx)
             Triple(
-                attnNorm.matmul(layer.wq.t()),
-                attnNorm.matmul(layer.wk.t()),
-                attnNorm.matmul(layer.wv.t())
+                linearProject(attnNorm, layer.wq),
+                linearProject(attnNorm, layer.wk),
+                linearProject(attnNorm, layer.wv)
             )
         }
 
@@ -135,14 +151,14 @@ public class LlamaRuntime<T : DType>(
         val attnOut = attentionBackend.attention(q, k, v, layerIdx, position)
 
         // Output projection + residual
-        val afterAttn = x + attnOut.matmul(layer.wo.t())
+        val afterAttn = x + linearProject(attnOut, layer.wo)
 
         // FFN: try compiled graph first, fall back to individual ops
         return graphAccelerator?.runFFN(layerIdx, afterAttn) ?: run {
             val ffnNorm = ffnNorms[layerIdx].forward(afterAttn, ctx)
-            val gate = ffnNorm.matmul(layer.ffnGate.t()).silu()
-            val up = ffnNorm.matmul(layer.ffnUp.t())
-            val ffnOut = (gate * up).matmul(layer.ffnDown.t())
+            val gate = linearProject(ffnNorm, layer.ffnGate).silu()
+            val up = linearProject(ffnNorm, layer.ffnUp)
+            val ffnOut = linearProject(gate * up, layer.ffnDown)
             afterAttn + ffnOut
         }
     }
@@ -151,7 +167,7 @@ public class LlamaRuntime<T : DType>(
         outputNormLayer.forward(x, ctx)
 
     override fun outputProject(x: Tensor<T, Float>): Tensor<T, Float> =
-        x.matmul(weights.outputWeight.t())
+        linearProject(x, weights.outputWeight)
 
     override fun resetState() {
         attentionBackend.reset()
@@ -267,9 +283,9 @@ public class LlamaRuntime<T : DType>(
 
         weights.layers.forEachIndexed { layerIdx, layer ->
             val attnNorm = attnNorms[layerIdx].forward(x, ctx)
-            var q = attnNorm.matmul(layer.wq.t())
-            var k = attnNorm.matmul(layer.wk.t())
-            val v = attnNorm.matmul(layer.wv.t())
+            var q = linearProject(attnNorm, layer.wq)
+            var k = linearProject(attnNorm, layer.wk)
+            val v = linearProject(attnNorm, layer.wv)
 
             if (hasQKNorm) {
                 q = applyPerHeadRMSNorm(q, nHeads, headDim, layer.qNorm!!)
@@ -279,17 +295,17 @@ public class LlamaRuntime<T : DType>(
             val attnOut = attentionBackend.batchAttention(q, k, v, layerIdx, startPos)
                 ?: return batchForwardFallback(tokenIds, startPos)
 
-            val afterAttn = x + attnOut.matmul(layer.wo.t())
+            val afterAttn = x + linearProject(attnOut, layer.wo)
 
             val ffnNorm = ffnNorms[layerIdx].forward(afterAttn, ctx)
-            val gate = ffnNorm.matmul(layer.ffnGate.t()).silu()
-            val up = ffnNorm.matmul(layer.ffnUp.t())
-            val ffnOut = (gate * up).matmul(layer.ffnDown.t())
+            val gate = linearProject(ffnNorm, layer.ffnGate).silu()
+            val up = linearProject(ffnNorm, layer.ffnUp)
+            val ffnOut = linearProject(gate * up, layer.ffnDown)
             x = afterAttn + ffnOut
         }
 
         val norm = outputNormLayer.forward(x, ctx)
-        val logits = norm.matmul(weights.outputWeight.t())
+        val logits = linearProject(norm, weights.outputWeight)
         position = startPos + tokenIds.size
         return logits
     }

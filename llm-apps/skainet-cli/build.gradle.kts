@@ -50,5 +50,5 @@ tasks.withType<Test>().configureEach {
 }
 
 tasks.withType<JavaExec>().configureEach {
-    jvmArgs("--enable-preview", "--add-modules", "jdk.incubator.vector", "-Xmx48g", "-XX:MaxDirectMemorySize=64g")
+    jvmArgs("--enable-preview", "--add-modules", "jdk.incubator.vector", "-Xmx42g", "-XX:MaxDirectMemorySize=42g")
 }
