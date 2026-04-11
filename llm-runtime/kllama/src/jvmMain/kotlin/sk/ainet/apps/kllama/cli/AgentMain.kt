@@ -1,7 +1,7 @@
 package sk.ainet.apps.kllama.cli
 
-import sk.ainet.apps.kllama.GGUFTokenizer
 import sk.ainet.apps.llm.InferenceRuntime
+import sk.ainet.apps.llm.Tokenizer
 import sk.ainet.apps.kllama.chat.*
 import sk.ainet.apps.kllama.agent.generateUntilStop
 import sk.ainet.lang.types.DType
@@ -22,14 +22,12 @@ import kotlinx.serialization.json.jsonPrimitive
  */
 public class AgentCli<T : DType>(
     private val runtime: InferenceRuntime<T>,
-    private val tokenizer: GGUFTokenizer,
+    private val tokenizer: Tokenizer,
     private val templateName: String? = null,
     private val metadata: ModelMetadata = ModelMetadata()
 ) {
-    private val provider: ToolCallingSupport = ToolCallingSupportResolver.resolveOrFallback(metadata, templateName)
-    private val template: ChatTemplate = provider.createChatTemplate()
-
-    private val eosTokenId: Int = tokenizer.eosId
+    private val session = ChatSession(runtime, tokenizer, metadata, templateName)
+    private val template: ChatTemplate = session.chatTemplate
 
     /**
      * Run interactive chat mode (no tool calling).
@@ -68,7 +66,7 @@ public class AgentCli<T : DType>(
             val result = runtime.generateUntilStop(
                 prompt = promptTokens,
                 maxTokens = maxTokens,
-                eosTokenId = eosTokenId,
+                eosTokenId = tokenizer.eosTokenId,
                 temperature = temperature,
                 onToken = { tokenId ->
                     print(tokenizer.decode(tokenId))
@@ -95,18 +93,7 @@ public class AgentCli<T : DType>(
         val registry = ToolRegistry()
         registry.register(CalculatorTool())
 
-        val agentLoop = AgentLoop(
-            runtime = runtime,
-            template = template,
-            toolRegistry = registry,
-            eosTokenId = eosTokenId,
-            config = AgentConfig(
-                maxToolRounds = 5,
-                maxTokensPerRound = maxTokens,
-                temperature = temperature
-            ),
-            decode = { tokenId -> tokenizer.decode(tokenId) }
-        )
+        val agentLoop = session.createAgentLoop(registry, maxTokens, temperature)
 
         val messages = mutableListOf(
             ChatMessage(role = ChatRole.SYSTEM, content = systemPrompt)

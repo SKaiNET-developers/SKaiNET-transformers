@@ -1,7 +1,7 @@
 package sk.ainet.apps.kllama.cli
 
-import sk.ainet.apps.kllama.GGUFTokenizer
 import sk.ainet.apps.llm.InferenceRuntime
+import sk.ainet.apps.llm.Tokenizer
 import sk.ainet.apps.kllama.chat.*
 import sk.ainet.lang.types.DType
 import kotlinx.serialization.json.JsonObject
@@ -29,23 +29,19 @@ import java.io.File
  */
 public class ToolCallingDemo<T : DType>(
     private val runtime: InferenceRuntime<T>,
-    private val tokenizer: GGUFTokenizer,
+    private val tokenizer: Tokenizer,
     private val templateName: String? = null,
     private val metadata: ModelMetadata = ModelMetadata()
 ) {
-    private val provider: ToolCallingSupport = resolveProvider()
-    private val template: ChatTemplate = provider.createChatTemplate()
+    private val session = ChatSession(runtime, tokenizer, metadata, templateName)
 
-    private fun resolveProvider(): ToolCallingSupport {
+    init {
         val result = ToolCallingSupportResolver.resolveWithDiagnostics(
             metadata = metadata,
             explicitFamily = templateName
         )
         println("[ToolCallingDemo] Provider: ${result.provider.family} (mode=${result.mode}, reason: ${result.reason})")
-        return result.provider
     }
-
-    private val eosTokenId: Int = tokenizer.eosId
 
     /**
      * Run the tool-calling demo with `list_files` and `calculator` tools.
@@ -63,18 +59,7 @@ When the user asks about files or directories, use the list_files tool to look u
 When the user asks to calculate something, use the calculator tool.
 Always use a tool when one is relevant — do not guess file listings."""
 
-        val agentLoop = AgentLoop(
-            runtime = runtime,
-            template = template,
-            toolRegistry = registry,
-            eosTokenId = eosTokenId,
-            config = AgentConfig(
-                maxToolRounds = 5,
-                maxTokensPerRound = maxTokens,
-                temperature = temperature
-            ),
-            decode = { tokenId -> tokenizer.decode(tokenId) }
-        )
+        val agentLoop = session.createAgentLoop(registry, maxTokens, temperature)
 
         val messages = mutableListOf(
             ChatMessage(role = ChatRole.SYSTEM, content = systemPrompt)

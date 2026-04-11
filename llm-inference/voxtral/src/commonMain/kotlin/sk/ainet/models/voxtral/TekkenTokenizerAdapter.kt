@@ -25,6 +25,10 @@ public class TekkenTokenizerAdapter(
 
     override fun decode(token: Int): String = tekken.decode(token)
 
+    override val eosTokenId: Int = 2
+    override val bosTokenId: Int = 1
+    override val vocabSize: Int get() = 32768 // Tekken default
+
     public companion object {
         /**
          * Parse a tekken.json string and return a [Tokenizer] instance.

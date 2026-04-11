@@ -24,8 +24,8 @@ import sk.ainet.io.gguf.StreamingGGUFReader
 class GGUFTokenizer private constructor(
     private val vocab: List<String>,
     private val scores: FloatArray,
-    private val bosTokenId: Int,
-    private val eosTokenId: Int,
+    private val _bosTokenId: Int,
+    private val _eosTokenId: Int,
     private val unkTokenId: Int,
     private val strategy: TokenizerStrategy
 ) : Tokenizer {
@@ -516,16 +516,18 @@ class GGUFTokenizer private constructor(
         }
     }
 
-    val vocabSize: Int get() = vocab.size
-
     /** The detected tokenizer type/strategy in use */
     val tokenizerType: TokenizerType get() = strategy.type
 
-    /** The BOS (beginning of sentence) token ID */
-    val bosId: Int get() = bosTokenId
+    override val bosTokenId: Int get() = _bosTokenId
+    override val eosTokenId: Int get() = _eosTokenId
+    override val vocabSize: Int get() = vocab.size
 
-    /** The EOS (end of sentence) token ID */
-    val eosId: Int get() = eosTokenId
+    @Deprecated("Use eosTokenId", replaceWith = ReplaceWith("eosTokenId"))
+    val eosId: Int get() = _eosTokenId
+
+    @Deprecated("Use bosTokenId", replaceWith = ReplaceWith("bosTokenId"))
+    val bosId: Int get() = _bosTokenId
 
     // Build reverse lookup for encoding
     private val tokenToId: Map<String, Int> by lazy {
