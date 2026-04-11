@@ -6,7 +6,6 @@ import sk.ainet.context.ExecutionContext
 import sk.ainet.models.llama.LlamaRuntimeWeights
 import sk.ainet.lang.nn.layers.Embedding
 import sk.ainet.lang.tensor.Tensor
-import sk.ainet.lang.tensor.data.Q4_KTensorData
 import sk.ainet.lang.tensor.matmul
 import sk.ainet.lang.tensor.plus
 import sk.ainet.lang.tensor.silu
@@ -62,14 +61,20 @@ public class LlamaRuntime<T : DType>(
     // handles the [out, in] layout directly.
 
     /**
-     * Linear projection: y = x @ W^T.
-     * For FP32 weights, transposes and matmuls. For quantized weights (Q4_K),
-     * calls matmul directly (the quantized kernel handles the layout).
+     * Linear projection: y = x @ W.
+     *
+     * When weights are pre-transposed to [in, out] by MemSegWeightConverter
+     * (Q4_K, Q6_K, FP32 via NATIVE_OPTIMIZED), uses direct matmul.
+     * Otherwise falls back to .t() for non-converted weights (tests, DEQUANTIZE_TO_FP32).
      */
     private fun linearProject(x: Tensor<T, Float>, w: Tensor<T, Float>): Tensor<T, Float> {
-        return if (w.data is Q4_KTensorData) {
-            x.matmul(w)  // quantized kernel handles [out, in] layout
+        val xCols = if (x.shape.rank >= 2) x.shape[x.shape.rank - 1] else x.shape[0]
+        val wRows = w.shape[0]
+        return if (wRows == xCols) {
+            // Weight is [in, out] — already transposed, direct matmul
+            x.matmul(w)
         } else {
+            // Weight is [out, in] — needs transpose (legacy path)
             x.matmul(w.t())
         }
     }

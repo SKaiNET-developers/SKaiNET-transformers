@@ -8,6 +8,7 @@ import sk.ainet.models.llama.LlamaRuntimeWeights
 import sk.ainet.models.llama.LlamaTensorNames
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.Tensor
+import sk.ainet.lang.tensor.t
 import sk.ainet.lang.tensor.data.IntArrayTensorData
 import sk.ainet.lang.tensor.data.Q4MemorySegmentTensorData
 import sk.ainet.lang.tensor.data.Q4_KBlockTensorData
@@ -86,7 +87,11 @@ public object MemSegWeightConverter {
         ctx: ExecutionContext,
         arena: Arena
     ): Tensor<FP32, Float> {
-        val quantType = quantTypes[tensorName] ?: return tensor
+        val quantType = quantTypes[tensorName]
+        if (quantType == null) {
+            // FP32 tensor — pre-transpose to [in, out] so no .t() at runtime
+            return tensor.t()
+        }
 
         val bytes = extractBytes(tensor.data)
 
@@ -107,9 +112,20 @@ public object MemSegWeightConverter {
             }
             GGMLQuantizationType.Q5_K,
             GGMLQuantizationType.Q6_K -> {
-                // Q5_K/Q6_K: no native SIMD kernel yet, dequantize to FP32
-                val floats = DequantOps.dequantFromBytes(bytes, quantType, logicalShape.volume)
-                return ctx.fromFloatArray(logicalShape, FP32::class, floats)
+                // Q5_K/Q6_K: no native SIMD kernel yet, dequantize to FP32.
+                // Pre-transpose to [in, out] so LlamaRuntime never calls .t()
+                // (which allocates direct buffers that aren't GC'd eagerly).
+                val rows = logicalShape[0]
+                val cols = logicalShape[1]
+                val floats = DequantOps.dequantFromBytes(bytes, quantType, rows * cols)
+                val transposed = FloatArray(rows * cols)
+                for (r in 0 until rows) {
+                    for (c in 0 until cols) {
+                        transposed[c * rows + r] = floats[r * cols + c]
+                    }
+                }
+                val transposedShape = Shape(cols, rows)
+                return ctx.fromFloatArray(transposedShape, FP32::class, transposed)
             }
             else -> {
                 println("WARNING: Unsupported quant type $quantType for MemorySegment conversion of $tensorName, keeping as-is")
