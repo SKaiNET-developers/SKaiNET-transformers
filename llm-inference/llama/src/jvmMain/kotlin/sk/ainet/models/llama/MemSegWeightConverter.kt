@@ -10,6 +10,7 @@ import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.tensor.data.IntArrayTensorData
 import sk.ainet.lang.tensor.data.Q4MemorySegmentTensorData
+import sk.ainet.lang.tensor.data.Q4_KBlockTensorData
 import sk.ainet.lang.tensor.data.Q8MemorySegmentTensorData
 import sk.ainet.lang.tensor.data.TensorData
 import sk.ainet.lang.types.FP32
@@ -94,10 +95,15 @@ public object MemSegWeightConverter {
                 Q4MemorySegmentTensorData.fromRawBytes(logicalShape, bytes, arena)
             GGMLQuantizationType.Q8_0 ->
                 Q8MemorySegmentTensorData.fromRawBytes(logicalShape, bytes, arena)
-            GGMLQuantizationType.Q4_K,
+            GGMLQuantizationType.Q4_K -> {
+                // Q4_K has a native SIMD matmul kernel — keep quantized
+                val q4kData = Q4_KBlockTensorData.fromRawBytes(logicalShape, bytes)
+                @Suppress("UNCHECKED_CAST")
+                return ctx.fromData(q4kData as TensorData<FP32, Float>, FP32::class)
+            }
             GGMLQuantizationType.Q5_K,
             GGMLQuantizationType.Q6_K -> {
-                // Dequantize K-quant types to FP32 (no native SIMD kernel yet)
+                // Q5_K/Q6_K: no native SIMD kernel yet, dequantize to FP32
                 val floats = DequantOps.dequantFromBytes(bytes, quantType, logicalShape.volume)
                 return ctx.fromFloatArray(logicalShape, FP32::class, floats)
             }
