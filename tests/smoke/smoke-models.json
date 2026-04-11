@@ -13,9 +13,11 @@
     },
     {
       "name": "Qwen3-1.7B-Q8",
-      "runner": "kqwen",
+      "runner": "kllama",
       "model": "Qwen3-1.7B-Q8_0.gguf",
       "format": "gguf",
+      "instruct": true,
+      "prompt": "What is the capital of France?",
       "toolCalling": {
         "prompt": "What is 2 + 2?",
         "steps": 256
@@ -26,6 +28,8 @@
       "runner": "kllama",
       "model": "Qwen3-8B-Q4_K_M.gguf",
       "format": "gguf",
+      "instruct": true,
+      "prompt": "What is the capital of France?",
       "toolCalling": {
         "prompt": "What is 2 + 2?",
         "steps": 256

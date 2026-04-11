@@ -8,6 +8,7 @@ import sk.ainet.models.llama.LlamaRuntimeWeights
 import sk.ainet.models.llama.LlamaTensorNames
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.Tensor
+import sk.ainet.lang.tensor.t
 import sk.ainet.lang.tensor.data.IntArrayTensorData
 import sk.ainet.lang.tensor.data.Q4MemorySegmentTensorData
 import sk.ainet.lang.tensor.data.Q8MemorySegmentTensorData
@@ -85,7 +86,11 @@ public object MemSegWeightConverter {
         ctx: ExecutionContext,
         arena: Arena
     ): Tensor<FP32, Float> {
-        val quantType = quantTypes[tensorName] ?: return tensor
+        val quantType = quantTypes[tensorName]
+        if (quantType == null) {
+            // FP32 tensor — pre-transpose to [in, out] so no .t() at runtime
+            return tensor.t()
+        }
 
         val bytes = extractBytes(tensor.data)
 
@@ -97,9 +102,20 @@ public object MemSegWeightConverter {
             GGMLQuantizationType.Q4_K,
             GGMLQuantizationType.Q5_K,
             GGMLQuantizationType.Q6_K -> {
-                // Dequantize K-quant types to FP32 (no native SIMD kernel yet)
-                val floats = DequantOps.dequantFromBytes(bytes, quantType, logicalShape.volume)
-                return ctx.fromFloatArray(logicalShape, FP32::class, floats)
+                // Dequantize K-quant types to FP32 and pre-transpose to [in, out].
+                // Pre-transposing at load time avoids .t() at runtime, which
+                // allocates direct buffers the JVM doesn't GC eagerly (OOM on 48GB).
+                val rows = logicalShape[0]
+                val cols = logicalShape[1]
+                val floats = DequantOps.dequantFromBytes(bytes, quantType, rows * cols)
+                val transposed = FloatArray(rows * cols)
+                for (r in 0 until rows) {
+                    for (c in 0 until cols) {
+                        transposed[c * rows + r] = floats[r * cols + c]
+                    }
+                }
+                val transposedShape = Shape(cols, rows)
+                return ctx.fromFloatArray(transposedShape, FP32::class, transposed)
             }
             else -> {
                 println("WARNING: Unsupported quant type $quantType for MemorySegment conversion of $tensorName, keeping as-is")
