@@ -200,7 +200,7 @@ public class VoxtralFlowMatching(
             val u1 = random.nextFloat().coerceIn(1e-7f, 1.0f)
             val u2 = random.nextFloat()
             val mag = kotlin.math.sqrt(-2.0f * kotlin.math.ln(u1))
-            val angle = (2.0 * Math.PI * u2).toFloat()
+            val angle = (2.0 * kotlin.math.PI * u2).toFloat()
             values[i] = mag * kotlin.math.cos(angle)
             values[i + 1] = mag * kotlin.math.sin(angle)
             i += 2
@@ -208,7 +208,7 @@ public class VoxtralFlowMatching(
         if (i < n) {
             val u1 = random.nextFloat().coerceIn(1e-7f, 1.0f)
             val u2 = random.nextFloat()
-            values[i] = kotlin.math.sqrt(-2.0f * kotlin.math.ln(u1)) * kotlin.math.cos((2.0 * Math.PI * u2).toFloat())
+            values[i] = kotlin.math.sqrt(-2.0f * kotlin.math.ln(u1)) * kotlin.math.cos((2.0 * kotlin.math.PI * u2).toFloat())
         }
         @Suppress("UNCHECKED_CAST")
         val result = ctx.fromFloatArray<T, Float>(shape, dtype, values)
