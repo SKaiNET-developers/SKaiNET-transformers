@@ -52,36 +52,28 @@ ChatPipeline (template formatting, tool calling, agent loop)
 
 5. **Fixed `JavaAgentLoop`** — replaced `GGUFTokenizer` instanceof hack with `tokenizer.eosTokenId`
 
-## Phase 2: Unified DSL-Based Model Definition (converge on OptimizedLLMRuntime)
+## Phase 2: Unified DSL-Based Model Definition (converge on OptimizedLLMRuntime) -- PARTIAL
 
-**Problem:** Each model has a hand-coded runtime. `OptimizedLLMRuntime` already supports DSL -> graph -> optimized execution, but only some models use it.
+**What was done:**
 
-**Changes:**
+1. **Created `ModelRegistry`** in `llm-core/.../ModelRegistry.kt`
+   - `ModelFamily` enum: LLAMA, QWEN, GEMMA, APERTUS, BERT, VOXTRAL, UNKNOWN
+   - `ModelRegistry.detect(architecture)` maps GGUF arch strings to families
+   - Tracks capabilities (supportsToolCalling, chatTemplateFamily)
 
-1. **Define DSL networks for all model families:**
-   - `llamaNetwork(config)` — LLaMA/Mistral/Qwen2/3 (standard transformer)
-   - `qwen35Network(config)` — Qwen3.5 (hybrid DeltaNet + full attention)
-   - `gemmaNetwork(config)` — Gemma (GELU, MatFormer FFN, sliding window)
-   - `apertusNetwork(config)` — Apertus (xIELU, ungated MLP, QK-norm)
-   - Each is a pure function returning a `Network<T>` from the DSL
+2. **Created `UnifiedModelLoader`** in `llm-core/.../UnifiedModelLoader.kt`
+   - `UnifiedModelLoader.peek(source)` extracts `GGUFModelInfo` from GGUF metadata
+   - Returns architecture, family, dimensions without loading weights
 
-2. **Unified model loading flow:**
-   ```
-   detectArchitecture(ggufMetadata) -> ModelFamily
-   ModelFamily.createNetwork(config) -> Network<T>
-   WeightLoader.loadAndMap(file, network) -> weights
-   OptimizedLLMRuntime(network, weights, mode=HYBRID) -> InferenceRuntime
-   ```
+**Already existing (no changes needed):**
+- DSL networks: `llamaNetwork()`, `qwenNetwork()`, `apertusNetwork()`, `bertNetwork()`, `voxtralBackboneNetwork()`, `voxtralAcousticNetwork()`
+- `OptimizedLLMRuntime` with DIRECT/OPTIMIZED/HYBRID modes
+- Per-model `NetworkLoader` classes (LlamaNetworkLoader, ApertusNetworkLoader, etc.)
 
-3. **Remove deprecated hand-coded runtimes** once DSL equivalents are validated:
-   - `LlamaRuntime` -> `llamaNetwork()` + `OptimizedLLMRuntime`
-   - `ApertusRuntime` -> `apertusNetwork()` + `OptimizedLLMRuntime`
-
-**Critical files:**
-- `llm-core/.../OptimizedLLMRuntime.kt` — already exists, extend
-- `llm-core/.../dsl/TransformerDsl.kt` — already has embedding, MHA, SwiGLU, RMSNorm
-- `llm-core/.../weights/LLMWeightNameResolvers.kt` — already maps DSL paths -> GGUF names
-- New: per-model DSL network definitions
+**Remaining (future work):**
+- `gemmaNetwork()` DSL definition (Gemma3n has unique features: GELU, MatFormer variable FFN, sliding window)
+- Migrate CLI runners from deprecated runtimes to OptimizedLLMRuntime
+- Remove deprecated LlamaRuntime and ApertusRuntime
 
 ## Phase 3: Tokenization as Pipeline Stage -- DONE
 
