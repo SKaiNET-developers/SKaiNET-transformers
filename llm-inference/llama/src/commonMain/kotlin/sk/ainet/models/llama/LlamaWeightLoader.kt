@@ -243,8 +243,20 @@ public class LlamaWeightLoader private constructor(
         val required = requiredTensorNames(metadata)
         val tensorByName = reader.tensors.associateBy { it.name }
 
+        // Tied embeddings (Qwen2.5-0.5B/1.5B, Gemma, etc.): reuse token_embd.weight as output.weight
+        val tiedEmbeddings = tensorByName[LlamaTensorNames.OUTPUT_WEIGHT] == null &&
+            tensorByName[LlamaTensorNames.TOKEN_EMBEDDINGS] != null
+        if (tiedEmbeddings) {
+            println("Tied word embeddings: output.weight = token_embd.weight")
+        }
+
         required.forEach { name ->
-            val rt = tensorByName[name]
+            val lookupName = if (name == LlamaTensorNames.OUTPUT_WEIGHT && tiedEmbeddings) {
+                LlamaTensorNames.TOKEN_EMBEDDINGS
+            } else {
+                name
+            }
+            val rt = tensorByName[lookupName]
                 ?: error("Missing required tensor in GGUF payload: $name")
             validateTensorShape(name, rt, metadata)
             val tensor: Tensor<T, V> = readerTensorToTensor(ctx, dtype, reader, rt)
@@ -299,9 +311,24 @@ public class LlamaWeightLoader private constructor(
             val required = requiredTensorNames(metadata)
             val tensorByName = reader.tensors.associateBy { it.name }
 
+            // Tied embeddings: small models (Qwen2.5-0.5B/1.5B, etc.) omit output.weight
+            // and reuse token_embd.weight as the LM head. Detect and alias.
+            val tiedEmbeddings = tensorByName[LlamaTensorNames.OUTPUT_WEIGHT] == null &&
+                tensorByName[LlamaTensorNames.TOKEN_EMBEDDINGS] != null
+            if (tiedEmbeddings) {
+                println("Tied word embeddings: output.weight = token_embd.weight")
+            }
+
             required.forEach { name ->
-                val st = tensorByName[name]
+                val lookupName = if (name == LlamaTensorNames.OUTPUT_WEIGHT && tiedEmbeddings) {
+                    LlamaTensorNames.TOKEN_EMBEDDINGS
+                } else {
+                    name
+                }
+                val st = tensorByName[lookupName]
                     ?: error("Missing required tensor in GGUF payload: $name")
+                // Shape validation uses the logical name (e.g., OUTPUT_WEIGHT) even when
+                // the physical tensor is TOKEN_EMBEDDINGS — both must have [vocab, dim] shape.
                 validateStreamingTensorShape(name, st, metadata)
                 val tensor: Tensor<T, V> = streamingTensorToTensor(ctx, dtype, reader, st)
                 onTensorLoaded(name, tensor)
