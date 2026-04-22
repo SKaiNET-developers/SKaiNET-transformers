@@ -62,7 +62,20 @@ public data class Gemma4RuntimeWeights<T : DType>(
 public data class Gemma4Weights<T : DType, V>(
     val metadata: Gemma4ModelMetadata,
     val tensors: Map<String, Tensor<T, V>>,
-    val quantTypes: Map<String, GGMLQuantizationType> = emptyMap()
+    val quantTypes: Map<String, GGMLQuantizationType> = emptyMap(),
+    /**
+     * Original 2-D logical shape of each tensor as reported by GGUF.
+     *
+     * Populated by the loader for `NATIVE_OPTIMIZED` quant policy, where
+     * quantized tensors are stored with a 1-D byte shape (the packed
+     * representation doesn't satisfy `byte_count == logical_volume`).
+     * Downstream converters (e.g. `GemmaMemSegConverter`) need the real
+     * `[rows, cols]` shape to build packed tensor-data variants, since
+     * model metadata alone is unreliable for Gemma 4 — `feed_forward_length`
+     * is a single scalar while real FFN widths vary across layers
+     * (E2B: 6144 for blk.0–14, 12288 for blk.15+).
+     */
+    val logicalShapes: Map<String, sk.ainet.lang.tensor.Shape> = emptyMap()
 )
 
 /**

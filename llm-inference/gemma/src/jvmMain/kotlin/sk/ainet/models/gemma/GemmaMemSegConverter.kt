@@ -7,10 +7,51 @@ import sk.ainet.io.gguf.dequant.DequantOps
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.tensor.data.IntArrayTensorData
+import sk.ainet.lang.tensor.data.Q4_KBlockTensorData
 import sk.ainet.lang.tensor.data.Q4MemorySegmentTensorData
 import sk.ainet.lang.tensor.data.Q8MemorySegmentTensorData
 import sk.ainet.lang.tensor.data.TensorData
 import sk.ainet.lang.types.DType
+import sk.ainet.lang.types.FP32
+
+/**
+ * Recover the logical 2-D shape of a Gemma 4 weight tensor from its GGUF
+ * name and the model metadata. `Gemma4WeightLoader` with
+ * `NATIVE_OPTIMIZED` stores quantized tensors as 1-D byte arrays so the
+ * tensor-data factory accepts them; the converter needs the original
+ * shape to re-layout blocks and construct `Q4_KBlockTensorData` /
+ * `Q4/Q8MemorySegmentTensorData`.
+ *
+ * Returns `null` for tensors that don't have a 2-D matmul layout (norms,
+ * embeddings the converter wants to dequant anyway).
+ */
+internal fun logicalShapeFor(name: String, metadata: Gemma4ModelMetadata): Shape? {
+    val embed = metadata.embeddingLength
+    val vocab = metadata.vocabSize
+    return when {
+        name == Gemma4TensorNames.TOKEN_EMBEDDINGS -> Shape(vocab, embed)
+        name == Gemma4TensorNames.OUTPUT_WEIGHT -> Shape(vocab, embed)
+        name.startsWith("blk.") -> {
+            val rest = name.substringAfter("blk.")
+            val layer = rest.substringBefore('.').toIntOrNull() ?: return null
+            val headDim = metadata.getHeadDim(layer)
+            val qDim = metadata.headCount * headDim
+            val kvDim = metadata.kvHeadCount * headDim
+            val ffn = metadata.intermediateSize
+            when {
+                name.endsWith(".attn_q.weight") -> Shape(qDim, embed)
+                name.endsWith(".attn_k.weight") -> Shape(kvDim, embed)
+                name.endsWith(".attn_v.weight") -> Shape(kvDim, embed)
+                name.endsWith(".attn_output.weight") -> Shape(embed, qDim)
+                name.endsWith(".ffn_gate.weight") -> Shape(ffn, embed)
+                name.endsWith(".ffn_up.weight") -> Shape(ffn, embed)
+                name.endsWith(".ffn_down.weight") -> Shape(embed, ffn)
+                else -> null
+            }
+        }
+        else -> null
+    }
+}
 
 /**
  * Convert raw-byte quantized tensors in a [Gemma4Weights] map (produced by
@@ -60,18 +101,32 @@ public fun convertGemmaWeightsToMemSeg(
     if (quantTypes.isEmpty()) return weights
 
     val dtype = inferDtype(typedWeights) ?: return weights
+    val logicalShapes = typedWeights.logicalShapes
     val newTensors = linkedMapOf<String, Tensor<DType, Any>>()
     for ((name, tensor) in typedWeights.tensors) {
         val qt = quantTypes[name]
         newTensors[name] = when {
             qt == null -> tensor // not quantized — leave as-is
-            name == Gemma4TensorNames.TOKEN_EMBEDDINGS ->
-                dequantToFloat(tensor, qt, name, ctx, dtype)
-            else -> convertOne(tensor, qt, name, ctx, arena, dtype)
+            else -> {
+                val logicalShape = logicalShapes[name]
+                if (logicalShape == null) {
+                    println("WARNING: GemmaMemSegConverter: no logical shape for '$name' in weights map; leaving as-is")
+                    tensor
+                } else if (name == Gemma4TensorNames.TOKEN_EMBEDDINGS) {
+                    dequantToFloat(tensor, qt, name, ctx, dtype, logicalShape)
+                } else {
+                    convertOne(tensor, qt, name, ctx, arena, dtype, logicalShape)
+                }
+            }
         }
     }
     @Suppress("UNCHECKED_CAST")
-    return Gemma4Weights(typedWeights.metadata, newTensors, typedWeights.quantTypes) as Gemma4Weights<*, *>
+    return Gemma4Weights(
+        typedWeights.metadata,
+        newTensors,
+        typedWeights.quantTypes,
+        typedWeights.logicalShapes
+    ) as Gemma4Weights<*, *>
 }
 
 @Suppress("UNCHECKED_CAST")
@@ -87,27 +142,47 @@ private fun <T : DType, V> convertOne(
     name: String,
     ctx: ExecutionContext,
     arena: Arena,
-    dtype: kotlin.reflect.KClass<T>
+    dtype: kotlin.reflect.KClass<T>,
+    shape: Shape
 ): Tensor<T, V> {
     val bytes = extractBytes(tensor.data)
-    val shape = tensor.shape
+    // We advertise the logical FP32 dtype to the DSL (since the runtime's
+    // matmul kernels consume FP32 activations × quant weights). The tensor's
+    // runtime data type is the specific quant class; matmul dispatch
+    // inspects tensor.data at runtime to pick a kernel, so the declared
+    // DType generic only matters for the type system.
+    val advertisedDtype = FP32::class
     return when (qt) {
         GGMLQuantizationType.Q4_0 -> {
             val data = Q4MemorySegmentTensorData.fromRawBytes(shape, bytes, arena)
-            ctx.fromData(data as TensorData<T, V>, dtype)
+            ctx.fromData(data as TensorData<FP32, Float>, advertisedDtype) as Tensor<T, V>
         }
         GGMLQuantizationType.Q8_0 -> {
             val data = Q8MemorySegmentTensorData.fromRawBytes(shape, bytes, arena)
-            ctx.fromData(data as TensorData<T, V>, dtype)
+            ctx.fromData(data as TensorData<FP32, Float>, advertisedDtype) as Tensor<T, V>
         }
-        GGMLQuantizationType.Q4_K,
+        GGMLQuantizationType.Q4_K -> {
+            // Keep Q4_K packed, but re-layout the GGUF-stored bytes from
+            // row-major block order `[row, block]` to the input-block-major
+            // order `[block, row]` that `JvmQuantizedVectorKernels.matmulQ4_KVec`
+            // indexes via `(blockIdx * outputDim + o) * bytesPerBlock`.
+            //
+            // The lazy Q4_K transpose in `DefaultCpuOpsJvm` expects this
+            // layout; combined, a Q4_K_M Gemma 4 E2B checkpoint (3.2 GB on
+            // disk) stays near that footprint in RAM instead of inflating
+            // to ~18 GB FP32.
+            val relaid = relayoutQ4_KRowMajorToBlockMajor(bytes, shape)
+            val data = Q4_KBlockTensorData.fromRawBytes(shape, relaid)
+            ctx.fromData(data as TensorData<FP32, Float>, advertisedDtype) as Tensor<T, V>
+        }
         GGMLQuantizationType.Q5_K,
         GGMLQuantizationType.Q6_K -> {
-            // Dequant to FP32, keep [out, in] layout. DSL linearProject
-            // transposes at runtime (free on FP32 MemSeg or the cheap
-            // per-element default path).
-            val floats = DequantOps.dequantFromBytes(bytes, qt, shape.volume)
-            ctx.fromFloatArray<T, V>(shape, dtype, floats)
+            // No native matmul kernel for these yet — fall back to dequant.
+            // Kept [out, in] layout (DSL transposes at runtime); pre-transposing
+            // here would double-transpose via linearProject and give wrong math.
+            val elemCount = shape.volume
+            val floats = DequantOps.dequantFromBytes(bytes, qt, elemCount)
+            ctx.fromFloatArray<FP32, Float>(shape, advertisedDtype, floats) as Tensor<T, V>
         }
         else -> {
             println("WARNING: GemmaMemSegConverter: unsupported quant type $qt for '$name'; leaving as-is")
@@ -122,10 +197,11 @@ private fun <T : DType, V> dequantToFloat(
     qt: GGMLQuantizationType,
     name: String,
     ctx: ExecutionContext,
-    dtype: kotlin.reflect.KClass<T>
+    dtype: kotlin.reflect.KClass<T>,
+    logicalShape: Shape
 ): Tensor<T, V> {
     val bytes = extractBytes(tensor.data)
-    val volume = tensor.shape.volume
+    val volume = logicalShape.volume
     val floats = when (qt) {
         GGMLQuantizationType.Q4_0,
         GGMLQuantizationType.Q8_0,
@@ -138,7 +214,44 @@ private fun <T : DType, V> dequantToFloat(
             return tensor
         }
     }
-    return ctx.fromFloatArray<T, V>(tensor.shape, dtype, floats)
+    // Always produce a real FP32 tensor — the DSL expects FP32 activations.
+    return ctx.fromFloatArray<FP32, Float>(logicalShape, FP32::class, floats) as Tensor<T, V>
+}
+
+/**
+ * Re-layout GGUF Q4_K bytes from row-major block order (block at row r,
+ * block index b within row → byte offset `(r * blocksPerRow + b) * 144`)
+ * to the input-block-major layout that `matmulQ4_KVec` expects (block at
+ * blockIdx bI for output row r → byte offset `(bI * outDim + r) * 144`).
+ *
+ * For a weight of shape `[outDim, inDim]` with inDim divisible by 256
+ * (Q4_K block size), this is just a 2D block-level transpose of the
+ * `[outDim, inDim/256]` array of 144-byte blocks. The bytes inside a
+ * block are untouched.
+ */
+internal fun relayoutQ4_KRowMajorToBlockMajor(bytes: ByteArray, shape: sk.ainet.lang.tensor.Shape): ByteArray {
+    val bytesPerBlock = 144
+    val blockSize = 256
+    require(shape.rank == 2) { "Q4_K weight must be 2D, got rank ${shape.rank}" }
+    val outDim = shape[0]
+    val inDim = shape[1]
+    require(inDim % blockSize == 0) {
+        "Q4_K weight inDim ($inDim) must be a multiple of $blockSize"
+    }
+    val blocksPerRow = inDim / blockSize
+    val expected = outDim.toLong() * blocksPerRow.toLong() * bytesPerBlock.toLong()
+    require(bytes.size.toLong() >= expected) {
+        "Q4_K byte buffer size ${bytes.size} < expected $expected for shape [$outDim, $inDim]"
+    }
+    val out = ByteArray(bytes.size)
+    for (r in 0 until outDim) {
+        for (b in 0 until blocksPerRow) {
+            val srcOff = (r * blocksPerRow + b) * bytesPerBlock
+            val dstOff = (b * outDim + r) * bytesPerBlock
+            System.arraycopy(bytes, srcOff, out, dstOff, bytesPerBlock)
+        }
+    }
+    return out
 }
 
 private fun extractBytes(data: TensorData<*, *>): ByteArray {

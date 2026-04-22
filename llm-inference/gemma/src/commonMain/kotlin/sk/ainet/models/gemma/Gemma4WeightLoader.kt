@@ -73,10 +73,15 @@ public class Gemma4WeightLoader private constructor(
     ): Gemma4Weights<T, V> {
         val byName = linkedMapOf<String, Tensor<T, V>>()
         val quantTypes = linkedMapOf<String, GGMLQuantizationType>()
-        val meta = loadFromGguf(ctx, dtype, { name, tensor -> byName[name] = tensor }) { name, qt ->
-            quantTypes[name] = qt
-        }
-        return Gemma4Weights(meta, byName, quantTypes)
+        val logicalShapes = linkedMapOf<String, Shape>()
+        val meta = loadFromGguf(
+            ctx,
+            dtype,
+            onTensorLoaded = { name, tensor -> byName[name] = tensor },
+            quantCallback = { name, qt -> quantTypes[name] = qt },
+            logicalShapeCallback = { name, shape -> logicalShapes[name] = shape }
+        )
+        return Gemma4Weights(meta, byName, quantTypes, logicalShapes)
     }
 
     public suspend inline fun <reified T : DType, V> loadToMap(
@@ -104,10 +109,15 @@ public class Gemma4WeightLoader private constructor(
     ): Gemma4Weights<T, V> {
         val byName = linkedMapOf<String, Tensor<T, V>>()
         val quantTypes = linkedMapOf<String, GGMLQuantizationType>()
-        val meta = loadFromStreamingGguf(ctx, dtype, { name, tensor -> byName[name] = tensor }) { name, qt ->
-            quantTypes[name] = qt
-        }
-        return Gemma4Weights(meta, byName, quantTypes)
+        val logicalShapes = linkedMapOf<String, Shape>()
+        val meta = loadFromStreamingGguf(
+            ctx,
+            dtype,
+            onTensorLoaded = { name, tensor -> byName[name] = tensor },
+            quantCallback = { name, qt -> quantTypes[name] = qt },
+            logicalShapeCallback = { name, shape -> logicalShapes[name] = shape }
+        )
+        return Gemma4Weights(meta, byName, quantTypes, logicalShapes)
     }
 
     public suspend inline fun <reified T : DType, V> loadToMapStreaming(
@@ -120,7 +130,8 @@ public class Gemma4WeightLoader private constructor(
         ctx: ExecutionContext,
         dtype: KClass<T>,
         onTensorLoaded: (String, Tensor<T, V>) -> Unit,
-        quantCallback: ((String, GGMLQuantizationType) -> Unit)?
+        quantCallback: ((String, GGMLQuantizationType) -> Unit)?,
+        logicalShapeCallback: ((String, Shape) -> Unit)? = null
     ): Gemma4ModelMetadata {
         require(dtype == FP32::class || dtype == FP16::class) {
             "Gemma 4 GGUF loader supports FP32 and FP16 tensors (got ${dtype.simpleName})"
@@ -144,9 +155,13 @@ public class Gemma4WeightLoader private constructor(
                 ?: error("Missing required tensor in GGUF payload: $name")
             val tensor: Tensor<T, V> = readerTensorToTensor(ctx, dtype, reader, rt, metadata)
             onTensorLoaded(name, tensor)
-            if (quantPolicy == QuantPolicy.RAW_BYTES && rt.tensorType != GGMLQuantizationType.F32) {
+            if ((quantPolicy == QuantPolicy.RAW_BYTES || quantPolicy == QuantPolicy.NATIVE_OPTIMIZED) && rt.tensorType != GGMLQuantizationType.F32) {
                 quantCallback?.invoke(name, rt.tensorType)
             }
+            logicalShapeCallback?.invoke(
+                name,
+                Shape(*rt.shape.map { it.toInt() }.reversed().toIntArray())
+            )
         }
 
         // Output weight with weight tying fallback
@@ -154,7 +169,7 @@ public class Gemma4WeightLoader private constructor(
         if (outputRt != null) {
             val tensor: Tensor<T, V> = readerTensorToTensor(ctx, dtype, reader, outputRt, metadata)
             onTensorLoaded(Gemma4TensorNames.OUTPUT_WEIGHT, tensor)
-            if (quantPolicy == QuantPolicy.RAW_BYTES && outputRt.tensorType != GGMLQuantizationType.F32) {
+            if ((quantPolicy == QuantPolicy.RAW_BYTES || quantPolicy == QuantPolicy.NATIVE_OPTIMIZED) && outputRt.tensorType != GGMLQuantizationType.F32) {
                 quantCallback?.invoke(Gemma4TensorNames.OUTPUT_WEIGHT, outputRt.tensorType)
             }
         } else {
@@ -174,7 +189,8 @@ public class Gemma4WeightLoader private constructor(
         ctx: ExecutionContext,
         dtype: KClass<T>,
         onTensorLoaded: (String, Tensor<T, V>) -> Unit,
-        quantCallback: ((String, GGMLQuantizationType) -> Unit)?
+        quantCallback: ((String, GGMLQuantizationType) -> Unit)?,
+        logicalShapeCallback: ((String, Shape) -> Unit)? = null
     ): Gemma4ModelMetadata {
         require(dtype == FP32::class || dtype == FP16::class) {
             "Gemma 4 GGUF loader supports FP32 and FP16 tensors (got ${dtype.simpleName})"
@@ -198,9 +214,10 @@ public class Gemma4WeightLoader private constructor(
                     ?: error("Missing required tensor in GGUF payload: $name")
                 val tensor: Tensor<T, V> = streamingTensorToTensor(ctx, dtype, reader, st, metadata)
                 onTensorLoaded(name, tensor)
-                if (quantPolicy == QuantPolicy.RAW_BYTES && st.tensorType != GGMLQuantizationType.F32) {
+                if ((quantPolicy == QuantPolicy.RAW_BYTES || quantPolicy == QuantPolicy.NATIVE_OPTIMIZED) && st.tensorType != GGMLQuantizationType.F32) {
                     quantCallback?.invoke(name, st.tensorType)
                 }
+                logicalShapeCallback?.invoke(name, reversedShape(st.shape))
             }
 
             // Output weight with weight tying fallback
@@ -208,14 +225,22 @@ public class Gemma4WeightLoader private constructor(
             if (outputSt != null) {
                 val tensor: Tensor<T, V> = streamingTensorToTensor(ctx, dtype, reader, outputSt, metadata)
                 onTensorLoaded(Gemma4TensorNames.OUTPUT_WEIGHT, tensor)
-                if (quantPolicy == QuantPolicy.RAW_BYTES && outputSt.tensorType != GGMLQuantizationType.F32) {
+                if ((quantPolicy == QuantPolicy.RAW_BYTES || quantPolicy == QuantPolicy.NATIVE_OPTIMIZED) && outputSt.tensorType != GGMLQuantizationType.F32) {
                     quantCallback?.invoke(Gemma4TensorNames.OUTPUT_WEIGHT, outputSt.tensorType)
                 }
+                logicalShapeCallback?.invoke(
+                    Gemma4TensorNames.OUTPUT_WEIGHT,
+                    reversedShape(outputSt.shape)
+                )
             } else {
                 val embedSt = tensorByName[Gemma4TensorNames.TOKEN_EMBEDDINGS]
                     ?: error("Missing both output.weight and token_embd.weight")
                 val tensor: Tensor<T, V> = streamingTensorToTensor(ctx, dtype, reader, embedSt, metadata)
                 onTensorLoaded(Gemma4TensorNames.OUTPUT_WEIGHT, tensor)
+                logicalShapeCallback?.invoke(
+                    Gemma4TensorNames.OUTPUT_WEIGHT,
+                    reversedShape(embedSt.shape)
+                )
             }
 
             loadOptionalStreamingTensors(ctx, dtype, reader, tensorByName, onTensorLoaded, metadata)
@@ -461,6 +486,17 @@ public class Gemma4WeightLoader private constructor(
         require(metadata.vocabSize > 0) { "Invalid vocab size ${metadata.vocabSize}" }
     }
 
+    /**
+     * Convert GGUF's native-order tensor dims (ne[0] fastest-changing/innermost)
+     * into the PyTorch-style `[outer, inner]` layout used by the runtime. For a
+     * standard 2-D weight tensor this flips `[ne[0]=in, ne[1]=out]` into
+     * `[out, in]`, matching `Gemma4WeightMapper.require2D(outDim, inDim)` and
+     * the `createTensor` transpose that the `DEQUANTIZE_TO_FP32` path does
+     * inline.
+     */
+    private fun reversedShape(ggufDims: List<UInt>): Shape =
+        Shape(*ggufDims.map { it.toInt() }.reversed().toIntArray())
+
     private fun requiredTensorNames(metadata: Gemma4ModelMetadata): List<String> {
         val names = mutableListOf<String>()
         names += Gemma4TensorNames.TOKEN_EMBEDDINGS
@@ -662,11 +698,19 @@ public class Gemma4WeightLoader private constructor(
             GGMLQuantizationType.TQ1_0,
             GGMLQuantizationType.TQ2_0 -> {
                 when (quantPolicy) {
-                    QuantPolicy.RAW_BYTES,
-                    QuantPolicy.NATIVE_OPTIMIZED -> {
+                    QuantPolicy.RAW_BYTES -> {
                         val raw = if (rt.data.isEmpty()) reader.materialize(rt) else rt.data
                         val bytes = DequantOps.toByteArray(raw, rt.name)
                         ctx.fromByteArray<Int8, Byte>(shape, Int8::class, bytes) as Tensor<T, V>
+                    }
+                    QuantPolicy.NATIVE_OPTIMIZED -> {
+                        // See streaming counterpart: 1-D byte shape so the factory
+                        // accepts packed quantized bytes.
+                        val raw = if (rt.data.isEmpty()) reader.materialize(rt) else rt.data
+                        val bytes = DequantOps.toByteArray(raw, rt.name)
+                        val byteShape = Shape(bytes.size)
+                        @Suppress("UNCHECKED_CAST")
+                        ctx.fromByteArray<Int8, Byte>(byteShape, Int8::class, bytes) as Tensor<T, V>
                     }
                     QuantPolicy.DEQUANTIZE_TO_FP32 -> {
                         val raw = if (rt.data.isEmpty()) reader.materialize(rt) else rt.data
@@ -736,9 +780,18 @@ public class Gemma4WeightLoader private constructor(
             GGMLQuantizationType.TQ1_0,
             GGMLQuantizationType.TQ2_0 -> {
                 when (quantPolicy) {
-                    QuantPolicy.RAW_BYTES,
-                    QuantPolicy.NATIVE_OPTIMIZED -> {
+                    QuantPolicy.RAW_BYTES -> {
                         ctx.fromByteArray<Int8, Byte>(shape, Int8::class, bytes) as Tensor<T, V>
+                    }
+                    QuantPolicy.NATIVE_OPTIMIZED -> {
+                        // Store raw quantized bytes with a 1-D byte shape (matches
+                        // LlamaWeightLoader). The factory would otherwise reject the
+                        // 2-D logical shape because `byte count != elements`. Downstream
+                        // converters (MemSegWeightConverter for Llama, GemmaMemSegConverter
+                        // for Gemma) recover the logical shape from the metadata.
+                        val byteShape = Shape(bytes.size)
+                        @Suppress("UNCHECKED_CAST")
+                        ctx.fromByteArray<Int8, Byte>(byteShape, Int8::class, bytes) as Tensor<T, V>
                     }
                     QuantPolicy.DEQUANTIZE_TO_FP32 -> {
                         val floats = dequantFromBytes(bytes, st.tensorType, st.nElements.toInt())
