@@ -71,6 +71,7 @@ public class AttentionImpl<T : DType, V>(
     private val qkNorm: Boolean,
     private val bias: Boolean,
     private val id: String,
+    private val slidingWindow: Int? = null,
 ) : ATTENTION<T, V> {
 
     private var ropeModule: RoPE<T, V>? = null
@@ -121,7 +122,8 @@ public class AttentionImpl<T : DType, V>(
             name = id,
             rope = ropeModule,
             kvCache = kvCacheModule,
-            explicitHeadDim = if (needsExplicitHeadDim) explicitHeadDim else null
+            explicitHeadDim = if (needsExplicitHeadDim) explicitHeadDim else null,
+            slidingWindow = slidingWindow
         )
     }
 }
@@ -166,6 +168,7 @@ public fun <T : DType, V> StageImpl<T, V>.multiHeadAttention(
     qkNorm: Boolean = false,
     bias: Boolean = false,
     id: String = "",
+    slidingWindow: Int? = null,
     content: ATTENTION<T, V>.() -> Unit = {}
 ) {
     val attnName = getDefaultName(id, "MultiHeadAttention", modules.size)
@@ -178,6 +181,7 @@ public fun <T : DType, V> StageImpl<T, V>.multiHeadAttention(
         qkNorm = qkNorm,
         bias = bias,
         id = attnName,
+        slidingWindow = slidingWindow,
     )
     impl.content()
     modules += impl.create()
@@ -253,6 +257,7 @@ public fun <T : DType, V> NeuralNetworkDslImpl<T, V>.multiHeadAttention(
     qkNorm: Boolean = false,
     bias: Boolean = false,
     id: String = "",
+    slidingWindow: Int? = null,
     content: ATTENTION<T, V>.() -> Unit = {}
 ) {
     val attnName = getDefaultName(id, "MultiHeadAttention", modules.size)
@@ -265,6 +270,7 @@ public fun <T : DType, V> NeuralNetworkDslImpl<T, V>.multiHeadAttention(
         qkNorm = qkNorm,
         bias = bias,
         id = attnName,
+        slidingWindow = slidingWindow,
     )
     impl.content()
     modules += impl.create()

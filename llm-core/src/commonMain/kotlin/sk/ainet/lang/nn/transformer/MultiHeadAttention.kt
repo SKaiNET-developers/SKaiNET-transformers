@@ -43,8 +43,25 @@ public class MultiHeadAttention<T : DType, V>(
     override val name: String = "MultiHeadAttention",
     public var rope: RoPE<T, V>? = null,
     public var kvCache: KVCache<T, V>? = null,
-    explicitHeadDim: Int? = null
+    explicitHeadDim: Int? = null,
+    /**
+     * Sliding-window size (in tokens). When non-null, each query position only
+     * attends to keys within `slidingWindow` positions back (inclusive). Used
+     * by Gemma 4 local-attention layers. Null = no windowing.
+     */
+    public val slidingWindow: Int? = null
 ) : Module<T, V>(), ModuleParameters<T, V> {
+
+    init {
+        if (slidingWindow != null) {
+            require(slidingWindow > 0) {
+                "MultiHeadAttention: slidingWindow must be > 0 when set, got $slidingWindow"
+            }
+            require(causal) {
+                "MultiHeadAttention: slidingWindow currently requires causal=true (non-causal windowed attention not supported)"
+            }
+        }
+    }
 
     public val headDim: Int = explicitHeadDim ?: (dim / nHeads)
     public val qDim: Int = headDim * nHeads
@@ -170,14 +187,21 @@ public class MultiHeadAttention<T : DType, V>(
         val kBatched = ops.unsqueeze(expandedK, 0)
         val vBatched = ops.unsqueeze(expandedV, 0)
 
+        // When sliding-window attention is active, we build a combined
+        // causal+window mask ourselves and disable SDPA's built-in causal
+        // path (which would otherwise re-mask the same positions).
+        val seqKV = kBatched.shape[2]
+        val slidingMask = slidingWindow?.let { buildSlidingCausalMask(seqLen, seqKV, it, ctx, qBatched.dtype) }
+        val useCausalPath = causal && slidingMask == null
+
         // Scaled dot-product attention
         val attnOut = ops.scaledDotProductAttention(
             query = qBatched,
             key = kBatched,
             value = vBatched,
-            mask = null,
+            mask = slidingMask,
             scale = scale,
-            causal = causal
+            causal = useCausalPath
         )
 
         // Remove batch dim and merge heads: [1, nHeads, seqLen, headDim] → [seqLen, qDim]
@@ -190,6 +214,43 @@ public class MultiHeadAttention<T : DType, V>(
             output = ops.add(output, params[oWIdx + 1].value)
         }
         return output
+    }
+
+    /**
+     * Build an additive mask tensor of shape `[1, 1, seqQ, seqKV]` where allowed
+     * (query, key) cells are 0 and masked cells are a large negative value so
+     * the post-softmax attention weight is effectively zero.
+     *
+     * Query qi at (absolute) position `abs_q = seqKV - seqQ + qi` attends to
+     * any key ki at abs position `ki` such that:
+     *   abs_q - window < ki <= abs_q
+     *
+     * The causal bound is subsumed by the sliding bound so this mask also
+     * covers the causal case — SDPA's own causal path is disabled when this
+     * mask is in use.
+     *
+     * Assumes keys are laid out in ascending absolute position order (true for
+     * [AppendKVCache] and [SlidingWindowKVCache] with the trailing tail).
+     */
+    private fun buildSlidingCausalMask(
+        seqQ: Int,
+        seqKV: Int,
+        window: Int,
+        ctx: ExecutionContext,
+        dtype: KClass<T>
+    ): Tensor<T, V> {
+        val neg = -1.0e30f
+        val data = FloatArray(seqQ * seqKV)
+        val qAbsOffset = seqKV - seqQ
+        for (qi in 0 until seqQ) {
+            val absQ = qAbsOffset + qi
+            val lowerExclusive = absQ - window
+            for (ki in 0 until seqKV) {
+                val allowed = ki in (lowerExclusive + 1)..absQ
+                data[qi * seqKV + ki] = if (allowed) 0f else neg
+            }
+        }
+        return ctx.fromFloatArray(Shape(1, 1, seqQ, seqKV), dtype, data)
     }
 
     private fun repeatKVHeads(t: Tensor<T, V>, repeats: Int, ops: sk.ainet.lang.tensor.ops.TensorOps): Tensor<T, V> {
