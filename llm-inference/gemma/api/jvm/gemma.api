@@ -748,6 +748,10 @@ public final class sk/ainet/models/gemma/Gemma4Weights {
 	public fun toString ()Ljava/lang/String;
 }
 
+public final class sk/ainet/models/gemma/GemmaMemSegConverterKt {
+	public static final fun convertGemmaWeightsToMemSeg (Lsk/ainet/models/gemma/Gemma4Weights;Lsk/ainet/context/ExecutionContext;Ljava/lang/foreign/Arena;)Lsk/ainet/models/gemma/Gemma4Weights;
+}
+
 public final class sk/ainet/models/gemma/GemmaNetworkDefKt {
 	public static final fun gemmaNetwork (Lsk/ainet/models/gemma/Gemma4ModelMetadata;Lkotlin/reflect/KClass;I)Lsk/ainet/lang/nn/Module;
 	public static synthetic fun gemmaNetwork$default (Lsk/ainet/models/gemma/Gemma4ModelMetadata;Lkotlin/reflect/KClass;IILjava/lang/Object;)Lsk/ainet/lang/nn/Module;

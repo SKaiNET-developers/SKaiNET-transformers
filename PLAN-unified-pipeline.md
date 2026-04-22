@@ -280,7 +280,7 @@ alongside the original `reified` version.
   `LlamaRuntime` path with `NATIVE_OPTIMIZED` quant support. The new
   `:llm-inference:gemma` module dependency was added.
 
-### Known limitation
+### Known limitation (superseded by Phase 7)
 
 The DSL path still requires FP32 dequant, so:
 
@@ -291,6 +291,69 @@ The DSL path still requires FP32 dequant, so:
   quant-aware DAG matmul (`ISSUE-skainet-8b-oom.md` §Solution C) to
   land — that's the single remaining gate between the DSL path and full
   replacement of the hand-coded runtime.
+
+## Phase 7 — DSL consumes quantized weights without FP32 dequant (DONE, Q4_0/Q8_0)
+
+`ISSUE-skainet-8b-oom.md` §Solution C, applied to the DSL path.
+
+### 7a — `linearProject` helper (shipped)
+
+Every DSL module that projects against a stored weight goes through
+`linearProject(ops, input, weight)` instead of hand-written
+`ops.matmul(input, ops.transpose(weight))`. Today the helper just
+materialises the transpose (pure rename), but it centralises the
+matmul-against-weight convention so future work — pre-transpose
+markers, transpose-fused matmul ops — has one call site to evolve.
+
+### 7b — empirical probe (shipped)
+
+`GemmaDslQuantizedTest` builds a tiny 1-layer Gemma 4 DSL module tree
+whose Q/K/V/O and gate/up/down projections are backed by
+`Q8MemorySegmentTensorData` (constructed via an inline scale=1 Q8_0
+packer so the test's integer weights round-trip losslessly). Forward
+passes are compared against the FP32 baseline:
+
+    Max |Δlogit| = 0.0 across 3 decode steps
+
+The CPU backend's existing `ops.transpose` on `Q8MemorySegmentMarker`
+(lazy shape-swap) and `ops.matmul(FloatArray, Q8_MemSeg)` (SIMD kernel
+dispatch) compose correctly — the DSL path ran Q8 quantized inference
+with zero code changes beyond 7a. Requires `inputDim % 32 == 0` (SIMD
+lane × block alignment), which all real transformer dims satisfy.
+
+### 7c — CLI plumbing (shipped)
+
+`GemmaMemSegConverter` walks a `Gemma4Weights` map produced by
+`QuantPolicy.NATIVE_OPTIMIZED` and replaces quantized tensors with the
+right runtime representation:
+
+- **Q4_0, Q8_0** → `Q4MemorySegmentTensorData` / `Q8MemorySegmentTensorData`
+  (packed, no dequant, no pre-transpose). These ride the proven 7b
+  dispatch end-to-end.
+- **Q4_K, Q5_K, Q6_K** → dequant to FP32, keep the canonical `[out, in]`
+  layout (no pre-transpose — the DSL's `linearProject` transposes at
+  runtime, so pre-transposing would double-transpose and produce the
+  wrong math).
+- **`token_embd.weight`** → always dequant (needs row-gather, not
+  matmul).
+
+`Gemma4Ingestion.loadDslRuntimeNativeStreaming(...)` is the JVM-only
+entry point that composes raw GGUF loading with `NATIVE_OPTIMIZED`, the
+converter, and `buildDslRuntime`. `kgemma --runtime=dsl` now takes this
+path — help output mentions the Q4_K gap explicitly.
+
+### What's not done (Phase 8 or later)
+
+- **Q4_K / Q5_K / Q6_K native kernels on the DSL path.** The backend has
+  `matmul(FloatArray, Q4_KTensorData)` via `JvmQuantizedVectorKernels.matmulQ4_KVec`
+  — the kernel exists. The missing piece is `ops.transpose(Q4_KTensorData)`:
+  unlike the MemSeg markers, `Q4_KTensorData` falls through to the default
+  per-element transpose, which doesn't preserve the packed block
+  layout. Until a lazy-shape-swap transpose for `Q4_KTensorData` lands
+  in `DefaultCpuOpsJvm`, K-series on the DSL path must dequant to FP32.
+- **Real Gemma 4 E2B Q4_K_M** (the common checkpoint) still inflates
+  to ~18 GB because ~all weights are Q4_K. Q8_0 Gemma checkpoints (if
+  released) would now run at ~3 GB resident through the DSL path.
 
 ## All Phases Complete
 
@@ -305,3 +368,4 @@ The DSL path still requires FP32 dequant, so:
 | 5c. Numerical parity (no shared KV) | DONE | 1-layer and 4-layer mixed sliding+global match Gemma4Runtime at ≤ 8e-8 |
 | 5d. Positional KV cache + shared-KV parity + Gemma4Runtime @Deprecated | DONE | PositionalKVCache + SharedPositionalKVCache; shared-KV parity at 8.94e-8; Gemma4Runtime marked @Deprecated |
 | 6. DSL path exposed via CLIs (opt-in) | DONE | Gemma4Ingestion.loadDslRuntime*, `kgemma --runtime=dsl`, skainet-cli auto-routes Gemma through GemmaNetworkLoader |
+| 7a–7c. DSL consumes quantized Gemma weights (Q4_0/Q8_0) | DONE | linearProject centralisation, Q8 DSL probe at Δ=0, GemmaMemSegConverter, `kgemma --runtime=dsl` uses NATIVE_OPTIMIZED. Q4_K/Q5_K/Q6_K still dequant to FP32. |
