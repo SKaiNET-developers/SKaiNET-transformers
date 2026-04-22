@@ -5,8 +5,9 @@ import sk.ainet.apps.kgemma.Gemma3nLoadConfig
 import sk.ainet.apps.kgemma.Gemma4Ingestion
 import sk.ainet.apps.kgemma.Gemma4LoadConfig
 import sk.ainet.apps.kllama.GGUFTokenizer
-import sk.ainet.apps.llm.DecoderRuntime
+import sk.ainet.apps.llm.InferenceRuntime
 import sk.ainet.apps.llm.Tokenizer
+import sk.ainet.apps.llm.generate
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
 import sk.ainet.io.model.QuantPolicy
@@ -76,11 +77,14 @@ private fun detectGemmaVariant(modelPath: Path, format: ModelFormat): GemmaVaria
     return GemmaVariant.GEMMA3N
 }
 
+private enum class RuntimeKind { HANDCODED, DSL }
+
 private data class CliArgs(
     val modelPath: Path,
     val prompt: String,
     val steps: Int,
-    val temperature: Float
+    val temperature: Float,
+    val runtime: RuntimeKind
 )
 
 private fun usage(errorMessage: String? = null): Nothing {
@@ -89,14 +93,18 @@ private fun usage(errorMessage: String? = null): Nothing {
         System.err.println()
     }
 
-    println("Usage: kgemma <model> <prompt> [steps] [temperature]")
-    println("  model        Path to .gguf model or SafeTensors directory (required)")
-    println("  prompt       Prompt text (required)")
-    println("  steps        Generation steps (default: 32)")
-    println("  temperature  Sampling temperature (default: 0.8)")
+    println("Usage: kgemma <model> <prompt> [steps] [temperature] [--runtime=handcoded|dsl]")
+    println("  model               Path to .gguf model or SafeTensors directory (required)")
+    println("  prompt              Prompt text (required)")
+    println("  steps               Generation steps (default: 32)")
+    println("  temperature         Sampling temperature (default: 0.8)")
+    println("  --runtime=KIND      Runtime path: 'handcoded' (default, lower RAM via Gemma4Runtime)")
+    println("                      or 'dsl' (gemmaNetwork() + OptimizedLLMRuntime; Phase 5d parity;")
+    println("                      requires QuantPolicy.DEQUANTIZE_TO_FP32 → ~20 GB for E2B)")
     println()
     println("Example:")
     println("  kgemma models/gemma-3-270m-it-Q8_0.gguf \"Hello, how are you?\" 32 0.8")
+    println("  kgemma model.gguf \"Hello\" 32 0.8 --runtime=dsl")
     exitProcess(if (errorMessage == null) 0 else 1)
 }
 
@@ -104,12 +112,31 @@ private fun parseArgs(args: Array<String>): CliArgs {
     if (args.isEmpty()) usage("Missing arguments.")
     if (args[0] == "-h" || args[0] == "--help") usage()
 
-    val modelPath = Path.of(args[0])
-    val prompt = args.getOrElse(1) { usage("Prompt is required.") }
-    val steps = args.getOrElse(2) { "32" }.toIntOrNull() ?: usage("Invalid steps value '${args[2]}'.")
-    val temperature = args.getOrElse(3) { "0.8" }.toFloatOrNull() ?: usage("Invalid temperature '${args[3]}'.")
+    // Split positional args from flags so the `--runtime=KIND` flag can appear in any position.
+    val flags = args.filter { it.startsWith("--") }
+    val positional = args.filter { !it.startsWith("--") }
 
-    return CliArgs(modelPath, prompt, steps, temperature)
+    val modelPath = Path.of(positional.getOrElse(0) { usage("Model path is required.") })
+    val prompt = positional.getOrElse(1) { usage("Prompt is required.") }
+    val steps = positional.getOrElse(2) { "32" }.toIntOrNull() ?: usage("Invalid steps value '${positional[2]}'.")
+    val temperature = positional.getOrElse(3) { "0.8" }.toFloatOrNull() ?: usage("Invalid temperature '${positional[3]}'.")
+
+    var runtime = RuntimeKind.HANDCODED
+    for (flag in flags) {
+        when {
+            flag.startsWith("--runtime=") -> {
+                runtime = when (val v = flag.substringAfter("=").lowercase()) {
+                    "handcoded" -> RuntimeKind.HANDCODED
+                    "dsl" -> RuntimeKind.DSL
+                    else -> usage("Invalid --runtime value '$v' (expected 'handcoded' or 'dsl').")
+                }
+            }
+            flag == "--help" || flag == "-h" -> usage()
+            else -> usage("Unknown flag '$flag'.")
+        }
+    }
+
+    return CliArgs(modelPath, prompt, steps, temperature, runtime)
 }
 
 private fun detectFormat(path: Path): ModelFormat {
@@ -145,7 +172,7 @@ fun main(args: Array<String>) {
         val variant = detectGemmaVariant(modelPath, format)
         println("Detected model variant: $variant")
 
-        val runtime: DecoderRuntime<FP32> = when (variant) {
+        val runtime: InferenceRuntime<FP32> = when (variant) {
             GemmaVariant.GEMMA4 -> {
                 val ingestion = Gemma4Ingestion<FP32>(
                     ctx = ctx,
@@ -155,11 +182,20 @@ fun main(args: Array<String>) {
                         allowQuantized = true
                     )
                 )
+                val runtimeLabel = when (cliArgs.runtime) {
+                    RuntimeKind.HANDCODED -> "Gemma4Runtime (hand-coded)"
+                    RuntimeKind.DSL -> "gemmaNetwork() + OptimizedLLMRuntime (DSL)"
+                }
                 when (format) {
                     ModelFormat.GGUF -> {
-                        println("Loading Gemma 4 GGUF model from $modelPath (streaming mode)...")
-                        ingestion.loadRuntimeStreaming {
-                            JvmRandomAccessSource.open(modelPath.toString())
+                        println("Loading Gemma 4 GGUF model from $modelPath via $runtimeLabel (streaming)...")
+                        when (cliArgs.runtime) {
+                            RuntimeKind.HANDCODED -> ingestion.loadRuntimeStreaming {
+                                JvmRandomAccessSource.open(modelPath.toString())
+                            }
+                            RuntimeKind.DSL -> ingestion.loadDslRuntimeStreaming {
+                                JvmRandomAccessSource.open(modelPath.toString())
+                            }
                         }
                     }
                     ModelFormat.SAFETENSORS -> {
@@ -167,8 +203,11 @@ fun main(args: Array<String>) {
                         val indexPath = modelDir.resolve("model.safetensors.index.json")
                         val safetensorsPath = if (indexPath.exists()) indexPath.toString()
                             else modelDir.resolve("model.safetensors").toString()
-                        println("Loading Gemma 4 SafeTensors model from $safetensorsPath...")
-                        ingestion.loadRuntimeFromSafeTensors(safetensorsPath)
+                        println("Loading Gemma 4 SafeTensors model from $safetensorsPath via $runtimeLabel...")
+                        when (cliArgs.runtime) {
+                            RuntimeKind.HANDCODED -> ingestion.loadRuntimeFromSafeTensors(safetensorsPath)
+                            RuntimeKind.DSL -> ingestion.loadDslRuntimeFromSafeTensors(safetensorsPath)
+                        }
                     }
                 }
             }

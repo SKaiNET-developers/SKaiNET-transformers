@@ -748,6 +748,11 @@ public final class sk/ainet/models/gemma/Gemma4Weights {
 	public fun toString ()Ljava/lang/String;
 }
 
+public final class sk/ainet/models/gemma/GemmaNetworkDefKt {
+	public static final fun gemmaNetwork (Lsk/ainet/models/gemma/Gemma4ModelMetadata;Lkotlin/reflect/KClass;I)Lsk/ainet/lang/nn/Module;
+	public static synthetic fun gemmaNetwork$default (Lsk/ainet/models/gemma/Gemma4ModelMetadata;Lkotlin/reflect/KClass;IILjava/lang/Object;)Lsk/ainet/lang/nn/Module;
+}
+
 public final class sk/ainet/models/gemma/GemmaNetworkLoader {
 	public static final field Companion Lsk/ainet/models/gemma/GemmaNetworkLoader$Companion;
 	public fun <init> (Lsk/ainet/models/gemma/GemmaNetworkLoader$WeightsProvider;Z)V
@@ -763,6 +768,8 @@ public final class sk/ainet/models/gemma/GemmaNetworkLoader$Companion {
 	public static synthetic fun fromGgufRandomAccess$default (Lsk/ainet/models/gemma/GemmaNetworkLoader$Companion;Lkotlin/jvm/functions/Function0;Lsk/ainet/io/model/QuantPolicy;ZILjava/lang/Object;)Lsk/ainet/models/gemma/GemmaNetworkLoader;
 	public final fun fromSafeTensors (Ljava/lang/String;Z)Lsk/ainet/models/gemma/GemmaNetworkLoader;
 	public static synthetic fun fromSafeTensors$default (Lsk/ainet/models/gemma/GemmaNetworkLoader$Companion;Ljava/lang/String;ZILjava/lang/Object;)Lsk/ainet/models/gemma/GemmaNetworkLoader;
+	public final fun fromWeights (Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/gemma/Gemma4Weights;Lkotlin/reflect/KClass;Z)Lsk/ainet/lang/nn/Module;
+	public static synthetic fun fromWeights$default (Lsk/ainet/models/gemma/GemmaNetworkLoader$Companion;Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/gemma/Gemma4Weights;Lkotlin/reflect/KClass;ZILjava/lang/Object;)Lsk/ainet/lang/nn/Module;
 }
 
 public abstract interface class sk/ainet/models/gemma/GemmaNetworkLoader$WeightsProvider {
@@ -814,6 +821,10 @@ public final class sk/ainet/models/gemma/GemmaNetworkLoader$WeightsProvider$Safe
 	public final fun getIndexPath ()Ljava/lang/String;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/models/gemma/GemmaNetworkLoaderKt {
+	public static final fun applyWeightsToNetworkNonReified (Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/gemma/Gemma4Weights;Lkotlin/reflect/KClass;Z)Lsk/ainet/lang/nn/Module;
 }
 
 public final class sk/ainet/models/gemma/HeapGemma3nKvCache : sk/ainet/models/gemma/Gemma3nKvCache {

@@ -246,21 +246,51 @@ fine, but checkpoints with mixed dims across a shared group would need
 a max-dim-padded storage variant (same idea as
 `HeapGemma4KvCache.kvDim = max(kvDim, globalKvDim)`).
 
-## Phase 6 — Migrate kgemma / skainet-cli to the DSL path (PENDING)
+## Phase 6 — DSL path exposed via CLIs (DONE, opt-in)
 
-With `Gemma4Runtime` deprecated, the next natural cleanup is moving the
-production loaders onto `GemmaNetworkLoader + OptimizedLLMRuntime`:
+`Gemma4Ingestion` grew a parallel set of loaders that return the DSL-based
+runtime:
 
-- `kgemma/Gemma4Ingestion.kt` — currently the only non-test caller; drop
-  the `@file:Suppress("DEPRECATION")` once migrated.
-- `skainet-cli` — extend its auto-detect dispatch to route Gemma through
-  the new loader.
+- `loadDslRuntime(Source)` / `loadDslRuntimeStreaming(RandomAccessSource)` —
+  GGUF entry points. Both require `QuantPolicy.DEQUANTIZE_TO_FP32`; the
+  ingestion fails fast with a clear error message otherwise.
+- `loadDslRuntimeFromSafeTensors(indexPath)` — HuggingFace shard loader.
+- `buildDslRuntime(Gemma4Weights<T, Float>)` — from pre-loaded weights
+  (synthetic tests, custom pipelines).
 
-These are scoped as follow-ups because they need the quant-aware DAG
-matmul work (see `ISSUE-skainet-8b-oom.md` §Solution C) to actually run
-a real checkpoint in notebook-class RAM. Until that lands, the runtime
-RAM story for real Gemma 4 E2B is the same as before — `Gemma4Runtime`
-on `NATIVE_OPTIMIZED` is still the only path that fits.
+All return an `InferenceRuntime<T>` so consumers dispatch via the
+`InferenceRuntime<T>.generate(...)` extension function and stay agnostic
+to which path built the runtime. The hand-coded `loadRuntime*` path stays
+alongside, carrying its `@Suppress("DEPRECATION")` until quant-aware DAG
+kernels land.
+
+Supporting the non-reified ingestion layer surfaced a small refactor in
+`gemma` / `GemmaNetworkLoader`: both `gemmaNetwork()` and
+`GemmaNetworkLoader.fromWeights` now expose an explicit-`dtype` overload
+alongside the original `reified` version.
+
+### CLI changes
+
+- **`kgemma`** grew a `--runtime=handcoded|dsl` flag (default `handcoded`
+  to keep the existing low-RAM behaviour). `--runtime=dsl` routes through
+  `loadDslRuntime*` and prints the path at startup.
+- **`skainet-cli`** auto-routes any `ModelFamily.GEMMA` checkpoint
+  through `GemmaNetworkLoader + OptimizedLLMRuntime` (no flag needed).
+  Everything else — LLaMA, Qwen, Apertus — continues on the existing
+  `LlamaRuntime` path with `NATIVE_OPTIMIZED` quant support. The new
+  `:llm-inference:gemma` module dependency was added.
+
+### Known limitation
+
+The DSL path still requires FP32 dequant, so:
+
+- Real Gemma 4 E2B (~4.5 B params) needs ~20 GB RAM after dequant.
+- `skainet-cli` prints an explicit note about this on the Gemma path.
+- For RAM-constrained loads of real checkpoints, users should either
+  stay on `Gemma4Runtime` (via `kgemma` without the flag), or wait for
+  quant-aware DAG matmul (`ISSUE-skainet-8b-oom.md` §Solution C) to
+  land — that's the single remaining gate between the DSL path and full
+  replacement of the hand-coded runtime.
 
 ## All Phases Complete
 
@@ -274,3 +304,4 @@ on `NATIVE_OPTIMIZED` is still the only path that fits.
 | 5b. Gemma DSL primitives | DONE | Sealed KVCache, p-RoPE, sliding window, per-layer dims wired into gemmaNetwork() |
 | 5c. Numerical parity (no shared KV) | DONE | 1-layer and 4-layer mixed sliding+global match Gemma4Runtime at ≤ 8e-8 |
 | 5d. Positional KV cache + shared-KV parity + Gemma4Runtime @Deprecated | DONE | PositionalKVCache + SharedPositionalKVCache; shared-KV parity at 8.94e-8; Gemma4Runtime marked @Deprecated |
+| 6. DSL path exposed via CLIs (opt-in) | DONE | Gemma4Ingestion.loadDslRuntime*, `kgemma --runtime=dsl`, skainet-cli auto-routes Gemma through GemmaNetworkLoader |

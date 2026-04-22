@@ -87,9 +87,19 @@ public class GemmaNetworkLoader @PublishedApi internal constructor(
             ctx: ExecutionContext,
             weights: Gemma4Weights<T, V>,
             debug: Boolean = false
-        ): Module<T, V> = GemmaNetworkLoader(
-            WeightsProvider.Preloaded(weights), debug
-        ).applyWeightsToNetwork(ctx, weights)
+        ): Module<T, V> = fromWeights(ctx, weights, T::class, debug)
+
+        /**
+         * Non-reified variant — explicit [dtype] so non-reified callers
+         * (e.g. `Gemma4Ingestion<T>`) can build the DSL network without
+         * propagating reification through their public API.
+         */
+        public fun <T : DType, V> fromWeights(
+            ctx: ExecutionContext,
+            weights: Gemma4Weights<T, V>,
+            dtype: kotlin.reflect.KClass<T>,
+            debug: Boolean = false
+        ): Module<T, V> = applyWeightsToNetworkNonReified(ctx, weights, dtype, debug)
     }
 
     /**
@@ -125,39 +135,49 @@ public class GemmaNetworkLoader @PublishedApi internal constructor(
     internal inline fun <reified T : DType, V> applyWeightsToNetwork(
         ctx: ExecutionContext,
         weights: Gemma4Weights<T, V>
-    ): Module<T, V> {
-        val model = gemmaNetwork<T, V>(weights.metadata)
+    ): Module<T, V> = applyWeightsToNetworkNonReified(ctx, weights, T::class, debug)
+}
 
-        val weightTensors = weights.tensors.map { (name, tensor) ->
-            WeightTensor(
-                name = name,
-                shape = tensor.shape.dimensions.toList(),
-                tensor = tensor
-            )
-        }
+/** Shared non-reified impl used by both the inline-reified companion helpers
+ *  and the DSL-ingestion entry points that only have a runtime `KClass<T>`. */
+@PublishedApi
+internal fun <T : DType, V> applyWeightsToNetworkNonReified(
+    ctx: ExecutionContext,
+    weights: Gemma4Weights<T, V>,
+    dtype: kotlin.reflect.KClass<T>,
+    debug: Boolean
+): Module<T, V> {
+    val model = gemmaNetwork<T, V>(weights.metadata, dtype)
 
-        val config = MappingConfig(
-            usePathBasedMatching = false,
-            fallbackToShapeMatching = false,
-            debug = debug,
-            nameResolver = LlamaGGUFNameResolver()
+    val weightTensors = weights.tensors.map { (name, tensor) ->
+        WeightTensor(
+            name = name,
+            shape = tensor.shape.dimensions.toList(),
+            tensor = tensor
         )
-
-        val result = WeightMapper.applyWeights(model, weightTensors, config)
-
-        // Gemma has no bias tensors. Allow unmapped bias params from dense().
-        val unmappedNonBias = result.missingParams.filter { !it.contains(".bias") }
-        require(unmappedNonBias.isEmpty()) {
-            buildString {
-                appendLine("Failed to map ${unmappedNonBias.size} weight parameters:")
-                unmappedNonBias.forEach { appendLine("  - $it") }
-                if (result.unusedTensors.isNotEmpty()) {
-                    appendLine("Unused tensors (${result.unusedTensors.size}):")
-                    result.unusedTensors.take(10).forEach { appendLine("  - $it") }
-                }
-            }.trim()
-        }
-
-        return model
     }
+
+    val config = MappingConfig(
+        usePathBasedMatching = false,
+        fallbackToShapeMatching = false,
+        debug = debug,
+        nameResolver = LlamaGGUFNameResolver()
+    )
+
+    val result = WeightMapper.applyWeights(model, weightTensors, config)
+
+    // Gemma has no bias tensors. Allow unmapped bias params from dense().
+    val unmappedNonBias = result.missingParams.filter { !it.contains(".bias") }
+    require(unmappedNonBias.isEmpty()) {
+        buildString {
+            appendLine("Failed to map ${unmappedNonBias.size} weight parameters:")
+            unmappedNonBias.forEach { appendLine("  - $it") }
+            if (result.unusedTensors.isNotEmpty()) {
+                appendLine("Unused tensors (${result.unusedTensors.size}):")
+                result.unusedTensors.take(10).forEach { appendLine("  - $it") }
+            }
+        }.trim()
+    }
+
+    return model
 }

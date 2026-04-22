@@ -48,6 +48,17 @@ import sk.ainet.lang.types.DType
 public inline fun <reified T : DType, V> gemmaNetwork(
     metadata: Gemma4ModelMetadata,
     maxInferenceLen: Int = minOf(metadata.contextLength, 4096)
+): Module<T, V> = gemmaNetwork<T, V>(metadata, T::class, maxInferenceLen)
+
+/**
+ * Non-reified variant of [gemmaNetwork] that takes an explicit `dtype` [KClass].
+ * Lets non-reified callers (e.g. `Gemma4Ingestion<T>`) build the DSL network
+ * without propagating `reified` through their API.
+ */
+public fun <T : DType, V> gemmaNetwork(
+    metadata: Gemma4ModelMetadata,
+    dtype: kotlin.reflect.KClass<T>,
+    maxInferenceLen: Int = minOf(metadata.contextLength, 4096)
 ): Module<T, V> {
     val dim = metadata.embeddingLength
     val nHeads = metadata.headCount
@@ -63,77 +74,77 @@ public inline fun <reified T : DType, V> gemmaNetwork(
     val partialRotaryFactor = metadata.ropeParametersFull.partialRotaryFactor
     val scalingFactor = metadata.ropeParametersFull.factor
 
-    return sequential<T, V> {
-        val dslImpl = this as NeuralNetworkDslImpl<T, V>
-        dslImpl.embedding(vocabSize, dim, id = "token_embd")
+    val nnCtx = DefaultNeuralNetworkExecutionContext()
+    val dslImpl = NeuralNetworkDslImpl<T, V>(nnCtx, dtype)
+    dslImpl.embedding(vocabSize, dim, id = "token_embd")
 
-        val nnCtx = DefaultNeuralNetworkExecutionContext()
-        // Owner layers' PositionalKVCaches, indexed by their layer number.
-        // Follower layers wrap these with SharedPositionalKVCache so the
-        // "last writer wins at slot pos" behaviour matches the hand-coded
-        // HeapGemma4KvCache used by Gemma4Runtime.
-        val ownerCaches = mutableMapOf<Int, PositionalKVCache<T, V>>()
+    // Owner layers' PositionalKVCaches, indexed by their layer number.
+    // Follower layers wrap these with SharedPositionalKVCache so the
+    // "last writer wins at slot pos" behaviour matches the hand-coded
+    // HeapGemma4KvCache used by Gemma4Runtime.
+    val ownerCaches = mutableMapOf<Int, PositionalKVCache<T, V>>()
 
-        for (layer in 0 until nLayers) {
-            val layerHeadDim = metadata.getHeadDim(layer)
-            val ropeBase = metadata.getRopeBase(layer)
-            val isGlobal = metadata.getLayerType(layer) == LayerType.GLOBAL
-            val ropeScaling = if (isGlobal && metadata.ropeParametersFull.ropeType == "proportional") {
-                RoPEScaling.PROPORTIONAL
-            } else {
-                RoPEScaling.NONE
-            }
-            // Sliding layers get a bounded attention window; global layers see everything.
-            val slidingWindow = if (isGlobal) null else metadata.slidingWindow
-            val ffnDim = metadata.getIntermediateSize(layer)
-            val cacheOwnerLayer = metadata.getCacheLayerIndex(layer)
-
-            val stage = StageImpl<T, V>(nnCtx, "blk.$layer", T::class)
-            stage.rmsNorm(dim, eps, id = "attn_norm")
-            stage.multiHeadAttention(
-                dim = dim,
-                nHeads = nHeads,
-                nKVHeads = nKVHeads,
-                causal = true,
-                id = "attn",
-                slidingWindow = slidingWindow
-            ) {
-                rope(
-                    headDim = layerHeadDim,
-                    maxSeqLen = seqLen,
-                    base = ropeBase,
-                    scaling = ropeScaling,
-                    scalingFactor = if (ropeScaling == RoPEScaling.PROPORTIONAL) scalingFactor else 1.0f,
-                    partialRotaryFactor = if (isGlobal) partialRotaryFactor else 1.0f
-                )
-                if (cacheOwnerLayer == layer) {
-                    val owner = PositionalKVCache<T, V>(
-                        maxSeqLen = seqLen,
-                        nKVHeads = nKVHeads,
-                        headDim = layerHeadDim,
-                        name = "blk.$layer.attn.kv_cache"
-                    )
-                    ownerCaches[layer] = owner
-                    kvCache(owner)
-                } else {
-                    val owner = ownerCaches[cacheOwnerLayer]
-                        ?: error("Gemma: layer $layer expects to share KV with layer $cacheOwnerLayer, but owner hasn't been built yet")
-                    kvCache(SharedPositionalKVCache(owner, name = "blk.$layer.attn.kv_cache"))
-                }
-            }
-            stage.residual()
-
-            stage.rmsNorm(dim, eps, id = "ffn_norm")
-            stage.geGluFFN(dim, ffnDim, id = "ffn")
-            stage.residual()
-
-            dslImpl.modules += HybridTransformerBlock(stage.modules.toList(), name = "blk.$layer")
+    for (layer in 0 until nLayers) {
+        val layerHeadDim = metadata.getHeadDim(layer)
+        val ropeBase = metadata.getRopeBase(layer)
+        val isGlobal = metadata.getLayerType(layer) == LayerType.GLOBAL
+        val ropeScaling = if (isGlobal && metadata.ropeParametersFull.ropeType == "proportional") {
+            RoPEScaling.PROPORTIONAL
+        } else {
+            RoPEScaling.NONE
         }
+        // Sliding layers get a bounded attention window; global layers see everything.
+        val slidingWindow = if (isGlobal) null else metadata.slidingWindow
+        val ffnDim = metadata.getIntermediateSize(layer)
+        val cacheOwnerLayer = metadata.getCacheLayerIndex(layer)
 
-        dslImpl.rmsNorm(dim, eps, id = "output_norm")
-        // Void placeholder for output projection — Gemma 4 E2B vocab is 262 144
-        // and dense(vocabSize) would eagerly allocate ~1.5 GB of zeros before
-        // WeightMapper runs.
-        dslImpl.modules += VoidDense<T, V>("output", vocabSize, dim)
+        val stage = StageImpl<T, V>(nnCtx, "blk.$layer", dtype)
+        stage.rmsNorm(dim, eps, id = "attn_norm")
+        stage.multiHeadAttention(
+            dim = dim,
+            nHeads = nHeads,
+            nKVHeads = nKVHeads,
+            causal = true,
+            id = "attn",
+            slidingWindow = slidingWindow
+        ) {
+            rope(
+                headDim = layerHeadDim,
+                maxSeqLen = seqLen,
+                base = ropeBase,
+                scaling = ropeScaling,
+                scalingFactor = if (ropeScaling == RoPEScaling.PROPORTIONAL) scalingFactor else 1.0f,
+                partialRotaryFactor = if (isGlobal) partialRotaryFactor else 1.0f
+            )
+            if (cacheOwnerLayer == layer) {
+                val owner = PositionalKVCache<T, V>(
+                    maxSeqLen = seqLen,
+                    nKVHeads = nKVHeads,
+                    headDim = layerHeadDim,
+                    name = "blk.$layer.attn.kv_cache"
+                )
+                ownerCaches[layer] = owner
+                kvCache(owner)
+            } else {
+                val owner = ownerCaches[cacheOwnerLayer]
+                    ?: error("Gemma: layer $layer expects to share KV with layer $cacheOwnerLayer, but owner hasn't been built yet")
+                kvCache(SharedPositionalKVCache(owner, name = "blk.$layer.attn.kv_cache"))
+            }
+        }
+        stage.residual()
+
+        stage.rmsNorm(dim, eps, id = "ffn_norm")
+        stage.geGluFFN(dim, ffnDim, id = "ffn")
+        stage.residual()
+
+        dslImpl.modules += HybridTransformerBlock(stage.modules.toList(), name = "blk.$layer")
     }
+
+    dslImpl.rmsNorm(dim, eps, id = "output_norm")
+    // Void placeholder for output projection — Gemma 4 E2B vocab is 262 144
+    // and dense(vocabSize) would eagerly allocate ~1.5 GB of zeros before
+    // WeightMapper runs.
+    dslImpl.modules += VoidDense<T, V>("output", vocabSize, dim)
+
+    return dslImpl.create()
 }
