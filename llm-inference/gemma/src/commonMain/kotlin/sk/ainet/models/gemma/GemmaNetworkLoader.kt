@@ -147,7 +147,12 @@ internal fun <T : DType, V> applyWeightsToNetworkNonReified(
     dtype: kotlin.reflect.KClass<T>,
     debug: Boolean
 ): Module<T, V> {
-    val model = gemmaNetwork<T, V>(weights.metadata, dtype)
+    // Enable QK-Norm iff the checkpoint actually carries the weights.
+    // Real Gemma 4 GGUFs do; synthetic toy-model tests do not, and forcing
+    // QK-Norm on them would make the WeightMapper strict-check fail for
+    // params that no fixture provides.
+    val hasQKNorm = weights.tensors.keys.any { it.endsWith(".attn_q_norm.weight") }
+    val model = gemmaNetwork<T, V>(weights.metadata, dtype, qkNorm = hasQKNorm)
 
     val weightTensors = weights.tensors.map { (name, tensor) ->
         WeightTensor(

@@ -47,18 +47,28 @@ import sk.ainet.lang.types.DType
  */
 public inline fun <reified T : DType, V> gemmaNetwork(
     metadata: Gemma4ModelMetadata,
-    maxInferenceLen: Int = minOf(metadata.contextLength, 4096)
-): Module<T, V> = gemmaNetwork<T, V>(metadata, T::class, maxInferenceLen)
+    maxInferenceLen: Int = minOf(metadata.contextLength, 4096),
+    qkNorm: Boolean = true
+): Module<T, V> = gemmaNetwork<T, V>(metadata, T::class, maxInferenceLen, qkNorm)
 
 /**
  * Non-reified variant of [gemmaNetwork] that takes an explicit `dtype` [KClass].
  * Lets non-reified callers (e.g. `Gemma4Ingestion<T>`) build the DSL network
  * without propagating `reified` through their API.
+ *
+ * @param qkNorm whether to apply per-head RMSNorm to Q and K before RoPE. True
+ *   for real Gemma 4 checkpoints (the GGUF carries `attn_q_norm` /
+ *   `attn_k_norm` weights). Callers with synthetic fixtures that don't
+ *   provide those weights — or that want to match the hand-coded
+ *   [Gemma4AttentionBackend] which never applied QK-Norm — can set this to
+ *   false. [GemmaNetworkLoader.fromWeights] auto-detects based on presence
+ *   of `blk.*.attn_q_norm.weight` in the tensors map.
  */
 public fun <T : DType, V> gemmaNetwork(
     metadata: Gemma4ModelMetadata,
     dtype: kotlin.reflect.KClass<T>,
-    maxInferenceLen: Int = minOf(metadata.contextLength, 4096)
+    maxInferenceLen: Int = minOf(metadata.contextLength, 4096),
+    qkNorm: Boolean = true
 ): Module<T, V> {
     val dim = metadata.embeddingLength
     val nHeads = metadata.headCount
@@ -116,6 +126,7 @@ public fun <T : DType, V> gemmaNetwork(
             nHeads = nHeads,
             nKVHeads = nKVHeads,
             causal = true,
+            qkNorm = qkNorm, // Gemma 4 per-head RMSNorm on Q and K before RoPE
             id = "attn",
             slidingWindow = slidingWindow
         ) {
