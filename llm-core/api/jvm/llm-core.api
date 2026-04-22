@@ -465,6 +465,7 @@ public final class sk/ainet/apps/llm/weights/LlamaSafeTensorsNameResolver : sk/a
 
 public abstract interface class sk/ainet/lang/nn/dsl/ATTENTION : sk/ainet/lang/nn/dsl/NetworkDslItem {
 	public abstract fun kvCache (III)V
+	public abstract fun kvCache (Lsk/ainet/lang/nn/transformer/KVCache;)V
 	public abstract fun rope (IILsk/ainet/lang/nn/transformer/RoPEMode;FLsk/ainet/lang/nn/transformer/RoPEScaling;FF)V
 	public static synthetic fun rope$default (Lsk/ainet/lang/nn/dsl/ATTENTION;IILsk/ainet/lang/nn/transformer/RoPEMode;FLsk/ainet/lang/nn/transformer/RoPEScaling;FFILjava/lang/Object;)V
 }
@@ -479,6 +480,7 @@ public final class sk/ainet/lang/nn/dsl/AttentionImpl : sk/ainet/lang/nn/dsl/ATT
 	public final fun create ()Lsk/ainet/lang/nn/transformer/MultiHeadAttention;
 	public fun getExecutionContext ()Lsk/ainet/context/ExecutionContext;
 	public fun kvCache (III)V
+	public fun kvCache (Lsk/ainet/lang/nn/transformer/KVCache;)V
 	public fun rope (IILsk/ainet/lang/nn/transformer/RoPEMode;FLsk/ainet/lang/nn/transformer/RoPEScaling;FF)V
 }
 

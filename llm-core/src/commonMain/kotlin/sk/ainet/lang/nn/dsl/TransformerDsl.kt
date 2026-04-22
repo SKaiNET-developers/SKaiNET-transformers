@@ -59,7 +59,10 @@ public interface ATTENTION<T : DType, V> : NetworkDslItem {
         scalingFactor: Float = 1.0f,
         partialRotaryFactor: Float = 1.0f
     )
+    /** Build a default [AppendKVCache] in place. */
     public fun kvCache(maxSeqLen: Int, nKVHeads: Int, headDim: Int)
+    /** Attach a pre-built KV cache variant (e.g. [SlidingWindowKVCache] or [SharedKVCache]). */
+    public fun kvCache(cache: KVCache<T, V>)
 }
 
 public class AttentionImpl<T : DType, V>(
@@ -107,6 +110,10 @@ public class AttentionImpl<T : DType, V>(
             headDim = headDim,
             name = "$id.kv_cache"
         )
+    }
+
+    override fun kvCache(cache: KVCache<T, V>) {
+        kvCacheModule = cache
     }
 
     public fun create(): MultiHeadAttention<T, V> {

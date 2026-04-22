@@ -130,7 +130,7 @@ for fused-kernel DAG execution).
 does not express (proportional RoPE, per-layer head_dim, sliding-window attention, KV
 cache sharing). Rather than blocking on those, Phase 5 is split in two:
 
-### Phase 5a — Minimal pipeline, simplified Gemma (IN PROGRESS)
+### Phase 5a — Minimal pipeline, simplified Gemma (DONE)
 
 Delivers an end-to-end DAG → CPU-on-JVM path for a *reduced* Gemma that uses standard
 full attention, standard RoPE, no KV sharing, and GELU-gated FFN. Accuracy parity
@@ -159,19 +159,42 @@ Steps:
    Gemma4 test suite stays green. No new tests in 5a — that belongs in 5b alongside
    accuracy parity.
 
-### Phase 5b — Full Gemma accuracy (deferred)
+### Phase 5b — Full Gemma DSL primitives (DONE, pending accuracy parity)
 
-Extend the DSL with the missing primitives and wire them into `gemmaNetwork()`:
+DSL primitives for every Gemma 4 architectural feature are now in place:
 
-- `rope(mode = PROPORTIONAL, factor, originalMaxPosEmb, partialRotaryFactor)` — p-RoPE.
-- `multiHeadAttention(slidingWindow = N)` — sliding-window attention.
-- Per-layer `headDim` in the attention builder (global vs local layers).
-- Shared KV cache (`KVCache(sharedWith = layerIdx)`).
-- Golden-output parity tests against `Gemma4Runtime`.
+- **Sealed KVCache hierarchy** (`llm-core/.../transformer/KVCache.kt`):
+  `AppendKVCache` (default), `SlidingWindowKVCache(window)` (trims to last N),
+  `SharedKVCache(delegate)` (writes/reads forward to owner; `reset()` no-op
+  on follower). `is KVCache<*, *>` checks in runtime code stay intact.
+- **RoPE partial rotation + proportional scaling** (`RoPE.kt`):
+  `partialRotaryFactor` (fraction of head_dim that rotates; Gemma 4 global =
+  0.5) and `RoPEScaling.PROPORTIONAL` with NTK-aware `base' = base × factor ^
+  (rotaryDim / (rotaryDim − 2))`.
+- **Sliding-window attention** in `MultiHeadAttention` via an additive
+  `[1, 1, seqQ, seqKV]` mask; mask subsumes causal so SDPA's built-in
+  causal path is disabled when the mask is active.
+- **DSL extensions**: `multiHeadAttention(slidingWindow = …)`, `rope(…,
+  scaling = PROPORTIONAL, scalingFactor, partialRotaryFactor)`, and
+  `kvCache(cache: KVCache<T, V>)` escape hatch to attach pre-built variants.
+- **`gemmaNetwork()` walks `metadata.layerTypes`**: full-attention layers
+  use PROPORTIONAL RoPE + global head_dim + `partialRotaryFactor=0.5`;
+  sliding layers use standard RoPE + sliding head_dim + full rotation +
+  `slidingWindow=metadata.slidingWindow`. Trailing `kvSharedLayers` layers
+  share the KV cache of their owner via `SharedKVCache`. Per-layer FFN
+  width via `metadata.getIntermediateSize(layer)`.
 
-5b unblocks loading a real Gemma 4 checkpoint on the unified CLI with matching
-outputs, and finally lets us deprecate `Gemma4Runtime` the way
-`LlamaRuntime`/`ApertusRuntime` are being deprecated.
+**Remaining for accuracy parity** (separate follow-up, unblocked by this
+pass):
+
+- Golden-output parity tests against the hand-coded `Gemma4Runtime` on a
+  real E2B checkpoint.
+- Then deprecate `Gemma4Runtime` the way `LlamaRuntime` / `ApertusRuntime`
+  are being deprecated.
+
+The `GemmaNetworkLoaderIntegrationTest` now exercises all 5b primitives at
+construction against a real Gemma 4 E2B GGUF (35 layers, 6 global + 29
+sliding by default pattern, shared KV for last 20).
 
 ## All Phases Complete
 
@@ -181,5 +204,6 @@ outputs, and finally lets us deprecate `Gemma4Runtime` the way
 | 2. Model registry | DONE | ModelRegistry, UnifiedModelLoader, ModelFamily enum |
 | 3. Tokenization pipeline | DONE | GGUFTokenizer in llm-core, TokenizerFactory |
 | 4. Unified runner | DONE | skainet-cli with auto-detection |
-| 5a. Gemma DAG → CPU-on-JVM (simplified) | IN PROGRESS | GeGLUFFN + gemmaNetwork() + GemmaNetworkLoader |
-| 5b. Gemma full parity | PENDING | p-RoPE, sliding window, per-layer headDim, shared KV cache |
+| 5a. Gemma DAG → CPU-on-JVM (simplified) | DONE | GeGLUFFN + gemmaNetwork() + GemmaNetworkLoader |
+| 5b. Gemma DSL primitives | DONE | Sealed KVCache, p-RoPE, sliding window, per-layer dims wired into gemmaNetwork() |
+| 5c. Accuracy parity + deprecate Gemma4Runtime | PENDING | Golden-output tests vs Gemma4Runtime on real E2B checkpoint |
