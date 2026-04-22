@@ -567,7 +567,9 @@ public class Gemma4WeightLoader private constructor(
                 Gemma4TensorNames.perLayerInput(layer),
                 Gemma4TensorNames.perLayerOutput(layer),
                 Gemma4TensorNames.attnQNorm(layer),
-                Gemma4TensorNames.attnKNorm(layer)
+                Gemma4TensorNames.attnKNorm(layer),
+                Gemma4TensorNames.postAttentionNorm(layer),
+                Gemma4TensorNames.postFfwNorm(layer)
             ).forEach { name ->
                 val rt = tensorByName[name]
                 if (rt != null) {
@@ -610,7 +612,9 @@ public class Gemma4WeightLoader private constructor(
                 Gemma4TensorNames.perLayerInput(layer),
                 Gemma4TensorNames.perLayerOutput(layer),
                 Gemma4TensorNames.attnQNorm(layer),
-                Gemma4TensorNames.attnKNorm(layer)
+                Gemma4TensorNames.attnKNorm(layer),
+                Gemma4TensorNames.postAttentionNorm(layer),
+                Gemma4TensorNames.postFfwNorm(layer)
             ).forEach { name ->
                 val st = tensorByName[name]
                 if (st != null) {

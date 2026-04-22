@@ -30,6 +30,15 @@ public class LlamaGGUFNameResolver : WeightNameResolver {
             paramName.contains("k_norm") ->
                 if (blockPrefix != null) "$blockPrefix.attn_k_norm.weight" else null
 
+            // Post-norms must match before the pre-norms below, otherwise the
+            // substring check on "attn_norm" / "ffn_norm" would over-match and
+            // claim the post variants too.
+            moduleName == "post_attention_norm" || paramName.contains("post_attention_norm") ->
+                if (blockPrefix != null) "$blockPrefix.post_attention_norm.weight" else null
+
+            moduleName == "post_ffw_norm" || paramName.contains("post_ffw_norm") ->
+                if (blockPrefix != null) "$blockPrefix.post_ffw_norm.weight" else null
+
             moduleName == "attn_norm" || paramName.contains("attn_norm") ->
                 if (blockPrefix != null) "$blockPrefix.attn_norm.weight" else null
 

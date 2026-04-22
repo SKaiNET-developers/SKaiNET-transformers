@@ -48,8 +48,9 @@ import sk.ainet.lang.types.DType
 public inline fun <reified T : DType, V> gemmaNetwork(
     metadata: Gemma4ModelMetadata,
     maxInferenceLen: Int = minOf(metadata.contextLength, 4096),
-    qkNorm: Boolean = true
-): Module<T, V> = gemmaNetwork<T, V>(metadata, T::class, maxInferenceLen, qkNorm)
+    qkNorm: Boolean = true,
+    sandwichNorms: Boolean = true
+): Module<T, V> = gemmaNetwork<T, V>(metadata, T::class, maxInferenceLen, qkNorm, sandwichNorms)
 
 /**
  * Non-reified variant of [gemmaNetwork] that takes an explicit `dtype` [KClass].
@@ -63,12 +64,17 @@ public inline fun <reified T : DType, V> gemmaNetwork(
  *   [Gemma4AttentionBackend] which never applied QK-Norm — can set this to
  *   false. [GemmaNetworkLoader.fromWeights] auto-detects based on presence
  *   of `blk.*.attn_q_norm.weight` in the tensors map.
+ * @param sandwichNorms whether to apply Gemma 2-style post-norms after the
+ *   attention and FFN sub-blocks (`post_attention_norm` / `post_ffw_norm`),
+ *   before the residual add. True for real Gemma 4 checkpoints. Auto-detected
+ *   at `GemmaNetworkLoader.fromWeights` the same way as `qkNorm`.
  */
 public fun <T : DType, V> gemmaNetwork(
     metadata: Gemma4ModelMetadata,
     dtype: kotlin.reflect.KClass<T>,
     maxInferenceLen: Int = minOf(metadata.contextLength, 4096),
-    qkNorm: Boolean = true
+    qkNorm: Boolean = true,
+    sandwichNorms: Boolean = true
 ): Module<T, V> {
     val dim = metadata.embeddingLength
     val nHeads = metadata.headCount
@@ -182,10 +188,12 @@ public fun <T : DType, V> gemmaNetwork(
                 }
             }
         }
+        if (sandwichNorms) stage.rmsNorm(dim, eps, id = "post_attention_norm")
         stage.residual()
 
         stage.rmsNorm(dim, eps, id = "ffn_norm")
         stage.geGluFFN(dim, ffnDim, id = "ffn")
+        if (sandwichNorms) stage.rmsNorm(dim, eps, id = "post_ffw_norm")
         stage.residual()
 
         dslImpl.modules += HybridTransformerBlock(stage.modules.toList(), name = "blk.$layer")
