@@ -5,6 +5,7 @@ import sk.ainet.lang.nn.layers.Embedding
 import sk.ainet.lang.nn.layers.EmbeddingAdapter
 import sk.ainet.lang.nn.layers.EmbeddingParams
 import sk.ainet.lang.nn.normalization.RMSNormalization
+import sk.ainet.lang.nn.transformer.AppendKVCache
 import sk.ainet.lang.nn.transformer.KVCache
 import sk.ainet.lang.nn.transformer.MultiHeadAttention
 import sk.ainet.lang.nn.transformer.ResidualAdd
@@ -73,7 +74,7 @@ public class AttentionImpl<T : DType, V>(
     }
 
     override fun kvCache(maxSeqLen: Int, nKVHeads: Int, headDim: Int) {
-        kvCacheModule = KVCache(
+        kvCacheModule = AppendKVCache(
             maxSeqLen = maxSeqLen,
             nKVHeads = nKVHeads,
             headDim = headDim,

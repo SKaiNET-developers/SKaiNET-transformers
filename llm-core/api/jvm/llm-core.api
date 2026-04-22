@@ -575,6 +575,14 @@ public final class sk/ainet/lang/nn/normalization/RMSNormalization : sk/ainet/la
 	public fun getParams ()Ljava/util/List;
 }
 
+public final class sk/ainet/lang/nn/transformer/AppendKVCache : sk/ainet/lang/nn/transformer/KVCache {
+	public fun <init> (IIILjava/lang/String;)V
+	public synthetic fun <init> (IIILjava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun getPosition ()I
+	public fun reset ()V
+	public fun update (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/context/ExecutionContext;)Lkotlin/Pair;
+}
+
 public final class sk/ainet/lang/nn/transformer/GeGLUFFN : sk/ainet/lang/nn/Module, sk/ainet/lang/nn/topology/ModuleParameters {
 	public fun <init> (IILjava/lang/String;)V
 	public synthetic fun <init> (IILjava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
@@ -585,7 +593,7 @@ public final class sk/ainet/lang/nn/transformer/GeGLUFFN : sk/ainet/lang/nn/Modu
 	public fun getParams ()Ljava/util/List;
 }
 
-public final class sk/ainet/lang/nn/transformer/KVCache : sk/ainet/lang/nn/Module {
+public abstract class sk/ainet/lang/nn/transformer/KVCache : sk/ainet/lang/nn/Module {
 	public fun <init> (IIILjava/lang/String;)V
 	public synthetic fun <init> (IIILjava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun getHeadDim ()I
@@ -593,9 +601,10 @@ public final class sk/ainet/lang/nn/transformer/KVCache : sk/ainet/lang/nn/Modul
 	public fun getModules ()Ljava/util/List;
 	public final fun getNKVHeads ()I
 	public fun getName ()Ljava/lang/String;
-	public final fun getPosition ()I
-	public final fun reset ()V
-	public final fun update (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/context/ExecutionContext;)Lkotlin/Pair;
+	public abstract fun getPosition ()I
+	protected fun onForward (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/context/ExecutionContext;)Lsk/ainet/lang/tensor/Tensor;
+	public abstract fun reset ()V
+	public abstract fun update (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/context/ExecutionContext;)Lkotlin/Pair;
 }
 
 public final class sk/ainet/lang/nn/transformer/MultiHeadAttention : sk/ainet/lang/nn/Module, sk/ainet/lang/nn/topology/ModuleParameters {
@@ -648,6 +657,24 @@ public final class sk/ainet/lang/nn/transformer/RoPEMode : java/lang/Enum {
 	public static fun getEntries ()Lkotlin/enums/EnumEntries;
 	public static fun valueOf (Ljava/lang/String;)Lsk/ainet/lang/nn/transformer/RoPEMode;
 	public static fun values ()[Lsk/ainet/lang/nn/transformer/RoPEMode;
+}
+
+public final class sk/ainet/lang/nn/transformer/SharedKVCache : sk/ainet/lang/nn/transformer/KVCache {
+	public fun <init> (Lsk/ainet/lang/nn/transformer/KVCache;Ljava/lang/String;)V
+	public synthetic fun <init> (Lsk/ainet/lang/nn/transformer/KVCache;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getDelegate ()Lsk/ainet/lang/nn/transformer/KVCache;
+	public fun getPosition ()I
+	public fun reset ()V
+	public fun update (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/context/ExecutionContext;)Lkotlin/Pair;
+}
+
+public final class sk/ainet/lang/nn/transformer/SlidingWindowKVCache : sk/ainet/lang/nn/transformer/KVCache {
+	public fun <init> (IIIILjava/lang/String;)V
+	public synthetic fun <init> (IIIILjava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun getPosition ()I
+	public final fun getWindow ()I
+	public fun reset ()V
+	public fun update (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/context/ExecutionContext;)Lkotlin/Pair;
 }
 
 public final class sk/ainet/lang/nn/transformer/SwiGLUFFN : sk/ainet/lang/nn/Module, sk/ainet/lang/nn/topology/ModuleParameters {
