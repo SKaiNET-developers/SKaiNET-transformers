@@ -196,6 +196,37 @@ The `GemmaNetworkLoaderIntegrationTest` now exercises all 5b primitives at
 construction against a real Gemma 4 E2B GGUF (35 layers, 6 global + 29
 sliding by default pattern, shared KV for last 20).
 
+## Phase 5c — Numerical parity against Gemma4Runtime (DONE, partial)
+
+`GemmaRuntimeParityTest` runs synthetic-weight models through both the
+hand-coded `Gemma4Runtime` and the DSL path (`gemmaNetwork()` +
+`OptimizedLLMRuntime` in DIRECT mode) and compares the logits token by
+token. Two configurations are covered:
+
+- **1-layer global**, no sliding, no shared KV. Max |Δlogit| = **2.98e-8**
+  across 5 steps — bit-exact at FP32 precision.
+- **4-layer mixed** (3 sliding + 1 global), sliding window = 3, no shared
+  KV. Max |Δlogit| = **7.45e-8** across 8 decode steps — also bit-exact.
+
+This validates the core DSL pipeline against the reference implementation
+for everything except shared-KV layers.
+
+## Phase 5d — Positional KV cache + shared-KV parity (PENDING)
+
+Shared-KV semantics differ between the two paths. The hand-coded
+`HeapGemma4KvCache` writes positionally (each `(layer_slot, position)`
+cell holds exactly one K/V; shared layers overwrite each other within a
+step). The DSL's `SharedKVCache` wraps an owner `AppendKVCache` and just
+forwards reads/writes, so followers *append* to the owner's history
+rather than overwriting a slot — different behaviour when
+`kvSharedLayers > 0`.
+
+To close parity for real Gemma 4 E2B (`kvSharedLayers = 20 / 35`), llm-core
+needs a positional-storage KV cache variant, then the parity test flips
+to cover that case, and only *then* should `Gemma4Runtime` be
+`@Deprecated`. Until 5d lands, keep the hand-coded runtime as the
+production path for real Gemma 4 checkpoints.
+
 ## All Phases Complete
 
 | Phase | Status | Summary |
@@ -206,4 +237,5 @@ sliding by default pattern, shared KV for last 20).
 | 4. Unified runner | DONE | skainet-cli with auto-detection |
 | 5a. Gemma DAG → CPU-on-JVM (simplified) | DONE | GeGLUFFN + gemmaNetwork() + GemmaNetworkLoader |
 | 5b. Gemma DSL primitives | DONE | Sealed KVCache, p-RoPE, sliding window, per-layer dims wired into gemmaNetwork() |
-| 5c. Accuracy parity + deprecate Gemma4Runtime | PENDING | Golden-output tests vs Gemma4Runtime on real E2B checkpoint |
+| 5c. Numerical parity (no shared KV) | DONE | 1-layer and 4-layer mixed sliding+global match Gemma4Runtime at ≤ 8e-8 |
+| 5d. Positional KV cache + shared-KV parity | PENDING | Needed before deprecating Gemma4Runtime (real E2B has kvSharedLayers=20/35) |
