@@ -465,12 +465,12 @@ public final class sk/ainet/apps/llm/weights/LlamaSafeTensorsNameResolver : sk/a
 
 public abstract interface class sk/ainet/lang/nn/dsl/ATTENTION : sk/ainet/lang/nn/dsl/NetworkDslItem {
 	public abstract fun kvCache (III)V
-	public abstract fun rope (IILsk/ainet/lang/nn/transformer/RoPEMode;F)V
-	public static synthetic fun rope$default (Lsk/ainet/lang/nn/dsl/ATTENTION;IILsk/ainet/lang/nn/transformer/RoPEMode;FILjava/lang/Object;)V
+	public abstract fun rope (IILsk/ainet/lang/nn/transformer/RoPEMode;FLsk/ainet/lang/nn/transformer/RoPEScaling;FF)V
+	public static synthetic fun rope$default (Lsk/ainet/lang/nn/dsl/ATTENTION;IILsk/ainet/lang/nn/transformer/RoPEMode;FLsk/ainet/lang/nn/transformer/RoPEScaling;FFILjava/lang/Object;)V
 }
 
 public final class sk/ainet/lang/nn/dsl/ATTENTION$DefaultImpls {
-	public static synthetic fun rope$default (Lsk/ainet/lang/nn/dsl/ATTENTION;IILsk/ainet/lang/nn/transformer/RoPEMode;FILjava/lang/Object;)V
+	public static synthetic fun rope$default (Lsk/ainet/lang/nn/dsl/ATTENTION;IILsk/ainet/lang/nn/transformer/RoPEMode;FLsk/ainet/lang/nn/transformer/RoPEScaling;FFILjava/lang/Object;)V
 }
 
 public final class sk/ainet/lang/nn/dsl/AttentionImpl : sk/ainet/lang/nn/dsl/ATTENTION {
@@ -478,7 +478,7 @@ public final class sk/ainet/lang/nn/dsl/AttentionImpl : sk/ainet/lang/nn/dsl/ATT
 	public final fun create ()Lsk/ainet/lang/nn/transformer/MultiHeadAttention;
 	public fun getExecutionContext ()Lsk/ainet/context/ExecutionContext;
 	public fun kvCache (III)V
-	public fun rope (IILsk/ainet/lang/nn/transformer/RoPEMode;F)V
+	public fun rope (IILsk/ainet/lang/nn/transformer/RoPEMode;FLsk/ainet/lang/nn/transformer/RoPEScaling;FF)V
 }
 
 public final class sk/ainet/lang/nn/dsl/TransformerDslKt {
@@ -641,14 +641,18 @@ public final class sk/ainet/lang/nn/transformer/ResidualAdd : sk/ainet/lang/nn/M
 }
 
 public final class sk/ainet/lang/nn/transformer/RoPE : sk/ainet/lang/nn/Module {
-	public fun <init> (IIFLsk/ainet/lang/nn/transformer/RoPEMode;Ljava/lang/String;)V
-	public synthetic fun <init> (IIFLsk/ainet/lang/nn/transformer/RoPEMode;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (IIFLsk/ainet/lang/nn/transformer/RoPEMode;Lsk/ainet/lang/nn/transformer/RoPEScaling;FFLjava/lang/String;)V
+	public synthetic fun <init> (IIFLsk/ainet/lang/nn/transformer/RoPEMode;Lsk/ainet/lang/nn/transformer/RoPEScaling;FFLjava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun forward (Lsk/ainet/lang/tensor/Tensor;ILsk/ainet/context/ExecutionContext;)Lsk/ainet/lang/tensor/Tensor;
 	public final fun getHeadDim ()I
 	public final fun getMaxSeqLen ()I
 	public final fun getMode ()Lsk/ainet/lang/nn/transformer/RoPEMode;
 	public fun getModules ()Ljava/util/List;
 	public fun getName ()Ljava/lang/String;
+	public final fun getPartialRotaryFactor ()F
+	public final fun getRotaryDim ()I
+	public final fun getScaling ()Lsk/ainet/lang/nn/transformer/RoPEScaling;
+	public final fun getScalingFactor ()F
 }
 
 public final class sk/ainet/lang/nn/transformer/RoPEMode : java/lang/Enum {
@@ -657,6 +661,14 @@ public final class sk/ainet/lang/nn/transformer/RoPEMode : java/lang/Enum {
 	public static fun getEntries ()Lkotlin/enums/EnumEntries;
 	public static fun valueOf (Ljava/lang/String;)Lsk/ainet/lang/nn/transformer/RoPEMode;
 	public static fun values ()[Lsk/ainet/lang/nn/transformer/RoPEMode;
+}
+
+public final class sk/ainet/lang/nn/transformer/RoPEScaling : java/lang/Enum {
+	public static final field NONE Lsk/ainet/lang/nn/transformer/RoPEScaling;
+	public static final field PROPORTIONAL Lsk/ainet/lang/nn/transformer/RoPEScaling;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lsk/ainet/lang/nn/transformer/RoPEScaling;
+	public static fun values ()[Lsk/ainet/lang/nn/transformer/RoPEScaling;
 }
 
 public final class sk/ainet/lang/nn/transformer/SharedKVCache : sk/ainet/lang/nn/transformer/KVCache {

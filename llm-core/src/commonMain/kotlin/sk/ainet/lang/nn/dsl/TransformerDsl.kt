@@ -11,6 +11,7 @@ import sk.ainet.lang.nn.transformer.MultiHeadAttention
 import sk.ainet.lang.nn.transformer.ResidualAdd
 import sk.ainet.lang.nn.transformer.RoPE
 import sk.ainet.lang.nn.transformer.RoPEMode
+import sk.ainet.lang.nn.transformer.RoPEScaling
 import sk.ainet.lang.nn.transformer.GeGLUFFN
 import sk.ainet.lang.nn.transformer.SwiGLUFFN
 import sk.ainet.lang.nn.transformer.XIELUActivation
@@ -49,7 +50,15 @@ import kotlin.reflect.KClass
 
 @NetworkDsl
 public interface ATTENTION<T : DType, V> : NetworkDslItem {
-    public fun rope(headDim: Int, maxSeqLen: Int, mode: RoPEMode = RoPEMode.INTERLEAVED, base: Float = 10000.0f)
+    public fun rope(
+        headDim: Int,
+        maxSeqLen: Int,
+        mode: RoPEMode = RoPEMode.INTERLEAVED,
+        base: Float = 10000.0f,
+        scaling: RoPEScaling = RoPEScaling.NONE,
+        scalingFactor: Float = 1.0f,
+        partialRotaryFactor: Float = 1.0f
+    )
     public fun kvCache(maxSeqLen: Int, nKVHeads: Int, headDim: Int)
 }
 
@@ -68,8 +77,25 @@ public class AttentionImpl<T : DType, V>(
     private var kvCacheModule: KVCache<T, V>? = null
     private var explicitHeadDim: Int? = null
 
-    override fun rope(headDim: Int, maxSeqLen: Int, mode: RoPEMode, base: Float) {
-        ropeModule = RoPE(headDim = headDim, maxSeqLen = maxSeqLen, base = base, mode = mode, name = "$id.rope")
+    override fun rope(
+        headDim: Int,
+        maxSeqLen: Int,
+        mode: RoPEMode,
+        base: Float,
+        scaling: RoPEScaling,
+        scalingFactor: Float,
+        partialRotaryFactor: Float
+    ) {
+        ropeModule = RoPE(
+            headDim = headDim,
+            maxSeqLen = maxSeqLen,
+            base = base,
+            mode = mode,
+            scaling = scaling,
+            scalingFactor = scalingFactor,
+            partialRotaryFactor = partialRotaryFactor,
+            name = "$id.rope"
+        )
         explicitHeadDim = headDim
     }
 
