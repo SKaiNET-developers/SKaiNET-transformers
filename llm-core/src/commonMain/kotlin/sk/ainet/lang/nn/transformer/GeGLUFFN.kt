@@ -57,9 +57,9 @@ public class GeGLUFFN<T : DType, V>(
         val upW = params[1].value
         val downW = params[2].value
 
-        val gate = ops.gelu(ops.matmul(input, ops.transpose(gateW)))
-        val up = ops.matmul(input, ops.transpose(upW))
+        val gate = ops.gelu(linearProject(ops, input, gateW))
+        val up = linearProject(ops, input, upW)
         val gated = ops.multiply(gate, up)
-        return ops.matmul(gated, ops.transpose(downW))
+        return linearProject(ops, gated, downW)
     }
 }

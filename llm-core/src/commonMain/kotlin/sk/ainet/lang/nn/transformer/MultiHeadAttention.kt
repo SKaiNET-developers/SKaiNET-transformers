@@ -140,10 +140,12 @@ public class MultiHeadAttention<T : DType, V>(
         val wV = params[vWIdx].value
         val wO = params[oWIdx].value
 
-        // Project Q, K, V: input @ W^T (+ bias if enabled)
-        var q = ops.matmul(input, ops.transpose(wQ))
-        var k = ops.matmul(input, ops.transpose(wK))
-        var v = ops.matmul(input, ops.transpose(wV))
+        // Project Q, K, V: input @ W^T (+ bias if enabled).
+        // linearProject handles both the stock [out, in] layout and the
+        // [in, out] pre-transposed layout produced by MemSeg conversion.
+        var q = linearProject(ops, input, wQ)
+        var k = linearProject(ops, input, wK)
+        var v = linearProject(ops, input, wV)
 
         if (bias) {
             q = ops.add(q, params[qWIdx + 1].value)
@@ -209,7 +211,7 @@ public class MultiHeadAttention<T : DType, V>(
         val merged = ops.reshape(squeezed, Shape(seqLen, qDim))
 
         // Output projection: merged @ wO^T (+ bias if enabled)
-        var output = ops.matmul(merged, ops.transpose(wO))
+        var output = linearProject(ops, merged, wO)
         if (bias) {
             output = ops.add(output, params[oWIdx + 1].value)
         }

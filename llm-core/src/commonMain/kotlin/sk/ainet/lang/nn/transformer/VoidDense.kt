@@ -55,11 +55,8 @@ public class VoidDense<T : DType, V>(
     override fun onForward(input: Tensor<T, V>, ctx: ExecutionContext): Tensor<T, V> {
         val ops = ctx.ops
         val weight = params[0].value
-        val wShape = weight.shape
-        return if (wShape.rank == 2 && wShape[0] > wShape[1]) {
-            ops.matmul(input, ops.transpose(weight))
-        } else {
-            ops.matmul(input, weight)
-        }
+        // linearProject handles both [out, in] (stock checkpoint layout) and
+        // [in, out] (pre-transposed for quantized NATIVE_OPTIMIZED loads).
+        return linearProject(ops, input, weight)
     }
 }
