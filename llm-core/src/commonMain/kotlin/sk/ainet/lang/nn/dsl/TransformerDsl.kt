@@ -10,6 +10,7 @@ import sk.ainet.lang.nn.transformer.MultiHeadAttention
 import sk.ainet.lang.nn.transformer.ResidualAdd
 import sk.ainet.lang.nn.transformer.RoPE
 import sk.ainet.lang.nn.transformer.RoPEMode
+import sk.ainet.lang.nn.transformer.GeGLUFFN
 import sk.ainet.lang.nn.transformer.SwiGLUFFN
 import sk.ainet.lang.nn.transformer.XIELUActivation
 import sk.ainet.context.ExecutionContext
@@ -163,6 +164,14 @@ public fun <T : DType, V> StageImpl<T, V>.swiGluFFN(dim: Int, hiddenDim: Int, id
     )
 }
 
+public fun <T : DType, V> StageImpl<T, V>.geGluFFN(dim: Int, hiddenDim: Int, id: String = "") {
+    modules += GeGLUFFN<T, V>(
+        dim = dim,
+        hiddenDim = hiddenDim,
+        name = getDefaultName(id, "GeGLUFFN", modules.size)
+    )
+}
+
 public fun <T : DType, V> StageImpl<T, V>.xielu(id: String = "") {
     modules += XIELUActivation<T, V>(
         name = getDefaultName(id, "XIELUActivation", modules.size)
@@ -239,6 +248,14 @@ public fun <T : DType, V> NeuralNetworkDslImpl<T, V>.swiGluFFN(dim: Int, hiddenD
         dim = dim,
         hiddenDim = hiddenDim,
         name = getDefaultName(id, "SwiGLUFFN", modules.size)
+    )
+}
+
+public fun <T : DType, V> NeuralNetworkDslImpl<T, V>.geGluFFN(dim: Int, hiddenDim: Int, id: String = "") {
+    modules += GeGLUFFN<T, V>(
+        dim = dim,
+        hiddenDim = hiddenDim,
+        name = getDefaultName(id, "GeGLUFFN", modules.size)
     )
 }
 

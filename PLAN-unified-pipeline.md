@@ -118,6 +118,61 @@ ChatPipeline (template formatting, tool calling, agent loop)
 - Add Apertus loading path to unified CLI
 - Eventually deprecate per-model CLIs
 
+## Phase 5: Gemma on the DAG → CPU-on-JVM path
+
+**Goal:** route Gemma through the same declarative pipeline used by Llama/Apertus —
+`gemmaNetwork()` DSL → `Module<T,V>` → traced `ComputeGraph` (DAG) → optimization passes
+→ `ComputeGraphExecutor` on the JVM `CpuBackendProvider`. No hand-coded `Gemma4Runtime`
+on this path. Same two execution modes as the rest (`DIRECT` for debugging, `OPTIMIZED`
+for fused-kernel DAG execution).
+
+**Scope split.** Gemma 4 carries several architectural features that the current DSL
+does not express (proportional RoPE, per-layer head_dim, sliding-window attention, KV
+cache sharing). Rather than blocking on those, Phase 5 is split in two:
+
+### Phase 5a — Minimal pipeline, simplified Gemma (IN PROGRESS)
+
+Delivers an end-to-end DAG → CPU-on-JVM path for a *reduced* Gemma that uses standard
+full attention, standard RoPE, no KV sharing, and GELU-gated FFN. Accuracy parity
+with the hand-coded runtime is not required at this stage — the point is to close the
+DSL/loader/weight-mapping loop and validate the execution path.
+
+Steps:
+
+1. **`GeGLUFFN` module** in `llm-core/.../transformer/GeGLUFFN.kt`.
+   Mirrors `SwiGLUFFN` but substitutes `ops.gelu` for `ops.silu`. Parameter layout
+   (`gate_proj.weight`, `up_proj.weight`, `down_proj.weight`) is deliberately
+   identical so `LlamaGGUFNameResolver` maps weights without any resolver changes.
+2. **`geGluFFN(...)` DSL extension** in `llm-core/.../dsl/TransformerDsl.kt`.
+   Extension functions on `StageImpl` and `NeuralNetworkDslImpl`, mirroring `swiGluFFN`.
+3. **`gemmaNetwork()` DSL** in `llm-inference/gemma/.../GemmaNetworkDef.kt`.
+   Takes `Gemma4ModelMetadata`. For 5a, every layer is treated as
+   `full_attention` with `headDim = globalHeadDim`, standard RoPE, and no KV sharing:
+   `Embedding → N × (RMSNorm → MHA(RoPE, KVCache) → Residual → RMSNorm → GeGLUFFN →
+   Residual) → RMSNorm → Dense(vocab)`. Wrapped in `HybridTransformerBlock` per layer
+   like Llama/Apertus so `ResidualAdd` skip-connections work.
+4. **`GemmaNetworkLoader`** in `llm-inference/gemma/.../GemmaNetworkLoader.kt`.
+   Modeled on `ApertusNetworkLoader`: GGUF + SafeTensors + preloaded weight variants,
+   `WeightMapper` with `LlamaGGUFNameResolver`. Reuses the existing
+   `Gemma4WeightLoader` / `Gemma4SafeTensorsWeightLoader`.
+5. **Compile check.** `./gradlew :llm-inference:gemma:compileKotlinJvm` and the existing
+   Gemma4 test suite stays green. No new tests in 5a — that belongs in 5b alongside
+   accuracy parity.
+
+### Phase 5b — Full Gemma accuracy (deferred)
+
+Extend the DSL with the missing primitives and wire them into `gemmaNetwork()`:
+
+- `rope(mode = PROPORTIONAL, factor, originalMaxPosEmb, partialRotaryFactor)` — p-RoPE.
+- `multiHeadAttention(slidingWindow = N)` — sliding-window attention.
+- Per-layer `headDim` in the attention builder (global vs local layers).
+- Shared KV cache (`KVCache(sharedWith = layerIdx)`).
+- Golden-output parity tests against `Gemma4Runtime`.
+
+5b unblocks loading a real Gemma 4 checkpoint on the unified CLI with matching
+outputs, and finally lets us deprecate `Gemma4Runtime` the way
+`LlamaRuntime`/`ApertusRuntime` are being deprecated.
+
 ## All Phases Complete
 
 | Phase | Status | Summary |
@@ -126,5 +181,5 @@ ChatPipeline (template formatting, tool calling, agent loop)
 | 2. Model registry | DONE | ModelRegistry, UnifiedModelLoader, ModelFamily enum |
 | 3. Tokenization pipeline | DONE | GGUFTokenizer in llm-core, TokenizerFactory |
 | 4. Unified runner | DONE | skainet-cli with auto-detection |
-3. **Phase 2** then — biggest refactor, needs per-model validation
-4. **Phase 4** last — depends on all other phases
+| 5a. Gemma DAG → CPU-on-JVM (simplified) | IN PROGRESS | GeGLUFFN + gemmaNetwork() + GemmaNetworkLoader |
+| 5b. Gemma full parity | PENDING | p-RoPE, sliding window, per-layer headDim, shared KV cache |

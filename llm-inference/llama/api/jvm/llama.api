@@ -360,10 +360,3 @@ public final class sk/ainet/models/llama/QuantizedTensorFactoryKt {
 	public static final fun toQ8_0TensorData (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Shape;)Lsk/ainet/lang/tensor/data/Q8_0TensorData;
 }
 
-public final class sk/ainet/models/llama/VoidDenseModule : sk/ainet/lang/nn/Module, sk/ainet/lang/nn/topology/ModuleParameters {
-	public fun <init> (Ljava/lang/String;II)V
-	public fun getModules ()Ljava/util/List;
-	public fun getName ()Ljava/lang/String;
-	public fun getParams ()Ljava/util/List;
-}
-

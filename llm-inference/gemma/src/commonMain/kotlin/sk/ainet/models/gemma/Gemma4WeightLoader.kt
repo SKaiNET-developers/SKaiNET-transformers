@@ -45,11 +45,12 @@ public class Gemma4WeightLoader private constructor(
 
     public constructor(
         randomAccessProvider: () -> RandomAccessSource,
-        quantPolicy: QuantPolicy = QuantPolicy.RAW_BYTES
+        quantPolicy: QuantPolicy = QuantPolicy.RAW_BYTES,
+        loadTensorData: Boolean = true
     ) : this(
         sourceProvider = null,
         randomAccessProvider = randomAccessProvider,
-        loadTensorData = true,
+        loadTensorData = loadTensorData,
         quantPolicy = quantPolicy
     )
 
@@ -187,6 +188,8 @@ public class Gemma4WeightLoader private constructor(
             val metadata = metadataFromStreamingGguf(reader.fields, reader.tensors)
             validateMetadata(metadata)
 
+            if (!loadTensorData) return@use metadata
+
             val required = requiredTensorNames(metadata)
             val tensorByName = reader.tensors.associateBy { it.name }
 
@@ -245,7 +248,12 @@ public class Gemma4WeightLoader private constructor(
             ?: headDim
         val vocabSize = fields["$prefix.vocab_size"]?.scalarInt()
             ?: inferVocabFromTensor(tensors)
-        val intermediateSize = fields["$prefix.feed_forward_length"]?.scalarInt()
+        val ffnField = fields["$prefix.feed_forward_length"]
+        val perLayerIntermediateSize: List<Int> = ffnField
+            ?.let { runCatching { it.intListValue() }.getOrNull() }
+            ?: emptyList()
+        val intermediateSize = ffnField?.scalarInt()
+            ?: perLayerIntermediateSize.firstOrNull()
             ?: (embeddingLength * 4)
         val slidingWindow = fields["$prefix.attention.sliding_window"]?.scalarInt()
             ?: Gemma4ModelMetadata.DEFAULT_SLIDING_WINDOW
@@ -289,7 +297,8 @@ public class Gemma4WeightLoader private constructor(
                 ropeType = "default"
             ),
             maxPositionEmbeddings = contextLength,
-            perLayerEmbeddingLength = perLayerEmbeddingLength
+            perLayerEmbeddingLength = perLayerEmbeddingLength,
+            perLayerIntermediateSize = perLayerIntermediateSize
         )
     }
 
@@ -314,7 +323,12 @@ public class Gemma4WeightLoader private constructor(
             ?: headDim
         val vocabSize = fields["$prefix.vocab_size"]?.toIntValue()
             ?: inferVocabFromStreamingTensor(tensors)
-        val intermediateSize = fields["$prefix.feed_forward_length"]?.toIntValue()
+        val ffnField = fields["$prefix.feed_forward_length"]
+        val perLayerIntermediateSize: List<Int> = (ffnField as? List<*>)
+            ?.mapNotNull { (it as? Number)?.toInt() }
+            ?: emptyList()
+        val intermediateSize = ffnField?.toIntValue()
+            ?: perLayerIntermediateSize.firstOrNull()
             ?: (embeddingLength * 4)
         val slidingWindow = fields["$prefix.attention.sliding_window"]?.toIntValue()
             ?: Gemma4ModelMetadata.DEFAULT_SLIDING_WINDOW
@@ -357,6 +371,7 @@ public class Gemma4WeightLoader private constructor(
                 ropeType = "default"
             ),
             perLayerEmbeddingLength = perLayerEmbeddingLength,
+            perLayerIntermediateSize = perLayerIntermediateSize,
             maxPositionEmbeddings = contextLength
         )
     }
@@ -386,6 +401,13 @@ public class Gemma4WeightLoader private constructor(
         prefix: String,
         blockCount: Int
     ): List<String> {
+        fields["$prefix.attention.sliding_window_pattern"]?.let { field ->
+            runCatching { field.boolListValue() }.getOrNull()?.let { bools ->
+                if (bools.size == blockCount) {
+                    return bools.map { if (it) "sliding_attention" else "full_attention" }
+                }
+            }
+        }
         val patternField = fields["$prefix.attention.layer_types"]
             ?: fields["$prefix.attention.layer_pattern"]
         if (patternField != null) {
@@ -403,6 +425,14 @@ public class Gemma4WeightLoader private constructor(
         prefix: String,
         blockCount: Int
     ): List<String> {
+        // sliding_window_pattern is a boolean list: True = sliding_attention, False = full_attention.
+        val slidingPattern = fields["$prefix.attention.sliding_window_pattern"]
+        if (slidingPattern is List<*>) {
+            val bools = slidingPattern.mapNotNull { it as? Boolean }
+            if (bools.size == blockCount) {
+                return bools.map { if (it) "sliding_attention" else "full_attention" }
+            }
+        }
         val value = fields["$prefix.attention.layer_types"]
             ?: fields["$prefix.attention.layer_pattern"]
         if (value is List<*>) {
@@ -547,6 +577,9 @@ public class Gemma4WeightLoader private constructor(
         name: String,
         onTensorLoaded: (String, Tensor<T, V>) -> Unit
     ) {
+        // Dequantized FloatArray index is Int; tensors with > Int.MAX_VALUE elements
+        // (e.g. PLE tables in quantized E2B/E4B) cannot be materialized as FP32 here.
+        if (st.nElements > Int.MAX_VALUE.toLong()) return
         try {
             val shape = Shape(*st.shape.map { it.toInt() }.toIntArray())
             val bytes = reader.loadTensorData(st)
@@ -564,7 +597,12 @@ public class Gemma4WeightLoader private constructor(
                 onTensorLoaded(name, tensor)
             }
         } catch (_: IllegalArgumentException) {
-            // Skip tensors that exceed streaming reader limits (e.g., >2GB PLE tables)
+            // Streaming reader size limits.
+        } catch (_: IllegalStateException) {
+            // kotlinx-io throws IllegalStateException ("Can't create an array of size N")
+            // when a dequant output would exceed the JVM FloatArray size cap.
+            // Typed as IllegalStateException so this stays in commonMain (the old
+            // NegativeArraySizeException is JVM-only and breaks native/JS/WASM compile).
         }
     }
 
@@ -830,6 +868,12 @@ public class Gemma4WeightLoader private constructor(
         val part = parts.getOrNull(idx) ?: error("Missing data part for field $name")
         @Suppress("UNCHECKED_CAST")
         return (part as List<*>).mapNotNull { (it as? Number)?.toInt() }
+    }
+
+    private fun ReaderField.boolListValue(): List<Boolean> {
+        val idx = data.firstOrNull() ?: 0
+        val part = parts.getOrNull(idx) ?: error("Missing data part for field $name")
+        return (part as List<*>).mapNotNull { it as? Boolean }
     }
 
     private fun Any?.toIntValue(): Int? = when (this) {

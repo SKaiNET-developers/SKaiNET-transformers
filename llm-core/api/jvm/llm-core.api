@@ -22,6 +22,29 @@ public abstract class sk/ainet/apps/llm/DecoderRuntime : sk/ainet/apps/llm/Infer
 	protected final fun setPosition (I)V
 }
 
+public final class sk/ainet/apps/llm/GGUFModelInfo {
+	public fun <init> (Ljava/lang/String;Lsk/ainet/apps/llm/ModelFamily;IIIILjava/util/Map;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Lsk/ainet/apps/llm/ModelFamily;
+	public final fun component3 ()I
+	public final fun component4 ()I
+	public final fun component5 ()I
+	public final fun component6 ()I
+	public final fun component7 ()Ljava/util/Map;
+	public final fun copy (Ljava/lang/String;Lsk/ainet/apps/llm/ModelFamily;IIIILjava/util/Map;)Lsk/ainet/apps/llm/GGUFModelInfo;
+	public static synthetic fun copy$default (Lsk/ainet/apps/llm/GGUFModelInfo;Ljava/lang/String;Lsk/ainet/apps/llm/ModelFamily;IIIILjava/util/Map;ILjava/lang/Object;)Lsk/ainet/apps/llm/GGUFModelInfo;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getArchitecture ()Ljava/lang/String;
+	public final fun getBlockCount ()I
+	public final fun getContextLength ()I
+	public final fun getEmbeddingLength ()I
+	public final fun getFamily ()Lsk/ainet/apps/llm/ModelFamily;
+	public final fun getFields ()Ljava/util/Map;
+	public final fun getVocabSize ()I
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
 public final class sk/ainet/apps/llm/GenerateExtensionsKt {
 	public static final fun generate (Lsk/ainet/apps/llm/InferenceRuntime;[IIFILkotlin/random/Random;Lkotlin/jvm/functions/Function1;)V
 	public static synthetic fun generate$default (Lsk/ainet/apps/llm/InferenceRuntime;[IIFILkotlin/random/Random;Lkotlin/jvm/functions/Function1;ILjava/lang/Object;)V
@@ -63,6 +86,30 @@ public abstract interface class sk/ainet/apps/llm/KvCache {
 	public abstract fun getValue (IIII)F
 	public abstract fun reset ()V
 	public abstract fun store (II[FI[FI)V
+}
+
+public final class sk/ainet/apps/llm/ModelFamily : java/lang/Enum {
+	public static final field APERTUS Lsk/ainet/apps/llm/ModelFamily;
+	public static final field BERT Lsk/ainet/apps/llm/ModelFamily;
+	public static final field GEMMA Lsk/ainet/apps/llm/ModelFamily;
+	public static final field LLAMA Lsk/ainet/apps/llm/ModelFamily;
+	public static final field QWEN Lsk/ainet/apps/llm/ModelFamily;
+	public static final field UNKNOWN Lsk/ainet/apps/llm/ModelFamily;
+	public static final field VOXTRAL Lsk/ainet/apps/llm/ModelFamily;
+	public final fun getArchitectures ()Ljava/util/Set;
+	public final fun getChatTemplateFamily ()Ljava/lang/String;
+	public final fun getDisplayName ()Ljava/lang/String;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public final fun getId ()Ljava/lang/String;
+	public final fun getSupportsToolCalling ()Z
+	public static fun valueOf (Ljava/lang/String;)Lsk/ainet/apps/llm/ModelFamily;
+	public static fun values ()[Lsk/ainet/apps/llm/ModelFamily;
+}
+
+public final class sk/ainet/apps/llm/ModelRegistry {
+	public static final field INSTANCE Lsk/ainet/apps/llm/ModelRegistry;
+	public final fun detect (Ljava/lang/String;)Lsk/ainet/apps/llm/ModelFamily;
+	public final fun detect (Ljava/lang/String;Ljava/lang/String;)Lsk/ainet/apps/llm/ModelFamily;
 }
 
 public final class sk/ainet/apps/llm/OptimizedLLMMode : java/lang/Enum {
@@ -126,6 +173,9 @@ public abstract interface class sk/ainet/apps/llm/Tokenizer {
 	public abstract fun decode (I)Ljava/lang/String;
 	public abstract fun decode ([I)Ljava/lang/String;
 	public abstract fun encode (Ljava/lang/String;)[I
+	public abstract fun getBosTokenId ()I
+	public abstract fun getEosTokenId ()I
+	public abstract fun getVocabSize ()I
 }
 
 public abstract interface class sk/ainet/apps/llm/TokenizerStrategy {
@@ -152,6 +202,31 @@ public final class sk/ainet/apps/llm/TransformerBlock : sk/ainet/lang/nn/Module 
 	public fun getName ()Ljava/lang/String;
 }
 
+public final class sk/ainet/apps/llm/UnifiedModelLoader {
+	public static final field INSTANCE Lsk/ainet/apps/llm/UnifiedModelLoader;
+	public final fun peek (Lkotlin/jvm/functions/Function0;)Lsk/ainet/apps/llm/GGUFModelInfo;
+}
+
+public abstract interface class sk/ainet/apps/llm/backend/BackendProvider {
+	public abstract fun createContext ()Lsk/ainet/context/ExecutionContext;
+	public abstract fun getDisplayName ()Ljava/lang/String;
+	public abstract fun getName ()Ljava/lang/String;
+	public abstract fun getPriority ()I
+	public abstract fun isAvailable ()Z
+}
+
+public final class sk/ainet/apps/llm/backend/BackendRegistry {
+	public static final field INSTANCE Lsk/ainet/apps/llm/backend/BackendRegistry;
+	public final fun providers ()Ljava/util/List;
+	public final fun register (Lsk/ainet/apps/llm/backend/BackendProvider;)V
+}
+
+public final class sk/ainet/apps/llm/backend/BackendRegistryKt {
+	public static final fun availableNames (Lsk/ainet/apps/llm/backend/BackendRegistry;)Ljava/util/List;
+	public static final fun bestAvailable (Lsk/ainet/apps/llm/backend/BackendRegistry;)Lsk/ainet/apps/llm/backend/BackendProvider;
+	public static final fun find (Lsk/ainet/apps/llm/backend/BackendRegistry;Ljava/lang/String;)Lsk/ainet/apps/llm/backend/BackendProvider;
+}
+
 public final class sk/ainet/apps/llm/compile/LLMFusionPass : sk/ainet/compile/opt/GraphOptimizationPass {
 	public fun <init> ()V
 	public fun apply (Lsk/ainet/lang/graph/ComputeGraph;)Lsk/ainet/compile/opt/GraphOptimizationResult;
@@ -171,11 +246,38 @@ public final class sk/ainet/apps/llm/tokenizer/BPEStrategy : sk/ainet/apps/llm/T
 	public fun preprocess (Ljava/lang/String;)Ljava/lang/String;
 }
 
+public final class sk/ainet/apps/llm/tokenizer/GGUFTokenizer : sk/ainet/apps/llm/Tokenizer {
+	public static final field Companion Lsk/ainet/apps/llm/tokenizer/GGUFTokenizer$Companion;
+	public synthetic fun <init> (Ljava/util/List;[FIIILsk/ainet/apps/llm/TokenizerStrategy;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun decode (I)Ljava/lang/String;
+	public fun decode ([I)Ljava/lang/String;
+	public fun encode (Ljava/lang/String;)[I
+	public final fun getBosId ()I
+	public fun getBosTokenId ()I
+	public final fun getEosId ()I
+	public fun getEosTokenId ()I
+	public final fun getTokenizerType ()Lsk/ainet/apps/llm/TokenizerType;
+	public fun getVocabSize ()I
+}
+
+public final class sk/ainet/apps/llm/tokenizer/GGUFTokenizer$Companion {
+	public final fun fromGGUF (Lsk/ainet/io/gguf/GGUFReader;Z)Lsk/ainet/apps/llm/tokenizer/GGUFTokenizer;
+	public static synthetic fun fromGGUF$default (Lsk/ainet/apps/llm/tokenizer/GGUFTokenizer$Companion;Lsk/ainet/io/gguf/GGUFReader;ZILjava/lang/Object;)Lsk/ainet/apps/llm/tokenizer/GGUFTokenizer;
+	public final fun fromRandomAccessSource (Lsk/ainet/io/RandomAccessSource;Z)Lsk/ainet/apps/llm/tokenizer/GGUFTokenizer;
+	public static synthetic fun fromRandomAccessSource$default (Lsk/ainet/apps/llm/tokenizer/GGUFTokenizer$Companion;Lsk/ainet/io/RandomAccessSource;ZILjava/lang/Object;)Lsk/ainet/apps/llm/tokenizer/GGUFTokenizer;
+	public final fun fromSource (Lkotlinx/io/Source;Z)Lsk/ainet/apps/llm/tokenizer/GGUFTokenizer;
+	public static synthetic fun fromSource$default (Lsk/ainet/apps/llm/tokenizer/GGUFTokenizer$Companion;Lkotlinx/io/Source;ZILjava/lang/Object;)Lsk/ainet/apps/llm/tokenizer/GGUFTokenizer;
+	public final fun fromTokenizerJson (Ljava/lang/String;Z)Lsk/ainet/apps/llm/tokenizer/GGUFTokenizer;
+	public static synthetic fun fromTokenizerJson$default (Lsk/ainet/apps/llm/tokenizer/GGUFTokenizer$Companion;Ljava/lang/String;ZILjava/lang/Object;)Lsk/ainet/apps/llm/tokenizer/GGUFTokenizer;
+}
+
 public final class sk/ainet/apps/llm/tokenizer/HuggingFaceBPETokenizer : sk/ainet/apps/llm/Tokenizer {
 	public fun decode (I)Ljava/lang/String;
 	public fun decode ([I)Ljava/lang/String;
 	public fun encode (Ljava/lang/String;)[I
-	public final fun getVocabSize ()I
+	public fun getBosTokenId ()I
+	public fun getEosTokenId ()I
+	public fun getVocabSize ()I
 }
 
 public final class sk/ainet/apps/llm/tokenizer/HuggingFaceBPETokenizerKt {
@@ -189,6 +291,16 @@ public final class sk/ainet/apps/llm/tokenizer/SentencePieceStrategy : sk/ainet/
 	public fun getType ()Lsk/ainet/apps/llm/TokenizerType;
 	public fun postprocess (Ljava/lang/String;)Ljava/lang/String;
 	public fun preprocess (Ljava/lang/String;)Ljava/lang/String;
+}
+
+public final class sk/ainet/apps/llm/tokenizer/TokenizerFactory {
+	public static final field INSTANCE Lsk/ainet/apps/llm/tokenizer/TokenizerFactory;
+	public final fun fromGGUF (Lsk/ainet/io/RandomAccessSource;Z)Lsk/ainet/apps/llm/tokenizer/GGUFTokenizer;
+	public static synthetic fun fromGGUF$default (Lsk/ainet/apps/llm/tokenizer/TokenizerFactory;Lsk/ainet/io/RandomAccessSource;ZILjava/lang/Object;)Lsk/ainet/apps/llm/tokenizer/GGUFTokenizer;
+	public final fun fromHuggingFace (Ljava/lang/String;Ljava/lang/String;)Lsk/ainet/apps/llm/Tokenizer;
+	public static synthetic fun fromHuggingFace$default (Lsk/ainet/apps/llm/tokenizer/TokenizerFactory;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lsk/ainet/apps/llm/Tokenizer;
+	public final fun fromTokenizerJson (Ljava/lang/String;Z)Lsk/ainet/apps/llm/tokenizer/GGUFTokenizer;
+	public static synthetic fun fromTokenizerJson$default (Lsk/ainet/apps/llm/tokenizer/TokenizerFactory;Ljava/lang/String;ZILjava/lang/Object;)Lsk/ainet/apps/llm/tokenizer/GGUFTokenizer;
 }
 
 public final class sk/ainet/apps/llm/tokenizer/UnknownStrategy : sk/ainet/apps/llm/TokenizerStrategy {
@@ -205,6 +317,135 @@ public final class sk/ainet/apps/llm/tokenizer/WordPieceStrategy : sk/ainet/apps
 	public fun getType ()Lsk/ainet/apps/llm/TokenizerType;
 	public fun postprocess (Ljava/lang/String;)Ljava/lang/String;
 	public fun preprocess (Ljava/lang/String;)Ljava/lang/String;
+}
+
+public final class sk/ainet/apps/llm/validation/PipelineShapeValidator {
+	public fun <init> ()V
+	public final fun matchCount (Ljava/lang/String;ILjava/lang/String;I)Lsk/ainet/apps/llm/validation/PipelineShapeValidator;
+	public final fun projection (Ljava/lang/String;Ljava/util/List;Z)Lsk/ainet/apps/llm/validation/PipelineShapeValidator;
+	public static synthetic fun projection$default (Lsk/ainet/apps/llm/validation/PipelineShapeValidator;Ljava/lang/String;Ljava/util/List;ZILjava/lang/Object;)Lsk/ainet/apps/llm/validation/PipelineShapeValidator;
+	public final fun stage (Ljava/lang/String;Ljava/util/List;)Lsk/ainet/apps/llm/validation/PipelineShapeValidator;
+	public final fun stage (Ljava/lang/String;Lsk/ainet/lang/tensor/Shape;)Lsk/ainet/apps/llm/validation/PipelineShapeValidator;
+	public final fun validate ()Lsk/ainet/apps/llm/validation/PipelineShapeValidator$ValidationResult;
+}
+
+public final class sk/ainet/apps/llm/validation/PipelineShapeValidator$ValidationResult {
+	public fun <init> (Ljava/util/List;Ljava/util/List;)V
+	public final fun component1 ()Ljava/util/List;
+	public final fun component2 ()Ljava/util/List;
+	public final fun copy (Ljava/util/List;Ljava/util/List;)Lsk/ainet/apps/llm/validation/PipelineShapeValidator$ValidationResult;
+	public static synthetic fun copy$default (Lsk/ainet/apps/llm/validation/PipelineShapeValidator$ValidationResult;Ljava/util/List;Ljava/util/List;ILjava/lang/Object;)Lsk/ainet/apps/llm/validation/PipelineShapeValidator$ValidationResult;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getErrors ()Ljava/util/List;
+	public final fun getTrace ()Ljava/util/List;
+	public fun hashCode ()I
+	public final fun isValid ()Z
+	public final fun printSummary (Ljava/lang/String;)V
+	public static synthetic fun printSummary$default (Lsk/ainet/apps/llm/validation/PipelineShapeValidator$ValidationResult;Ljava/lang/String;ILjava/lang/Object;)V
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/apps/llm/validation/ShapeInferenceRegistry {
+	public static final field INSTANCE Lsk/ainet/apps/llm/validation/ShapeInferenceRegistry;
+	public final fun getRule (Lkotlin/reflect/KClass;)Lsk/ainet/apps/llm/validation/ShapeInferenceRegistry$ShapeRule;
+	public final fun register (Lkotlin/reflect/KClass;Lsk/ainet/apps/llm/validation/ShapeInferenceRegistry$ShapeRule;)V
+}
+
+public abstract interface class sk/ainet/apps/llm/validation/ShapeInferenceRegistry$ShapeRule {
+	public fun checkInput (Lsk/ainet/lang/nn/Module;Ljava/util/List;)Lsk/ainet/apps/llm/validation/ShapeValidator$ShapeError;
+	public fun collectHints (Lsk/ainet/lang/nn/Module;Ljava/util/List;Ljava/util/List;)V
+	public abstract fun inferOutput (Lsk/ainet/lang/nn/Module;Ljava/util/List;)Ljava/util/List;
+	public fun validateParams (Lsk/ainet/lang/nn/Module;Ljava/util/List;)V
+}
+
+public final class sk/ainet/apps/llm/validation/ShapeInferenceRegistry$ShapeRule$DefaultImpls {
+	public static fun checkInput (Lsk/ainet/apps/llm/validation/ShapeInferenceRegistry$ShapeRule;Lsk/ainet/lang/nn/Module;Ljava/util/List;)Lsk/ainet/apps/llm/validation/ShapeValidator$ShapeError;
+	public static fun collectHints (Lsk/ainet/apps/llm/validation/ShapeInferenceRegistry$ShapeRule;Lsk/ainet/lang/nn/Module;Ljava/util/List;Ljava/util/List;)V
+	public static fun validateParams (Lsk/ainet/apps/llm/validation/ShapeInferenceRegistry$ShapeRule;Lsk/ainet/lang/nn/Module;Ljava/util/List;)V
+}
+
+public final class sk/ainet/apps/llm/validation/ShapeValidator {
+	public static final field INSTANCE Lsk/ainet/apps/llm/validation/ShapeValidator;
+	public final fun validate (Lsk/ainet/lang/nn/Module;Ljava/util/List;)Lsk/ainet/apps/llm/validation/ShapeValidator$ValidationResult;
+	public final fun validateWeights (Lsk/ainet/lang/nn/Module;)Ljava/util/List;
+}
+
+public final class sk/ainet/apps/llm/validation/ShapeValidator$HintType : java/lang/Enum {
+	public static final field FUSION Lsk/ainet/apps/llm/validation/ShapeValidator$HintType;
+	public static final field LAYOUT Lsk/ainet/apps/llm/validation/ShapeValidator$HintType;
+	public static final field MEMORY Lsk/ainet/apps/llm/validation/ShapeValidator$HintType;
+	public static final field QUANTIZATION Lsk/ainet/apps/llm/validation/ShapeValidator$HintType;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lsk/ainet/apps/llm/validation/ShapeValidator$HintType;
+	public static fun values ()[Lsk/ainet/apps/llm/validation/ShapeValidator$HintType;
+}
+
+public final class sk/ainet/apps/llm/validation/ShapeValidator$OptimizationHint {
+	public fun <init> (Ljava/lang/String;Lsk/ainet/apps/llm/validation/ShapeValidator$HintType;Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Lsk/ainet/apps/llm/validation/ShapeValidator$HintType;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Lsk/ainet/apps/llm/validation/ShapeValidator$HintType;Ljava/lang/String;)Lsk/ainet/apps/llm/validation/ShapeValidator$OptimizationHint;
+	public static synthetic fun copy$default (Lsk/ainet/apps/llm/validation/ShapeValidator$OptimizationHint;Ljava/lang/String;Lsk/ainet/apps/llm/validation/ShapeValidator$HintType;Ljava/lang/String;ILjava/lang/Object;)Lsk/ainet/apps/llm/validation/ShapeValidator$OptimizationHint;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getDescription ()Ljava/lang/String;
+	public final fun getModuleName ()Ljava/lang/String;
+	public final fun getType ()Lsk/ainet/apps/llm/validation/ShapeValidator$HintType;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/apps/llm/validation/ShapeValidator$ShapeError {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Lsk/ainet/apps/llm/validation/ShapeValidator$ShapeError;
+	public static synthetic fun copy$default (Lsk/ainet/apps/llm/validation/ShapeValidator$ShapeError;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lsk/ainet/apps/llm/validation/ShapeValidator$ShapeError;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getActual ()Ljava/lang/String;
+	public final fun getExpected ()Ljava/lang/String;
+	public final fun getMessage ()Ljava/lang/String;
+	public final fun getModuleName ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/apps/llm/validation/ShapeValidator$ShapeStep {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/util/List;Ljava/util/List;Ljava/util/Map;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/util/List;
+	public final fun component4 ()Ljava/util/List;
+	public final fun component5 ()Ljava/util/Map;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/util/List;Ljava/util/List;Ljava/util/Map;)Lsk/ainet/apps/llm/validation/ShapeValidator$ShapeStep;
+	public static synthetic fun copy$default (Lsk/ainet/apps/llm/validation/ShapeValidator$ShapeStep;Ljava/lang/String;Ljava/lang/String;Ljava/util/List;Ljava/util/List;Ljava/util/Map;ILjava/lang/Object;)Lsk/ainet/apps/llm/validation/ShapeValidator$ShapeStep;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getInputShape ()Ljava/util/List;
+	public final fun getModuleName ()Ljava/lang/String;
+	public final fun getModuleType ()Ljava/lang/String;
+	public final fun getOutputShape ()Ljava/util/List;
+	public final fun getParamShapes ()Ljava/util/Map;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/apps/llm/validation/ShapeValidator$ValidationResult {
+	public fun <init> (Ljava/util/List;Ljava/util/List;Ljava/util/List;)V
+	public final fun component1 ()Ljava/util/List;
+	public final fun component2 ()Ljava/util/List;
+	public final fun component3 ()Ljava/util/List;
+	public final fun copy (Ljava/util/List;Ljava/util/List;Ljava/util/List;)Lsk/ainet/apps/llm/validation/ShapeValidator$ValidationResult;
+	public static synthetic fun copy$default (Lsk/ainet/apps/llm/validation/ShapeValidator$ValidationResult;Ljava/util/List;Ljava/util/List;Ljava/util/List;ILjava/lang/Object;)Lsk/ainet/apps/llm/validation/ShapeValidator$ValidationResult;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getErrors ()Ljava/util/List;
+	public final fun getOptimizationHints ()Ljava/util/List;
+	public final fun getTrace ()Ljava/util/List;
+	public fun hashCode ()I
+	public final fun isValid ()Z
+	public final fun printSummary ()V
+	public fun toString ()Ljava/lang/String;
 }
 
 public final class sk/ainet/apps/llm/weights/BertSafeTensorsNameResolver : sk/ainet/io/weights/WeightNameResolver {
@@ -224,12 +465,12 @@ public final class sk/ainet/apps/llm/weights/LlamaSafeTensorsNameResolver : sk/a
 
 public abstract interface class sk/ainet/lang/nn/dsl/ATTENTION : sk/ainet/lang/nn/dsl/NetworkDslItem {
 	public abstract fun kvCache (III)V
-	public abstract fun rope (IILsk/ainet/lang/nn/transformer/RoPEMode;)V
-	public static synthetic fun rope$default (Lsk/ainet/lang/nn/dsl/ATTENTION;IILsk/ainet/lang/nn/transformer/RoPEMode;ILjava/lang/Object;)V
+	public abstract fun rope (IILsk/ainet/lang/nn/transformer/RoPEMode;F)V
+	public static synthetic fun rope$default (Lsk/ainet/lang/nn/dsl/ATTENTION;IILsk/ainet/lang/nn/transformer/RoPEMode;FILjava/lang/Object;)V
 }
 
 public final class sk/ainet/lang/nn/dsl/ATTENTION$DefaultImpls {
-	public static synthetic fun rope$default (Lsk/ainet/lang/nn/dsl/ATTENTION;IILsk/ainet/lang/nn/transformer/RoPEMode;ILjava/lang/Object;)V
+	public static synthetic fun rope$default (Lsk/ainet/lang/nn/dsl/ATTENTION;IILsk/ainet/lang/nn/transformer/RoPEMode;FILjava/lang/Object;)V
 }
 
 public final class sk/ainet/lang/nn/dsl/AttentionImpl : sk/ainet/lang/nn/dsl/ATTENTION {
@@ -237,7 +478,7 @@ public final class sk/ainet/lang/nn/dsl/AttentionImpl : sk/ainet/lang/nn/dsl/ATT
 	public final fun create ()Lsk/ainet/lang/nn/transformer/MultiHeadAttention;
 	public fun getExecutionContext ()Lsk/ainet/context/ExecutionContext;
 	public fun kvCache (III)V
-	public fun rope (IILsk/ainet/lang/nn/transformer/RoPEMode;)V
+	public fun rope (IILsk/ainet/lang/nn/transformer/RoPEMode;F)V
 }
 
 public final class sk/ainet/lang/nn/dsl/TransformerDslKt {
@@ -245,6 +486,10 @@ public final class sk/ainet/lang/nn/dsl/TransformerDslKt {
 	public static final fun embedding (Lsk/ainet/lang/nn/dsl/StageImpl;IILjava/lang/String;)V
 	public static synthetic fun embedding$default (Lsk/ainet/lang/nn/dsl/NeuralNetworkDslImpl;IILjava/lang/String;ILjava/lang/Object;)V
 	public static synthetic fun embedding$default (Lsk/ainet/lang/nn/dsl/StageImpl;IILjava/lang/String;ILjava/lang/Object;)V
+	public static final fun geGluFFN (Lsk/ainet/lang/nn/dsl/NeuralNetworkDslImpl;IILjava/lang/String;)V
+	public static final fun geGluFFN (Lsk/ainet/lang/nn/dsl/StageImpl;IILjava/lang/String;)V
+	public static synthetic fun geGluFFN$default (Lsk/ainet/lang/nn/dsl/NeuralNetworkDslImpl;IILjava/lang/String;ILjava/lang/Object;)V
+	public static synthetic fun geGluFFN$default (Lsk/ainet/lang/nn/dsl/StageImpl;IILjava/lang/String;ILjava/lang/Object;)V
 	public static final fun multiHeadAttention (Lsk/ainet/lang/nn/dsl/NeuralNetworkDslImpl;IIIZZZLjava/lang/String;Lkotlin/jvm/functions/Function1;)V
 	public static final fun multiHeadAttention (Lsk/ainet/lang/nn/dsl/StageImpl;IIIZZZLjava/lang/String;Lkotlin/jvm/functions/Function1;)V
 	public static synthetic fun multiHeadAttention$default (Lsk/ainet/lang/nn/dsl/NeuralNetworkDslImpl;IIIZZZLjava/lang/String;Lkotlin/jvm/functions/Function1;ILjava/lang/Object;)V
@@ -330,6 +575,16 @@ public final class sk/ainet/lang/nn/normalization/RMSNormalization : sk/ainet/la
 	public fun getParams ()Ljava/util/List;
 }
 
+public final class sk/ainet/lang/nn/transformer/GeGLUFFN : sk/ainet/lang/nn/Module, sk/ainet/lang/nn/topology/ModuleParameters {
+	public fun <init> (IILjava/lang/String;)V
+	public synthetic fun <init> (IILjava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getDim ()I
+	public final fun getHiddenDim ()I
+	public fun getModules ()Ljava/util/List;
+	public fun getName ()Ljava/lang/String;
+	public fun getParams ()Ljava/util/List;
+}
+
 public final class sk/ainet/lang/nn/transformer/KVCache : sk/ainet/lang/nn/Module {
 	public fun <init> (IIILjava/lang/String;)V
 	public synthetic fun <init> (IIILjava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
@@ -344,8 +599,8 @@ public final class sk/ainet/lang/nn/transformer/KVCache : sk/ainet/lang/nn/Modul
 }
 
 public final class sk/ainet/lang/nn/transformer/MultiHeadAttention : sk/ainet/lang/nn/Module, sk/ainet/lang/nn/topology/ModuleParameters {
-	public fun <init> (IIIZZZLjava/lang/String;Lsk/ainet/lang/nn/transformer/RoPE;Lsk/ainet/lang/nn/transformer/KVCache;)V
-	public synthetic fun <init> (IIIZZZLjava/lang/String;Lsk/ainet/lang/nn/transformer/RoPE;Lsk/ainet/lang/nn/transformer/KVCache;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (IIIZZZLjava/lang/String;Lsk/ainet/lang/nn/transformer/RoPE;Lsk/ainet/lang/nn/transformer/KVCache;Ljava/lang/Integer;)V
+	public synthetic fun <init> (IIIZZZLjava/lang/String;Lsk/ainet/lang/nn/transformer/RoPE;Lsk/ainet/lang/nn/transformer/KVCache;Ljava/lang/Integer;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun getBias ()Z
 	public final fun getCausal ()Z
 	public final fun getDim ()I
@@ -358,6 +613,7 @@ public final class sk/ainet/lang/nn/transformer/MultiHeadAttention : sk/ainet/la
 	public final fun getNKVHeads ()I
 	public fun getName ()Ljava/lang/String;
 	public fun getParams ()Ljava/util/List;
+	public final fun getQDim ()I
 	public final fun getQNorm ()Lsk/ainet/lang/nn/normalization/RMSNormalization;
 	public final fun getQkNorm ()Z
 	public final fun getRope ()Lsk/ainet/lang/nn/transformer/RoPE;
@@ -401,6 +657,15 @@ public final class sk/ainet/lang/nn/transformer/SwiGLUFFN : sk/ainet/lang/nn/Mod
 	public final fun getHiddenDim ()I
 	public fun getModules ()Ljava/util/List;
 	public fun getName ()Ljava/lang/String;
+	public fun getParams ()Ljava/util/List;
+}
+
+public final class sk/ainet/lang/nn/transformer/VoidDense : sk/ainet/lang/nn/Module, sk/ainet/lang/nn/topology/ModuleParameters {
+	public fun <init> (Ljava/lang/String;II)V
+	public final fun getInDim ()I
+	public fun getModules ()Ljava/util/List;
+	public fun getName ()Ljava/lang/String;
+	public final fun getOutDim ()I
 	public fun getParams ()Ljava/util/List;
 }
 
