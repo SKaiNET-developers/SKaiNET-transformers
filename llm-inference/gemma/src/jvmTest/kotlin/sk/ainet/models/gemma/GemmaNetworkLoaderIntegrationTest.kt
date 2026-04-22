@@ -11,6 +11,7 @@ import sk.ainet.apps.llm.ModelFamily
 import sk.ainet.apps.llm.UnifiedModelLoader
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
+import sk.ainet.io.gguf.StreamingGGUFReader
 import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.types.FP32
 
@@ -116,5 +117,76 @@ class GemmaNetworkLoaderIntegrationTest {
         println("  headDim      : ${metadata.headDim} (global ${metadata.globalHeadDim})")
         println("  Intermediate : ${metadata.intermediateSize}")
         println("  Vocab        : ${metadata.vocabSize}")
+    }
+
+    /**
+     * Diagnostic: prints per-layer metadata (what gemmaNetwork() sees) plus the
+     * actual GGUF tensor shapes for attn_q/attn_k/attn_v/attn_output on every
+     * block, and also lists GGUF metadata fields that Gemma 4 E2B may carry
+     * but we haven't yet wired up (QK-Norm, layer_output_scale, PLE, etc).
+     *
+     * Purpose: root-cause the "Index 2048 out of bounds for length 2048" SDPA
+     * error on real Gemma 4 E2B. If metadata says globalHeadDim=512 but the
+     * tensor shapes say head_dim=256 on every layer, the DSL builder is
+     * configuring a mismatched MultiHeadAttention for global layers.
+     */
+    @Tag("integration")
+    @Test
+    fun `diagnostic - per-layer head_dim vs actual tensor shapes`() = runBlocking {
+        skipIfModelNotPresent()
+
+        val ctx = DirectCpuExecutionContext()
+        val loader = Gemma4WeightLoader(
+            randomAccessProvider = { JvmRandomAccessSource.open(modelPath) },
+            loadTensorData = false
+        )
+        val metadata: Gemma4ModelMetadata = loader.loadStreaming<FP32, Float>(
+            ctx = ctx,
+            dtype = FP32::class,
+            onTensorLoaded = { _: String, _: Tensor<FP32, Float> -> }
+        )
+
+        // Pull raw tensor index directly from the streaming reader to see
+        // actual shapes + every tensor name (including any that WeightLoader
+        // currently ignores, like attn_q_norm, layer_output_scale, PLE).
+        val source = JvmRandomAccessSource.open(modelPath)
+        val allTensors = StreamingGGUFReader.open(source).use { r ->
+            r.tensors.map { Triple(it.name, it.shape.map { d -> d.toInt() }, it.tensorType.name) }
+        }
+
+        println("==== Gemma 4 E2B: metadata summary ====")
+        println("  headDim (sliding/default) = ${metadata.headDim}")
+        println("  globalHeadDim             = ${metadata.globalHeadDim}")
+        println("  headCount / kvHeadCount   = ${metadata.headCount} / ${metadata.kvHeadCount}")
+        println("  slidingWindow             = ${metadata.slidingWindow}")
+        println("  kvSharedLayers            = ${metadata.kvSharedLayers}")
+        println("  ropeBase full/sliding     = ${metadata.ropeParametersFull.base} / ${metadata.ropeParametersSliding.base}")
+        println("  partialRotaryFactor full  = ${metadata.ropeParametersFull.partialRotaryFactor}")
+        println("  ropeType full             = ${metadata.ropeParametersFull.ropeType}")
+
+        println()
+        println("==== Per-layer view (as gemmaNetwork() sees it) + actual tensor shapes ====")
+        println("fields: layer | layerType | metaHeadDim | qShape | kShape | vShape | oShape")
+        for (layer in 0 until metadata.blockCount) {
+            val lt = metadata.getLayerType(layer)
+            val hd = metadata.getHeadDim(layer)
+            val q = allTensors.firstOrNull { it.first == "blk.$layer.attn_q.weight" }?.second
+            val k = allTensors.firstOrNull { it.first == "blk.$layer.attn_k.weight" }?.second
+            val v = allTensors.firstOrNull { it.first == "blk.$layer.attn_v.weight" }?.second
+            val o = allTensors.firstOrNull { it.first == "blk.$layer.attn_output.weight" }?.second
+            println("  blk.$layer | $lt | hd=$hd | q=$q | k=$k | v=$v | o=$o")
+        }
+
+        println()
+        println("==== Tensors per block.0 (full list, to spot QK-Norm/layer_output_scale/PLE) ====")
+        allTensors.filter { it.first.startsWith("blk.0.") }.forEach {
+            println("  ${it.first}  shape=${it.second}  dtype=${it.third}")
+        }
+
+        println()
+        println("==== Top-level tensors (non blk.*) ====")
+        allTensors.filter { !it.first.startsWith("blk.") }.forEach {
+            println("  ${it.first}  shape=${it.second}  dtype=${it.third}")
+        }
     }
 }

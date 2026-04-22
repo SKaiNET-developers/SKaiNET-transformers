@@ -239,12 +239,84 @@ across every Gemma 4 architectural feature.
 (the CLI ingestion layer, not yet migrated) and
 `GemmaRuntimeParityTest` (by design) carry `@file:Suppress("DEPRECATION")`.
 
-**Known limitation.** `SharedPositionalKVCache` requires uniform
-`(nKVHeads, headDim)` across all peers in a shared group. Real Gemma 4
-checkpoints released so far have `globalHeadDim == headDim` so this is
-fine, but checkpoints with mixed dims across a shared group would need
-a max-dim-padded storage variant (same idea as
-`HeapGemma4KvCache.kvDim = max(kvDim, globalKvDim)`).
+**Known limitation (fixed in Phase 5e).** `SharedPositionalKVCache`
+requires uniform `(nKVHeads, headDim)` across all peers in a shared
+group. Real Gemma 4 E2B does *not* satisfy that assumption — the
+trailing 20-layer shared group mixes SLIDING (head_dim=256) and GLOBAL
+(head_dim=512). Phase 5e adds `PaddedSharedPositionalKVCache` (pads
+on write, slices on read) and rewires `gemmaNetwork()` to compute
+`paddedHeadDim = max` over the shared group.
+
+## Phase 5e — Mixed-head_dim shared KV + SDPA shape validation (DONE)
+
+The real Gemma 4 E2B Q4_K_M run through `kgemma --runtime=dsl`
+exposed two architectural glitches the tests never covered:
+
+1. **SDPA had no shape validation.** `scaledDotProductAttention` in
+   `DefaultCpuOpsBase` only checked rank==4; a Q/K head_dim mismatch
+   produced an `ArrayIndexOutOfBoundsException` in the inner dot-product
+   loop, 2 000+ lines from the caller. Added `require()` preconditions
+   on matching batch, head count, head_dim (Q/K, Q/V), and K/V seqKV.
+   New `SDPAShapeValidationTest` (5 cases, upstream in SKaiNET-0.19.1)
+   pins the contract.
+2. **`SharedPositionalKVCache` silently accepted wrong-shape K/V.**
+   Followers whose head_dim differed from the owner's would either
+   overflow the owner buffer or return truncated slices. Added
+   `require(headDim == cache.headDim)` in `PositionalKVCache.writeAt`
+   and introduced `PaddedSharedPositionalKVCache(delegate, layerHeadDim)`:
+   zero-pads incoming K/V up to `delegate.headDim` on write, slices the
+   delegate's view back down on read — direct DSL analogue of
+   `HeapGemma4KvCache.store`/`getKey`. `KVCacheVariantsTest` gained
+   two failing tests and a round-trip test across two layers with
+   different head_dims sharing a single delegate.
+3. **Tied-output weight wasn't going through the MemSeg converter.**
+   For checkpoints without a separate `output.weight` (E2B is one),
+   `Gemma4WeightLoader` aliased `token_embd.weight` to `output.weight`
+   but missed the `quantCallback` + `logicalShapeCallback`. Result:
+   the NATIVE_OPTIMIZED loader left the tied output as a 1-D byte blob
+   and `VoidDense.linearProject` then tried to transpose a rank-1
+   tensor. One-line fix in both the streaming and non-streaming
+   branches.
+
+After 5e, real Gemma 4 E2B Q4_K_M runs end-to-end through the DSL path
+on `kgemma --runtime=dsl` — produces tokens rather than crashing at
+SDPA. The **tokens are wrong** because numerous Gemma 4 E2B features
+are still unwired (see Phase 5f below).
+
+Diagnostic record: `memory/gemma4_e2b_architecture.md` enumerates
+every per-block and top-level tensor the current DSL path ignores,
+derived from the `GemmaNetworkLoaderIntegrationTest.diagnostic - per-layer
+head_dim vs actual tensor shapes` test that parses the real 3.2 GB GGUF.
+
+## Phase 5f — Wire remaining Gemma 4 E2B features for parity (NOT STARTED)
+
+The diagnostic test against the real E2B checkpoint shows a long tail
+of per-block tensors `gemmaNetwork()` never asks for, and top-level
+tensors it ignores. Each needs its own PR; rough order of
+logit-impact (most-to-least):
+
+1. **QK-Norm** — `attn_q_norm` / `attn_k_norm` per block, shape
+   `[headDim]`. MHA already supports `qkNorm=true` but `gemmaNetwork()`
+   doesn't enable it. Owner: `llm-core` MHA + `gemmaNetwork()`.
+2. **Sandwich norms** — `post_attention_norm`, `post_ffw_norm`,
+   `post_norm` per block, shape `[dim]`. The DSL stage wires only the
+   pre-norms. Owner: `HybridTransformerBlock` / `gemmaNetwork()` stage
+   layout. Needs a new residual + post-norm primitive.
+3. **`layer_output_scale`** — scalar per block, shape `[1]`. Scales
+   the block output before the next residual. Owner: `gemmaNetwork()`.
+4. **Proportional RoPE variant on GLOBAL layers** — already half-wired
+   (`RoPEScaling.PROPORTIONAL` exists), but the actual rotation formula
+   needs validation against `Gemma4AttentionBackend.applyRopeGqa`.
+5. **PLE (Per-Layer Embedding)** — `per_layer_token_embd`,
+   `per_layer_model_proj`, `per_layer_proj_norm`. New top-level feature
+   fed into each block. Owner: new module + weight loader.
+6. **`inp_gate` / `proj`** — per block, shapes `[1536, 256]` /
+   `[256, 1536]`. Purpose unclear; needs architecture research before
+   implementation. Owner: research task first.
+
+Until at least (1)–(4) land, the DSL path generates garbage on E2B even
+though it runs. The hand-coded `Gemma4Runtime` remains the production
+path until that happens.
 
 ## Phase 6 — DSL path exposed via CLIs (DONE, opt-in)
 
@@ -370,3 +442,5 @@ path — help output mentions the Q4_K gap explicitly.
 | 6. DSL path exposed via CLIs (opt-in) | DONE | Gemma4Ingestion.loadDslRuntime*, `kgemma --runtime=dsl`, skainet-cli auto-routes Gemma through GemmaNetworkLoader |
 | 7a–7c. DSL consumes quantized Gemma weights (Q4_0/Q8_0) | DONE | linearProject centralisation, Q8 DSL probe at Δ=0, GemmaMemSegConverter, `kgemma --runtime=dsl` uses NATIVE_OPTIMIZED. Q4_K/Q5_K/Q6_K still dequant to FP32. |
 | 7d. Q4_K native matmul through DSL (synthetic parity) | DONE | Lazy `Q4_KTensorData` transpose in `DefaultCpuOpsJvm`, Q4_K row-major → input-block-major re-layout, logical-shape side channel. `GemmaDslQ4KTest` matches FP32 at Δ=4.29e-6. Real E2B Q4_K_M loads at ~3 GB RAM; end-to-end generation still hits attention shape bugs — separate follow-up. |
+| 5e. Mixed-head_dim shared KV + SDPA shape validation + tied-output load | DONE | SDPA upstream `require()` checks, `PaddedSharedPositionalKVCache` with pad-on-write / slice-on-read, `Gemma4WeightLoader` wires quant+logical-shape callbacks for the tied-output case. E2B Q4_K_M generates tokens end-to-end on `kgemma --runtime=dsl` — tokens are *wrong* pending Phase 5f. |
+| 5f. Wire remaining Gemma 4 E2B features | NOT STARTED | QK-Norm, sandwich norms, `layer_output_scale`, PLE, `inp_gate`/`proj`, p-RoPE formula validation. Each is its own PR. Diagnostic in `memory/gemma4_e2b_architecture.md`. |

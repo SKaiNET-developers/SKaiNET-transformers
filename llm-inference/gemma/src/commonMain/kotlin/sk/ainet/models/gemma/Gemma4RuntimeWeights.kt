@@ -166,6 +166,7 @@ public object Gemma4WeightMapper {
             val layerHeadDim = metadata.getHeadDim(layer)
             val qDim = metadata.headCount * layerHeadDim
             val kvDim = metadata.kvHeadCount * layerHeadDim
+            val ffnDim = metadata.getIntermediateSize(layer)
 
             val inputLayernorm = get(Gemma4TensorNames.inputLayernorm(layer)).apply {
                 require1D(metadata.embeddingLength, "blk.$layer.attn_norm", Gemma4TensorNames.inputLayernorm(layer))
@@ -186,13 +187,13 @@ public object Gemma4WeightMapper {
                 require1D(metadata.embeddingLength, "blk.$layer.ffn_norm", Gemma4TensorNames.postAttentionLayernorm(layer))
             }
             val gateProj = get(Gemma4TensorNames.ffnGate(layer)).apply {
-                require2D(metadata.intermediateSize, metadata.embeddingLength, "blk.$layer.ffn_gate", Gemma4TensorNames.ffnGate(layer))
+                require2D(ffnDim, metadata.embeddingLength, "blk.$layer.ffn_gate", Gemma4TensorNames.ffnGate(layer))
             }
             val downProj = get(Gemma4TensorNames.ffnDown(layer)).apply {
-                require2D(metadata.embeddingLength, metadata.intermediateSize, "blk.$layer.ffn_down", Gemma4TensorNames.ffnDown(layer))
+                require2D(metadata.embeddingLength, ffnDim, "blk.$layer.ffn_down", Gemma4TensorNames.ffnDown(layer))
             }
             val upProj = get(Gemma4TensorNames.ffnUp(layer)).apply {
-                require2D(metadata.intermediateSize, metadata.embeddingLength, "blk.$layer.ffn_up", Gemma4TensorNames.ffnUp(layer))
+                require2D(ffnDim, metadata.embeddingLength, "blk.$layer.ffn_up", Gemma4TensorNames.ffnUp(layer))
             }
 
             Gemma4LayerWeights(

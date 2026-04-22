@@ -33,6 +33,12 @@ public data class Gemma4ModelMetadata(
     val maxPositionEmbeddings: Int,
     /** Per-layer embedding dimension (PLE). 0 if not used. */
     val perLayerEmbeddingLength: Int = 0,
+    /**
+     * Per-layer intermediate (FFN) size. Empty means use the scalar [intermediateSize] for all
+     * layers. Gemma 4 E2B/E4B checkpoints encode distinct FFN widths per block (e.g. 6144 for
+     * early layers, 12288 for later layers).
+     */
+    val perLayerIntermediateSize: List<Int> = emptyList(),
     /** BOS token ID. */
     val bosTokenId: Int = 2,
     /** EOS token ID. */
@@ -102,6 +108,10 @@ public data class Gemma4ModelMetadata(
             LayerType.SLIDING -> headDim
         }
     }
+
+    /** Returns the FFN intermediate size for the given layer. */
+    public fun getIntermediateSize(layerIdx: Int): Int =
+        perLayerIntermediateSize.getOrNull(layerIdx) ?: intermediateSize
 
     public companion object {
         public const val DEFAULT_SLIDING_WINDOW: Int = 512

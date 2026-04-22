@@ -638,6 +638,16 @@ public final class sk/ainet/lang/nn/transformer/MultiHeadAttention : sk/ainet/la
 	public final fun setRope (Lsk/ainet/lang/nn/transformer/RoPE;)V
 }
 
+public final class sk/ainet/lang/nn/transformer/PaddedSharedPositionalKVCache : sk/ainet/lang/nn/transformer/KVCache {
+	public fun <init> (Lsk/ainet/lang/nn/transformer/PositionalKVCache;ILjava/lang/String;)V
+	public synthetic fun <init> (Lsk/ainet/lang/nn/transformer/PositionalKVCache;ILjava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getDelegate ()Lsk/ainet/lang/nn/transformer/PositionalKVCache;
+	public final fun getLayerHeadDim ()I
+	public fun getPosition ()I
+	public fun reset ()V
+	public fun update (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/context/ExecutionContext;)Lkotlin/Pair;
+}
+
 public final class sk/ainet/lang/nn/transformer/PositionalKVCache : sk/ainet/lang/nn/transformer/KVCache {
 	public fun <init> (IIILjava/lang/String;)V
 	public synthetic fun <init> (IIILjava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V

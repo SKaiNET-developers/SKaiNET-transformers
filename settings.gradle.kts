@@ -15,6 +15,8 @@ dependencyResolutionManagement {
 
 rootProject.name = "SKaiNET-transformers"
 
+includeBuild("../SKaiNET-0.19.1")
+
 include("llm-core")
 include("llm-agent")
 include("llm-inference:llama")

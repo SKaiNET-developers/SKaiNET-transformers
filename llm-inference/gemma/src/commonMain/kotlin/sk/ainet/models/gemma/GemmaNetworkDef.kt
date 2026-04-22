@@ -11,9 +11,9 @@ import sk.ainet.lang.nn.dsl.multiHeadAttention
 import sk.ainet.lang.nn.dsl.residual
 import sk.ainet.lang.nn.dsl.rmsNorm
 import sk.ainet.lang.nn.dsl.sequential
+import sk.ainet.lang.nn.transformer.PaddedSharedPositionalKVCache
 import sk.ainet.lang.nn.transformer.PositionalKVCache
 import sk.ainet.lang.nn.transformer.RoPEScaling
-import sk.ainet.lang.nn.transformer.SharedPositionalKVCache
 import sk.ainet.lang.nn.transformer.VoidDense
 import sk.ainet.lang.types.DType
 
@@ -78,11 +78,21 @@ public fun <T : DType, V> gemmaNetwork(
     val dslImpl = NeuralNetworkDslImpl<T, V>(nnCtx, dtype)
     dslImpl.embedding(vocabSize, dim, id = "token_embd")
 
-    // Owner layers' PositionalKVCaches, indexed by their layer number.
-    // Follower layers wrap these with SharedPositionalKVCache so the
-    // "last writer wins at slot pos" behaviour matches the hand-coded
-    // HeapGemma4KvCache used by Gemma4Runtime.
+    // Owner layers' PositionalKVCache delegates, indexed by their layer
+    // number. For the kvSharedLayers trailing group, the delegate's headDim
+    // is the MAX across the group — Gemma 4 E2B mixes SLIDING (256) and
+    // GLOBAL (512) inside the same group, so the delegate must be 512-wide.
+    // Layers in the group (owner and followers both) wrap the delegate in
+    // a PaddedSharedPositionalKVCache that pads-on-write and slices-on-read
+    // to the layer's own head_dim — matches HeapGemma4KvCache semantics.
     val ownerCaches = mutableMapOf<Int, PositionalKVCache<T, V>>()
+
+    val firstSharedLayer = nLayers - metadata.kvSharedLayers
+    val sharedGroupPaddedHeadDim = if (metadata.kvSharedLayers > 0) {
+        (firstSharedLayer until nLayers).maxOf { metadata.getHeadDim(it) }
+    } else {
+        0 // unused
+    }
 
     for (layer in 0 until nLayers) {
         val layerHeadDim = metadata.getHeadDim(layer)
@@ -97,6 +107,7 @@ public fun <T : DType, V> gemmaNetwork(
         val slidingWindow = if (isGlobal) null else metadata.slidingWindow
         val ffnDim = metadata.getIntermediateSize(layer)
         val cacheOwnerLayer = metadata.getCacheLayerIndex(layer)
+        val isInSharedGroup = metadata.kvSharedLayers > 0 && layer >= firstSharedLayer
 
         val stage = StageImpl<T, V>(nnCtx, "blk.$layer", dtype)
         stage.rmsNorm(dim, eps, id = "attn_norm")
@@ -116,19 +127,48 @@ public fun <T : DType, V> gemmaNetwork(
                 scalingFactor = if (ropeScaling == RoPEScaling.PROPORTIONAL) scalingFactor else 1.0f,
                 partialRotaryFactor = if (isGlobal) partialRotaryFactor else 1.0f
             )
-            if (cacheOwnerLayer == layer) {
-                val owner = PositionalKVCache<T, V>(
-                    maxSeqLen = seqLen,
-                    nKVHeads = nKVHeads,
-                    headDim = layerHeadDim,
-                    name = "blk.$layer.attn.kv_cache"
-                )
-                ownerCaches[layer] = owner
-                kvCache(owner)
-            } else {
-                val owner = ownerCaches[cacheOwnerLayer]
-                    ?: error("Gemma: layer $layer expects to share KV with layer $cacheOwnerLayer, but owner hasn't been built yet")
-                kvCache(SharedPositionalKVCache(owner, name = "blk.$layer.attn.kv_cache"))
+            when {
+                !isInSharedGroup -> {
+                    // Plain per-layer cache. Own this layer's own head_dim.
+                    val own = PositionalKVCache<T, V>(
+                        maxSeqLen = seqLen,
+                        nKVHeads = nKVHeads,
+                        headDim = layerHeadDim,
+                        name = "blk.$layer.attn.kv_cache"
+                    )
+                    kvCache(own)
+                }
+                cacheOwnerLayer == layer -> {
+                    // Owner of the shared group: allocate the padded-max storage
+                    // delegate and wrap it with a PaddedSharedPositionalKVCache at
+                    // this layer's own head_dim.
+                    val delegate = PositionalKVCache<T, V>(
+                        maxSeqLen = seqLen,
+                        nKVHeads = nKVHeads,
+                        headDim = sharedGroupPaddedHeadDim,
+                        name = "blk.$layer.attn.kv_cache.storage"
+                    )
+                    ownerCaches[layer] = delegate
+                    kvCache(
+                        PaddedSharedPositionalKVCache(
+                            delegate = delegate,
+                            layerHeadDim = layerHeadDim,
+                            name = "blk.$layer.attn.kv_cache"
+                        )
+                    )
+                }
+                else -> {
+                    // Follower: wrap the shared delegate at this layer's head_dim.
+                    val delegate = ownerCaches[cacheOwnerLayer]
+                        ?: error("Gemma: layer $layer expects to share KV with layer $cacheOwnerLayer, but owner hasn't been built yet")
+                    kvCache(
+                        PaddedSharedPositionalKVCache(
+                            delegate = delegate,
+                            layerHeadDim = layerHeadDim,
+                            name = "blk.$layer.attn.kv_cache"
+                        )
+                    )
+                }
             }
         }
         stage.residual()

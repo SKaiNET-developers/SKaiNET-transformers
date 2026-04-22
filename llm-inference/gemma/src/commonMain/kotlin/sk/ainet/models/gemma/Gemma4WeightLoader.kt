@@ -177,6 +177,15 @@ public class Gemma4WeightLoader private constructor(
                 ?: error("Missing both output.weight and token_embd.weight")
             val tensor: Tensor<T, V> = readerTensorToTensor(ctx, dtype, reader, embedRt, metadata)
             onTensorLoaded(Gemma4TensorNames.OUTPUT_WEIGHT, tensor)
+            // See loadFromStreamingGguf for why the tied-output path must
+            // also fire quantCallback + logicalShapeCallback.
+            if ((quantPolicy == QuantPolicy.RAW_BYTES || quantPolicy == QuantPolicy.NATIVE_OPTIMIZED) && embedRt.tensorType != GGMLQuantizationType.F32) {
+                quantCallback?.invoke(Gemma4TensorNames.OUTPUT_WEIGHT, embedRt.tensorType)
+            }
+            logicalShapeCallback?.invoke(
+                Gemma4TensorNames.OUTPUT_WEIGHT,
+                Shape(*embedRt.shape.map { it.toInt() }.reversed().toIntArray())
+            )
         }
 
         // Optional tensors
@@ -237,6 +246,13 @@ public class Gemma4WeightLoader private constructor(
                     ?: error("Missing both output.weight and token_embd.weight")
                 val tensor: Tensor<T, V> = streamingTensorToTensor(ctx, dtype, reader, embedSt, metadata)
                 onTensorLoaded(Gemma4TensorNames.OUTPUT_WEIGHT, tensor)
+                // Weight-tied output shares the embedding's quant type — the
+                // MemSeg converter needs this callback to convert the shared
+                // tensor into a matmul-ready layout. Without it, the output
+                // stays as a 1-D byte blob and linearProject fails.
+                if ((quantPolicy == QuantPolicy.RAW_BYTES || quantPolicy == QuantPolicy.NATIVE_OPTIMIZED) && embedSt.tensorType != GGMLQuantizationType.F32) {
+                    quantCallback?.invoke(Gemma4TensorNames.OUTPUT_WEIGHT, embedSt.tensorType)
+                }
                 logicalShapeCallback?.invoke(
                     Gemma4TensorNames.OUTPUT_WEIGHT,
                     reversedShape(embedSt.shape)
