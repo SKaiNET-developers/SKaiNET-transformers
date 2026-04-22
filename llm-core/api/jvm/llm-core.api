@@ -634,6 +634,14 @@ public final class sk/ainet/lang/nn/transformer/MultiHeadAttention : sk/ainet/la
 	public final fun setRope (Lsk/ainet/lang/nn/transformer/RoPE;)V
 }
 
+public final class sk/ainet/lang/nn/transformer/PositionalKVCache : sk/ainet/lang/nn/transformer/KVCache {
+	public fun <init> (IIILjava/lang/String;)V
+	public synthetic fun <init> (IIILjava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun getPosition ()I
+	public fun reset ()V
+	public fun update (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/context/ExecutionContext;)Lkotlin/Pair;
+}
+
 public final class sk/ainet/lang/nn/transformer/ResidualAdd : sk/ainet/lang/nn/Module {
 	public fun <init> ()V
 	public fun <init> (Ljava/lang/String;)V
@@ -679,6 +687,15 @@ public final class sk/ainet/lang/nn/transformer/SharedKVCache : sk/ainet/lang/nn
 	public fun <init> (Lsk/ainet/lang/nn/transformer/KVCache;Ljava/lang/String;)V
 	public synthetic fun <init> (Lsk/ainet/lang/nn/transformer/KVCache;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun getDelegate ()Lsk/ainet/lang/nn/transformer/KVCache;
+	public fun getPosition ()I
+	public fun reset ()V
+	public fun update (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/context/ExecutionContext;)Lkotlin/Pair;
+}
+
+public final class sk/ainet/lang/nn/transformer/SharedPositionalKVCache : sk/ainet/lang/nn/transformer/KVCache {
+	public fun <init> (Lsk/ainet/lang/nn/transformer/PositionalKVCache;Ljava/lang/String;)V
+	public synthetic fun <init> (Lsk/ainet/lang/nn/transformer/PositionalKVCache;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getDelegate ()Lsk/ainet/lang/nn/transformer/PositionalKVCache;
 	public fun getPosition ()I
 	public fun reset ()V
 	public fun update (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/context/ExecutionContext;)Lkotlin/Pair;

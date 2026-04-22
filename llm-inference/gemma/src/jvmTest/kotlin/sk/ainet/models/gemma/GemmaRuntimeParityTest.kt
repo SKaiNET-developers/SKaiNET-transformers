@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION") // parity test by design compares DSL against the deprecated hand-coded Gemma4Runtime
+
 package sk.ainet.models.gemma
 
 import kotlin.math.abs
@@ -270,21 +272,102 @@ class GemmaRuntimeParityTest {
         }
         println("Mixed-layer parity PASSED. Max |Δlogit| across ${tokens.size} steps (window=$miniSlidingWindow): $maxDiff")
     }
-}
 
-/*
- * Known gap — shared-KV parity.
- *
- * Phase 5b's [SharedKVCache] forwards reads and writes to an owning
- * [AppendKVCache]. That's "append and share the accumulated history".
- *
- * The hand-coded [HeapGemma4KvCache] uses positional storage keyed by
- * (layer_slot, position); shared layers write to the same slot, so within a
- * single decode step the *last* shared layer's K/V overwrites the earlier
- * ones at that position. Across steps each slot accumulates whatever the
- * last layer wrote at that step.
- *
- * These semantics are different enough that closing parity requires a
- * positional KV cache in llm-core. That refactor belongs to a dedicated
- * follow-up; this parity test stays at `kvSharedLayers = 0` until then.
- */
+    @Test
+    fun `shared-KV layers - Gemma4Runtime and gemmaNetwork agree within tolerance`() {
+        // Scheme: 4 layers with kvSharedLayers = 2 → owner boundary at layer 2,
+        // so layers 2 and 3 share one cache slot (layer 2 is owner, layer 3 is
+        // follower). Layers 0, 1 have their own independent caches.
+        //
+        // Mix sliding / global so we're simultaneously exercising the sliding
+        // mask path and the shared-KV overwrite path.
+        val miniNLayers = 4
+        val miniSlidingWindow = 3
+        val miniMetadata = metadata.copy(
+            blockCount = miniNLayers,
+            slidingWindow = miniSlidingWindow,
+            layerTypes = listOf("sliding_attention", "sliding_attention", "sliding_attention", "full_attention"),
+            kvSharedLayers = 2
+        )
+        val config = Gemma4Config.fromMetadata(miniMetadata)
+
+        val tokenEmbedding = randn(Shape(vocabSize, dim), seed = 300)
+        val finalNorm = ones(Shape(dim))
+        val lmHead = randn(Shape(vocabSize, dim), seed = 301)
+        val layerWeights = (0 until miniNLayers).map { layer ->
+            Gemma4LayerWeights(
+                inputLayernorm = ones(Shape(dim)),
+                wq = randn(Shape(nHeads * headDim, dim), seed = 400 + layer * 10 + 1),
+                wk = randn(Shape(nKvHeads * headDim, dim), seed = 400 + layer * 10 + 2),
+                wv = randn(Shape(nKvHeads * headDim, dim), seed = 400 + layer * 10 + 3),
+                wo = randn(Shape(dim, nHeads * headDim), seed = 400 + layer * 10 + 4),
+                postAttentionLayernorm = ones(Shape(dim)),
+                gateProj = randn(Shape(ffnDim, dim), seed = 400 + layer * 10 + 5),
+                upProj = randn(Shape(ffnDim, dim), seed = 400 + layer * 10 + 6),
+                downProj = randn(Shape(dim, ffnDim), seed = 400 + layer * 10 + 7)
+            )
+        }
+
+        val runtimeWeights = Gemma4RuntimeWeights(
+            metadata = miniMetadata,
+            tokenEmbedding = tokenEmbedding,
+            ropeFreqReal = null,
+            ropeFreqImag = null,
+            layers = layerWeights,
+            finalNorm = finalNorm,
+            lmHead = lmHead
+        )
+
+        val dslTensors = linkedMapOf<String, Tensor<FP32, Float>>()
+        dslTensors[Gemma4TensorNames.TOKEN_EMBEDDINGS] = tokenEmbedding
+        dslTensors[Gemma4TensorNames.OUTPUT_NORM] = finalNorm
+        dslTensors[Gemma4TensorNames.OUTPUT_WEIGHT] = lmHead
+        layerWeights.forEachIndexed { layer, lw ->
+            dslTensors[Gemma4TensorNames.inputLayernorm(layer)] = lw.inputLayernorm
+            dslTensors[Gemma4TensorNames.attnQ(layer)] = lw.wq
+            dslTensors[Gemma4TensorNames.attnK(layer)] = lw.wk
+            dslTensors[Gemma4TensorNames.attnV(layer)] = lw.wv
+            dslTensors[Gemma4TensorNames.attnOut(layer)] = lw.wo
+            dslTensors[Gemma4TensorNames.postAttentionLayernorm(layer)] = lw.postAttentionLayernorm
+            dslTensors[Gemma4TensorNames.ffnGate(layer)] = lw.gateProj
+            dslTensors[Gemma4TensorNames.ffnUp(layer)] = lw.upProj
+            dslTensors[Gemma4TensorNames.ffnDown(layer)] = lw.downProj
+        }
+        val dslWeights = Gemma4Weights<FP32, Float>(miniMetadata, dslTensors)
+
+        val kvCache = HeapGemma4KvCache.fromConfig(config, seqLen)
+        val backend = Gemma4AttentionBackend(ctx, runtimeWeights, FP32::class, config, kvCache)
+        val handCoded = Gemma4Runtime(
+            ctx = ctx,
+            weights = runtimeWeights,
+            attentionBackend = backend,
+            dtype = FP32::class,
+            config = config
+        )
+
+        val dslModel = GemmaNetworkLoader.fromWeights(ctx, dslWeights)
+        val dsl = OptimizedLLMRuntime(
+            model = dslModel,
+            ctx = ctx,
+            mode = OptimizedLLMMode.DIRECT,
+            dtype = FP32::class
+        )
+
+        val tokens = intArrayOf(1, 5, 3, 0, 2, 7, 4, 6)
+        val tolerance = 1e-3f
+        var maxDiff = 0f
+        for ((step, tokenId) in tokens.withIndex()) {
+            val a = handCoded.forward(tokenId).data.copyToFloatArray()
+            val b = dsl.forward(tokenId).data.copyToFloatArray()
+            for (i in a.indices) {
+                val d = abs(a[i] - b[i])
+                maxDiff = max(maxDiff, d)
+                assertTrue(
+                    d < tolerance,
+                    "step=$step (shared kv=${miniMetadata.kvSharedLayers}) logit[$i] diverged: hand=${a[i]} dsl=${b[i]} diff=$d"
+                )
+            }
+        }
+        println("Shared-KV parity PASSED. Max |Δlogit| across ${tokens.size} steps (kvShared=${miniMetadata.kvSharedLayers}): $maxDiff")
+    }
+}

@@ -5,7 +5,9 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.lang.nn.transformer.AppendKVCache
+import sk.ainet.lang.nn.transformer.PositionalKVCache
 import sk.ainet.lang.nn.transformer.SharedKVCache
+import sk.ainet.lang.nn.transformer.SharedPositionalKVCache
 import sk.ainet.lang.nn.transformer.SlidingWindowKVCache
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.Tensor
@@ -79,6 +81,53 @@ class KVCacheVariantsTest {
         assertEquals(3, owner.position)
         assertEquals(3, follower.position)
         assertEquals(3, fk.shape[1], "returned keys reflect the full delegate state")
+    }
+
+    @Test
+    fun `PositionalKVCache updates and returns full history tensor`() {
+        val cache = PositionalKVCache<FP32, Float>(maxSeqLen, nKVHeads, headDim)
+
+        val (k1, _) = cache.update(kv(newLen = 1, start = 0), kv(newLen = 1, start = 0), ctx)
+        assertEquals(1, k1.shape[1])
+        assertEquals(1, cache.position)
+
+        val (k2, _) = cache.update(kv(newLen = 1, start = 50), kv(newLen = 1, start = 50), ctx)
+        assertEquals(2, k2.shape[1])
+        assertEquals(2, cache.position)
+
+        cache.reset()
+        assertEquals(0, cache.position)
+    }
+
+    @Test
+    fun `SharedPositionalKVCache writes at follower position overwriting delegate slot`() {
+        val owner = PositionalKVCache<FP32, Float>(maxSeqLen, nKVHeads, headDim)
+        val follower = SharedPositionalKVCache<FP32, Float>(owner)
+
+        // Step 0: owner writes at slot 0; then follower writes at slot 0 (overwrites).
+        val (ownerK0, _) = owner.update(kv(newLen = 1, start = 0), kv(newLen = 1, start = 0), ctx)
+        val (followerK0, _) = follower.update(kv(newLen = 1, start = 1000), kv(newLen = 1, start = 1000), ctx)
+        assertEquals(1, owner.position)
+        assertEquals(1, follower.position)
+        assertEquals(1, ownerK0.shape[1])
+        assertEquals(1, followerK0.shape[1])
+
+        // Owner's returned tensor is a snapshot from before the follower wrote,
+        // so it still reflects owner's data at slot 0.
+        val ownerSlot0 = ownerK0.data.copyToFloatArray()[0]
+        // Follower's returned tensor reflects its own data at slot 0.
+        val followerSlot0 = followerK0.data.copyToFloatArray()[0]
+        assertTrue(ownerSlot0 != followerSlot0, "owner and follower snapshots should differ: $ownerSlot0 vs $followerSlot0")
+
+        // Step 1: owner writes at slot 1 — it should see the follower's data at slot 0
+        // because the follower overwrote it in step 0 after the owner's own read.
+        val (ownerK1, _) = owner.update(kv(newLen = 1, start = 500), kv(newLen = 1, start = 500), ctx)
+        assertEquals(2, ownerK1.shape[1], "after step 1 owner cache should have 2 positions")
+        val ownerHistoryAtStep1 = ownerK1.data.copyToFloatArray()
+        // First slot in owner's step-1 snapshot must match follower's step-0 write.
+        // (Compare the first float of each head's slot-0 position.)
+        assertEquals(followerSlot0, ownerHistoryAtStep1[0], 1e-6f,
+            "owner reads follower's slot-0 write in subsequent steps")
     }
 
     @Test

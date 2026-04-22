@@ -211,21 +211,56 @@ token. Two configurations are covered:
 This validates the core DSL pipeline against the reference implementation
 for everything except shared-KV layers.
 
-## Phase 5d — Positional KV cache + shared-KV parity (PENDING)
+## Phase 5d — Positional KV cache, shared-KV parity, deprecate Gemma4Runtime (DONE)
 
-Shared-KV semantics differ between the two paths. The hand-coded
-`HeapGemma4KvCache` writes positionally (each `(layer_slot, position)`
-cell holds exactly one K/V; shared layers overwrite each other within a
-step). The DSL's `SharedKVCache` wraps an owner `AppendKVCache` and just
-forwards reads/writes, so followers *append* to the owner's history
-rather than overwriting a slot — different behaviour when
-`kvSharedLayers > 0`.
+Added `PositionalKVCache` and `SharedPositionalKVCache` to `llm-core`.
+The positional variant backs storage with a pre-allocated
+`[nKVHeads, maxSeqLen, headDim]` buffer and writes at its own position
+counter. The shared variant wraps a `PositionalKVCache` delegate and
+writes at the *follower's* own step into the delegate's buffer —
+overwriting whatever the owner (or previous followers) wrote at that
+slot. Matches `HeapGemma4KvCache`'s "last writer wins at (slot, pos)"
+semantics exactly. Each cache instance tracks its own step counter so
+RoPE in `MultiHeadAttention` sees correct absolute positions across all
+shared peers.
 
-To close parity for real Gemma 4 E2B (`kvSharedLayers = 20 / 35`), llm-core
-needs a positional-storage KV cache variant, then the parity test flips
-to cover that case, and only *then* should `Gemma4Runtime` be
-`@Deprecated`. Until 5d lands, keep the hand-coded runtime as the
-production path for real Gemma 4 checkpoints.
+`gemmaNetwork()` now uses the positional variants: owner layers get a
+`PositionalKVCache`, the trailing `kvSharedLayers` wrap it with
+`SharedPositionalKVCache`.
+
+`GemmaRuntimeParityTest` gained a third configuration — 4 layers with
+`kvSharedLayers = 2` (layers 2 & 3 share) — and passes at
+**max |Δlogit| = 8.94e-8** across 8 decode steps, on par with the
+non-shared cases. The DSL path now numerically matches `Gemma4Runtime`
+across every Gemma 4 architectural feature.
+
+`Gemma4Runtime` is marked `@Deprecated(level = WARNING)` pointing at
+`gemmaNetwork() + OptimizedLLMRuntime`. `kgemma/Gemma4Ingestion.kt`
+(the CLI ingestion layer, not yet migrated) and
+`GemmaRuntimeParityTest` (by design) carry `@file:Suppress("DEPRECATION")`.
+
+**Known limitation.** `SharedPositionalKVCache` requires uniform
+`(nKVHeads, headDim)` across all peers in a shared group. Real Gemma 4
+checkpoints released so far have `globalHeadDim == headDim` so this is
+fine, but checkpoints with mixed dims across a shared group would need
+a max-dim-padded storage variant (same idea as
+`HeapGemma4KvCache.kvDim = max(kvDim, globalKvDim)`).
+
+## Phase 6 — Migrate kgemma / skainet-cli to the DSL path (PENDING)
+
+With `Gemma4Runtime` deprecated, the next natural cleanup is moving the
+production loaders onto `GemmaNetworkLoader + OptimizedLLMRuntime`:
+
+- `kgemma/Gemma4Ingestion.kt` — currently the only non-test caller; drop
+  the `@file:Suppress("DEPRECATION")` once migrated.
+- `skainet-cli` — extend its auto-detect dispatch to route Gemma through
+  the new loader.
+
+These are scoped as follow-ups because they need the quant-aware DAG
+matmul work (see `ISSUE-skainet-8b-oom.md` §Solution C) to actually run
+a real checkpoint in notebook-class RAM. Until that lands, the runtime
+RAM story for real Gemma 4 E2B is the same as before — `Gemma4Runtime`
+on `NATIVE_OPTIMIZED` is still the only path that fits.
 
 ## All Phases Complete
 
@@ -238,4 +273,4 @@ production path for real Gemma 4 checkpoints.
 | 5a. Gemma DAG → CPU-on-JVM (simplified) | DONE | GeGLUFFN + gemmaNetwork() + GemmaNetworkLoader |
 | 5b. Gemma DSL primitives | DONE | Sealed KVCache, p-RoPE, sliding window, per-layer dims wired into gemmaNetwork() |
 | 5c. Numerical parity (no shared KV) | DONE | 1-layer and 4-layer mixed sliding+global match Gemma4Runtime at ≤ 8e-8 |
-| 5d. Positional KV cache + shared-KV parity | PENDING | Needed before deprecating Gemma4Runtime (real E2B has kvSharedLayers=20/35) |
+| 5d. Positional KV cache + shared-KV parity + Gemma4Runtime @Deprecated | DONE | PositionalKVCache + SharedPositionalKVCache; shared-KV parity at 8.94e-8; Gemma4Runtime marked @Deprecated |

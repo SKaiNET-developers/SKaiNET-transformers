@@ -187,6 +187,139 @@ public class SlidingWindowKVCache<T : DType, V>(
 }
 
 /**
+ * KV cache backed by a pre-allocated `[nKVHeads, maxSeqLen, headDim]` buffer.
+ *
+ * Each [update] writes the incoming K/V at the cache's own `position` counter,
+ * then advances the counter. Reads return a fresh tensor of shape
+ * `[nKVHeads, position, headDim]` copied from the buffer's used prefix.
+ *
+ * Unlike [AppendKVCache] (which concats into a growing tensor), this variant's
+ * storage is addressable by absolute position. That lets several cache
+ * instances share one buffer via [SharedPositionalKVCache], matching the
+ * "last writer wins at this slot" semantics of Gemma 4's shared-KV layers.
+ *
+ * For layers that are *not* part of a shared-KV group, [PositionalKVCache]
+ * produces the same observable output as [AppendKVCache] step for step — the
+ * trade-off is up-front allocation of `maxSeqLen × nKVHeads × headDim`
+ * floats vs the concat cost of the growing variant.
+ */
+public class PositionalKVCache<T : DType, V>(
+    maxSeqLen: Int,
+    nKVHeads: Int,
+    headDim: Int,
+    name: String = "PositionalKVCache"
+) : KVCache<T, V>(maxSeqLen, nKVHeads, headDim, name) {
+
+    internal val keyBuf: FloatArray = FloatArray(maxSeqLen * nKVHeads * headDim)
+    internal val valueBuf: FloatArray = FloatArray(maxSeqLen * nKVHeads * headDim)
+    private var pos: Int = 0
+
+    override fun update(
+        newKey: Tensor<T, V>,
+        newValue: Tensor<T, V>,
+        ctx: ExecutionContext
+    ): Pair<Tensor<T, V>, Tensor<T, V>> {
+        val newLen = newKey.shape[newKey.rank - 2]
+        writeAt(pos, newKey, newValue)
+        pos += newLen
+        return currentView(ctx, newKey.dtype)
+    }
+
+    /**
+     * Write [newKey] / [newValue] into the buffer starting at absolute position
+     * [startPos], without advancing the cache's own position counter. Used by
+     * [SharedPositionalKVCache] followers to overwrite the owner's slot at
+     * their own step.
+     */
+    internal fun writeAt(startPos: Int, newKey: Tensor<T, V>, newValue: Tensor<T, V>) {
+        val newLen = newKey.shape[newKey.rank - 2]
+        require(startPos + newLen <= maxSeqLen) {
+            "PositionalKVCache overflow: startPos=$startPos newLen=$newLen maxSeqLen=$maxSeqLen"
+        }
+        val kData = newKey.data.copyToFloatArray()
+        val vData = newValue.data.copyToFloatArray()
+        // newKey layout: [nKVHeads, newLen, headDim]
+        //  buffer layout: [nKVHeads, maxSeqLen, headDim]
+        for (h in 0 until nKVHeads) {
+            for (s in 0 until newLen) {
+                val srcOff = (h * newLen + s) * headDim
+                val dstOff = (h * maxSeqLen + startPos + s) * headDim
+                kData.copyInto(keyBuf, dstOff, srcOff, srcOff + headDim)
+                vData.copyInto(valueBuf, dstOff, srcOff, srcOff + headDim)
+            }
+        }
+    }
+
+    /** Build a `[nKVHeads, position, headDim]` tensor view of the current prefix. */
+    internal fun currentView(
+        ctx: ExecutionContext,
+        dtype: kotlin.reflect.KClass<T>
+    ): Pair<Tensor<T, V>, Tensor<T, V>> {
+        val outLen = pos
+        val outSize = nKVHeads * outLen * headDim
+        val kOut = FloatArray(outSize)
+        val vOut = FloatArray(outSize)
+        for (h in 0 until nKVHeads) {
+            val srcOff = h * maxSeqLen * headDim
+            val dstOff = h * outLen * headDim
+            val copyLen = outLen * headDim
+            keyBuf.copyInto(kOut, dstOff, srcOff, srcOff + copyLen)
+            valueBuf.copyInto(vOut, dstOff, srcOff, srcOff + copyLen)
+        }
+        val shape = sk.ainet.lang.tensor.Shape(nKVHeads, outLen, headDim)
+        val k: Tensor<T, V> = ctx.fromFloatArray<T, V>(shape, dtype, kOut)
+        val v: Tensor<T, V> = ctx.fromFloatArray<T, V>(shape, dtype, vOut)
+        return k to v
+    }
+
+    override fun reset() {
+        pos = 0
+    }
+
+    override val position: Int get() = pos
+}
+
+/**
+ * Gemma 4-style shared KV cache: writes through to a [PositionalKVCache]
+ * delegate at the follower's own step, overwriting whatever was there before.
+ * Multiple followers pointing at the same delegate all share its storage; the
+ * LAST layer to write at a given step wins for that position, and reads
+ * return the delegate's current state (same view every peer sees).
+ *
+ * Each follower tracks its own position counter so RoPE in
+ * [MultiHeadAttention] sees absolute step count (identical for every layer
+ * within a single decode step) rather than aliasing through the delegate.
+ *
+ * [reset] is a no-op on the owner's buffer — only the follower's step
+ * counter resets, matching the "owner layer owns the storage lifecycle"
+ * convention used by the hand-coded Gemma 4 reference.
+ */
+public class SharedPositionalKVCache<T : DType, V>(
+    public val delegate: PositionalKVCache<T, V>,
+    name: String = "SharedPositionalKVCache"
+) : KVCache<T, V>(delegate.maxSeqLen, delegate.nKVHeads, delegate.headDim, name) {
+
+    private var pos: Int = 0
+
+    override fun update(
+        newKey: Tensor<T, V>,
+        newValue: Tensor<T, V>,
+        ctx: ExecutionContext
+    ): Pair<Tensor<T, V>, Tensor<T, V>> {
+        val newLen = newKey.shape[newKey.rank - 2]
+        delegate.writeAt(pos, newKey, newValue)
+        pos += newLen
+        return delegate.currentView(ctx, newKey.dtype)
+    }
+
+    override fun reset() {
+        pos = 0
+    }
+
+    override val position: Int get() = pos
+}
+
+/**
  * KV cache that forwards reads and writes to another cache instance.
  *
  * Used by Gemma 4 where the last `kvSharedLayers` decoder layers share the

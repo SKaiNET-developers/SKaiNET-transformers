@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION") // Gemma4Runtime is deprecated in favour of gemmaNetwork() + OptimizedLLMRuntime (Phase 5d). Migrating this CLI loader is a follow-up — see PLAN-unified-pipeline.md.
+
 package sk.ainet.apps.kgemma
 
 import kotlinx.io.Source

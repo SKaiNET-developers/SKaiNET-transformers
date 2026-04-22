@@ -11,10 +11,9 @@ import sk.ainet.lang.nn.dsl.multiHeadAttention
 import sk.ainet.lang.nn.dsl.residual
 import sk.ainet.lang.nn.dsl.rmsNorm
 import sk.ainet.lang.nn.dsl.sequential
-import sk.ainet.lang.nn.transformer.AppendKVCache
-import sk.ainet.lang.nn.transformer.KVCache
+import sk.ainet.lang.nn.transformer.PositionalKVCache
 import sk.ainet.lang.nn.transformer.RoPEScaling
-import sk.ainet.lang.nn.transformer.SharedKVCache
+import sk.ainet.lang.nn.transformer.SharedPositionalKVCache
 import sk.ainet.lang.nn.transformer.VoidDense
 import sk.ainet.lang.types.DType
 
@@ -69,9 +68,11 @@ public inline fun <reified T : DType, V> gemmaNetwork(
         dslImpl.embedding(vocabSize, dim, id = "token_embd")
 
         val nnCtx = DefaultNeuralNetworkExecutionContext()
-        // Owner layers' AppendKVCaches, indexed by their layer number. Follower
-        // layers wrap these with SharedKVCache.
-        val ownerCaches = mutableMapOf<Int, KVCache<T, V>>()
+        // Owner layers' PositionalKVCaches, indexed by their layer number.
+        // Follower layers wrap these with SharedPositionalKVCache so the
+        // "last writer wins at slot pos" behaviour matches the hand-coded
+        // HeapGemma4KvCache used by Gemma4Runtime.
+        val ownerCaches = mutableMapOf<Int, PositionalKVCache<T, V>>()
 
         for (layer in 0 until nLayers) {
             val layerHeadDim = metadata.getHeadDim(layer)
@@ -106,7 +107,7 @@ public inline fun <reified T : DType, V> gemmaNetwork(
                     partialRotaryFactor = if (isGlobal) partialRotaryFactor else 1.0f
                 )
                 if (cacheOwnerLayer == layer) {
-                    val owner = AppendKVCache<T, V>(
+                    val owner = PositionalKVCache<T, V>(
                         maxSeqLen = seqLen,
                         nKVHeads = nKVHeads,
                         headDim = layerHeadDim,
@@ -117,7 +118,7 @@ public inline fun <reified T : DType, V> gemmaNetwork(
                 } else {
                     val owner = ownerCaches[cacheOwnerLayer]
                         ?: error("Gemma: layer $layer expects to share KV with layer $cacheOwnerLayer, but owner hasn't been built yet")
-                    kvCache(SharedKVCache(owner, name = "blk.$layer.attn.kv_cache"))
+                    kvCache(SharedPositionalKVCache(owner, name = "blk.$layer.attn.kv_cache"))
                 }
             }
             stage.residual()

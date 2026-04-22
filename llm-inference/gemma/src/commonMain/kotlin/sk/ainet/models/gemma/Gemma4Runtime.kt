@@ -24,6 +24,13 @@ import kotlin.reflect.KClass
  *
  * Extends [DecoderRuntime] for shared forward/generate/sample logic.
  */
+@Deprecated(
+    message = "Use gemmaNetwork() + OptimizedLLMRuntime (DIRECT mode) via GemmaNetworkLoader. " +
+        "The DSL path reproduces this runtime's output at FP32 machine precision across every " +
+        "feature — 1-layer global, mixed sliding+global, and shared-KV configurations — see " +
+        "GemmaRuntimeParityTest. Follows the same deprecation pattern as LlamaRuntime / ApertusRuntime.",
+    level = DeprecationLevel.WARNING
+)
 public class Gemma4Runtime<T : DType>(
     private val ctx: ExecutionContext,
     public val weights: Gemma4RuntimeWeights<T>,
