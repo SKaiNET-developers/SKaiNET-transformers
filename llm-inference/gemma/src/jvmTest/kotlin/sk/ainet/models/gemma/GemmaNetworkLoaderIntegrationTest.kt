@@ -164,6 +164,17 @@ class GemmaNetworkLoaderIntegrationTest {
         println("  partialRotaryFactor full  = ${metadata.ropeParametersFull.partialRotaryFactor}")
         println("  ropeType full             = ${metadata.ropeParametersFull.ropeType}")
 
+        // Phase 5f.3b guardrail: GGUF doesn't store partial_rotary_factor for
+        // Gemma 4; our loader must default to 0.25 (matches HF config for
+        // google/gemma-4-e2b-it). If this assertion fails with 1.0 after an
+        // upstream GGUF format change, re-read the Gemma 4 spec and update the
+        // default in Gemma4WeightLoader.
+        assertEquals(
+            0.25f,
+            metadata.ropeParametersFull.partialRotaryFactor,
+            "Gemma 4 must default partial_rotary_factor to 0.25 when GGUF omits the field"
+        )
+
         println()
         println("==== Per-layer view (as gemmaNetwork() sees it) + actual tensor shapes ====")
         println("fields: layer | layerType | metaHeadDim | qShape | kShape | vShape | oShape")

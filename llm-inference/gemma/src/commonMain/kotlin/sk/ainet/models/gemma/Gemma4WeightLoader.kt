@@ -311,7 +311,12 @@ public class Gemma4WeightLoader private constructor(
             ?: fields["$prefix.rope.freq_base_local"]?.scalarFloat()
             ?: 10000f
         val ropeFactor = fields["$prefix.rope.factor"]?.scalarFloat() ?: 1.0f
-        val partialRotaryFactor = fields["$prefix.rope.partial_rotary_factor"]?.scalarFloat() ?: 1.0f
+        // GGUF does not carry partial_rotary_factor for Gemma 4. HF config for
+        // google/gemma-4-* says 0.25 for full_attention; use that default for
+        // any gemma* architecture. Non-gemma archs keep the historical 1.0.
+        val partialRotaryDefault = if (arch.startsWith("gemma")) 0.25f else 1.0f
+        val partialRotaryFactor = fields["$prefix.rope.partial_rotary_factor"]?.scalarFloat()
+            ?: partialRotaryDefault
 
         return Gemma4ModelMetadata(
             architecture = arch,
@@ -385,7 +390,11 @@ public class Gemma4WeightLoader private constructor(
             ?: fields["$prefix.rope.freq_base_local"]?.toFloatValue()
             ?: 10000f
         val ropeFactor = fields["$prefix.rope.factor"]?.toFloatValue() ?: 1.0f
-        val partialRotaryFactor = fields["$prefix.rope.partial_rotary_factor"]?.toFloatValue() ?: 1.0f
+        // See the non-streaming metadata parse above — Gemma 4 defaults
+        // partial_rotary_factor to 0.25 (GGUF doesn't store it).
+        val partialRotaryDefault = if (arch.startsWith("gemma")) 0.25f else 1.0f
+        val partialRotaryFactor = fields["$prefix.rope.partial_rotary_factor"]?.toFloatValue()
+            ?: partialRotaryDefault
 
         return Gemma4ModelMetadata(
             architecture = arch,

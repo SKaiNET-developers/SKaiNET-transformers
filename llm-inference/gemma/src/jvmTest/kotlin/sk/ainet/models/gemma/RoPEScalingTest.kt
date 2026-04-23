@@ -13,9 +13,11 @@ import sk.ainet.lang.types.FP32
 
 /**
  * Tests for RoPE's Phase 5b extensions: partialRotaryFactor (rotate only a
- * prefix of head_dim) and proportional (NTK-aware) scaling. The Gemma 4
- * global-attention layer combines both: partialRotaryFactor=0.5 and
- * PROPORTIONAL scaling with factor=2.0.
+ * prefix of head_dim) and proportional scaling. Gemma 4 global-attention
+ * layers use partialRotaryFactor=0.25 and PROPORTIONAL scaling (factor=1.0
+ * on E2B, so the scaling is a no-op but structurally enabled). Phase 5f.3
+ * fixed the proportional formula to match HF reference
+ * `_compute_proportional_rope_parameters`.
  */
 class RoPEScalingTest {
 
@@ -148,5 +150,92 @@ class RoPEScalingTest {
             }
         }
         assertTrue(anyDiff, "PROPORTIONAL scaling with factor=2 must produce different outputs than NONE")
+    }
+
+    /**
+     * Phase 5f.3 golden test. Verifies the new formula
+     *   inv_freq[i] = 1 / base^(2i/headDim)  then  /= factor
+     * matches the HF reference `_compute_proportional_rope_parameters`.
+     *
+     * At `base=10000, headDim=4, factor=2, position=0`, cos=1/sin=0 on
+     * everything so the check is trivial at position 0. Use position=1
+     * where cos/sin are non-trivial.
+     *
+     * Hand-derivation:
+     *   inv_freq[0] = 1 / 10000^(0/4) = 1, then /2 = 0.5
+     *   angle at pos=1: 0.5 → cos(0.5) = 0.8775825, sin(0.5) = 0.4794255
+     *   inv_freq[1] = 1 / 10000^(2/4) = 1/100 = 0.01, then /2 = 0.005
+     *   angle at pos=1: 0.005 → cos(0.005) ≈ 0.9999875, sin(0.005) ≈ 0.00499998
+     *
+     * Expect rotation of input (1,0,0,1) at pos=1 under INTERLEAVED pairing
+     * to yield approximately:
+     *   pair0 = (v0=1, v1=0): (cos*1 - sin*0, sin*1 + cos*0) = (0.8776, 0.4794)
+     *   pair1 = (v0=0, v1=1): (cos*0 - sin*1, sin*0 + cos*1) ≈ (-0.005, 0.9999875)
+     */
+    @Test
+    fun `PROPORTIONAL scaling formula matches reference inv_freq table`() {
+        val rope = RoPE<FP32, Float>(
+            headDim = 4, maxSeqLen = 4, base = 10000f,
+            scaling = RoPEScaling.PROPORTIONAL, scalingFactor = 2.0f,
+            mode = RoPEMode.INTERLEAVED
+        )
+        val input = ctx.fromFloatArray<FP32, Float>(
+            Shape(1, 1, 4), FP32::class, floatArrayOf(1f, 0f, 0f, 1f)
+        )
+        val out = rope.forward(input, position = 1, ctx).data.copyToFloatArray()
+        assertEquals(0.87758f, out[0], 1e-4f, "pair0[0] = cos(0.5)")
+        assertEquals(0.47942f, out[1], 1e-4f, "pair0[1] = sin(0.5)")
+        assertEquals(-0.005f, out[2], 1e-4f, "pair1[0] = -sin(0.005)")
+        assertEquals(0.99999f, out[3], 1e-4f, "pair1[1] = cos(0.005)")
+    }
+
+    /**
+     * Exponent denominator is `headDim`, not `rotaryDim`. Two configs that
+     * have the same rotaryDim but different headDim must produce different
+     * cos/sin tables under the new formula. The old NTK formula would have
+     * made them identical.
+     */
+    @Test
+    fun `inv_freq exponent denominator is headDim not rotaryDim`() {
+        // Both have rotaryDim=4 (so halfRotary=2), but differ in headDim:
+        // headDim=8,partial=0.5 vs headDim=4,partial=1.0.
+        val big = RoPE<FP32, Float>(
+            headDim = 8, maxSeqLen = 4, base = 10000f, partialRotaryFactor = 0.5f,
+            mode = RoPEMode.INTERLEAVED
+        )
+        val small = RoPE<FP32, Float>(
+            headDim = 4, maxSeqLen = 4, base = 10000f, partialRotaryFactor = 1.0f,
+            mode = RoPEMode.INTERLEAVED
+        )
+
+        // At pos=1, inv_freq[1] in big = 1/10000^(2/8) = 1/10000^0.25 ≈ 0.1
+        // At pos=1, inv_freq[1] in small = 1/10000^(2/4) = 1/10000^0.5 ≈ 0.01
+        // So cos(0.1) ≈ 0.995 vs cos(0.01) ≈ 0.99995 — different.
+
+        // Probe the first 4 (rotated) lanes on each. `big` needs headDim=8,
+        // so the last 4 lanes are padding; `small` has headDim=4 already.
+        val bigProbe = ctx.fromFloatArray<FP32, Float>(
+            Shape(1, 1, 8), FP32::class, floatArrayOf(0f, 1f, 0f, 1f, 0f, 0f, 0f, 0f)
+        )
+        val smallProbe = ctx.fromFloatArray<FP32, Float>(
+            Shape(1, 1, 4), FP32::class, floatArrayOf(0f, 1f, 0f, 1f)
+        )
+        val bigOut = big.forward(bigProbe, position = 1, ctx).data.copyToFloatArray()
+        val smallOut = small.forward(smallProbe, position = 1, ctx).data.copyToFloatArray()
+
+        // Compare the first 4 floats (the rotated portion of each).
+        var anyDiff = false
+        for (i in 0 until 4) {
+            if (kotlin.math.abs(bigOut[i] - smallOut[i]) > 1e-3f) {
+                anyDiff = true
+                break
+            }
+        }
+        assertTrue(
+            anyDiff,
+            "headDim=8/partial=0.5 must produce different RoPE table than headDim=4/partial=1 " +
+                "(would have been identical under the old NTK formula). " +
+                "big[0..3]=${bigOut.toList().subList(0, 4)} small=${smallOut.toList()}"
+        )
     }
 }

@@ -37,10 +37,10 @@ public enum class RoPEScaling {
     NONE,
 
     /**
-     * NTK-aware (proportional) scaling: rescale the base so higher frequencies
-     * aren't damaged by simple positional stretching. Standard closed-form:
-     *     base' = base * factor ^ (headDim / (headDim - 2))
-     * Used by Gemma 4 global-attention layers with factor > 1.
+     * Uniform frequency scaling: `inv_freq /= factor` on top of the standard
+     * per-index inv_freq — matches Gemma 4's "proportional" RoPE reference in
+     * HF transformers (`_compute_proportional_rope_parameters`). At `factor=1`
+     * this reduces to [NONE]. Gemma 4 global-attention layers use this.
      */
     PROPORTIONAL
 }
@@ -97,24 +97,24 @@ public class RoPE<T : DType, V>(
 
     override val modules: List<Module<T, V>> = emptyList()
 
-    private val effectiveBase: Float = when (scaling) {
-        RoPEScaling.NONE -> base
-        RoPEScaling.PROPORTIONAL -> {
-            // NTK-aware base rescaling. Only affects tables when factor > 1.
-            if (scalingFactor == 1.0f) base
-            else base * scalingFactor.pow(rotaryDim.toFloat() / (rotaryDim - 2).coerceAtLeast(1))
-        }
-    }
-
     // Precomputed frequency tables: [maxSeqLen, rotaryDim/2]
     private val halfRotary: Int = rotaryDim / 2
     private val cosTable: FloatArray = FloatArray(maxSeqLen * halfRotary)
     private val sinTable: FloatArray = FloatArray(maxSeqLen * halfRotary)
 
     init {
+        // Reference formula (transformers 5.6.0 _compute_proportional_rope_parameters):
+        //   inv_freq[i] = 1 / base ^ (2i / head_dim)        for i in 0 until halfRotary
+        //   inv_freq /= factor                              (iff PROPORTIONAL)
+        //
+        // Note the exponent denominator is headDim, NOT rotaryDim — matters when
+        // partialRotaryFactor < 1. Positions beyond rotaryDim pass through
+        // unchanged (handled by the rotate-then-concat/slice in applyRoPE*).
+        val applyFactor = scaling == RoPEScaling.PROPORTIONAL && scalingFactor != 1.0f
         for (pos in 0 until maxSeqLen) {
             for (i in 0 until halfRotary) {
-                val freq = 1.0f / effectiveBase.pow(2.0f * i / rotaryDim)
+                var freq = 1.0f / base.pow(2.0f * i / headDim)
+                if (applyFactor) freq /= scalingFactor
                 val angle = pos * freq
                 cosTable[pos * halfRotary + i] = cos(angle)
                 sinTable[pos * halfRotary + i] = sin(angle)
