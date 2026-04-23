@@ -49,6 +49,16 @@ import kotlin.reflect.KClass
 public class PerLayerInputBlockHook<T : DType, V>(
     public val hiddenSize: Int,
     public val perLayerDim: Int,
+    /**
+     * Phase 5f.6 diagnostic. When `true`, the hook runs the full PLE
+     * branch (gate + act + pli-mul + proj + norm) but DISCARDS the
+     * result and returns `input` unchanged. Lets us test the hypothesis
+     * that the `residual + x` add is the wrong op on single-stream
+     * Gemma 4 (HF Gemma 3n adds PLE to inactive AltUp streams `[1:]`,
+     * not the main stream — stripping AltUp may mean PLE is vestigial).
+     * See `memory/ple_bug_hypothesis.md`.
+     */
+    public val sideChannelOnly: Boolean = false,
     override val name: String = "PerLayerInputBlockHook"
 ) : Module<T, V>(), ModuleParameters<T, V> {
 
@@ -98,6 +108,7 @@ public class PerLayerInputBlockHook<T : DType, V>(
         x = ops.multiply(x, pli)                       // pointwise with per_layer_input
         x = linearProject(ops, x, wProj)               // [B,S,256] → [B,S,1536]
         x = postNorm.forward(x, ctx)                   // RMSNorm at hidden_size
+        if (sideChannelOnly) return residual           // Phase 5f.6 diagnostic toggle.
         return ops.add(residual, x)
     }
 }

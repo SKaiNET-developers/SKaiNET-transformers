@@ -54,8 +54,12 @@ public inline fun <reified T : DType, V> gemmaNetwork(
     qkNorm: Boolean = true,
     sandwichNorms: Boolean = true,
     layerOutputScale: Boolean = true,
-    ple: Boolean = false
-): Module<T, V> = gemmaNetwork<T, V>(metadata, T::class, maxInferenceLen, qkNorm, sandwichNorms, layerOutputScale, ple)
+    ple: Boolean = false,
+    pleSideChannelOnly: Boolean = false
+): Module<T, V> = gemmaNetwork<T, V>(
+    metadata, T::class, maxInferenceLen, qkNorm, sandwichNorms,
+    layerOutputScale, ple, pleSideChannelOnly
+)
 
 /**
  * Non-reified variant of [gemmaNetwork] that takes an explicit `dtype` [KClass].
@@ -92,7 +96,8 @@ public fun <T : DType, V> gemmaNetwork(
     qkNorm: Boolean = true,
     sandwichNorms: Boolean = true,
     layerOutputScale: Boolean = true,
-    ple: Boolean = false
+    ple: Boolean = false,
+    pleSideChannelOnly: Boolean = false
 ): Module<T, V> {
     val dim = metadata.embeddingLength
     val nHeads = metadata.headCount
@@ -219,6 +224,7 @@ public fun <T : DType, V> gemmaNetwork(
         if (ple) stage.modules += PerLayerInputBlockHook<T, V>(
             hiddenSize = dim,
             perLayerDim = metadata.perLayerEmbeddingLength,
+            sideChannelOnly = pleSideChannelOnly,
             name = "blk.$layer.per_layer_input"
         )
 
