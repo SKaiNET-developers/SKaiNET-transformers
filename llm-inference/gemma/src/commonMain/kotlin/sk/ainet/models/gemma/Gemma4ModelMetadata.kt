@@ -44,7 +44,14 @@ public data class Gemma4ModelMetadata(
     /** EOS token ID. */
     val eosTokenId: Int = 1,
     /** PAD token ID. */
-    val padTokenId: Int = 0
+    val padTokenId: Int = 0,
+    /**
+     * Final-logit softcapping value (Gemma 4 specific). When > 0, the
+     * language model head output is passed through
+     * `softcap * tanh(logits / softcap)`. Gemma 4 E2B uses 30.0. Zero or
+     * negative disables softcapping.
+     */
+    val finalLogitSoftcapping: Float = 0f
 ) {
     /**
      * Returns the layer type at the given layer index.

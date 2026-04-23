@@ -46,6 +46,14 @@ public class GemmaModel<T : DType, V>(
     public val outputNorm: RMSNormalization<T, V>,
     public val lmHead: VoidDense<T, V>,
     public val dtype: KClass<T>,
+    /**
+     * `final_logit_softcapping` from the Gemma 4 config. When `> 0`, the
+     * lm_head output is passed through `softcap * tanh(logits / softcap)`
+     * — matches `Gemma4ForCausalLM.forward` in transformers 5.6.0. Gemma
+     * 4 E2B sets this to 30.0 in the GGUF (`gemma4.final_logit_softcapping`).
+     * Set to `0f` to disable.
+     */
+    public val finalLogitSoftcapping: Float = 0f,
     override val name: String = "GemmaModel"
 ) : Module<T, V>() {
 
@@ -92,7 +100,23 @@ public class GemmaModel<T : DType, V>(
 
         // Step 4: final norm + lm_head.
         hidden = outputNorm.forward(hidden, ctx)
-        return lmHead.forward(hidden, ctx)
+        var logits = lmHead.forward(hidden, ctx)
+
+        // Step 5: Gemma 4 final logit softcapping (matches HF
+        // `Gemma4ForCausalLM.forward`). Without this the model latches
+        // onto degenerate attractor tokens during decode.
+        if (finalLogitSoftcapping > 0f) {
+            val ops = ctx.ops
+            val scale = ctx.fromFloatArray<T, V>(
+                sk.ainet.lang.tensor.Shape(1), dtype, floatArrayOf(1f / finalLogitSoftcapping)
+            )
+            val inv = ctx.fromFloatArray<T, V>(
+                sk.ainet.lang.tensor.Shape(1), dtype, floatArrayOf(finalLogitSoftcapping)
+            )
+            logits = ops.multiply(ops.tanh(ops.multiply(logits, scale)), inv)
+        }
+
+        return logits
     }
 
     @Suppress("UNCHECKED_CAST")

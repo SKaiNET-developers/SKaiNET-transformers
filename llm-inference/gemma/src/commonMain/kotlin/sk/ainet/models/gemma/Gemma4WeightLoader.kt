@@ -320,6 +320,7 @@ public class Gemma4WeightLoader private constructor(
         val partialRotaryDefault = if (arch.startsWith("gemma")) 0.25f else 1.0f
         val partialRotaryFactor = fields["$prefix.rope.partial_rotary_factor"]?.scalarFloat()
             ?: partialRotaryDefault
+        val finalLogitSoftcapping = fields["$prefix.final_logit_softcapping"]?.scalarFloat() ?: 0f
 
         return Gemma4ModelMetadata(
             architecture = arch,
@@ -347,7 +348,8 @@ public class Gemma4WeightLoader private constructor(
             ),
             maxPositionEmbeddings = contextLength,
             perLayerEmbeddingLength = perLayerEmbeddingLength,
-            perLayerIntermediateSize = perLayerIntermediateSize
+            perLayerIntermediateSize = perLayerIntermediateSize,
+            finalLogitSoftcapping = finalLogitSoftcapping
         )
     }
 
@@ -398,6 +400,7 @@ public class Gemma4WeightLoader private constructor(
         val partialRotaryDefault = if (arch.startsWith("gemma")) 0.25f else 1.0f
         val partialRotaryFactor = fields["$prefix.rope.partial_rotary_factor"]?.toFloatValue()
             ?: partialRotaryDefault
+        val finalLogitSoftcapping = fields["$prefix.final_logit_softcapping"]?.toFloatValue() ?: 0f
 
         return Gemma4ModelMetadata(
             architecture = arch,
@@ -425,6 +428,7 @@ public class Gemma4WeightLoader private constructor(
             ),
             perLayerEmbeddingLength = perLayerEmbeddingLength,
             perLayerIntermediateSize = perLayerIntermediateSize,
+            finalLogitSoftcapping = finalLogitSoftcapping,
             maxPositionEmbeddings = contextLength
         )
     }

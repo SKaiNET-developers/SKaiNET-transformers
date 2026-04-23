@@ -190,7 +190,8 @@ private fun <T : DType, V> convertOne(
             // Gemma 4 E2B Q4_K_M uses Q6_K for ffn_gate/up/down, attn_v,
             // token_embd, and the tied lm_head — keeping these packed saves
             // ~12 GB of FP32 bloat (and the corresponding 7.5 GB per-forward
-            // transpose transient).
+            // transpose transient). Sanity-checked against FP32 dequant and
+            // Q6_K packed produces identical tokens — kernel math is right.
             val relaid = relayoutKSeriesRowMajorToBlockMajor(bytes, shape, 210)
             val data = Q6_KBlockTensorData.fromRawBytes(shape, relaid)
             ctx.fromData(data as TensorData<FP32, Float>, advertisedDtype) as Tensor<T, V>

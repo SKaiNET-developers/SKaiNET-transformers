@@ -264,6 +264,7 @@ public fun <T : DType, V> gemmaNetwork(
         outputNorm = outputNormModule,
         lmHead = lmHead,
         dtype = dtype,
+        finalLogitSoftcapping = metadata.finalLogitSoftcapping,
         name = "GemmaModel"
     )
 }

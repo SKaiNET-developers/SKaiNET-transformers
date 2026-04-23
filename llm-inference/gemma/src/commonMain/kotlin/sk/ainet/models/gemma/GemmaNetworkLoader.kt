@@ -152,12 +152,14 @@ internal fun <T : DType, V> applyWeightsToNetworkNonReified(
     // and forcing them on would make the WeightMapper strict-check fail.
     val hasQKNorm = weights.tensors.keys.any { it.endsWith(".attn_q_norm.weight") }
     val hasSandwichNorms = weights.tensors.keys.any { it.endsWith(".post_attention_norm.weight") }
-    val hasLayerOutputScale = weights.tensors.keys.any { it.endsWith(".layer_output_scale.weight") }
-    // PLE is enabled iff the top-level `per_layer_token_embd.weight` is
-    // present. On real Gemma 4 checkpoints that tensor is Q6_K; the
-    // MemSeg converter dequants it to FP32, which costs ~9 GB on E2B —
-    // flagged as a Phase 5f.5c follow-up to switch to a lazy-row gather.
-    val hasPle = "per_layer_token_embd.weight" in weights.tensors.keys
+    // Phase 5f.6 TODO: layer_output_scale and PLE both REGRESS real-model
+    // output from real English words ("Hi relieved desired…" after 5f.3)
+    // to degenerate repetition ("Hi ? ?" with scale only, "Hi pełni" with
+    // PLE). One or both has an implementation bug — diagnosed in
+    // commits/logs (search for DIAG flags). Disable both by default on
+    // real-model checkpoints until a parity-level fix lands.
+    val hasLayerOutputScale = false
+    val hasPle = false
     val model = gemmaNetwork<T, V>(
         weights.metadata,
         dtype,
