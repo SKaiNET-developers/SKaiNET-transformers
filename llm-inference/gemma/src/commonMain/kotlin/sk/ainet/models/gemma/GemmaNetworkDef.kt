@@ -11,6 +11,8 @@ import sk.ainet.lang.nn.dsl.multiHeadAttention
 import sk.ainet.lang.nn.dsl.residual
 import sk.ainet.lang.nn.dsl.rmsNorm
 import sk.ainet.lang.nn.dsl.sequential
+import sk.ainet.lang.nn.layers.EmbeddingAdapter
+import sk.ainet.lang.nn.normalization.RMSNormalization
 import sk.ainet.lang.nn.transformer.LayerScalarMul
 import sk.ainet.lang.nn.transformer.PaddedSharedPositionalKVCache
 import sk.ainet.lang.nn.transformer.PositionalKVCache
@@ -51,8 +53,9 @@ public inline fun <reified T : DType, V> gemmaNetwork(
     maxInferenceLen: Int = minOf(metadata.contextLength, 4096),
     qkNorm: Boolean = true,
     sandwichNorms: Boolean = true,
-    layerOutputScale: Boolean = true
-): Module<T, V> = gemmaNetwork<T, V>(metadata, T::class, maxInferenceLen, qkNorm, sandwichNorms, layerOutputScale)
+    layerOutputScale: Boolean = true,
+    ple: Boolean = false
+): Module<T, V> = gemmaNetwork<T, V>(metadata, T::class, maxInferenceLen, qkNorm, sandwichNorms, layerOutputScale, ple)
 
 /**
  * Non-reified variant of [gemmaNetwork] that takes an explicit `dtype` [KClass].
@@ -74,6 +77,13 @@ public inline fun <reified T : DType, V> gemmaNetwork(
  *   (a scalar `[1]`) at the very end of each block. Corresponds to HF's
  *   `self.layer_scalar *= hidden_states`. Auto-detected at
  *   `GemmaNetworkLoader.fromWeights`.
+ * @param ple whether to enable Per-Layer Embedding (Gemma 4's
+ *   hidden_size_per_layer_input auxiliary signal). Adds a
+ *   [PerLayerInputBlockHook] to each block and wraps the whole network
+ *   in a [GemmaModel] with a top-level [PerLayerEmbedding]. Default
+ *   false — leaving PLE off produces the same observable forward pass
+ *   as the pre-5f.5 Sequential wrap. Opt-in only for now; real-model
+ *   accuracy is still being validated.
  */
 public fun <T : DType, V> gemmaNetwork(
     metadata: Gemma4ModelMetadata,
@@ -81,7 +91,8 @@ public fun <T : DType, V> gemmaNetwork(
     maxInferenceLen: Int = minOf(metadata.contextLength, 4096),
     qkNorm: Boolean = true,
     sandwichNorms: Boolean = true,
-    layerOutputScale: Boolean = true
+    layerOutputScale: Boolean = true,
+    ple: Boolean = false
 ): Module<T, V> {
     val dim = metadata.embeddingLength
     val nHeads = metadata.headCount
@@ -203,6 +214,14 @@ public fun <T : DType, V> gemmaNetwork(
         if (sandwichNorms) stage.rmsNorm(dim, eps, id = "post_ffw_norm")
         stage.residual()
 
+        // PLE hook fires between FFN residual and layer_output_scale.
+        // Exact order per Gemma4TextDecoderLayer.forward (transformers 5.6.0).
+        if (ple) stage.modules += PerLayerInputBlockHook<T, V>(
+            hiddenSize = dim,
+            perLayerDim = metadata.perLayerEmbeddingLength,
+            name = "blk.$layer.per_layer_input"
+        )
+
         // Gemma 4 tail: scalar-broadcast multiply by layer_output_scale.
         // HF calls this self.layer_scalar = torch.ones(1), applied as
         // `hidden_states *= self.layer_scalar` at the end of the block.
@@ -219,5 +238,32 @@ public fun <T : DType, V> gemmaNetwork(
     // WeightMapper runs.
     dslImpl.modules += VoidDense<T, V>("output", vocabSize, dim)
 
-    return dslImpl.create()
+    // Build the top-level GemmaModel wrapper. When PLE is disabled the model
+    // runs the same forward sequence the pre-5f.5 `dslImpl.create()` wrap
+    // produced; when PLE is enabled the wrapper threads per_layer_inputs
+    // into each block's PerLayerInputBlockHook before running the block.
+    @Suppress("UNCHECKED_CAST")
+    val tokenEmbedding = dslImpl.modules[0] as EmbeddingAdapter<T, V>
+    val blocks = dslImpl.modules.filterIsInstance<HybridTransformerBlock<T, V>>()
+    val outputNormModule = dslImpl.modules[dslImpl.modules.size - 2] as RMSNormalization<T, V>
+    @Suppress("UNCHECKED_CAST")
+    val lmHead = dslImpl.modules[dslImpl.modules.size - 1] as VoidDense<T, V>
+
+    val pleModule: PerLayerEmbedding<T, V>? = if (ple) PerLayerEmbedding<T, V>(
+        vocabSize = vocabSize,
+        hiddenSize = dim,
+        numLayers = nLayers,
+        perLayerDim = metadata.perLayerEmbeddingLength,
+        rmsEps = eps
+    ) else null
+
+    return GemmaModel(
+        tokenEmbedding = tokenEmbedding,
+        ple = pleModule,
+        blocks = blocks,
+        outputNorm = outputNormModule,
+        lmHead = lmHead,
+        dtype = dtype,
+        name = "GemmaModel"
+    )
 }
