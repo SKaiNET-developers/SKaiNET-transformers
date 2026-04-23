@@ -158,6 +158,12 @@ internal fun <T : DType, V> applyWeightsToNetworkNonReified(
     // PLE). One or both has an implementation bug — diagnosed in
     // commits/logs (search for DIAG flags). Disable both by default on
     // real-model checkpoints until a parity-level fix lands.
+    // 2026-04-23 DIAG finding: layer_output_scale weights DO load correctly
+    // (all 35 scales match GGUF values 0.017–0.87 exactly), so the bug is
+    // NOT in weight loading. Working theory: scale + PLE were trained
+    // jointly and must be enabled together; scale alone drains the
+    // residual stream by ~6e-14× across 35 blocks. PLE bisection is the
+    // next step.
     val hasLayerOutputScale = false
     val hasPle = false
     val model = gemmaNetwork<T, V>(
