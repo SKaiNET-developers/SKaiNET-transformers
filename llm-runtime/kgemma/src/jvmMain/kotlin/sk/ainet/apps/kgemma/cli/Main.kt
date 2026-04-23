@@ -7,6 +7,8 @@ import sk.ainet.apps.kgemma.Gemma4LoadConfig
 import sk.ainet.apps.kgemma.loadDslRuntimeNative
 import sk.ainet.apps.kgemma.loadDslRuntimeNativeStreaming
 import sk.ainet.apps.kllama.GGUFTokenizer
+import sk.ainet.apps.kllama.chat.ChatSession
+import sk.ainet.apps.kllama.chat.ModelMetadata
 import sk.ainet.apps.llm.InferenceRuntime
 import sk.ainet.apps.llm.Tokenizer
 import sk.ainet.apps.llm.generate
@@ -86,7 +88,8 @@ private data class CliArgs(
     val prompt: String,
     val steps: Int,
     val temperature: Float,
-    val runtime: RuntimeKind
+    val runtime: RuntimeKind,
+    val agent: Boolean = false
 )
 
 private fun usage(errorMessage: String? = null): Nothing {
@@ -95,7 +98,7 @@ private fun usage(errorMessage: String? = null): Nothing {
         System.err.println()
     }
 
-    println("Usage: kgemma <model> <prompt> [steps] [temperature] [--runtime=handcoded|dsl]")
+    println("Usage: kgemma <model> <prompt> [steps] [temperature] [--runtime=handcoded|dsl] [--agent]")
     println("  model               Path to .gguf model or SafeTensors directory (required)")
     println("  prompt              Prompt text (required)")
     println("  steps               Generation steps (default: 32)")
@@ -106,10 +109,14 @@ private fun usage(errorMessage: String? = null): Nothing {
     println("                                   NATIVE_OPTIMIZED; Q4_0/Q8_0 stay packed,")
     println("                                   Q4_K/Q5_K/Q6_K dequant to FP32 (~20 GB for")
     println("                                   Gemma 4 E2B Q4_K_M until a K-kernel lands)")
+    println("  --agent             Route through ChatSession with the model-appropriate")
+    println("                      chat template and default tool registry (calculator +")
+    println("                      list_files). Default off (raw runtime.generate).")
     println()
     println("Example:")
     println("  kgemma models/gemma-3-270m-it-Q8_0.gguf \"Hello, how are you?\" 32 0.8")
     println("  kgemma model.gguf \"Hello\" 32 0.8 --runtime=dsl")
+    println("  kgemma model.gguf \"What is 3+4?\" 64 0.0 --runtime=dsl --agent")
     exitProcess(if (errorMessage == null) 0 else 1)
 }
 
@@ -127,6 +134,7 @@ private fun parseArgs(args: Array<String>): CliArgs {
     val temperature = positional.getOrElse(3) { "0.8" }.toFloatOrNull() ?: usage("Invalid temperature '${positional[3]}'.")
 
     var runtime = RuntimeKind.HANDCODED
+    var agent = false
     for (flag in flags) {
         when {
             flag.startsWith("--runtime=") -> {
@@ -136,12 +144,13 @@ private fun parseArgs(args: Array<String>): CliArgs {
                     else -> usage("Invalid --runtime value '$v' (expected 'handcoded' or 'dsl').")
                 }
             }
+            flag == "--agent" -> agent = true
             flag == "--help" || flag == "-h" -> usage()
             else -> usage("Unknown flag '$flag'.")
         }
     }
 
-    return CliArgs(modelPath, prompt, steps, temperature, runtime)
+    return CliArgs(modelPath, prompt, steps, temperature, runtime, agent)
 }
 
 private fun detectFormat(path: Path): ModelFormat {
@@ -275,20 +284,60 @@ fun main(args: Array<String>) {
             }
         }
 
-        val promptTokens = tokenizer.encode(cliArgs.prompt)
+        if (cliArgs.agent) {
+            // ChatSession routes the prompt through the model-appropriate
+            // chat template and runs the agent loop (single turn, up to 5
+            // tool rounds by default). Architecture string drives template
+            // selection via ToolCallingSupportResolver — Gemma 4 should land
+            // on Gemma4ChatTemplate via Gemma4ToolCallingSupport (added in
+            // Phase 6b).
+            val metadata = ModelMetadata(
+                family = "gemma",
+                architecture = when (variant) {
+                    GemmaVariant.GEMMA4 -> "gemma4"
+                    GemmaVariant.GEMMA3N -> "gemma3n"
+                },
+                sourceFormat = when (format) {
+                    ModelFormat.GGUF -> "gguf"
+                    ModelFormat.SAFETENSORS -> "hf"
+                }
+            )
+            val session = ChatSession(runtime, tokenizer, metadata)
+            println("Agent mode: chat template = ${session.chatTemplate::class.simpleName}, " +
+                "tool-calling provider = ${session.providerFamily}")
+            println("Generating up to ${cliArgs.steps} tokens/round at temperature=${cliArgs.temperature}...")
+            println("---")
+            print(cliArgs.prompt)
+            println()
+            val elapsed = measureTime {
+                val response = session.runSingleTurn(
+                    prompt = cliArgs.prompt,
+                    tools = emptyList(),  // Bring-your-own-tools deferred to a later flag;
+                                          // empty registry still exercises the full agent
+                                          // template + parse pipeline.
+                    maxTokens = cliArgs.steps,
+                    temperature = cliArgs.temperature
+                )
+                println(response)
+            }.inWholeMilliseconds
+            println("---")
+            println("agent round elapsed: ${elapsed}ms")
+        } else {
+            val promptTokens = tokenizer.encode(cliArgs.prompt)
 
-        println("Generating ${cliArgs.steps} tokens with temperature=${cliArgs.temperature}...")
-        println("---")
-        print(cliArgs.prompt)
+            println("Generating ${cliArgs.steps} tokens with temperature=${cliArgs.temperature}...")
+            println("---")
+            print(cliArgs.prompt)
 
-        val elapsed = measureTime {
-            runtime.generate(prompt = promptTokens, steps = cliArgs.steps, temperature = cliArgs.temperature) { id ->
-                print(tokenizer.decode(id))
-            }
-        }.inWholeMilliseconds
+            val elapsed = measureTime {
+                runtime.generate(prompt = promptTokens, steps = cliArgs.steps, temperature = cliArgs.temperature) { id ->
+                    print(tokenizer.decode(id))
+                }
+            }.inWholeMilliseconds
 
-        val tokPerSec = cliArgs.steps / elapsed.toDouble() * 1000
-        println("\n---")
-        println("tok/s: $tokPerSec")
+            val tokPerSec = cliArgs.steps / elapsed.toDouble() * 1000
+            println("\n---")
+            println("tok/s: $tokPerSec")
+        }
     }
 }

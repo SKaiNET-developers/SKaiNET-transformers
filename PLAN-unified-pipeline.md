@@ -402,6 +402,41 @@ The DSL path still requires FP32 dequant, so:
   land — that's the single remaining gate between the DSL path and full
   replacement of the hand-coded runtime.
 
+## Phase 6b — Tool calling end-to-end on the Gemma 4 DSL runtime (DONE)
+
+Tool calling infrastructure has been in `llm-agent` for some time
+(`ChatSession`, `AgentLoop`, `Gemma4ChatTemplate`,
+`GemmaToolCallParserStrategy`, `ToolRegistry`, …), but wasn't wired
+into the Gemma 4 path. Three concrete gaps fixed:
+
+- **`Gemma4ToolCallingSupport`** (new, registered ahead of the existing
+  `GemmaToolCallingSupport`): detects `architecture == "gemma4"` or a
+  chat template containing `<|turn>` (the Gemma 4 marker, distinct
+  from Gemma 2/3's `<start_of_turn>`) and hands out
+  `Gemma4ChatTemplate`. Before this, Gemma 4 checkpoints silently
+  fell through to the generic `GemmaChatTemplate` (Gemma 2/3 delimiters)
+  — which would not produce parseable tool calls at decode time.
+- **`kgemma --agent`** CLI flag: when set, routes the prompt through
+  `ChatSession.runSingleTurn` with the resolved chat template and a
+  tool registry (empty by default; extension point for future
+  `--tools=…` flags). Default behaviour (no `--agent`) is unchanged:
+  raw `runtime.generate`.
+- **`ChatSessionAgentIntegrationTest`** — mock-runtime end-to-end test
+  that drives `ChatSession` with Gemma 4 metadata, has the mock emit
+  a pre-baked `<|tool_call>{"name":"calculator",…}<tool_call|>`
+  response, and asserts the calculator tool is invoked with the
+  expected args. First test in the repo that exercises
+  `ChatSession.runSingleTurn(tools=…)` against an `InferenceRuntime`.
+
+**Remaining gate — Phase 5f.6.** The DSL path currently produces
+degenerate repetition on real Gemma 4 E2B because `layer_output_scale`
+and PLE each regress output quality (both hard-disabled by default in
+`GemmaNetworkLoader.fromWeights:161–162`). Until that bug-hunt
+concludes, `kgemma --runtime=dsl --agent "…"` on real Gemma 4 E2B runs
+end-to-end but won't produce a well-formed tool call. Once the bugs
+are fixed, tool use on the DSL path comes up for free with no
+additional wiring.
+
 ## Phase 7 — DSL consumes quantized weights without FP32 dequant (DONE, Q4_0/Q8_0)
 
 `ISSUE-skainet-8b-oom.md` §Solution C, applied to the DSL path.

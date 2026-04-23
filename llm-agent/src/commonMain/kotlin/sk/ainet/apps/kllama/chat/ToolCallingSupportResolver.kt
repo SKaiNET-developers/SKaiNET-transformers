@@ -15,6 +15,11 @@ public object ToolCallingSupportResolver {
 
     private val providers: MutableList<ToolCallingSupport> = mutableListOf(
         QwenToolCallingSupport(),
+        // Gemma 4 must come BEFORE the generic Gemma provider because
+        // GemmaToolCallingSupport.supports() matches any arch starting
+        // with "gemma" and would otherwise claim Gemma 4 checkpoints
+        // and hand out the Gemma 2/3 template.
+        Gemma4ToolCallingSupport(),
         GemmaToolCallingSupport(),
         Llama3ToolCallingSupport(),
         ChatMLToolCallingSupport()

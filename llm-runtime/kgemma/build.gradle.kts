@@ -91,6 +91,10 @@ kotlin {
         val jvmMain by getting {
             dependencies {
                 implementation(project(":llm-runtime:kllama"))
+                // Direct dep on llm-agent for the --agent CLI flag.
+                // kllama's `implementation(project(":llm-agent"))` isn't
+                // transitively visible by default.
+                implementation(project(":llm-agent"))
             }
         }
         val jvmTest by getting {
