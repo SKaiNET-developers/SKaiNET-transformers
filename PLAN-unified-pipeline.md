@@ -288,35 +288,59 @@ every per-block and top-level tensor the current DSL path ignores,
 derived from the `GemmaNetworkLoaderIntegrationTest.diagnostic - per-layer
 head_dim vs actual tensor shapes` test that parses the real 3.2 GB GGUF.
 
-## Phase 5f — Wire remaining Gemma 4 E2B features for parity (NOT STARTED)
+## Phase 5f — Wire remaining Gemma 4 E2B features for parity (IN PROGRESS)
 
-The diagnostic test against the real E2B checkpoint shows a long tail
-of per-block tensors `gemmaNetwork()` never asks for, and top-level
-tensors it ignores. Each needs its own PR; rough order of
-logit-impact (most-to-least):
+Research against HF `transformers` 5.6.0 `modeling_gemma4.py` landed on
+2026-04-23 — see `../gemma4-research/findings/README.md` (outside this
+repo, a sibling scratch dir) for the verbatim decoder-layer source and
+per-feature findings. All architectural unknowns are resolved;
+implementation ordering below is research-driven.
 
-1. **QK-Norm** — `attn_q_norm` / `attn_k_norm` per block, shape
-   `[headDim]`. MHA already supports `qkNorm=true` but `gemmaNetwork()`
-   doesn't enable it. Owner: `llm-core` MHA + `gemmaNetwork()`.
-2. **Sandwich norms** — `post_attention_norm`, `post_ffw_norm`,
-   `post_norm` per block, shape `[dim]`. The DSL stage wires only the
-   pre-norms. Owner: `HybridTransformerBlock` / `gemmaNetwork()` stage
-   layout. Needs a new residual + post-norm primitive.
-3. **`layer_output_scale`** — scalar per block, shape `[1]`. Scales
-   the block output before the next residual. Owner: `gemmaNetwork()`.
-4. **Proportional RoPE variant on GLOBAL layers** — already half-wired
-   (`RoPEScaling.PROPORTIONAL` exists), but the actual rotation formula
-   needs validation against `Gemma4AttentionBackend.applyRopeGqa`.
-5. **PLE (Per-Layer Embedding)** — `per_layer_token_embd`,
-   `per_layer_model_proj`, `per_layer_proj_norm`. New top-level feature
-   fed into each block. Owner: new module + weight loader.
-6. **`inp_gate` / `proj`** — per block, shapes `[1536, 256]` /
-   `[256, 1536]`. Purpose unclear; needs architecture research before
-   implementation. Owner: research task first.
+**Completed:**
 
-Until at least (1)–(4) land, the DSL path generates garbage on E2B even
-though it runs. The hand-coded `Gemma4Runtime` remains the production
-path until that happens.
+- **5f.1 — QK-Norm** (`attn_q_norm` / `attn_k_norm`). `qkNorm=true` in
+  `gemmaNetwork()`, auto-detected in `GemmaNetworkLoader.fromWeights`.
+  Commit `40605da`.
+- **5f.2 — Sandwich norms** (`post_attention_norm`, `post_ffw_norm`).
+  RMSNorm between sub-block output and residual. Commit `aa90b12`.
+  `kgemma --runtime=dsl` now emits real English words instead of `??`.
+
+**Research corrections to earlier guesses** (before research landed we
+speculated these; research showed they were wrong):
+
+- `post_norm` is NOT a third wrapping sandwich norm. HF calls it
+  `post_per_layer_input_norm` — the last RMSNorm inside the **PLE
+  side-channel**. Wire it in 5f.5 (PLE), not as a block wrapper.
+- Gemma 4 E2B's `partial_rotary_factor = 0.25`, not 0.5 or 1.0. The
+  GGUF doesn't store this field; our loader defaults to 1.0, so global
+  layers currently rotate all 512 head_dim positions instead of 128.
+
+**Remaining:**
+
+- **5f.3 — RoPE bug fixes on globals.** Two bugs exposed by research:
+  (a) replace NTK-style scaling `base × factor^exp` with the reference's
+  `inv_freq /= factor` (see `gemma4-research/findings/prope_formula.md`;
+  latent on E2B since `factor=1.0` there, but correct-by-default for
+  future variants); (b) hard-code `partial_rotary_factor=0.25` for
+  Gemma 4 full_attention RoPE when the GGUF field is missing.
+- **5f.4 — `layer_output_scale [1]`.** New tiny `LayerScalarMul` module
+  in `llm-core`, one scalar multiply at the tail of each block.
+  Trivial (see `gemma4-research/findings/layer_output_scale.md`).
+- **5f.5 — PLE (Per-Layer Embedding).** The biggest remaining feature.
+  Needs a new top-level `PerLayerEmbedding` module (owns
+  `embed_tokens_per_layer`, `per_layer_model_projection`,
+  `per_layer_projection_norm`, combine-with-sqrt(2) math) plus a
+  per-block `PerLayerInputBlockHook` (`inp_gate → gelu →
+  (* per_layer_input_i) → proj → post_norm → + residual`) and a stage
+  API extension to thread the PLE tensor into each block. See
+  `gemma4-research/findings/ple.md` + `ple_block_hook.md`.
+
+Until 5f.5 lands the DSL lacks a load-bearing signal (Gemma 4 is
+trained with PLE active) and tokens will remain far from correct. Note
+the hand-coded `Gemma4Runtime` is **also** incomplete — it LOADS the
+same features (QK-Norm, sandwich norms, PLE weights) but never applies
+them. Once 5f.5 ships, the DSL will be *more* correct than the
+deprecated hand-coded runtime.
 
 ## Phase 6 — DSL path exposed via CLIs (DONE, opt-in)
 
@@ -443,4 +467,8 @@ path — help output mentions the Q4_K gap explicitly.
 | 7a–7c. DSL consumes quantized Gemma weights (Q4_0/Q8_0) | DONE | linearProject centralisation, Q8 DSL probe at Δ=0, GemmaMemSegConverter, `kgemma --runtime=dsl` uses NATIVE_OPTIMIZED. Q4_K/Q5_K/Q6_K still dequant to FP32. |
 | 7d. Q4_K native matmul through DSL (synthetic parity) | DONE | Lazy `Q4_KTensorData` transpose in `DefaultCpuOpsJvm`, Q4_K row-major → input-block-major re-layout, logical-shape side channel. `GemmaDslQ4KTest` matches FP32 at Δ=4.29e-6. Real E2B Q4_K_M loads at ~3 GB RAM; end-to-end generation still hits attention shape bugs — separate follow-up. |
 | 5e. Mixed-head_dim shared KV + SDPA shape validation + tied-output load | DONE | SDPA upstream `require()` checks, `PaddedSharedPositionalKVCache` with pad-on-write / slice-on-read, `Gemma4WeightLoader` wires quant+logical-shape callbacks for the tied-output case. E2B Q4_K_M generates tokens end-to-end on `kgemma --runtime=dsl` — tokens are *wrong* pending Phase 5f. |
-| 5f. Wire remaining Gemma 4 E2B features | NOT STARTED | QK-Norm, sandwich norms, `layer_output_scale`, PLE, `inp_gate`/`proj`, p-RoPE formula validation. Each is its own PR. Diagnostic in `memory/gemma4_e2b_architecture.md`. |
+| 5f.1. QK-Norm | DONE | `qkNorm=true` in gemmaNetwork, auto-detected. Commit 40605da. |
+| 5f.2. Sandwich norms | DONE | post_attention_norm + post_ffw_norm. Commit aa90b12. kgemma --runtime=dsl now emits real words. |
+| 5f.3. RoPE bug fixes | NOT STARTED | Replace NTK scaling with `inv_freq /= factor`, hard-code partial_rotary_factor=0.25 for globals. See gemma4-research/findings/prope_formula.md. |
+| 5f.4. layer_output_scale | NOT STARTED | Trivial per-block scalar multiply. See gemma4-research/findings/layer_output_scale.md. |
+| 5f.5. PLE (Per-Layer Embedding) | NOT STARTED | Biggest remaining feature — top-level PerLayerEmbedding + per-block hook + stage API extension. See gemma4-research/findings/ple.md + ple_block_hook.md. |
