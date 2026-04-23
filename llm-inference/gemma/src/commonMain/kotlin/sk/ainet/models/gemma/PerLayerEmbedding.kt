@@ -143,16 +143,32 @@ public class PerLayerEmbedding<T : DType, V>(
                 .get(idx / seq, idx % seq)
                 .let { (it as? Int) ?: (it as Number).toInt() }
         })
-        val weightBuf = embedTokensWeight.data.copyToFloatArray()
         val rawBuf = FloatArray(batch * seq * perLayerTotal)
-        for (i in 0 until batch * seq) {
-            val tokenId = idsFlat[i]
-            require(tokenId in 0 until vocabSize) {
-                "$name.compute: token id $tokenId out of range [0, $vocabSize)"
+        val weightData = embedTokensWeight.data
+        if (weightData is GemmaPerLayerTokenEmbedTensorData) {
+            // Quant bytes kept intact on load (Gemma 4 E2B path). Dequant only
+            // the rows we need — cheap for decode (batch*seq=1) even on the
+            // 9 GB logical embedding.
+            for (i in 0 until batch * seq) {
+                val tokenId = idsFlat[i]
+                require(tokenId in 0 until vocabSize) {
+                    "$name.compute: token id $tokenId out of range [0, $vocabSize)"
+                }
+                val row = weightData.dequantRow(tokenId)
+                row.copyInto(rawBuf, i * perLayerTotal)
             }
-            val src = tokenId * perLayerTotal
-            val dst = i * perLayerTotal
-            weightBuf.copyInto(rawBuf, dst, src, src + perLayerTotal)
+        } else {
+            // FP32 path — used by toy-fixture tests and any non-quant source.
+            val weightBuf = weightData.copyToFloatArray()
+            for (i in 0 until batch * seq) {
+                val tokenId = idsFlat[i]
+                require(tokenId in 0 until vocabSize) {
+                    "$name.compute: token id $tokenId out of range [0, $vocabSize)"
+                }
+                val src = tokenId * perLayerTotal
+                val dst = i * perLayerTotal
+                weightBuf.copyInto(rawBuf, dst, src, src + perLayerTotal)
+            }
         }
         // Apply scaled-word-embedding scale factor: raw *= sqrt(perLayerDim).
         for (i in rawBuf.indices) rawBuf[i] *= embedScale

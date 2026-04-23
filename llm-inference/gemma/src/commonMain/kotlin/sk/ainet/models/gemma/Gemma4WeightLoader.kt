@@ -259,7 +259,10 @@ public class Gemma4WeightLoader private constructor(
                 )
             }
 
-            loadOptionalStreamingTensors(ctx, dtype, reader, tensorByName, onTensorLoaded, metadata)
+            loadOptionalStreamingTensors(
+                ctx, dtype, reader, tensorByName, onTensorLoaded, metadata,
+                quantCallback, logicalShapeCallback
+            )
 
             metadata
         }
@@ -579,7 +582,10 @@ public class Gemma4WeightLoader private constructor(
                 Gemma4TensorNames.attnKNorm(layer),
                 Gemma4TensorNames.postAttentionNorm(layer),
                 Gemma4TensorNames.postFfwNorm(layer),
-                Gemma4TensorNames.layerOutputScale(layer)
+                Gemma4TensorNames.layerOutputScale(layer),
+                Gemma4TensorNames.pleInpGate(layer),
+                Gemma4TensorNames.plePostNorm(layer),
+                Gemma4TensorNames.pleProj(layer)
             ).forEach { name ->
                 val rt = tensorByName[name]
                 if (rt != null) {
@@ -596,7 +602,9 @@ public class Gemma4WeightLoader private constructor(
         reader: StreamingGGUFReader,
         tensorByName: Map<String, StreamingTensorInfo>,
         onTensorLoaded: (String, Tensor<T, V>) -> Unit,
-        metadata: Gemma4ModelMetadata
+        metadata: Gemma4ModelMetadata,
+        quantCallback: ((String, GGMLQuantizationType) -> Unit)? = null,
+        logicalShapeCallback: ((String, Shape) -> Unit)? = null
     ) {
         listOf(Gemma4TensorNames.ROPE_FREQS_REAL, Gemma4TensorNames.ROPE_FREQS_IMAG).forEach { name ->
             val st = tensorByName[name]
@@ -606,15 +614,45 @@ public class Gemma4WeightLoader private constructor(
             }
         }
 
+        // PLE top-level tensors. per_layer_token_embd is Q6_K on Gemma 4 E2B
+        // and has > Int.MAX_VALUE elements (vocab × num_layers × ple_dim), so
+        // the dequant-to-FP32 path in `tryLoadOptionalStreamingTensor` can't
+        // materialize it. Route through `streamingTensorToTensor` which
+        // respects the quant policy (NATIVE_OPTIMIZED keeps bytes as
+        // Int8/ByteArray storage ≈ 1.8 GB for E2B, fits in a single JVM
+        // ByteArray). PerLayerEmbedding.compute dequants rows on demand.
+        // per_layer_token_embd gets a dedicated path because it's the one
+        // optional tensor large enough that avoiding a single extra byte
+        // copy matters (Q6_K on E2B = 1.8 GB). Bytes go straight into a
+        // GemmaPerLayerTokenEmbedTensorData row-dequant wrapper so the
+        // ByteTensorDataImpl.data.copyOf() roundtrip is skipped.
+        tensorByName[Gemma4TensorNames.PER_LAYER_TOKEN_EMBD]?.let { st ->
+            val isPackedQuant = st.tensorType in setOf(
+                GGMLQuantizationType.Q2_K, GGMLQuantizationType.Q3_K,
+                GGMLQuantizationType.Q4_K, GGMLQuantizationType.Q5_K,
+                GGMLQuantizationType.Q6_K, GGMLQuantizationType.Q8_K
+            )
+            if (quantPolicy == QuantPolicy.NATIVE_OPTIMIZED && isPackedQuant) {
+                val bytes = reader.loadTensorData(st)
+                val logicalShape = reversedShape(st.shape)
+                @Suppress("UNCHECKED_CAST")
+                val data = GemmaPerLayerTokenEmbedTensorData(logicalShape, st.tensorType, bytes)
+                    as sk.ainet.lang.tensor.data.TensorData<T, V>
+                val tensor: Tensor<T, V> = ctx.fromData(data, dtype)
+                onTensorLoaded(Gemma4TensorNames.PER_LAYER_TOKEN_EMBD, tensor)
+                quantCallback?.invoke(Gemma4TensorNames.PER_LAYER_TOKEN_EMBD, st.tensorType)
+                logicalShapeCallback?.invoke(Gemma4TensorNames.PER_LAYER_TOKEN_EMBD, logicalShape)
+            } else {
+                tryLoadOptionalStreamingTensor(ctx, dtype, reader, st, Gemma4TensorNames.PER_LAYER_TOKEN_EMBD, onTensorLoaded)
+            }
+        }
+
         listOf(
-            Gemma4TensorNames.PER_LAYER_TOKEN_EMBD,
             Gemma4TensorNames.PER_LAYER_MODEL_PROJ,
             Gemma4TensorNames.PER_LAYER_PROJ_NORM
         ).forEach { name ->
-            val st = tensorByName[name]
-            if (st != null) {
-                tryLoadOptionalStreamingTensor(ctx, dtype, reader, st, name, onTensorLoaded)
-            }
+            val st = tensorByName[name] ?: return@forEach
+            tryLoadOptionalStreamingTensor(ctx, dtype, reader, st, name, onTensorLoaded)
         }
 
         repeat(metadata.blockCount) { layer ->
@@ -625,10 +663,31 @@ public class Gemma4WeightLoader private constructor(
                 Gemma4TensorNames.attnKNorm(layer),
                 Gemma4TensorNames.postAttentionNorm(layer),
                 Gemma4TensorNames.postFfwNorm(layer),
-                Gemma4TensorNames.layerOutputScale(layer)
+                Gemma4TensorNames.layerOutputScale(layer),
+                Gemma4TensorNames.pleInpGate(layer),
+                Gemma4TensorNames.plePostNorm(layer),
+                Gemma4TensorNames.pleProj(layer)
             ).forEach { name ->
-                val st = tensorByName[name]
-                if (st != null) {
+                val st = tensorByName[name] ?: return@forEach
+                // Route Q-series tensors through streamingTensorToTensor so
+                // NATIVE_OPTIMIZED keeps packed bytes (same path the required
+                // tensors use). tryLoadOptionalStreamingTensor otherwise drops
+                // Q-types silently when the policy isn't DEQUANTIZE_TO_FP32.
+                val isPackedQuant = when (st.tensorType) {
+                    GGMLQuantizationType.Q4_0, GGMLQuantizationType.Q4_1,
+                    GGMLQuantizationType.Q5_0, GGMLQuantizationType.Q5_1,
+                    GGMLQuantizationType.Q8_0, GGMLQuantizationType.Q8_1,
+                    GGMLQuantizationType.Q2_K, GGMLQuantizationType.Q3_K,
+                    GGMLQuantizationType.Q4_K, GGMLQuantizationType.Q5_K,
+                    GGMLQuantizationType.Q6_K, GGMLQuantizationType.Q8_K -> true
+                    else -> false
+                }
+                if (quantPolicy == QuantPolicy.NATIVE_OPTIMIZED && isPackedQuant) {
+                    val tensor: Tensor<T, V> = streamingTensorToTensor(ctx, dtype, reader, st, metadata)
+                    onTensorLoaded(name, tensor)
+                    quantCallback?.invoke(name, st.tensorType)
+                    logicalShapeCallback?.invoke(name, reversedShape(st.shape))
+                } else {
                     tryLoadOptionalStreamingTensor(ctx, dtype, reader, st, name, onTensorLoaded)
                 }
             }

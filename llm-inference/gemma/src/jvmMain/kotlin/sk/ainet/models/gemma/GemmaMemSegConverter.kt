@@ -114,6 +114,14 @@ public fun convertGemmaWeightsToMemSeg(
                     tensor
                 } else if (name == Gemma4TensorNames.TOKEN_EMBEDDINGS) {
                     dequantToFloat(tensor, qt, name, ctx, dtype, logicalShape)
+                } else if (name == Gemma4TensorNames.PER_LAYER_TOKEN_EMBD) {
+                    // Can't dequant — per_layer_token_embd on E2B is 9 GB FP32.
+                    // The loader already wrapped the raw bytes in a
+                    // GemmaPerLayerTokenEmbedTensorData; just pass through.
+                    // Fall back to the wrapper path if somehow the data is
+                    // still in the generic IntArrayTensorData form.
+                    if (tensor.data is GemmaPerLayerTokenEmbedTensorData) tensor
+                    else perLayerTokenEmbedToRowDequant(tensor, qt, ctx, dtype, logicalShape)
                 } else {
                     convertOne(tensor, qt, name, ctx, arena, dtype, logicalShape)
                 }
@@ -189,6 +197,25 @@ private fun <T : DType, V> convertOne(
             tensor
         }
     }
+}
+
+/**
+ * Wrap the raw Q-series bytes of `per_layer_token_embd.weight` in a
+ * [GemmaPerLayerTokenEmbedTensorData] that dequants one row at a time.
+ * Avoids the 9 GB FP32 blow-up that [dequantToFloat] would produce on
+ * Gemma 4 E2B. See the class kdoc for the memory math.
+ */
+@Suppress("UNCHECKED_CAST")
+private fun <T : DType, V> perLayerTokenEmbedToRowDequant(
+    tensor: Tensor<T, V>,
+    qt: GGMLQuantizationType,
+    ctx: ExecutionContext,
+    dtype: kotlin.reflect.KClass<T>,
+    logicalShape: Shape
+): Tensor<T, V> {
+    val bytes = extractBytes(tensor.data)
+    val data = GemmaPerLayerTokenEmbedTensorData(logicalShape, qt, bytes)
+    return ctx.fromData(data as sk.ainet.lang.tensor.data.TensorData<FP32, Float>, FP32::class) as Tensor<T, V>
 }
 
 @Suppress("UNCHECKED_CAST")

@@ -105,6 +105,11 @@ public object Gemma4TensorNames {
     public fun postFfwNorm(layer: Int): String = "blk.$layer.post_ffw_norm.weight"
     public fun layerOutputScale(layer: Int): String = "blk.$layer.layer_output_scale.weight"
 
+    // Gemma 4 Per-Layer Embedding block-level tensors.
+    public fun pleInpGate(layer: Int): String = "blk.$layer.inp_gate.weight"
+    public fun plePostNorm(layer: Int): String = "blk.$layer.post_norm.weight"
+    public fun pleProj(layer: Int): String = "blk.$layer.proj.weight"
+
     // PLE global tensors
     public const val PER_LAYER_TOKEN_EMBD: String = "per_layer_token_embd.weight"
     public const val PER_LAYER_MODEL_PROJ: String = "per_layer_model_proj.weight"
