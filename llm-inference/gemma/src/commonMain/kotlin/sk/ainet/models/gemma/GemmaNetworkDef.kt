@@ -11,6 +11,7 @@ import sk.ainet.lang.nn.dsl.multiHeadAttention
 import sk.ainet.lang.nn.dsl.residual
 import sk.ainet.lang.nn.dsl.rmsNorm
 import sk.ainet.lang.nn.dsl.sequential
+import sk.ainet.lang.nn.transformer.LayerScalarMul
 import sk.ainet.lang.nn.transformer.PaddedSharedPositionalKVCache
 import sk.ainet.lang.nn.transformer.PositionalKVCache
 import sk.ainet.lang.nn.transformer.RoPEScaling
@@ -49,8 +50,9 @@ public inline fun <reified T : DType, V> gemmaNetwork(
     metadata: Gemma4ModelMetadata,
     maxInferenceLen: Int = minOf(metadata.contextLength, 4096),
     qkNorm: Boolean = true,
-    sandwichNorms: Boolean = true
-): Module<T, V> = gemmaNetwork<T, V>(metadata, T::class, maxInferenceLen, qkNorm, sandwichNorms)
+    sandwichNorms: Boolean = true,
+    layerOutputScale: Boolean = true
+): Module<T, V> = gemmaNetwork<T, V>(metadata, T::class, maxInferenceLen, qkNorm, sandwichNorms, layerOutputScale)
 
 /**
  * Non-reified variant of [gemmaNetwork] that takes an explicit `dtype` [KClass].
@@ -68,13 +70,18 @@ public inline fun <reified T : DType, V> gemmaNetwork(
  *   attention and FFN sub-blocks (`post_attention_norm` / `post_ffw_norm`),
  *   before the residual add. True for real Gemma 4 checkpoints. Auto-detected
  *   at `GemmaNetworkLoader.fromWeights` the same way as `qkNorm`.
+ * @param layerOutputScale whether to apply `blk.N.layer_output_scale.weight`
+ *   (a scalar `[1]`) at the very end of each block. Corresponds to HF's
+ *   `self.layer_scalar *= hidden_states`. Auto-detected at
+ *   `GemmaNetworkLoader.fromWeights`.
  */
 public fun <T : DType, V> gemmaNetwork(
     metadata: Gemma4ModelMetadata,
     dtype: kotlin.reflect.KClass<T>,
     maxInferenceLen: Int = minOf(metadata.contextLength, 4096),
     qkNorm: Boolean = true,
-    sandwichNorms: Boolean = true
+    sandwichNorms: Boolean = true,
+    layerOutputScale: Boolean = true
 ): Module<T, V> {
     val dim = metadata.embeddingLength
     val nHeads = metadata.headCount
@@ -195,6 +202,13 @@ public fun <T : DType, V> gemmaNetwork(
         stage.geGluFFN(dim, ffnDim, id = "ffn")
         if (sandwichNorms) stage.rmsNorm(dim, eps, id = "post_ffw_norm")
         stage.residual()
+
+        // Gemma 4 tail: scalar-broadcast multiply by layer_output_scale.
+        // HF calls this self.layer_scalar = torch.ones(1), applied as
+        // `hidden_states *= self.layer_scalar` at the end of the block.
+        if (layerOutputScale) stage.modules += LayerScalarMul<T, V>(
+            name = "blk.$layer.layer_output_scale"
+        )
 
         dslImpl.modules += HybridTransformerBlock(stage.modules.toList(), name = "blk.$layer")
     }

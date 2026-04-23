@@ -152,11 +152,13 @@ internal fun <T : DType, V> applyWeightsToNetworkNonReified(
     // and forcing them on would make the WeightMapper strict-check fail.
     val hasQKNorm = weights.tensors.keys.any { it.endsWith(".attn_q_norm.weight") }
     val hasSandwichNorms = weights.tensors.keys.any { it.endsWith(".post_attention_norm.weight") }
+    val hasLayerOutputScale = weights.tensors.keys.any { it.endsWith(".layer_output_scale.weight") }
     val model = gemmaNetwork<T, V>(
         weights.metadata,
         dtype,
         qkNorm = hasQKNorm,
-        sandwichNorms = hasSandwichNorms
+        sandwichNorms = hasSandwichNorms,
+        layerOutputScale = hasLayerOutputScale
     )
 
     val weightTensors = weights.tensors.map { (name, tensor) ->

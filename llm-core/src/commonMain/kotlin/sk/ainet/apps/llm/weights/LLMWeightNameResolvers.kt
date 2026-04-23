@@ -39,6 +39,9 @@ public class LlamaGGUFNameResolver : WeightNameResolver {
             moduleName == "post_ffw_norm" || paramName.contains("post_ffw_norm") ->
                 if (blockPrefix != null) "$blockPrefix.post_ffw_norm.weight" else null
 
+            moduleName == "layer_output_scale" || paramName.contains("layer_output_scale") ->
+                if (blockPrefix != null) "$blockPrefix.layer_output_scale.weight" else null
+
             moduleName == "attn_norm" || paramName.contains("attn_norm") ->
                 if (blockPrefix != null) "$blockPrefix.attn_norm.weight" else null
 

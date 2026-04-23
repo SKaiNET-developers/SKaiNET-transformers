@@ -103,6 +103,7 @@ public object Gemma4TensorNames {
     public fun attnKNorm(layer: Int): String = "blk.$layer.attn_k_norm.weight"
     public fun postAttentionNorm(layer: Int): String = "blk.$layer.post_attention_norm.weight"
     public fun postFfwNorm(layer: Int): String = "blk.$layer.post_ffw_norm.weight"
+    public fun layerOutputScale(layer: Int): String = "blk.$layer.layer_output_scale.weight"
 
     // PLE global tensors
     public const val PER_LAYER_TOKEN_EMBD: String = "per_layer_token_embd.weight"
