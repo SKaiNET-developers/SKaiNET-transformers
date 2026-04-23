@@ -42,6 +42,26 @@ public class LlamaGGUFNameResolver : WeightNameResolver {
             moduleName == "layer_output_scale" || paramName.contains("layer_output_scale") ->
                 if (blockPrefix != null) "$blockPrefix.layer_output_scale.weight" else null
 
+            // Per-Layer-Embedding top-level tensors. Gemma 4 uses these names
+            // at the model root, not per-block — so they have no blockPrefix
+            // and land in the general "$paramName contains X" checks below.
+            paramName.contains("per_layer") && paramName.endsWith(".embed_tokens.weight") ->
+                "per_layer_token_embd.weight"
+            paramName.contains("per_layer") && paramName.endsWith(".model_proj.weight") ->
+                "per_layer_model_proj.weight"
+            paramName.contains("per_layer") && paramName.endsWith(".projection_norm.weight") ->
+                "per_layer_proj_norm.weight"
+
+            // Per-Layer-Embedding block-level hook tensors. Scoped via the
+            // `per_layer_input` module-path segment so the `proj.weight`
+            // match below doesn't collide with `o_proj.weight` in attention.
+            paramName.contains("per_layer_input") && paramName.endsWith(".inp_gate.weight") ->
+                if (blockPrefix != null) "$blockPrefix.inp_gate.weight" else null
+            paramName.contains("per_layer_input") && paramName.endsWith(".proj.weight") ->
+                if (blockPrefix != null) "$blockPrefix.proj.weight" else null
+            paramName.contains("per_layer_input") && paramName.contains("post_norm") ->
+                if (blockPrefix != null) "$blockPrefix.post_norm.weight" else null
+
             moduleName == "attn_norm" || paramName.contains("attn_norm") ->
                 if (blockPrefix != null) "$blockPrefix.attn_norm.weight" else null
 

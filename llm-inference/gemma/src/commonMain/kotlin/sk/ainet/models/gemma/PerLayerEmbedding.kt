@@ -74,20 +74,27 @@ public class PerLayerEmbedding<T : DType, V>(
     public val projectionNorm: RMSNormalization<T, V> =
         RMSNormalization(intArrayOf(perLayerDim), rmsEps.toDouble(), name = "$name.projection_norm")
 
-    // Per-layer token embedding: [vocabSize, perLayerTotal]. Big table —
-    // for real Gemma 4 E2B this is 262 144 × 8 960 = ~2.3B entries, so
-    // ~9 GB FP32. Loaded from Q6_K and dequanted once by the MemSeg
-    // converter; memory impact flagged in the loader's optional-tensor path.
-    private val embedTokensWeight = voidWeight(Shape(vocabSize, perLayerTotal))
-
-    // Context projection: [perLayerTotal, hiddenSize] in [out, in] convention.
-    // 8 960 × 1 536 ≈ 13.8M FP32 = 55 MB. Negligible.
-    private val modelProjWeight = voidWeight(Shape(perLayerTotal, hiddenSize))
-
     override val params: List<ModuleParameter<T, V>> = listOf(
-        ModuleParameter.WeightParameter("$name.embed_tokens.weight", embedTokensWeight),
-        ModuleParameter.WeightParameter("$name.model_proj.weight", modelProjWeight)
+        // Per-layer token embedding: [vocabSize, perLayerTotal]. Big table —
+        // for real Gemma 4 E2B this is 262 144 × 8 960 = ~2.3B entries,
+        // ~9 GB FP32 after dequant. Memory impact flagged in the loader's
+        // optional-tensor path; Phase 5f.5c will switch to a lazy-row gather.
+        ModuleParameter.WeightParameter(
+            "$name.embed_tokens.weight",
+            voidWeight(Shape(vocabSize, perLayerTotal))
+        ),
+        // Context projection: [perLayerTotal, hiddenSize] in [out, in]
+        // convention. 8 960 × 1 536 ≈ 13.8M FP32 = 55 MB. Negligible.
+        ModuleParameter.WeightParameter(
+            "$name.model_proj.weight",
+            voidWeight(Shape(perLayerTotal, hiddenSize))
+        )
     )
+
+    // Read the runtime-populated values via params indexing — the void
+    // placeholders above are replaced by WeightMapper during load.
+    private val embedTokensWeight: Tensor<T, V> get() = params[0].value
+    private val modelProjWeight: Tensor<T, V> get() = params[1].value
 
     override val modules: List<Module<T, V>> = listOf(projectionNorm)
 

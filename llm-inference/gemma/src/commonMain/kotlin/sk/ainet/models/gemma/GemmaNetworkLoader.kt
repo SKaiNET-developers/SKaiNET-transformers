@@ -153,12 +153,18 @@ internal fun <T : DType, V> applyWeightsToNetworkNonReified(
     val hasQKNorm = weights.tensors.keys.any { it.endsWith(".attn_q_norm.weight") }
     val hasSandwichNorms = weights.tensors.keys.any { it.endsWith(".post_attention_norm.weight") }
     val hasLayerOutputScale = weights.tensors.keys.any { it.endsWith(".layer_output_scale.weight") }
+    // PLE is enabled iff the top-level `per_layer_token_embd.weight` is
+    // present. On real Gemma 4 checkpoints that tensor is Q6_K; the
+    // MemSeg converter dequants it to FP32, which costs ~9 GB on E2B —
+    // flagged as a Phase 5f.5c follow-up to switch to a lazy-row gather.
+    val hasPle = "per_layer_token_embd.weight" in weights.tensors.keys
     val model = gemmaNetwork<T, V>(
         weights.metadata,
         dtype,
         qkNorm = hasQKNorm,
         sandwichNorms = hasSandwichNorms,
-        layerOutputScale = hasLayerOutputScale
+        layerOutputScale = hasLayerOutputScale,
+        ple = hasPle
     )
 
     val weightTensors = weights.tensors.map { (name, tensor) ->

@@ -59,14 +59,15 @@ public class GemmaModel<T : DType, V>(
 
     override fun onForward(input: Tensor<T, V>, ctx: ExecutionContext): Tensor<T, V> {
         // Step 1: run main embedding. OptimizedLLMRuntime passes a token-id
-        // tensor (Int32, shape [seq] or [batch, seq]); Embedding expands to
-        // [seq, hiddenSize] or [batch, seq, hiddenSize].
+        // tensor (Int32, shape [seq] — often [1] for single-token decode);
+        // Embedding expands to [seq, hiddenSize].
         val inputsEmbeds = tokenEmbedding.forward(input, ctx)
 
         // Step 2: compute per_layer_inputs iff PLE is active.
         val perLayerInputs: Tensor<T, V>? = ple?.let { pleModule ->
-            val tokenIds2d = ensureRank2Ids(input)
-            pleModule.compute(tokenIds2d, ensureRank3Embeds(inputsEmbeds), ctx, dtype)
+            val tokenIds2d = ensureRank2Ids(input, ctx)
+            val embeds3d = ensureRank3Embeds(inputsEmbeds, ctx)
+            pleModule.compute(tokenIds2d, embeds3d, ctx, dtype)
         }
 
         // Step 3: iterate blocks. For each, pre-populate the hook's
@@ -76,7 +77,15 @@ public class GemmaModel<T : DType, V>(
             if (perLayerInputs != null) {
                 val hook = findHook(block)
                     ?: error("GemmaModel: PLE is active but blk.$layerIdx has no PerLayerInputBlockHook")
-                hook.perLayerInput = perLayerInputSliceFor(perLayerInputs, layerIdx, ctx)
+                val slice3d = perLayerInputSliceFor(perLayerInputs, layerIdx, ctx)
+                // Hook expects [batch, seq, perLayerDim] matching the
+                // block's [seq, hiddenSize] working shape. Squeeze batch
+                // dim if the block is operating in rank-2 mode.
+                hook.perLayerInput = if (hidden.rank == 2) {
+                    ctx.ops.squeeze(slice3d, dim = 0)
+                } else {
+                    slice3d
+                }
             }
             hidden = block.forward(hidden, ctx)
         }
@@ -104,21 +113,24 @@ public class GemmaModel<T : DType, V>(
         return ops.squeeze(narrowed, dim = 2)
     }
 
-    /** OptimizedLLMRuntime may pass a rank-1 token-id tensor `[seq]`. PLE
-     *  requires `[batch, seq]` — insert a leading batch dim if needed. */
-    private fun ensureRank2Ids(ids: Tensor<T, V>): Tensor<T, V> {
-        if (ids.rank == 2) return ids
-        if (ids.rank == 1) {
-            return ids // rely on reshape below via unsqueeze if backend supports it
-                .let { t -> (t as Tensor<T, V>) }
-        }
-        error("GemmaModel: expected token-id tensor of rank 1 or 2, got ${ids.rank}")
+    /** OptimizedLLMRuntime may pass a rank-1 token-id tensor `[seq]`
+     *  (typically `[1]` for single-token decode). PLE requires
+     *  `[batch, seq]` — unsqueeze a leading batch dim. */
+    private fun ensureRank2Ids(ids: Tensor<T, V>, ctx: ExecutionContext): Tensor<T, V> = when (ids.rank) {
+        2 -> ids
+        1 -> ctx.ops.unsqueeze(ids, dim = 0)
+        else -> error("GemmaModel: expected token-id tensor of rank 1 or 2, got ${ids.rank}")
     }
 
-    /** inputsEmbeds may come in as `[seq, hidden]` (rank 2) or
-     *  `[batch, seq, hidden]` (rank 3). PLE needs rank 3. */
-    private fun ensureRank3Embeds(embeds: Tensor<T, V>): Tensor<T, V> =
-        embeds // embeds come from Embedding which preserves batch dim if input had it
+    /** inputsEmbeds may come in as `[seq, hidden]` (rank 2) when the
+     *  runtime decodes single-token, or `[batch, seq, hidden]` (rank 3)
+     *  when batched. PLE needs rank 3 (`[batch, seq, hidden]`) to combine
+     *  with the `[batch, seq, numLayers, perLayerDim]` PLE tensor. */
+    private fun ensureRank3Embeds(embeds: Tensor<T, V>, ctx: ExecutionContext): Tensor<T, V> = when (embeds.rank) {
+        3 -> embeds
+        2 -> ctx.ops.unsqueeze(embeds, dim = 0)
+        else -> error("GemmaModel: expected inputs_embeds of rank 2 or 3, got ${embeds.rank}")
+    }
 
     public companion object {
         /**
