@@ -249,6 +249,20 @@ on write, slices on read) and rewires `gemmaNetwork()` to compute
 
 ## Phase 5e — Mixed-head_dim shared KV + SDPA shape validation (DONE)
 
+> **Upstream note (2026-04-23).** SKaiNET-0.19.1 develop merged PR #544
+> (`feature/sdpa-tape-recording-and-hlo`) the same day. It adds
+> `ScaledDotProductAttentionOperation` to `TensorOperations`,
+> records SDPA in `RecordingExecution`, and teaches
+> `NeuralNetOperationsConverter` to decompose SDPA into StableHLO
+> `dot_general`+softmax+`dot_general` for the IREE compile path.
+> Orthogonal to our CPU-kernel SDPA validation — no file overlap.
+> `feature/q4k-lazy-transpose` rebased cleanly onto the new develop,
+> my SDPA validation commit (`81af7fa4` post-rebase) is intact, and
+> both the CPU `SDPAShapeValidationTest` and the new
+> `SdpaHloExportTest` pass. No action required on the transformers
+> side — existing composite build picks up the new SDPA operation
+> automatically.
+
 The real Gemma 4 E2B Q4_K_M run through `kgemma --runtime=dsl`
 exposed two architectural glitches the tests never covered:
 
