@@ -8,6 +8,7 @@ import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.tensor.data.IntArrayTensorData
 import sk.ainet.lang.tensor.data.Q4_KBlockTensorData
+import sk.ainet.lang.tensor.data.Q6_KBlockTensorData
 import sk.ainet.lang.tensor.data.Q4MemorySegmentTensorData
 import sk.ainet.lang.tensor.data.Q8MemorySegmentTensorData
 import sk.ainet.lang.tensor.data.TensorData
@@ -179,15 +180,24 @@ private fun <T : DType, V> convertOne(
             // layout; combined, a Q4_K_M Gemma 4 E2B checkpoint (3.2 GB on
             // disk) stays near that footprint in RAM instead of inflating
             // to ~18 GB FP32.
-            val relaid = relayoutQ4_KRowMajorToBlockMajor(bytes, shape)
+            val relaid = relayoutKSeriesRowMajorToBlockMajor(bytes, shape, 144)
             val data = Q4_KBlockTensorData.fromRawBytes(shape, relaid)
             ctx.fromData(data as TensorData<FP32, Float>, advertisedDtype) as Tensor<T, V>
         }
-        GGMLQuantizationType.Q5_K,
         GGMLQuantizationType.Q6_K -> {
-            // No native matmul kernel for these yet — fall back to dequant.
-            // Kept [out, in] layout (DSL transposes at runtime); pre-transposing
-            // here would double-transpose via linearProject and give wrong math.
+            // Same packed-path treatment as Q4_K, enabled by the Phase 5f.5d
+            // `matmulQ6_KVec` kernel + lazy transpose in `DefaultCpuOpsJvm`.
+            // Gemma 4 E2B Q4_K_M uses Q6_K for ffn_gate/up/down, attn_v,
+            // token_embd, and the tied lm_head — keeping these packed saves
+            // ~12 GB of FP32 bloat (and the corresponding 7.5 GB per-forward
+            // transpose transient).
+            val relaid = relayoutKSeriesRowMajorToBlockMajor(bytes, shape, 210)
+            val data = Q6_KBlockTensorData.fromRawBytes(shape, relaid)
+            ctx.fromData(data as TensorData<FP32, Float>, advertisedDtype) as Tensor<T, V>
+        }
+        GGMLQuantizationType.Q5_K -> {
+            // No native matmul kernel yet for Q5_K (not needed for Gemma 4
+            // E2B Q4_K_M — it has no Q5_K tensors). Fall back to dequant.
             val elemCount = shape.volume
             val floats = DequantOps.dequantFromBytes(bytes, qt, elemCount)
             ctx.fromFloatArray<FP32, Float>(shape, advertisedDtype, floats) as Tensor<T, V>
@@ -246,29 +256,37 @@ private fun <T : DType, V> dequantToFloat(
 }
 
 /**
- * Re-layout GGUF Q4_K bytes from row-major block order (block at row r,
- * block index b within row → byte offset `(r * blocksPerRow + b) * 144`)
- * to the input-block-major layout that `matmulQ4_KVec` expects (block at
- * blockIdx bI for output row r → byte offset `(bI * outDim + r) * 144`).
+ * Re-layout GGUF K-series bytes from row-major block order (block at row r,
+ * block index b within row → byte offset `(r * blocksPerRow + b) * bytesPerBlock`)
+ * to the input-block-major layout the `matmulQ{K}_Vec` kernels expect
+ * (block at blockIdx bI for output row r → byte offset
+ * `(bI * outDim + r) * bytesPerBlock`).
  *
- * For a weight of shape `[outDim, inDim]` with inDim divisible by 256
- * (Q4_K block size), this is just a 2D block-level transpose of the
- * `[outDim, inDim/256]` array of 144-byte blocks. The bytes inside a
- * block are untouched.
+ * For a weight of shape `[outDim, inDim]` with `inDim % 256 == 0` (the
+ * K-series block size), this is just a 2D block-level transpose of the
+ * `[outDim, inDim/256]` array of `bytesPerBlock`-byte blocks. Bytes
+ * inside a block are untouched.
+ *
+ * @param bytes packed weight bytes in row-major [outDim, blocksPerRow] order
+ * @param shape logical `[outDim, inDim]` shape
+ * @param bytesPerBlock 144 for Q4_K, 210 for Q6_K (ggml block sizes)
  */
-internal fun relayoutQ4_KRowMajorToBlockMajor(bytes: ByteArray, shape: sk.ainet.lang.tensor.Shape): ByteArray {
-    val bytesPerBlock = 144
+internal fun relayoutKSeriesRowMajorToBlockMajor(
+    bytes: ByteArray,
+    shape: sk.ainet.lang.tensor.Shape,
+    bytesPerBlock: Int
+): ByteArray {
     val blockSize = 256
-    require(shape.rank == 2) { "Q4_K weight must be 2D, got rank ${shape.rank}" }
+    require(shape.rank == 2) { "K-series weight must be 2D, got rank ${shape.rank}" }
     val outDim = shape[0]
     val inDim = shape[1]
     require(inDim % blockSize == 0) {
-        "Q4_K weight inDim ($inDim) must be a multiple of $blockSize"
+        "K-series weight inDim ($inDim) must be a multiple of $blockSize"
     }
     val blocksPerRow = inDim / blockSize
     val expected = outDim.toLong() * blocksPerRow.toLong() * bytesPerBlock.toLong()
     require(bytes.size.toLong() >= expected) {
-        "Q4_K byte buffer size ${bytes.size} < expected $expected for shape [$outDim, $inDim]"
+        "K-series byte buffer size ${bytes.size} < expected $expected for shape [$outDim, $inDim] @ ${bytesPerBlock}B/block"
     }
     val out = ByteArray(bytes.size)
     for (r in 0 until outDim) {
@@ -280,6 +298,14 @@ internal fun relayoutQ4_KRowMajorToBlockMajor(bytes: ByteArray, shape: sk.ainet.
     }
     return out
 }
+
+/**
+ * Back-compat shim that delegates to [relayoutKSeriesRowMajorToBlockMajor]
+ * at Q4_K's 144-byte block size. Kept for any callers outside this file
+ * pinned to the old name.
+ */
+internal fun relayoutQ4_KRowMajorToBlockMajor(bytes: ByteArray, shape: sk.ainet.lang.tensor.Shape): ByteArray =
+    relayoutKSeriesRowMajorToBlockMajor(bytes, shape, 144)
 
 private fun extractBytes(data: TensorData<*, *>): ByteArray {
     if (data is IntArrayTensorData<*>) {
