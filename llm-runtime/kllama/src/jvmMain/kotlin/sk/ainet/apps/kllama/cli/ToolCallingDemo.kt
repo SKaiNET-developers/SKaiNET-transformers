@@ -194,8 +194,11 @@ Always use a tool when one is relevant — do not guess file listings."""
  *
  * Returns file names, sizes, and whether each entry is a directory.
  * Restricted to readable directories and limits output to 50 entries.
+ *
+ * Public so `kgemma --tools=list_files` can register it alongside the
+ * calculator.
  */
-internal class ListFilesTool : Tool {
+public class ListFilesTool : Tool {
 
     override val definition: ToolDefinition = ToolDefinition(
         name = "list_files",

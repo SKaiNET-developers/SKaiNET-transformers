@@ -86,7 +86,8 @@ private data class CliArgs(
     val prompt: String,
     val steps: Int,
     val temperature: Float,
-    val agent: Boolean = false
+    val agent: Boolean = false,
+    val toolsSpec: String? = null
 )
 
 private fun usage(errorMessage: String? = null): Nothing {
@@ -101,8 +102,11 @@ private fun usage(errorMessage: String? = null): Nothing {
     println("  steps               Generation steps (default: 32)")
     println("  temperature         Sampling temperature (default: 0.8)")
     println("  --agent             Route through ChatSession with the model-appropriate")
-    println("                      chat template and default tool registry (calculator +")
-    println("                      list_files). Default off (raw runtime.generate).")
+    println("                      chat template and an agent tool registry. Default off")
+    println("                      (raw runtime.generate).")
+    println("  --tools=LIST        Comma-separated tool names to register when --agent is set.")
+    println("                      Available: ${DefaultTools.names.joinToString(", ")}.")
+    println("                      Default: calculator.")
     println()
     println("Runtime: gemmaNetwork() + OptimizedLLMRuntime (DSL, NATIVE_OPTIMIZED Q4_0/Q8_0 +")
     println("         dequant K-series to FP32 until a K-kernel lands).")
@@ -110,6 +114,7 @@ private fun usage(errorMessage: String? = null): Nothing {
     println("Example:")
     println("  kgemma models/gemma-3-270m-it-Q8_0.gguf \"Hello, how are you?\" 32 0.8")
     println("  kgemma model.gguf \"What is 3+4?\" 64 0.0 --agent")
+    println("  kgemma model.gguf \"List /tmp\" 64 0.0 --agent --tools=list_files")
     exitProcess(if (errorMessage == null) 0 else 1)
 }
 
@@ -127,15 +132,21 @@ private fun parseArgs(args: Array<String>): CliArgs {
     val temperature = positional.getOrElse(3) { "0.8" }.toFloatOrNull() ?: usage("Invalid temperature '${positional[3]}'.")
 
     var agent = false
+    var toolsSpec: String? = null
     for (flag in flags) {
         when {
             flag == "--agent" -> agent = true
+            flag.startsWith("--tools=") -> toolsSpec = flag.substringAfter("=")
             flag == "--help" || flag == "-h" -> usage()
             else -> usage("Unknown flag '$flag'.")
         }
     }
 
-    return CliArgs(modelPath, prompt, steps, temperature, agent)
+    if (toolsSpec != null && !agent) {
+        usage("--tools has no effect without --agent.")
+    }
+
+    return CliArgs(modelPath, prompt, steps, temperature, agent, toolsSpec)
 }
 
 private fun detectFormat(path: Path): ModelFormat {
@@ -270,8 +281,21 @@ fun main(args: Array<String>) {
                 }
             )
             val session = ChatSession(runtime, tokenizer, metadata)
+
+            // Resolve --tools=… spec. Default (no flag) registers the
+            // calculator — enough to exercise the full template + parse +
+            // dispatch loop on Gemma 4 and matches skainet-cli's default.
+            val tools = if (cliArgs.toolsSpec.isNullOrBlank()) {
+                listOf(sk.ainet.apps.kllama.cli.CalculatorTool())
+            } else {
+                DefaultTools.parse(cliArgs.toolsSpec) { name ->
+                    System.err.println("Error: unknown tool '$name'. Available: ${DefaultTools.names.joinToString(", ")}.")
+                } ?: exitProcess(1)
+            }
+
             println("Agent mode: chat template = ${session.chatTemplate::class.simpleName}, " +
-                "tool-calling provider = ${session.providerFamily}")
+                "tool-calling provider = ${session.providerFamily}, " +
+                "tools = [${tools.joinToString(", ") { it.definition.name }}]")
             println("Generating up to ${cliArgs.steps} tokens/round at temperature=${cliArgs.temperature}...")
             println("---")
             print(cliArgs.prompt)
@@ -279,10 +303,7 @@ fun main(args: Array<String>) {
             val elapsed = measureTime {
                 val response = session.runSingleTurn(
                     prompt = cliArgs.prompt,
-                    // Default agent-mode tool registry matches skainet-cli's:
-                    // a calculator is enough to exercise the full template +
-                    // parse + dispatch loop on Gemma 4.
-                    tools = listOf(sk.ainet.apps.kllama.cli.CalculatorTool()),
+                    tools = tools,
                     maxTokens = cliArgs.steps,
                     temperature = cliArgs.temperature
                 )

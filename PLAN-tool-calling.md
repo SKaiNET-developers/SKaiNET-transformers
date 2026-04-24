@@ -29,11 +29,11 @@ Status tracking for wrapping up the Phase 6b tool-calling work. Groups below map
 - [x] `AgentLoop`: new `AgentListener.onThinking(text)` fires per block; thinking stripped from the ASSISTANT `ChatMessage` persisted to conversation history so it never feeds back into subsequent prompts; tool-call parsing still operates on the raw response.
 - [x] Test coverage: 6 template-level tests (single / multiple / interleaved with tool_call / strip / idempotent no-op / unterminated block dropped) + one AgentLoop integration test proving the listener sees the block and the message doesn't.
 
-### Group 4 — kgemma CLI tools + E2B smoke test · `feature/ISSUE-<N>-kgemma-tools-e2b`
-**Issue repo**: SKaiNET-transformers. **Goal**: drive tool calling from the CLI against a real checkpoint.
+### Group 4 — kgemma CLI tools + E2B smoke test · `feature/ISSUE-69-kgemma-tools-e2b` ✅
+**Issue**: [#69](https://github.com/SKaiNET-developers/SKaiNET-transformers/issues/69). **Goal**: drive tool calling from the CLI against a real checkpoint.
 
-- [ ] (a) `kgemma` `--tools=<name1>,<name2>` flag + default tool registry (calculator, file-read, time — keep set minimal). Wire through `Main.kt` to `ChatSession`.
-- [ ] (g) Real-E2B smoke test: load actual Gemma 4 E2B checkpoint (not synthetic weights), run prompt that should elicit a tool call, assert model natively emits `<|tool_call>` format and round-trip completes. Gate test behind env var (checkpoint path) so CI stays green without the weights.
+- [x] (a) `kgemma --tools=<names>` flag parses a comma-separated list against a new `DefaultTools` factory (`calculator`, `list_files`). Default (flag absent) keeps prior behavior of calculator-only. Unknown names print an error with the available set. `--tools` without `--agent` is rejected early. `ListFilesTool` promoted from `internal` to `public` in kllama (api baseline refreshed).
+- [x] (g) `Gemma4E2BToolCallSmokeTest` in `kgemma/jvmTest` — gated on `GEMMA4_E2B_MODEL_PATH`. Loads the real GGUF via DSL NATIVE_OPTIMIZED, runs a calculator-prompt round, asserts the raw output contains `<|tool_call>` / `<tool_call|>` and that `Gemma4ChatTemplate.parseToolCalls` recovers a `calculator` call. Skips cleanly when the env var is unset so CI stays green. If the test surfaces a grammar mismatch, that's the signal to write `gemma4-research/findings/tool_calling.md` (Group 5) before adjusting the template.
 
 ### Group 5 — Research spec doc · no GH issue (local `gemma4-research`) ✅
 **Location**: `gemma4-research/findings/tool_calling.md` (committed as root commit `a609e46` of the research repo).
