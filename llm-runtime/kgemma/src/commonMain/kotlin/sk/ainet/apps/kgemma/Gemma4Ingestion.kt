@@ -1,5 +1,3 @@
-@file:Suppress("DEPRECATION") // Retains the Gemma4Runtime path (loadRuntime*) for backwards compat alongside the new DSL path (loadDslRuntime*).
-
 package sk.ainet.apps.kgemma
 
 import kotlin.random.Random
@@ -12,16 +10,11 @@ import sk.ainet.context.ExecutionContext
 import sk.ainet.io.RandomAccessSource
 import sk.ainet.io.model.QuantPolicy
 import sk.ainet.lang.types.DType
-import sk.ainet.lang.types.FP32
-import sk.ainet.models.gemma.Gemma4AttentionBackend
-import sk.ainet.models.gemma.Gemma4Config
-import sk.ainet.models.gemma.Gemma4Runtime
 import sk.ainet.models.gemma.Gemma4RuntimeWeights
 import sk.ainet.models.gemma.Gemma4SafeTensorsWeightLoader
 import sk.ainet.models.gemma.Gemma4WeightLoader
 import sk.ainet.models.gemma.Gemma4Weights
 import sk.ainet.models.gemma.GemmaNetworkLoader
-import sk.ainet.models.gemma.createOptimalGemma4KvCache
 import sk.ainet.models.gemma.loadGemma4RuntimeWeights
 import sk.ainet.models.gemma.loadGemma4RuntimeWeightsFromSafeTensors
 import sk.ainet.models.gemma.loadGemma4RuntimeWeightsStreaming
@@ -37,16 +30,15 @@ public data class Gemma4LoadConfig(
 /**
  * Facade for loading Gemma 4 models from GGUF and SafeTensors files.
  *
- * Provides two runtime paths:
+ * Runtime path: `gemmaNetwork()` + [OptimizedLLMRuntime] (DSL). Numerical
+ * parity against the historical hand-coded runtime was proven in Phase 5d
+ * (≤ 8.94e-8 across 1-layer global, mixed sliding+global, and shared-KV
+ * configurations); the hand-coded path has since been retired.
  *
- * - `loadRuntime*` → [Gemma4Runtime] (hand-coded, **deprecated** but still
- *   the only path that can run Q4/Q8 weights via `NATIVE_OPTIMIZED` policy;
- *   keep using it for RAM-constrained loads of real Gemma 4 checkpoints).
- * - `loadDslRuntime*` → `gemmaNetwork()` + [OptimizedLLMRuntime] (DSL path,
- *   matches the hand-coded runtime at machine precision per
- *   `GemmaRuntimeParityTest`). Requires `DEQUANTIZE_TO_FP32` today and so
- *   needs roughly 20 GB RAM for Gemma 4 E2B; becomes the primary path
- *   once quant-aware DAG kernels land — see `ISSUE-skainet-8b-oom.md`.
+ * `loadDslRuntime*` currently requires `DEQUANTIZE_TO_FP32` for K-series
+ * quants (~20 GB for Gemma 4 E2B Q4_K_M until a K-kernel lands). Q4_0/Q8_0
+ * stay packed via the NATIVE path (see `loadDslRuntimeNative*` in the JVM
+ * sibling file).
  */
 public class Gemma4Ingestion<T : DType>(
     private val ctx: ExecutionContext,
@@ -54,7 +46,7 @@ public class Gemma4Ingestion<T : DType>(
     private val config: Gemma4LoadConfig = Gemma4LoadConfig()
 ) {
 
-    // --- Hand-coded Gemma4Runtime path (kept for RAM-constrained loads) ---
+    // --- Raw weight loading (used by the DSL path and by tests) ---
 
     public suspend fun load(sourceProvider: () -> Source): Gemma4RuntimeWeights<T> {
         return loadGemma4RuntimeWeights(
@@ -76,42 +68,16 @@ public class Gemma4Ingestion<T : DType>(
         )
     }
 
-    public suspend fun loadRuntime(sourceProvider: () -> Source): Gemma4Runtime<T> {
-        val weights = load(sourceProvider)
-        return buildRuntime(weights)
-    }
-
-    public suspend fun loadRuntimeStreaming(randomAccessProvider: () -> RandomAccessSource): Gemma4Runtime<T> {
-        val weights = loadStreaming(randomAccessProvider)
-        return buildRuntime(weights)
-    }
-
     public suspend fun loadFromSafeTensors(indexPath: String): Gemma4RuntimeWeights<T> {
         return loadGemma4RuntimeWeightsFromSafeTensors(ctx, indexPath, dtype)
     }
 
-    public suspend fun loadRuntimeFromSafeTensors(indexPath: String): Gemma4Runtime<T> {
-        val weights = loadFromSafeTensors(indexPath)
-        return buildRuntime(weights)
-    }
-
-    private fun buildRuntime(weights: Gemma4RuntimeWeights<T>): Gemma4Runtime<T> {
-        val modelConfig = Gemma4Config.fromMetadata(weights.metadata)
-        // Cap KV cache seqLen to avoid OOM on heap — full 128K/256K requires
-        // off-heap or memory-mapped caches (future TurboQuant integration)
-        val maxHeapSeqLen = 4096
-        val seqLen = minOf(weights.metadata.contextLength, maxHeapSeqLen)
-        val kvCache = createOptimalGemma4KvCache(modelConfig, seqLen)
-        val attentionBackend = Gemma4AttentionBackend(ctx, weights, dtype, modelConfig, kvCache)
-        return Gemma4Runtime(ctx, weights, attentionBackend, dtype, modelConfig)
-    }
-
-    // --- DSL path: gemmaNetwork() + OptimizedLLMRuntime (Phase 5d parity) ---
+    // --- DSL path: gemmaNetwork() + OptimizedLLMRuntime ---
 
     /**
      * Load a Gemma 4 GGUF via sequential [Source] and return the DSL-based
-     * [InferenceRuntime]. Same weight bytes as [loadRuntime], different
-     * execution path. Requires `QuantPolicy.DEQUANTIZE_TO_FP32` at the moment.
+     * [InferenceRuntime]. Requires `QuantPolicy.DEQUANTIZE_TO_FP32` at the
+     * moment for K-series quants.
      */
     public suspend fun loadDslRuntime(sourceProvider: () -> Source): InferenceRuntime<T> {
         requireDequantPolicy("loadDslRuntime")
@@ -152,9 +118,8 @@ public class Gemma4Ingestion<T : DType>(
     private fun requireDequantPolicy(caller: String) {
         require(config.quantPolicy == QuantPolicy.DEQUANTIZE_TO_FP32) {
             "$caller currently only supports QuantPolicy.DEQUANTIZE_TO_FP32. " +
-                "The DSL / ComputeGraph path does not yet consume quantized tensors directly " +
-                "(see ISSUE-skainet-8b-oom.md §Solution C). Use loadRuntime* (Gemma4Runtime) if " +
-                "you need NATIVE_OPTIMIZED or RAW_BYTES."
+                "The DSL / ComputeGraph path does not yet consume K-series quantized tensors " +
+                "directly. Use the NATIVE DSL path (loadDslRuntimeNative*) for Q4_0/Q8_0."
         }
     }
 }
