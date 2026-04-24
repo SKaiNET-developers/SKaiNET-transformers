@@ -8,6 +8,7 @@ pluginManagement {
 
 dependencyResolutionManagement {
     repositories {
+        mavenLocal()
         google()
         mavenCentral()
     }
@@ -15,7 +16,7 @@ dependencyResolutionManagement {
 
 rootProject.name = "SKaiNET-transformers"
 
-includeBuild("../SKaiNET-0.19.1")
+includeBuild("../SKaiNET")
 
 include("llm-core")
 include("llm-agent")

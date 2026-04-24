@@ -152,28 +152,16 @@ internal fun <T : DType, V> applyWeightsToNetworkNonReified(
     // and forcing them on would make the WeightMapper strict-check fail.
     val hasQKNorm = weights.tensors.keys.any { it.endsWith(".attn_q_norm.weight") }
     val hasSandwichNorms = weights.tensors.keys.any { it.endsWith(".post_attention_norm.weight") }
-    // Phase 5f.6 findings (2026-04-23):
-    //
-    // - layer_output_scale: weights DO load correctly (all 35 scales match
-    //   GGUF values 0.017–0.87 exactly). Enabling it alone drains the
-    //   residual stream by ~6e-14× across 35 blocks, destroying the
-    //   representation. Suspected to be trained as a coupled pair with PLE
-    //   — can't be enabled without PLE compensating.
-    //
-    // - PLE: diagnostic experiment (DIAG 2026-04-23, pleSideChannelOnly=true)
-    //   proved that discarding the PLE branch output produces the EXACT
-    //   no-PLE baseline ("Hi relieved desired…"), while adding it to the
-    //   residual produces "Hi pełni" (degenerate). Conclusion: the
-    //   `residual + x` add in PerLayerInputBlockHook is spurious on
-    //   single-stream Gemma 4. HF Gemma 3n writes PLE output to inactive
-    //   AltUp streams [1:]; stripping AltUp leaves nothing to write to,
-    //   and our naive residual-add is not what the model wants.
-    //
-    // Both features stay OFF on real-model checkpoints until (a) we have
-    // authoritative HF Gemma 4 source to verify the intended flow, or
-    // (b) a parity test against a reference implementation confirms a fix.
-    val hasLayerOutputScale = false
-    val hasPle = false
+    // Phase 5f.4 + 5f.5: auto-detect layer_output_scale and PLE on weight presence.
+    // Authoritative HF `Gemma4TextDecoderLayer.forward` (transformers 5.6.0) is
+    // pinned in the sibling `gemma4-research/findings/` scratch dir — the PLE
+    // math in [PerLayerEmbedding] + [PerLayerInputBlockHook] and the scalar
+    // multiply in [LayerScalarMul] match the reference. The older diagnostic
+    // that gated these features off was taken before `final_logit_softcapping`
+    // was wired into [GemmaModel]; unbounded post-PLE logits were responsible
+    // for the "Hi pełni" degenerate output, not PLE itself.
+    val hasLayerOutputScale = weights.tensors.keys.any { it.endsWith(".layer_output_scale.weight") }
+    val hasPle = weights.tensors.keys.any { it == "per_layer_token_embd.weight" }
     val model = gemmaNetwork<T, V>(
         weights.metadata,
         dtype,

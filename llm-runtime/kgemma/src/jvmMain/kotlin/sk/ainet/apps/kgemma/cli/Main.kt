@@ -312,9 +312,10 @@ fun main(args: Array<String>) {
             val elapsed = measureTime {
                 val response = session.runSingleTurn(
                     prompt = cliArgs.prompt,
-                    tools = emptyList(),  // Bring-your-own-tools deferred to a later flag;
-                                          // empty registry still exercises the full agent
-                                          // template + parse pipeline.
+                    // Default agent-mode tool registry matches skainet-cli's:
+                    // a calculator is enough to exercise the full template +
+                    // parse + dispatch loop on Gemma 4.
+                    tools = listOf(sk.ainet.apps.kllama.cli.CalculatorTool()),
                     maxTokens = cliArgs.steps,
                     temperature = cliArgs.temperature
                 )

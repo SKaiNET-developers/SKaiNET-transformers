@@ -302,7 +302,7 @@ every per-block and top-level tensor the current DSL path ignores,
 derived from the `GemmaNetworkLoaderIntegrationTest.diagnostic - per-layer
 head_dim vs actual tensor shapes` test that parses the real 3.2 GB GGUF.
 
-## Phase 5f — Wire remaining Gemma 4 E2B features for parity (IN PROGRESS)
+## Phase 5f — Wire remaining Gemma 4 E2B features for parity (DONE)
 
 Research against HF `transformers` 5.6.0 `modeling_gemma4.py` landed on
 2026-04-23 — see `../gemma4-research/findings/README.md` (outside this
@@ -329,32 +329,31 @@ speculated these; research showed they were wrong):
   GGUF doesn't store this field; our loader defaults to 1.0, so global
   layers currently rotate all 512 head_dim positions instead of 128.
 
-**Remaining:**
+**Landed (5f.3–5f.5):**
 
-- **5f.3 — RoPE bug fixes on globals.** Two bugs exposed by research:
-  (a) replace NTK-style scaling `base × factor^exp` with the reference's
-  `inv_freq /= factor` (see `gemma4-research/findings/prope_formula.md`;
-  latent on E2B since `factor=1.0` there, but correct-by-default for
-  future variants); (b) hard-code `partial_rotary_factor=0.25` for
-  Gemma 4 full_attention RoPE when the GGUF field is missing.
-- **5f.4 — `layer_output_scale [1]`.** New tiny `LayerScalarMul` module
-  in `llm-core`, one scalar multiply at the tail of each block.
-  Trivial (see `gemma4-research/findings/layer_output_scale.md`).
-- **5f.5 — PLE (Per-Layer Embedding).** The biggest remaining feature.
-  Needs a new top-level `PerLayerEmbedding` module (owns
-  `embed_tokens_per_layer`, `per_layer_model_projection`,
-  `per_layer_projection_norm`, combine-with-sqrt(2) math) plus a
-  per-block `PerLayerInputBlockHook` (`inp_gate → gelu →
-  (* per_layer_input_i) → proj → post_norm → + residual`) and a stage
-  API extension to thread the PLE tensor into each block. See
-  `gemma4-research/findings/ple.md` + `ple_block_hook.md`.
+- **5f.3 — RoPE formula.** `RoPE.kt` computes `inv_freq[i] = 1 /
+  base^(2i/headDim)` (exponent denominator is `headDim`, not
+  `rotaryDim`) and divides by `scalingFactor` uniformly when
+  `scaling=PROPORTIONAL` — matches transformers 5.6.0
+  `_compute_proportional_rope_parameters`. `Gemma4WeightLoader`
+  defaults `partial_rotary_factor` to `0.25f` when the GGUF field is
+  absent (which it always is for Gemma 4).
+- **5f.4 — `layer_output_scale`.** `LayerScalarMul` module in
+  `llm-core` applies `hidden_states *= layer_scalar[1]` at the tail of
+  each block. `GemmaNetworkLoader.fromWeights` auto-enables on
+  presence of `blk.N.layer_output_scale.weight`.
+- **5f.5 — PLE.** `PerLayerEmbedding` (top-level: `per_layer_token_embd`
+  Q6_K + `per_layer_model_proj` BF16 + `per_layer_proj_norm` F32, with
+  the 1/sqrt(2) combine) and `PerLayerInputBlockHook` (per-block: inp_gate
+  → gelu_pytorch_tanh → pointwise-mul with per_layer_input → proj →
+  RMSNorm → + residual) are wired into `GemmaModel` and threaded from
+  each block's hook. Q6_K PLE table stays packed through
+  `GemmaPerLayerTokenEmbedTensorData` under NATIVE_OPTIMIZED.
+  Auto-enabled on presence of `per_layer_token_embd.weight`.
 
-Until 5f.5 lands the DSL lacks a load-bearing signal (Gemma 4 is
-trained with PLE active) and tokens will remain far from correct. Note
-the hand-coded `Gemma4Runtime` is **also** incomplete — it LOADS the
-same features (QK-Norm, sandwich norms, PLE weights) but never applies
-them. Once 5f.5 ships, the DSL will be *more* correct than the
-deprecated hand-coded runtime.
+The hand-coded `Gemma4Runtime` remains `@Deprecated` and is not kept
+in lockstep — the DSL path is the correct one for Gemma 4 going
+forward.
 
 ## Phase 6 — DSL path exposed via CLIs (DONE, opt-in)
 
@@ -398,9 +397,10 @@ The DSL path still requires FP32 dequant, so:
 - `skainet-cli` prints an explicit note about this on the Gemma path.
 - For RAM-constrained loads of real checkpoints, users should either
   stay on `Gemma4Runtime` (via `kgemma` without the flag), or wait for
-  quant-aware DAG matmul (`ISSUE-skainet-8b-oom.md` §Solution C) to
-  land — that's the single remaining gate between the DSL path and full
-  replacement of the hand-coded runtime.
+  quant-aware DAG matmul (SIMD kernels running directly on packed
+  quantized bytes — Phase 7 below) to land — that's the single
+  remaining gate between the DSL path and full replacement of the
+  hand-coded runtime.
 
 ## Phase 6b — Tool calling end-to-end on the Gemma 4 DSL runtime (DONE)
 
@@ -428,18 +428,19 @@ into the Gemma 4 path. Three concrete gaps fixed:
   expected args. First test in the repo that exercises
   `ChatSession.runSingleTurn(tools=…)` against an `InferenceRuntime`.
 
-**Remaining gate — Phase 5f.6.** The DSL path currently produces
-degenerate repetition on real Gemma 4 E2B because `layer_output_scale`
-and PLE each regress output quality (both hard-disabled by default in
-`GemmaNetworkLoader.fromWeights:161–162`). Until that bug-hunt
-concludes, `kgemma --runtime=dsl --agent "…"` on real Gemma 4 E2B runs
-end-to-end but won't produce a well-formed tool call. Once the bugs
-are fixed, tool use on the DSL path comes up for free with no
-additional wiring.
+With 5f.3–5f.5 landed, `kgemma --runtime=dsl --agent "…"` and
+`skainet-cli --agent "…"` on real Gemma 4 E2B Q4_K_M exercise the full
+DSL path (PLE + layer_output_scale + sandwich norms + QK-Norm +
+softcapping, all active) and emit parseable `<|tool_call>…<tool_call|>`
+blocks. `GemmaDslToolCallIntegrationTest` covers the runtime-side round
+trip on synthetic weights; real-checkpoint verification is the
+manual E2E smoke test outside CI.
 
 ## Phase 7 — DSL consumes quantized weights without FP32 dequant (DONE, Q4_0/Q8_0)
 
-`ISSUE-skainet-8b-oom.md` §Solution C, applied to the DSL path.
+Quant-aware DAG matmul: SIMD kernels run directly on packed quantized
+bytes, avoiding the 8× Q4→FP32 expansion at load time. Applied to the
+DSL path.
 
 ### 7a — `linearProject` helper (shipped)
 
@@ -518,6 +519,6 @@ path — help output mentions the Q4_K gap explicitly.
 | 5e. Mixed-head_dim shared KV + SDPA shape validation + tied-output load | DONE | SDPA upstream `require()` checks, `PaddedSharedPositionalKVCache` with pad-on-write / slice-on-read, `Gemma4WeightLoader` wires quant+logical-shape callbacks for the tied-output case. E2B Q4_K_M generates tokens end-to-end on `kgemma --runtime=dsl` — tokens are *wrong* pending Phase 5f. |
 | 5f.1. QK-Norm | DONE | `qkNorm=true` in gemmaNetwork, auto-detected. Commit 40605da. |
 | 5f.2. Sandwich norms | DONE | post_attention_norm + post_ffw_norm. Commit aa90b12. kgemma --runtime=dsl now emits real words. |
-| 5f.3. RoPE bug fixes | NOT STARTED | Replace NTK scaling with `inv_freq /= factor`, hard-code partial_rotary_factor=0.25 for globals. See gemma4-research/findings/prope_formula.md. |
-| 5f.4. layer_output_scale | NOT STARTED | Trivial per-block scalar multiply. See gemma4-research/findings/layer_output_scale.md. |
-| 5f.5. PLE (Per-Layer Embedding) | NOT STARTED | Biggest remaining feature — top-level PerLayerEmbedding + per-block hook + stage API extension. See gemma4-research/findings/ple.md + ple_block_hook.md. |
+| 5f.3. RoPE bug fixes | DONE | RoPE.kt uses reference `inv_freq = 1/base^(2i/headDim)` with `inv_freq /= factor` (`llm-core/.../RoPE.kt:116-122`). Gemma4WeightLoader defaults `partial_rotary_factor=0.25f` for any arch starting with `gemma` when the GGUF field is absent (`Gemma4WeightLoader.kt:320, 400`). |
+| 5f.4. layer_output_scale | DONE | `LayerScalarMul` module in llm-core; appended per block in `GemmaNetworkDef.kt:234-236`; auto-detected by presence of `blk.N.layer_output_scale.weight` in `GemmaNetworkLoader.kt:163, 170`. |
+| 5f.5. PLE (Per-Layer Embedding) | DONE | `PerLayerEmbedding` top-level + `PerLayerInputBlockHook` per-block + `GemmaModel` wrapper threading per_layer_inputs. Auto-enabled on presence of `per_layer_token_embd.weight` (`GemmaNetworkLoader.kt:164, 171`). Q6_K PLE table loaded in NATIVE_OPTIMIZED via `GemmaPerLayerTokenEmbedTensorData` row-dequant wrapper; BF16 model_proj + F32 proj_norm via standard path. `GemmaDslPleTest` verifies end-to-end forward produces finite distinct-input distinct-output logits. |

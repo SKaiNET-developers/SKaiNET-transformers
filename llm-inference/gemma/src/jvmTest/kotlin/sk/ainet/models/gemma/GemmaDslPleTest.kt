@@ -149,6 +149,101 @@ class GemmaDslPleTest {
     }
 
     @Test
+    fun `GemmaNetworkLoader auto-detects PLE from per_layer_token_embd weight`() {
+        // With the PLE tensors present, fromWeights must produce a GemmaModel
+        // whose ple is non-null — the Phase 5f.5 auto-detect gate flip.
+        val weightsWithPle = buildWeights()
+        val withPleModel = GemmaNetworkLoader.fromWeights(ctx, weightsWithPle)
+        val withPle = (withPleModel as GemmaModel<FP32, Float>).ple
+        assertTrue(withPle != null, "fromWeights with per_layer_token_embd.weight must enable PLE")
+
+        // With the three PLE top-level tensors stripped, fromWeights must
+        // produce a model with ple = null. Same block weights, so output
+        // differences below cleanly attribute to the PLE path.
+        val strippedTensors = weightsWithPle.tensors.toMutableMap().apply {
+            remove("per_layer_token_embd.weight")
+            remove("per_layer_model_proj.weight")
+            remove("per_layer_proj_norm.weight")
+            for (layer in 0 until numLayers) {
+                remove("blk.$layer.inp_gate.weight")
+                remove("blk.$layer.proj.weight")
+                remove("blk.$layer.post_norm.weight")
+            }
+        }
+        val weightsWithoutPle = Gemma4Weights(metadata = metadata, tensors = strippedTensors.toMap().let { linkedMapOf(*it.entries.map { e -> e.key to e.value }.toTypedArray()) })
+        val withoutPleModel = GemmaNetworkLoader.fromWeights(ctx, weightsWithoutPle)
+        val withoutPle = (withoutPleModel as GemmaModel<FP32, Float>).ple
+        assertTrue(withoutPle == null, "fromWeights without PLE tensors must leave ple = null")
+
+        // Forward through both — outputs must differ, proving PLE contributes.
+        val rtWithPle = OptimizedLLMRuntime(withPleModel, ctx, OptimizedLLMMode.DIRECT, FP32::class)
+        val rtWithoutPle = OptimizedLLMRuntime(withoutPleModel, ctx, OptimizedLLMMode.DIRECT, FP32::class)
+        val a = rtWithPle.forward(tokenId = 3).data.copyToFloatArray()
+        val b = rtWithoutPle.forward(tokenId = 3).data.copyToFloatArray()
+        assertEquals(a.size, b.size)
+        var maxDiff = 0f
+        for (i in a.indices) {
+            val d = kotlin.math.abs(a[i] - b[i])
+            if (d > maxDiff) maxDiff = d
+        }
+        assertTrue(
+            maxDiff > 1e-4f,
+            "PLE-on and PLE-off logits are identical (maxDiff=$maxDiff). " +
+                "PLE branch is not contributing — check the hook → block wiring."
+        )
+    }
+
+    @Test
+    fun `GemmaNetworkLoader auto-detects layer_output_scale from blk_N_layer_output_scale_weight`() {
+        // Baseline: no layer_output_scale tensors. Auto-detect must leave
+        // LayerScalarMul out of the block (hasLayerOutputScale = false).
+        val baseTensors = buildWeights().tensors.toMutableMap()
+        val baseWeights = Gemma4Weights(
+            metadata = metadata,
+            tensors = linkedMapOf<String, Tensor<FP32, Float>>().apply { putAll(baseTensors) }
+        )
+        val baseModel = GemmaNetworkLoader.fromWeights(ctx, baseWeights) as GemmaModel<FP32, Float>
+        val hasScaleBase = baseModel.blocks.first().modules.any {
+            it is sk.ainet.lang.nn.transformer.LayerScalarMul<*, *>
+        }
+        assertTrue(!hasScaleBase, "no layer_output_scale tensor → LayerScalarMul must not be wired")
+
+        // Flip: add non-unit layer_output_scale.weight per block. Half of 1.0
+        // gives a crisp "output should change" signal.
+        val scaledTensors = linkedMapOf<String, Tensor<FP32, Float>>().apply {
+            putAll(baseTensors)
+            for (layer in 0 until numLayers) {
+                put(
+                    "blk.$layer.layer_output_scale.weight",
+                    ctx.fromFloatArray(Shape(1), FP32::class, floatArrayOf(0.5f))
+                )
+            }
+        }
+        val scaledWeights = Gemma4Weights(metadata = metadata, tensors = scaledTensors)
+        val scaledModel = GemmaNetworkLoader.fromWeights(ctx, scaledWeights) as GemmaModel<FP32, Float>
+        val hasScaleScaled = scaledModel.blocks.first().modules.any {
+            it is sk.ainet.lang.nn.transformer.LayerScalarMul<*, *>
+        }
+        assertTrue(hasScaleScaled, "layer_output_scale.weight present → LayerScalarMul must be wired")
+
+        // Logits must differ — 0.5× applied at each block tail must move output.
+        val rtBase = OptimizedLLMRuntime(baseModel, ctx, OptimizedLLMMode.DIRECT, FP32::class)
+        val rtScaled = OptimizedLLMRuntime(scaledModel, ctx, OptimizedLLMMode.DIRECT, FP32::class)
+        val a = rtBase.forward(tokenId = 3).data.copyToFloatArray()
+        val b = rtScaled.forward(tokenId = 3).data.copyToFloatArray()
+        var maxDiff = 0f
+        for (i in a.indices) {
+            val d = kotlin.math.abs(a[i] - b[i])
+            if (d > maxDiff) maxDiff = d
+        }
+        assertTrue(
+            maxDiff > 1e-4f,
+            "layer_output_scale = 0.5 per block produced identical logits to no-scale baseline " +
+                "(maxDiff=$maxDiff). LayerScalarMul is not multiplying the block output."
+        )
+    }
+
+    @Test
     fun `PLE-enabled forward is deterministic across repeated calls`() {
         val weights = buildWeights()
         val loaded = GemmaNetworkLoader.fromWeights(ctx, weights)

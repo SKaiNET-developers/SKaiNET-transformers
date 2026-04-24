@@ -64,6 +64,11 @@ kotlin {
                 implementation(libs.junit)
                 implementation(libs.kotlinx.coroutines.test)
                 implementation(libs.skainet.backend.cpu)
+                // Test-only dep so GemmaDslToolCallIntegrationTest can build
+                // a real ChatSession around the DSL runtime. Production code
+                // in this module keeps no llm-agent coupling.
+                implementation(project(":llm-agent"))
+                implementation(libs.kotlinx.serialization.json)
             }
         }
     }

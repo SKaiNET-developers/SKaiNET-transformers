@@ -185,7 +185,7 @@ private fun <T : DType, V> convertOne(
             ctx.fromData(data as TensorData<FP32, Float>, advertisedDtype) as Tensor<T, V>
         }
         GGMLQuantizationType.Q6_K -> {
-            // Same packed-path treatment as Q4_K, enabled by the Phase 5f.5d
+            // Same packed-path treatment as Q4_K, enabled by the
             // `matmulQ6_KVec` kernel + lazy transpose in `DefaultCpuOpsJvm`.
             // Gemma 4 E2B Q4_K_M uses Q6_K for ffn_gate/up/down, attn_v,
             // token_embd, and the tied lm_head — keeping these packed saves
