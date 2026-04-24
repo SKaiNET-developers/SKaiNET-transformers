@@ -35,10 +35,10 @@ Status tracking for wrapping up the Phase 6b tool-calling work. Groups below map
 - [ ] (a) `kgemma` `--tools=<name1>,<name2>` flag + default tool registry (calculator, file-read, time — keep set minimal). Wire through `Main.kt` to `ChatSession`.
 - [ ] (g) Real-E2B smoke test: load actual Gemma 4 E2B checkpoint (not synthetic weights), run prompt that should elicit a tool call, assert model natively emits `<|tool_call>` format and round-trip completes. Gate test behind env var (checkpoint path) so CI stays green without the weights.
 
-### Group 5 — Research spec doc · no GH issue (local `gemma4-research`)
-**Location**: `gemma4-research/findings/tool_calling.md`. Tracked here only.
+### Group 5 — Research spec doc · no GH issue (local `gemma4-research`) ✅
+**Location**: `gemma4-research/findings/tool_calling.md` (committed as root commit `a609e46` of the research repo).
 
-- [ ] (h) Write `tool_calling.md` capturing: Gemma 4 chat-template grammar (`<|turn>`, `<|tool>`, `<|tool_call>`, `<|think|>`), difference from Gemma 2/3 legacy `functionCall` JSON, constraints observed in practice, links to the transformers implementation.
+- [x] (h) `tool_calling.md` captures the delimiter-family table (`<|turn>`/`<turn|>`, `<|tool>`/`<tool|>`, `<|tool_call>`/`<tool_call|>`, `<|tool_response>`/`<tool_response|>`, `<|think>`/`<think|>`), differences from Gemma 2/3 (legacy `functionCall` JSON, `<start_of_turn>`/`<end_of_turn>`, non-native system role), implementation pointers into `llm-agent` + the kgemma smoke test, and three open questions for the E2B smoke test to answer (thinking grammar, tokenizer-level specialness, tool-result framing).
 
 ## Upstream (SKaiNET) — conditional
 
@@ -60,4 +60,18 @@ No upstream work is planned up front. If during any group we hit a compute / op 
 
 ## Pre-flight
 
-- [ ] **Clean transformers working tree**: `feature/gemma4` currently has 12 dirty files (Phase 5f.6/6b leftovers, untracked `GemmaDslToolCallIntegrationTest.kt`, `GemmaDslPleTest.kt`, etc.). Must be committed, stashed, or triaged before cutting new branches from `develop` to avoid bleeding changes across PRs.
+- [x] **Clean transformers working tree**: Phase 6b follow-up committed as `6c2d729` on `feature/gemma4` bundling the e2e integration test, PLE test, and CLI wiring leftovers.
+
+## GitFlow note
+
+`develop` was 47 commits behind when this plan was drafted, so all sub-feature branches were cut from `feature/gemma4` and PR back into `feature/gemma4` (the integration branch for the Gemma 4 epic). When `feature/gemma4` eventually merges to `develop`, the whole stack ships together.
+
+## Shipped PRs
+
+| # | Group | Status |
+|---|-------|--------|
+| [#63](https://github.com/SKaiNET-developers/SKaiNET-transformers/issues/63) / [PR #64](https://github.com/SKaiNET-developers/SKaiNET-transformers/pull/64) | 2 — ChatSession polish | open |
+| [#65](https://github.com/SKaiNET-developers/SKaiNET-transformers/issues/65) / [PR #66](https://github.com/SKaiNET-developers/SKaiNET-transformers/pull/66) | 1 — tool-call robustness | open |
+| [#67](https://github.com/SKaiNET-developers/SKaiNET-transformers/issues/67) / [PR #68](https://github.com/SKaiNET-developers/SKaiNET-transformers/pull/68) | 3 — thinking mode | open |
+| [#69](https://github.com/SKaiNET-developers/SKaiNET-transformers/issues/69) / [PR #70](https://github.com/SKaiNET-developers/SKaiNET-transformers/pull/70) | 4 — kgemma tools + E2B smoke | open |
+| (none — local) | 5 — research spec | committed in `gemma4-research` as `a609e46` |
