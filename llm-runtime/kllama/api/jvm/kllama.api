@@ -200,6 +200,12 @@ public final class sk/ainet/apps/kllama/cli/CalculatorTool : sk/ainet/apps/kllam
 	public fun getDefinition ()Lsk/ainet/apps/kllama/chat/ToolDefinition;
 }
 
+public final class sk/ainet/apps/kllama/cli/ListFilesTool : sk/ainet/apps/kllama/chat/Tool {
+	public fun <init> ()V
+	public fun execute (Lkotlinx/serialization/json/JsonObject;)Ljava/lang/String;
+	public fun getDefinition ()Lsk/ainet/apps/kllama/chat/ToolDefinition;
+}
+
 public final class sk/ainet/apps/kllama/cli/MainKt {
 	public static final fun main ([Ljava/lang/String;)V
 }

@@ -102,6 +102,9 @@ kotlin {
                 implementation(libs.kotlin.test)
                 implementation(libs.kotlinx.coroutines.test)
                 implementation(libs.skainet.backend.cpu)
+                // Needed by Gemma4E2BToolCallSmokeTest for building
+                // ToolDefinition parameter schemas inline.
+                implementation(libs.kotlinx.serialization.json)
             }
         }
         if (!project.hasProperty("buildFatJar")) {
