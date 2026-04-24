@@ -18,7 +18,11 @@ import kotlinx.serialization.json.put
  * - Tool definitions wrapped in `<|tool>...<tool|>` delimiters
  * - Tool calls use `<|tool_call>...<tool_call|>` delimiters
  * - Tool responses use `<|tool_response>...<tool_response|>` delimiters
- * - Thinking mode via `<|think|>` token in system prompt
+ * - Thinking mode: `<|think>...<think|>` blocks in model output (same paired-
+ *   delimiter convention as the other markers). These are reasoning traces
+ *   the model is allowed to emit; the agent loop consumes them separately
+ *   and does not feed them back into subsequent prompts or persist them in
+ *   the assistant message.
  *
  * Turn format:
  * ```
@@ -140,6 +144,44 @@ public class Gemma4ChatTemplate : ChatTemplate {
         return text.contains("<|tool_call>") || text.contains("\"functionCall\"")
     }
 
+    override fun parseThinkingBlocks(text: String): List<String> {
+        val blocks = mutableListOf<String>()
+        var searchFrom = 0
+        while (searchFrom < text.length) {
+            val start = text.indexOf(THINK_OPEN, searchFrom)
+            if (start == -1) break
+            val contentStart = start + THINK_OPEN.length
+            val end = text.indexOf(THINK_CLOSE, contentStart)
+            if (end == -1) break
+            blocks += text.substring(contentStart, end)
+            searchFrom = end + THINK_CLOSE.length
+        }
+        return blocks
+    }
+
+    override fun stripThinking(text: String): String {
+        if (!text.contains(THINK_OPEN)) return text
+        val sb = StringBuilder(text.length)
+        var cursor = 0
+        while (cursor < text.length) {
+            val start = text.indexOf(THINK_OPEN, cursor)
+            if (start == -1) {
+                sb.append(text, cursor, text.length)
+                break
+            }
+            sb.append(text, cursor, start)
+            val end = text.indexOf(THINK_CLOSE, start + THINK_OPEN.length)
+            if (end == -1) {
+                // Unterminated block — drop everything from the opener on so the
+                // thinking text doesn't leak into conversation history.
+                break
+            }
+            cursor = end + THINK_CLOSE.length
+        }
+        // Collapse the whitespace we may have just created around the removed block.
+        return sb.toString().replace(Regex("""[\t ]*\n[\t ]*\n[\t ]*\n+"""), "\n\n").trim('\n', ' ', '\t')
+    }
+
     private fun parseFunctionCall(content: String): ToolCall? {
         return try {
             val obj = json.parseToJsonElement(content).jsonObject
@@ -169,6 +211,11 @@ public class Gemma4ChatTemplate : ChatTemplate {
         } catch (_: Exception) {
             null
         }
+    }
+
+    private companion object {
+        const val THINK_OPEN = "<|think>"
+        const val THINK_CLOSE = "<think|>"
     }
 
     private fun extractJsonObject(text: String, start: Int): String? {

@@ -37,4 +37,20 @@ public interface ChatTemplate {
      * The default implementation delegates to [ToolCallParser].
      */
     public fun containsToolCall(text: String): Boolean = ToolCallParser.containsToolCall(text)
+
+    /**
+     * Extract "thinking" blocks from model output — reasoning text the model
+     * is allowed to emit but that must not be fed back into subsequent prompts
+     * or shown to the end user by default. Templates whose models support a
+     * thinking mode (e.g. Gemma 4's `<|think|>...<think|>`) should override.
+     *
+     * @return Contents of each thinking block in order of appearance; empty if none.
+     */
+    public fun parseThinkingBlocks(text: String): List<String> = emptyList()
+
+    /**
+     * Return [text] with every thinking block removed. Templates without a
+     * thinking mode return [text] unchanged.
+     */
+    public fun stripThinking(text: String): String = text
 }

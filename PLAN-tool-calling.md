@@ -22,12 +22,12 @@ Status tracking for wrapping up the Phase 6b tool-calling work. Groups below map
 - [x] (d) Parameterize system prompt on `ChatSession` — `runSingleTurn(systemPrompt = ...)` + constructor-level `defaultSystemPrompt` default (`ChatSession.DEFAULT_SYSTEM_PROMPT`).
 - [x] (e) Remove deprecated `Gemma4Runtime`: deleted `Gemma4Runtime.kt` + `GemmaRuntimeParityTest.kt`; pruned `loadRuntime*` / `buildRuntime` from `Gemma4Ingestion`; removed `--runtime=handcoded` and the `RuntimeKind` enum from `kgemma` CLI.
 
-### Group 3 — Thinking mode · `feature/ISSUE-<N>-thinking-mode`
-**Issue repo**: SKaiNET-transformers. **Goal**: emit/consume `<|think|>...<think|>` blocks.
+### Group 3 — Thinking mode · `feature/ISSUE-67-thinking-mode` ✅
+**Issue**: [#67](https://github.com/SKaiNET-developers/SKaiNET-transformers/issues/67). **Goal**: emit/consume `<|think>...<think|>` blocks.
 
-- [ ] (b) `Gemma4ChatTemplate`: parse `<|think|>` blocks alongside tool calls; buffer separately from user-visible content.
-- [ ] `AgentLoop`: expose thinking output via an `AgentListener` callback (no leak into assistant message).
-- [ ] Update `GemmaDslToolCallIntegrationTest` (or add a sibling test) to exercise a scripted `<|think|>` → `<|tool_call>` sequence.
+- [x] (b) `Gemma4ChatTemplate.parseThinkingBlocks` / `stripThinking`; paired `<|think>` / `<think|>` delimiters (matching the Gemma 4 `<|NAME>` / `<NAME|>` convention — real-E2B smoke test in Group 4 will verify against the live model).
+- [x] `AgentLoop`: new `AgentListener.onThinking(text)` fires per block; thinking stripped from the ASSISTANT `ChatMessage` persisted to conversation history so it never feeds back into subsequent prompts; tool-call parsing still operates on the raw response.
+- [x] Test coverage: 6 template-level tests (single / multiple / interleaved with tool_call / strip / idempotent no-op / unterminated block dropped) + one AgentLoop integration test proving the listener sees the block and the message doesn't.
 
 ### Group 4 — kgemma CLI tools + E2B smoke test · `feature/ISSUE-<N>-kgemma-tools-e2b`
 **Issue repo**: SKaiNET-transformers. **Goal**: drive tool calling from the CLI against a real checkpoint.
