@@ -10,11 +10,11 @@ Status tracking for wrapping up the Phase 6b tool-calling work. Groups below map
 
 ## Groups
 
-### Group 1 — Tool-call robustness · `feature/ISSUE-<N>-tool-call-robustness`
-**Issue repo**: SKaiNET-transformers. **Goal**: harden the existing parser + template path.
+### Group 1 — Tool-call robustness · `feature/ISSUE-65-tool-call-robustness` ✅
+**Issue**: [#65](https://github.com/SKaiNET-developers/SKaiNET-transformers/issues/65). **Goal**: harden the existing parser + template path.
 
-- [ ] (c) JSON-schema validation: `ToolCallParser` extracts `arguments` but doesn't validate against `ToolDefinition.parameters`. Add schema check + `ToolCallValidationError` surfaced through `AgentLoop`. Test: malformed args rejected with actionable error.
-- [ ] (f) Codify tokenizer special tokens: `<|turn>`, `<|tool>`, `<|tool_call>`, `<tool_call|>`, `<|tool_response>` are used by `Gemma4ChatTemplate` but only empirically tested. Add a tokenizer round-trip test proving these encode/decode cleanly against the E2B tokenizer.
+- [x] (c) JSON-schema validation: new `ToolCallValidator` checks `required` + declared primitive types; `AgentLoop` validates each parsed call, feeds `"validation error: …"` back as the tool result on failure, exposes `AgentListener.onToolCallValidationFailed`. Tool `execute()` is skipped on invalid.
+- [x] (f) Codified tokenizer special-token tests in `Gemma4ChatTemplateTest`: every marker appears literally; openers/closers balance; tool-call markers never leak into rendered prompts; round-trip parse recovers JSON arguments.
 
 ### Group 2 — ChatSession polish · `feature/ISSUE-63-chat-session-polish` ✅
 **Issue**: [#63](https://github.com/SKaiNET-developers/SKaiNET-transformers/issues/63). **Goal**: make the Gemma 4 DSL path the canonical surface.

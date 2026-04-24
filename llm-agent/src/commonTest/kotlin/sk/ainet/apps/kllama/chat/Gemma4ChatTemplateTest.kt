@@ -155,6 +155,73 @@ class Gemma4ChatTemplateTest {
     }
 
     @Test
+    fun allSpecialMarkersAppearLiterally() {
+        val template = Gemma4ChatTemplate()
+        val messages = listOf(
+            ChatMessage(ChatRole.SYSTEM, "sys"),
+            ChatMessage(ChatRole.USER, "q"),
+            ChatMessage(ChatRole.ASSISTANT, "a"),
+            ChatMessage(ChatRole.TOOL, "42", toolCallId = "calculator")
+        )
+        val result = template.apply(messages, tools = listOf(sampleTool))
+
+        // Every marker the Gemma 4 grammar relies on must appear literally at
+        // least once — no HTML escaping, no unicode corruption, no accidental
+        // splitting into multiple tokens that look similar but aren't.
+        assertContains(result, "<|turn>")
+        assertContains(result, "<turn|>")
+        assertContains(result, "<|tool>")
+        assertContains(result, "<tool|>")
+        assertContains(result, "<|tool_response>")
+        assertContains(result, "<tool_response|>")
+
+        // Opener/closer must balance for each marker family.
+        assertEquals(countOf(result, "<|turn>"), countOf(result, "<turn|>") + 1,
+            "<|turn> count should exceed <turn|> by exactly one (the trailing generation prompt)")
+        assertEquals(countOf(result, "<|tool>"), countOf(result, "<tool|>"),
+            "<|tool> and <tool|> must balance")
+        assertEquals(countOf(result, "<|tool_response>"), countOf(result, "<tool_response|>"),
+            "<|tool_response> and <tool_response|> must balance")
+
+        // The prompt must not leak <|tool_call>...<tool_call|> — the template
+        // never emits those; they only appear in model output.
+        assertFalse(result.contains("<|tool_call>"),
+            "<|tool_call> must not appear in a rendered prompt; it belongs only in model output")
+        assertFalse(result.contains("<tool_call|>"),
+            "<tool_call|> must not appear in a rendered prompt; it belongs only in model output")
+    }
+
+    @Test
+    fun toolCallRoundTripPreservesArguments() {
+        val template = Gemma4ChatTemplate()
+
+        // Simulate what the model would emit: an assistant turn containing
+        // a tool_call block with JSON arguments.
+        val modelOutput = "Let me run that.\n" +
+            "<|tool_call>{\"name\":\"calculator\",\"args\":{\"expression\":\"3+4\",\"precision\":2}}<tool_call|>"
+
+        val parsed = template.parseToolCalls(modelOutput)
+        assertEquals(1, parsed.size)
+        assertEquals("calculator", parsed[0].name)
+        assertEquals(
+            "3+4",
+            parsed[0].arguments["expression"]?.toString()?.trim('"')
+        )
+        assertEquals("2", parsed[0].arguments["precision"]?.toString())
+    }
+
+    private fun countOf(haystack: String, needle: String): Int {
+        var count = 0
+        var idx = 0
+        while (true) {
+            val next = haystack.indexOf(needle, idx)
+            if (next < 0) return count
+            count++
+            idx = next + needle.length
+        }
+    }
+
+    @Test
     fun fullConversationGoldenTest() {
         val template = Gemma4ChatTemplate()
         val messages = listOf(
