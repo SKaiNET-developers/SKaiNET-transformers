@@ -128,6 +128,10 @@ kotlin {
 
 tasks.withType<Test>().configureEach {
     jvmArgs("--enable-preview", "--add-modules", "jdk.incubator.vector")
+    // Gemma4E2BToolCallSmokeTest dequantizes Q4_K → FP32 and wants ~20 GB.
+    // The 4g default keeps the fast suite cheap; real-checkpoint runs can
+    // override with -PkgemmaTestMaxHeap=20g.
+    maxHeapSize = (findProperty("kgemmaTestMaxHeap") as? String) ?: "4g"
 }
 
 tasks.withType<JavaExec>().configureEach {
