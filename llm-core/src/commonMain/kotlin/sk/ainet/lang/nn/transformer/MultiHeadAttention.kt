@@ -45,6 +45,18 @@ public class MultiHeadAttention<T : DType, V>(
      * checkpoints whose RMSNorm gain tensors are stored centered at zero.
      */
     public val qkNormUnitOffset: Boolean = false,
+    /**
+     * Explicit scale applied to the attention scores `Q @ K^T`. When `null`
+     * (default), uses the standard `1 / sqrt(head_dim)`. Gemma 4 sets this
+     * to `1.0f` because q_norm/k_norm have already normalized Q and K to
+     * unit-RMS — adding `1 / sqrt(head_dim)` on top makes the softmax
+     * over-flat (~uniform), averaging V across positions and producing
+     * residual-stream outputs dominated by the most-magnitude embedding
+     * (typically BOS). HF Gemma4TextAttention.__init__ sets `self.scaling =
+     * 1.0` and passes that to `eager_attention_forward`, bypassing the
+     * default `head_dim ** -0.5`.
+     */
+    public val attentionScale: Float? = null,
     public val bias: Boolean = false,
     override val name: String = "MultiHeadAttention",
     public var rope: RoPE<T, V>? = null,
@@ -139,7 +151,7 @@ public class MultiHeadAttention<T : DType, V>(
 
     override fun onForward(input: Tensor<T, V>, ctx: ExecutionContext): Tensor<T, V> {
         val ops = ctx.ops
-        val scale = 1.0f / sqrt(headDim.toFloat())
+        val scale = attentionScale ?: (1.0f / sqrt(headDim.toFloat()))
 
         val wQ = params[qWIdx].value
         val wK = params[kWIdx].value

@@ -157,6 +157,7 @@ public fun <T : DType, V> gemmaNetwork(
             causal = true,
             qkNorm = qkNorm, // Gemma 4 per-head RMSNorm on Q and K before RoPE
             qkNormUnitOffset = false, // GGUF stores the post-(1+) gain directly; do not re-add 1
+            attentionScale = 1.0f, // Gemma 4: HF Gemma4TextAttention uses scaling=1.0 (q/k norms already unit-RMS)
             id = "attn",
             slidingWindow = slidingWindow
         ) {
