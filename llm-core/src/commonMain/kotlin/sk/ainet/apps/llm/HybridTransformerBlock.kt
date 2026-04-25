@@ -143,9 +143,11 @@ public class HybridTransformerBlock<T : DType, V>(
     // --- DIRECT mode: same as TransformerBlock ---
 
     private fun directForward(input: Tensor<T, V>, ctx: ExecutionContext): Tensor<T, V> {
+        val dumpInner = System.getenv("GEMMA4_DUMP_INNER") == "1" && name == "blk.0"
         val outputs = arrayOfNulls<Any>(modulesList.size + 1)
         outputs[0] = input
         var tmp = input
+        if (dumpInner) dumpInnerStats("[blk.0 input]                  ", tmp)
         for (i in modulesList.indices) {
             val module = modulesList[i]
             val blockStart = residualBlockStarts[i]
@@ -156,8 +158,39 @@ public class HybridTransformerBlock<T : DType, V>(
             }
             tmp = module.forward(tmp, ctx)
             outputs[i + 1] = tmp
+            if (dumpInner) dumpInnerStats("[blk.0 after ${module::class.simpleName}/${module.name}]", tmp)
         }
         return tmp
+    }
+
+    /** Diagnostic only. Env-gated on GEMMA4_DUMP_INNER=1 + block name "blk.0". */
+    private fun dumpInnerStats(label: String, t: Tensor<T, V>) {
+        val data = t.data
+        val arr: FloatArray = when (data) {
+            is sk.ainet.lang.tensor.data.DenseFloatArrayTensorData<*> -> data.buffer.copyOf()
+            is sk.ainet.lang.tensor.data.MemorySegmentTensorData<*> -> {
+                val n = t.shape.volume
+                val out = FloatArray(n)
+                java.lang.foreign.MemorySegment.copy(
+                    data.segment, java.lang.foreign.ValueLayout.JAVA_FLOAT, data.segmentByteOffset,
+                    out, 0, n
+                )
+                out
+            }
+            else -> {
+                println("$label shape=${t.shape.dimensions.toList()} backing=${data::class.simpleName}")
+                return
+            }
+        }
+        var mn = Float.POSITIVE_INFINITY
+        var mx = Float.NEGATIVE_INFINITY
+        var sum = 0.0
+        var sumSq = 0.0
+        for (v in arr) { if (!v.isNaN()) { if (v < mn) mn = v; if (v > mx) mx = v; sum += v; sumSq += v.toDouble() * v } }
+        val n = arr.size
+        val mean = sum / n
+        val rms = kotlin.math.sqrt(sumSq / n)
+        println("$label shape=${t.shape.dimensions.toList()} min=%+.3f max=%+.3f mean=%+.3f rms=%.3f".format(mn, mx, mean, rms))
     }
 
     // --- HYBRID mode: compiled subgraphs + imperative attention ---

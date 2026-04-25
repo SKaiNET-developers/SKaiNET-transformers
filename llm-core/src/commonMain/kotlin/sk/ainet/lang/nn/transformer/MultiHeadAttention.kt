@@ -57,6 +57,17 @@ public class MultiHeadAttention<T : DType, V>(
      * default `head_dim ** -0.5`.
      */
     public val attentionScale: Float? = null,
+    /**
+     * When `true`, applies an unscaled per-head RMS norm to V before the
+     * attention dot product (`v / sqrt(mean(v²) + eps)` over `head_dim`).
+     * HF `Gemma4TextAttention` constructs `v_norm = Gemma4RMSNorm(head_dim,
+     * eps=rms_norm_eps, with_scale=False)` — there's no learnable scale, the
+     * norm just divides by RMS so V values land at unit RMS regardless of
+     * what magnitudes v_proj produced. Without this, V values drift positive
+     * and attention output (a weighted sum of V) inherits a strong positive
+     * mean bias — the symptom that produces BOS-dominated logits.
+     */
+    public val vNormNoScale: Boolean = false,
     public val bias: Boolean = false,
     override val name: String = "MultiHeadAttention",
     public var rope: RoPE<T, V>? = null,
@@ -175,12 +186,23 @@ public class MultiHeadAttention<T : DType, V>(
         val seqLen = if (input.rank >= 2) input.shape[input.rank - 2] else 1
         q = ops.reshape(q, Shape(nHeads, seqLen, headDim))
         k = ops.reshape(k, Shape(nKVHeads, seqLen, headDim))
-        val vReshaped = ops.reshape(v, Shape(nKVHeads, seqLen, headDim))
+        var vReshaped = ops.reshape(v, Shape(nKVHeads, seqLen, headDim))
 
         // Optional QK-Norm
         if (qNorm != null && kNorm != null) {
             q = qNorm.forward(q, ctx)
             k = kNorm.forward(k, ctx)
+        }
+
+        // Optional V-Norm (no scale): divide V by per-head RMS so attention
+        // output (sum_t softmax × V_t) doesn't inherit a positive mean bias
+        // from raw v_proj output. HF Gemma4TextAttention's `v_norm` is
+        // `Gemma4RMSNorm(..., with_scale=False)`.
+        if (vNormNoScale) {
+            val vSq = ops.multiply(vReshaped, vReshaped)
+            val vMean = ops.mean(vSq, dim = vReshaped.rank - 1)
+            val vRms = ops.unsqueeze(ops.sqrt(ops.addScalar(vMean, 1e-6f)), vReshaped.rank - 1)
+            vReshaped = ops.divide(vReshaped, vRms)
         }
 
         // Optional RoPE

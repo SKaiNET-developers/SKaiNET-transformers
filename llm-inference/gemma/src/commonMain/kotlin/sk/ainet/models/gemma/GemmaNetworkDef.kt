@@ -156,8 +156,9 @@ public fun <T : DType, V> gemmaNetwork(
             nKVHeads = nKVHeads,
             causal = true,
             qkNorm = qkNorm, // Gemma 4 per-head RMSNorm on Q and K before RoPE
-            qkNormUnitOffset = false, // GGUF stores the post-(1+) gain directly; do not re-add 1
+            qkNormUnitOffset = true, // GGUF stores raw weight (~0.984); HF computes gain=(1+weight)~1.984
             attentionScale = 1.0f, // Gemma 4: HF Gemma4TextAttention uses scaling=1.0 (q/k norms already unit-RMS)
+            vNormNoScale = true, // Gemma 4: v_norm = Gemma4RMSNorm(head_dim, with_scale=False)
             id = "attn",
             slidingWindow = slidingWindow
         ) {
