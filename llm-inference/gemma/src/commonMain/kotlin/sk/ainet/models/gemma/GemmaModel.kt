@@ -74,12 +74,19 @@ public class GemmaModel<T : DType, V>(
     }
 
     override fun onForward(input: Tensor<T, V>, ctx: ExecutionContext): Tensor<T, V> {
+        // Diagnostic: dump per-block hidden state stats when GEMMA4_DUMP_HIDDEN=1.
+        // Compares against expected llama.cpp magnitudes to localize the
+        // BOS-loop forward-pass bug. See gemma4-research/findings/dsl_vs_llamacpp_logit_divergence.md.
+        val dumpHidden = System.getenv("GEMMA4_DUMP_HIDDEN") == "1"
+
         // Step 1: run main embedding. OptimizedLLMRuntime passes a token-id
         // tensor (Int32, shape [seq] — often [1] for single-token decode);
         // Embedding expands to [seq, hiddenSize]. Apply the Gemma 4
         // sqrt(hidden_size) scale immediately on the result.
         val rawEmbeds = tokenEmbedding.forward(input, ctx)
         val inputsEmbeds = if (embedScale != 1f) ctx.ops.mulScalar(rawEmbeds, embedScale) else rawEmbeds
+        if (dumpHidden) dumpHiddenStats("embed-raw    ", rawEmbeds)
+        if (dumpHidden) dumpHiddenStats("embed-scaled ", inputsEmbeds)
 
         // Step 2: compute per_layer_inputs iff PLE is active.
         val perLayerInputs: Tensor<T, V>? = ple?.let { pleModule ->
@@ -87,6 +94,7 @@ public class GemmaModel<T : DType, V>(
             val embeds3d = ensureRank3Embeds(inputsEmbeds, ctx)
             pleModule.compute(tokenIds2d, embeds3d, ctx, dtype)
         }
+        if (dumpHidden && perLayerInputs != null) dumpHiddenStats("ple-inputs   ", perLayerInputs)
 
         // Step 3: iterate blocks. For each, pre-populate the hook's
         // perLayerInput with the corresponding slice if PLE is on.
@@ -106,6 +114,7 @@ public class GemmaModel<T : DType, V>(
                 }
             }
             hidden = block.forward(hidden, ctx)
+            if (dumpHidden) dumpHiddenStats("blk.${"%02d".format(layerIdx)}     ", hidden)
         }
 
         // Step 4: final norm + lm_head.
@@ -127,6 +136,54 @@ public class GemmaModel<T : DType, V>(
         }
 
         return logits
+    }
+
+    /**
+     * Diagnostic: read a tensor's float values, compute summary stats,
+     * print one line. Used only when `GEMMA4_DUMP_HIDDEN=1`.
+     * Supports DenseFloatArrayTensorData and MemorySegmentTensorData backings.
+     */
+    private fun dumpHiddenStats(stage: String, t: Tensor<T, V>) {
+        val data = t.data
+        val arr: FloatArray = when (data) {
+            is sk.ainet.lang.tensor.data.DenseFloatArrayTensorData<*> ->
+                data.buffer.copyOf()
+            is sk.ainet.lang.tensor.data.MemorySegmentTensorData<*> -> {
+                val n = t.shape.volume
+                val out = FloatArray(n)
+                @Suppress("UNCHECKED_CAST")
+                val seg = (data as sk.ainet.lang.tensor.data.MemorySegmentTensorData<sk.ainet.lang.types.FP32>).segment
+                @Suppress("UNCHECKED_CAST")
+                val off = (data as sk.ainet.lang.tensor.data.MemorySegmentTensorData<sk.ainet.lang.types.FP32>).segmentByteOffset
+                java.lang.foreign.MemorySegment.copy(
+                    seg, java.lang.foreign.ValueLayout.JAVA_FLOAT, off,
+                    out, 0, n
+                )
+                out
+            }
+            else -> {
+                println("[hidden] $stage shape=${t.shape.dimensions.toList()} backing=${data::class.simpleName} (skip)")
+                return
+            }
+        }
+        var mn = Float.POSITIVE_INFINITY
+        var mx = Float.NEGATIVE_INFINITY
+        var sum = 0.0
+        var sumSq = 0.0
+        var nanCount = 0
+        for (v in arr) {
+            if (v.isNaN()) { nanCount++; continue }
+            if (v < mn) mn = v
+            if (v > mx) mx = v
+            sum += v
+            sumSq += v.toDouble() * v
+        }
+        val n = arr.size - nanCount
+        val mean = if (n > 0) sum / n else 0.0
+        val rms = if (n > 0) kotlin.math.sqrt(sumSq / n) else 0.0
+        println("[hidden] $stage shape=${t.shape.dimensions.toList()} min=%+.3f max=%+.3f mean=%+.3f rms=%.3f%s".format(
+            mn, mx, mean, rms, if (nanCount > 0) " NaN=$nanCount" else ""
+        ))
     }
 
     @Suppress("UNCHECKED_CAST")
