@@ -72,7 +72,7 @@ public class PerLayerEmbedding<T : DType, V>(
     )
 
     public val projectionNorm: RMSNormalization<T, V> =
-        RMSNormalization(intArrayOf(perLayerDim), rmsEps.toDouble(), name = "$name.projection_norm", unitOffset = true)
+        RMSNormalization(intArrayOf(perLayerDim), rmsEps.toDouble(), name = "$name.projection_norm")
 
     override val params: List<ModuleParameter<T, V>> = listOf(
         // Per-layer token embedding: [vocabSize, perLayerTotal]. Big table —

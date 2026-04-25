@@ -149,14 +149,14 @@ public fun <T : DType, V> gemmaNetwork(
         val isInSharedGroup = metadata.kvSharedLayers > 0 && layer >= firstSharedLayer
 
         val stage = StageImpl<T, V>(nnCtx, "blk.$layer", dtype)
-        stage.rmsNorm(dim, eps, id = "attn_norm", unitOffset = true)
+        stage.rmsNorm(dim, eps, id = "attn_norm", unitOffset = false)
         stage.multiHeadAttention(
             dim = dim,
             nHeads = nHeads,
             nKVHeads = nKVHeads,
             causal = true,
             qkNorm = qkNorm, // Gemma 4 per-head RMSNorm on Q and K before RoPE
-            qkNormUnitOffset = true, // Gemma RMSNorm gain stored centered at zero
+            qkNormUnitOffset = false, // GGUF stores the post-(1+) gain directly; do not re-add 1
             id = "attn",
             slidingWindow = slidingWindow
         ) {
@@ -212,12 +212,12 @@ public fun <T : DType, V> gemmaNetwork(
                 }
             }
         }
-        if (sandwichNorms) stage.rmsNorm(dim, eps, id = "post_attention_norm", unitOffset = true)
+        if (sandwichNorms) stage.rmsNorm(dim, eps, id = "post_attention_norm", unitOffset = false)
         stage.residual()
 
-        stage.rmsNorm(dim, eps, id = "ffn_norm", unitOffset = true)
+        stage.rmsNorm(dim, eps, id = "ffn_norm", unitOffset = false)
         stage.geGluFFN(dim, ffnDim, id = "ffn")
-        if (sandwichNorms) stage.rmsNorm(dim, eps, id = "post_ffw_norm", unitOffset = true)
+        if (sandwichNorms) stage.rmsNorm(dim, eps, id = "post_ffw_norm", unitOffset = false)
         stage.residual()
 
         // PLE hook fires between FFN residual and layer_output_scale.
@@ -239,7 +239,7 @@ public fun <T : DType, V> gemmaNetwork(
         dslImpl.modules += HybridTransformerBlock(stage.modules.toList(), name = "blk.$layer")
     }
 
-    dslImpl.rmsNorm(dim, eps, id = "output_norm", unitOffset = true)
+    dslImpl.rmsNorm(dim, eps, id = "output_norm", unitOffset = false)
     // Void placeholder for output projection — Gemma 4 E2B vocab is 262 144
     // and dense(vocabSize) would eagerly allocate ~1.5 GB of zeros before
     // WeightMapper runs.

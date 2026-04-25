@@ -80,7 +80,7 @@ public class PerLayerInputBlockHook<T : DType, V>(
     )
 
     public val postNorm: RMSNormalization<T, V> =
-        RMSNormalization(intArrayOf(hiddenSize), name = "$name.post_norm", unitOffset = true)
+        RMSNormalization(intArrayOf(hiddenSize), name = "$name.post_norm")
 
     override val params: List<ModuleParameter<T, V>> = listOf(
         ModuleParameter.WeightParameter(
