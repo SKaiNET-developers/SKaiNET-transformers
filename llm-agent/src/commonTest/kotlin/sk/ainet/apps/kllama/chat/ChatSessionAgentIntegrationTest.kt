@@ -192,4 +192,73 @@ class ChatSessionAgentIntegrationTest {
         assertEquals(1, toolResultsSeen.size)
         assertEquals("calculator" to "7", toolResultsSeen[0])
     }
+
+    @Test
+    fun `ChatSession honors systemPrompt override in runSingleTurn`() {
+        val metadata = ModelMetadata(architecture = "gemma4", family = "gemma4")
+        val tokenizer = ByteTokenizer()
+        val template = Gemma4ChatTemplate()
+        val tool = FixedCalculatorTool(expected = "3+4", result = "7")
+
+        // Distinctive custom system prompt — different length from the default
+        // so any fall-through to the hard-coded default would desync the mock.
+        val customSystemPrompt = "Custom prompt for this turn only."
+
+        val round1Prompt = template.apply(
+            listOf(
+                ChatMessage(ChatRole.SYSTEM, customSystemPrompt),
+                ChatMessage(ChatRole.USER, "what is 3 + 4?")
+            ),
+            listOf(tool.definition),
+            addGenerationPrompt = true
+        )
+        val round1PromptLen = tokenizer.encode(round1Prompt).size
+
+        val toolCallText =
+            "<|tool_call>{\"name\":\"calculator\",\"args\":{\"expression\":\"3+4\"}}<tool_call|>"
+        val scriptedOutput = tokenizer.encode(toolCallText)
+
+        val mock = MockRuntime(
+            promptLen = round1PromptLen,
+            scriptedOutput = scriptedOutput,
+            eosTokenId = tokenizer.eosTokenId,
+            vocabSize = tokenizer.vocabSize
+        )
+
+        val session = ChatSession(mock, tokenizer, metadata)
+        val parsed = mutableListOf<ToolCall>()
+        val listener = object : AgentListener {
+            override fun onToolCalls(calls: List<ToolCall>) { parsed += calls }
+            override fun onToolResult(call: ToolCall, result: String) {}
+        }
+
+        session.runSingleTurn(
+            prompt = "what is 3 + 4?",
+            tools = listOf(tool),
+            maxTokens = scriptedOutput.size + 4,
+            temperature = 0.0f,
+            systemPrompt = customSystemPrompt,
+            listener = listener
+        )
+
+        // If the override was ignored, the prompt bytes fed to the mock
+        // would differ from round1PromptLen and the cursor would desync,
+        // breaking the tool call parse. A clean parse is the assertion.
+        assertEquals(1, parsed.size)
+        assertEquals("calculator", parsed[0].name)
+        assertEquals("3+4", parsed[0].arguments["expression"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `ChatSession exposes constructor-level defaultSystemPrompt`() {
+        val metadata = ModelMetadata(architecture = "gemma4", family = "gemma4")
+        val tokenizer = ByteTokenizer()
+        val mock = MockRuntime(promptLen = 1, scriptedOutput = IntArray(0), tokenizer.eosTokenId, tokenizer.vocabSize)
+
+        val defaulted = ChatSession(mock, tokenizer, metadata)
+        assertEquals(ChatSession.DEFAULT_SYSTEM_PROMPT, defaulted.defaultSystemPrompt)
+
+        val customized = ChatSession(mock, tokenizer, metadata, defaultSystemPrompt = "Session-level default")
+        assertEquals("Session-level default", customized.defaultSystemPrompt)
+    }
 }

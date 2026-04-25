@@ -25,7 +25,8 @@ public class ChatSession<T : DType>(
     public val runtime: InferenceRuntime<T>,
     public val tokenizer: Tokenizer,
     public val metadata: ModelMetadata = ModelMetadata(),
-    templateName: String? = null
+    templateName: String? = null,
+    public val defaultSystemPrompt: String = DEFAULT_SYSTEM_PROMPT
 ) {
     private val provider: ToolCallingSupport = ToolCallingSupportResolver.resolveOrFallback(metadata, templateName)
     private val template: ChatTemplate = provider.createChatTemplate()
@@ -38,6 +39,7 @@ public class ChatSession<T : DType>(
      * @param tools Tools to register. If empty, uses default calculator + list_files.
      * @param maxTokens Maximum tokens per generation round.
      * @param temperature Sampling temperature.
+     * @param systemPrompt System prompt for this turn; falls back to [defaultSystemPrompt].
      * @param listener Optional listener for observing the agent loop.
      * @return The final assistant response text.
      */
@@ -46,6 +48,7 @@ public class ChatSession<T : DType>(
         tools: List<Tool> = emptyList(),
         maxTokens: Int = 256,
         temperature: Float = 0.7f,
+        systemPrompt: String? = null,
         listener: AgentListener? = null
     ): String {
         val registry = ToolRegistry()
@@ -64,9 +67,9 @@ public class ChatSession<T : DType>(
             decode = { tokenId -> tokenizer.decode(tokenId) }
         )
 
-        val systemPrompt = "You are a helpful assistant with access to tools."
+        val effectiveSystemPrompt = systemPrompt ?: defaultSystemPrompt
         val messages = mutableListOf(
-            ChatMessage(role = ChatRole.SYSTEM, content = systemPrompt),
+            ChatMessage(role = ChatRole.SYSTEM, content = effectiveSystemPrompt),
             ChatMessage(role = ChatRole.USER, content = prompt)
         )
 
@@ -110,4 +113,9 @@ public class ChatSession<T : DType>(
 
     /** Decode a token ID to text using this session's tokenizer. */
     public fun decode(tokenId: Int): String = tokenizer.decode(tokenId)
+
+    public companion object {
+        public const val DEFAULT_SYSTEM_PROMPT: String =
+            "You are a helpful assistant with access to tools."
+    }
 }

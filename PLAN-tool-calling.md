@@ -16,11 +16,11 @@ Status tracking for wrapping up the Phase 6b tool-calling work. Groups below map
 - [ ] (c) JSON-schema validation: `ToolCallParser` extracts `arguments` but doesn't validate against `ToolDefinition.parameters`. Add schema check + `ToolCallValidationError` surfaced through `AgentLoop`. Test: malformed args rejected with actionable error.
 - [ ] (f) Codify tokenizer special tokens: `<|turn>`, `<|tool>`, `<|tool_call>`, `<tool_call|>`, `<|tool_response>` are used by `Gemma4ChatTemplate` but only empirically tested. Add a tokenizer round-trip test proving these encode/decode cleanly against the E2B tokenizer.
 
-### Group 2 — ChatSession polish · `feature/ISSUE-<N>-chat-session-polish`
-**Issue repo**: SKaiNET-transformers. **Goal**: make the Gemma 4 DSL path the canonical surface.
+### Group 2 — ChatSession polish · `feature/ISSUE-63-chat-session-polish` ✅
+**Issue**: [#63](https://github.com/SKaiNET-developers/SKaiNET-transformers/issues/63). **Goal**: make the Gemma 4 DSL path the canonical surface.
 
-- [ ] (d) Parameterize system prompt on `ChatSession` (`ChatSession.kt:67` — currently hard-coded `"You are a helpful assistant with access to tools."`). Constructor arg + sensible default per model family.
-- [ ] (e) Remove deprecated `Gemma4Runtime.kt:27-42`. Confirm zero callers (grep) before deletion; update any docs/README references.
+- [x] (d) Parameterize system prompt on `ChatSession` — `runSingleTurn(systemPrompt = ...)` + constructor-level `defaultSystemPrompt` default (`ChatSession.DEFAULT_SYSTEM_PROMPT`).
+- [x] (e) Remove deprecated `Gemma4Runtime`: deleted `Gemma4Runtime.kt` + `GemmaRuntimeParityTest.kt`; pruned `loadRuntime*` / `buildRuntime` from `Gemma4Ingestion`; removed `--runtime=handcoded` and the `RuntimeKind` enum from `kgemma` CLI.
 
 ### Group 3 — Thinking mode · `feature/ISSUE-<N>-thinking-mode`
 **Issue repo**: SKaiNET-transformers. **Goal**: emit/consume `<|think|>...<think|>` blocks.
