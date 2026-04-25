@@ -10,7 +10,10 @@ import sk.ainet.apps.llm.OptimizedLLMRuntime
 import sk.ainet.apps.llm.Tokenizer
 import sk.ainet.apps.llm.UnifiedModelLoader
 import sk.ainet.apps.llm.generate
+import sk.ainet.models.gemma.Gemma4WeightLoader
+import sk.ainet.models.gemma.Gemma4Weights
 import sk.ainet.models.gemma.GemmaNetworkLoader
+import sk.ainet.models.gemma.convertGemmaWeightsToMemSeg
 import sk.ainet.apps.llm.backend.BackendRegistry
 import sk.ainet.apps.llm.backend.bestAvailable
 import sk.ainet.apps.llm.tokenizer.TokenizerFactory
@@ -165,16 +168,17 @@ fun main(args: Array<String>) {
         // everything else (LLaMA, Qwen, Apertus, ...) takes the LlamaRuntime
         // path which supports NATIVE_OPTIMIZED quant tensors for low-RAM loads.
         val runtime: InferenceRuntime<FP32> = if (modelInfo.family == ModelFamily.GEMMA) {
-            println("Loading Gemma GGUF model from $modelPath via gemmaNetwork() + OptimizedLLMRuntime (streaming)...")
-            println("  Note: the DSL path currently requires QuantPolicy.DEQUANTIZE_TO_FP32, so")
-            println("  real Gemma 4 E2B (~4.5B params) needs ~20 GB RAM after weight dequant.")
+            println("Loading Gemma GGUF model from $modelPath via gemmaNetwork() + OptimizedLLMRuntime (NATIVE_OPTIMIZED)...")
             if (cliArgs.contextLength != null) {
                 println("  --context flag currently ignored on the Gemma path; uses model default capped to 4096.")
             }
-            val model = GemmaNetworkLoader.fromGguf(
+            val rawWeights = Gemma4WeightLoader(
                 randomAccessProvider = { JvmRandomAccessSource.open(modelPath.toString()) },
-                quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32
-            ).load<FP32, Float>(ctx)
+                quantPolicy = QuantPolicy.NATIVE_OPTIMIZED
+            ).loadToMapStreaming<FP32, Float>(ctx, FP32::class)
+            @Suppress("UNCHECKED_CAST")
+            val converted = convertGemmaWeightsToMemSeg(rawWeights, ctx, quantArena) as Gemma4Weights<FP32, Float>
+            val model = GemmaNetworkLoader.fromWeights(ctx, converted, FP32::class)
             OptimizedLLMRuntime(model, ctx, OptimizedLLMMode.DIRECT, FP32::class)
         } else {
             val acceptedArchitectures = modelInfo.family.architectures + setOf(modelInfo.architecture)
