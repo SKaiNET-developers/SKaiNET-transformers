@@ -366,4 +366,72 @@ class ChatSessionAgentIntegrationTest {
         // Tool's execute() must never run when validation fails.
         assertFalse(tool.invoked, "tool.execute() must not run when validation fails")
     }
+
+    @Test
+    fun `AgentLoop surfaces thinking blocks to listener and strips them from persisted messages`() {
+        val tokenizer = ByteTokenizer()
+        val template = Gemma4ChatTemplate()
+        val tool = FixedCalculatorTool(expected = "3+4", result = "7")
+
+        val round1Messages = listOf(
+            ChatMessage(ChatRole.SYSTEM, "You are a helpful assistant with access to tools."),
+            ChatMessage(ChatRole.USER, "what is 3 + 4?")
+        )
+        val round1Prompt = template.apply(
+            round1Messages,
+            listOf(tool.definition),
+            addGenerationPrompt = true
+        )
+        val round1PromptLen = tokenizer.encode(round1Prompt).size
+
+        // Scripted output: thinking block followed by a tool call — the model
+        // reasons, then decides to call the calculator.
+        val scriptedText =
+            "<|think>I should use the calculator for this.<think|>\n" +
+            "<|tool_call>{\"name\":\"calculator\",\"args\":{\"expression\":\"3+4\"}}<tool_call|>"
+        val scriptedOutput = tokenizer.encode(scriptedText)
+
+        val mock = MockRuntime(
+            promptLen = round1PromptLen,
+            scriptedOutput = scriptedOutput,
+            eosTokenId = tokenizer.eosTokenId,
+            vocabSize = tokenizer.vocabSize
+        )
+
+        val registry = ToolRegistry().also { it.register(tool) }
+        val loop = AgentLoop<FP32>(
+            runtime = mock,
+            template = template,
+            toolRegistry = registry,
+            eosTokenId = tokenizer.eosTokenId,
+            config = AgentConfig(
+                maxToolRounds = 1,
+                maxTokensPerRound = scriptedOutput.size + 4,
+                temperature = 0.0f
+            ),
+            decode = { tokenizer.decode(it) }
+        )
+
+        val thinkingHeard = mutableListOf<String>()
+        val listener = object : AgentListener {
+            override fun onThinking(text: String) { thinkingHeard += text }
+        }
+
+        val messages = round1Messages.toMutableList()
+        loop.runWithEncoder(messages, encode = { tokenizer.encode(it) }, listener = listener)
+
+        // Listener saw the thinking content.
+        assertEquals(1, thinkingHeard.size)
+        assertEquals("I should use the calculator for this.", thinkingHeard[0])
+
+        // Thinking must not leak into the persisted assistant message.
+        val assistantMsg = messages.firstOrNull { it.role == ChatRole.ASSISTANT }
+            ?: error("expected an assistant message in conversation")
+        assertFalse(assistantMsg.content.contains("<|think>"), "thinking opener leaked into assistant message")
+        assertFalse(assistantMsg.content.contains("I should use the calculator"), "thinking text leaked into assistant message")
+
+        // Tool still fired based on the raw text.
+        assertTrue(tool.invoked, "calculator tool should still run — tool_call parsing operates on the raw response")
+        assertEquals("3+4", tool.receivedExpression)
+    }
 }

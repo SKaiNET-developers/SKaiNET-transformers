@@ -210,6 +210,69 @@ class Gemma4ChatTemplateTest {
         assertEquals("2", parsed[0].arguments["precision"]?.toString())
     }
 
+    @Test
+    fun parseSingleThinkingBlock() {
+        val template = Gemma4ChatTemplate()
+        val text = "Sure.\n<|think>Let me work this out: 1 + 1 = 2.<think|>\nThe answer is 2."
+        val blocks = template.parseThinkingBlocks(text)
+        assertEquals(1, blocks.size)
+        assertEquals("Let me work this out: 1 + 1 = 2.", blocks[0])
+    }
+
+    @Test
+    fun parseMultipleThinkingBlocks() {
+        val template = Gemma4ChatTemplate()
+        val text = "<|think>first<think|> between <|think>second<think|>"
+        val blocks = template.parseThinkingBlocks(text)
+        assertEquals(listOf("first", "second"), blocks)
+    }
+
+    @Test
+    fun parseInterleavedThinkAndToolCall() {
+        val template = Gemma4ChatTemplate()
+        val text = "<|think>plan: use the calculator<think|>\n" +
+            "<|tool_call>{\"name\":\"calculator\",\"args\":{\"expression\":\"3+4\"}}<tool_call|>"
+
+        val thinks = template.parseThinkingBlocks(text)
+        val calls = template.parseToolCalls(text)
+
+        assertEquals(1, thinks.size)
+        assertEquals("plan: use the calculator", thinks[0])
+        assertEquals(1, calls.size)
+        assertEquals("calculator", calls[0].name)
+    }
+
+    @Test
+    fun stripThinkingRemovesBlockAndLeavesVisibleText() {
+        val template = Gemma4ChatTemplate()
+        val text = "Here's the answer.\n<|think>hidden reasoning<think|>\nThe result is 7."
+        val stripped = template.stripThinking(text)
+        assertFalse(stripped.contains("<|think>"))
+        assertFalse(stripped.contains("<think|>"))
+        assertFalse(stripped.contains("hidden reasoning"))
+        assertContains(stripped, "Here's the answer.")
+        assertContains(stripped, "The result is 7.")
+    }
+
+    @Test
+    fun stripThinkingIdempotentWhenNoBlock() {
+        val template = Gemma4ChatTemplate()
+        val text = "Plain output with no thinking at all."
+        assertEquals(text, template.stripThinking(text))
+    }
+
+    @Test
+    fun stripThinkingDropsUnterminatedBlock() {
+        val template = Gemma4ChatTemplate()
+        // Generation truncation may cut a thinking block mid-sentence. Must
+        // not leak the partial thinking into conversation history.
+        val text = "Looking at it:\n<|think>I should reason about"
+        val stripped = template.stripThinking(text)
+        assertFalse(stripped.contains("I should reason about"))
+        assertFalse(stripped.contains("<|think>"))
+        assertContains(stripped, "Looking at it:")
+    }
+
     private fun countOf(haystack: String, needle: String): Int {
         var count = 0
         var idx = 0
