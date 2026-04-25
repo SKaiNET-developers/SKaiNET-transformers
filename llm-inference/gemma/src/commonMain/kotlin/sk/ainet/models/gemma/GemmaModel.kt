@@ -119,7 +119,9 @@ public class GemmaModel<T : DType, V>(
 
         // Step 4: final norm + lm_head.
         hidden = outputNorm.forward(hidden, ctx)
+        if (dumpHidden) dumpHiddenStats("post-norm    ", hidden)
         var logits = lmHead.forward(hidden, ctx)
+        if (dumpHidden) dumpHiddenStats("logits-pre-sc", logits)
 
         // Step 5: Gemma 4 final logit softcapping (matches HF
         // `Gemma4ForCausalLM.forward`). Without this the model latches
