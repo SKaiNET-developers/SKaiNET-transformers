@@ -47,6 +47,14 @@ public class GemmaModel<T : DType, V>(
     public val lmHead: VoidDense<T, V>,
     public val dtype: KClass<T>,
     /**
+     * Multiplier applied to token-embedding output before the trunk. Gemma 4
+     * uses `sqrt(hidden_size)` (HF: `embed_scale=config.hidden_size**0.5`).
+     * Without this scale, trunk activations are ~1/sqrt(dim) of their trained
+     * magnitude and decode collapses to a near-uniform distribution. Set to
+     * `1f` for models that do not require it.
+     */
+    public val embedScale: Float = 1f,
+    /**
      * `final_logit_softcapping` from the Gemma 4 config. When `> 0`, the
      * lm_head output is passed through `softcap * tanh(logits / softcap)`
      * — matches `Gemma4ForCausalLM.forward` in transformers 5.6.0. Gemma
@@ -68,8 +76,10 @@ public class GemmaModel<T : DType, V>(
     override fun onForward(input: Tensor<T, V>, ctx: ExecutionContext): Tensor<T, V> {
         // Step 1: run main embedding. OptimizedLLMRuntime passes a token-id
         // tensor (Int32, shape [seq] — often [1] for single-token decode);
-        // Embedding expands to [seq, hiddenSize].
-        val inputsEmbeds = tokenEmbedding.forward(input, ctx)
+        // Embedding expands to [seq, hiddenSize]. Apply the Gemma 4
+        // sqrt(hidden_size) scale immediately on the result.
+        val rawEmbeds = tokenEmbedding.forward(input, ctx)
+        val inputsEmbeds = if (embedScale != 1f) ctx.ops.mulScalar(rawEmbeds, embedScale) else rawEmbeds
 
         // Step 2: compute per_layer_inputs iff PLE is active.
         val perLayerInputs: Tensor<T, V>? = ple?.let { pleModule ->

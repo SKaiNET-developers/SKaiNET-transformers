@@ -72,6 +72,7 @@ public class AttentionImpl<T : DType, V>(
     private val nKVHeads: Int,
     private val causal: Boolean,
     private val qkNorm: Boolean,
+    private val qkNormUnitOffset: Boolean = false,
     private val bias: Boolean,
     private val id: String,
     private val slidingWindow: Int? = null,
@@ -125,6 +126,7 @@ public class AttentionImpl<T : DType, V>(
             nKVHeads = nKVHeads,
             causal = causal,
             qkNorm = qkNorm,
+            qkNormUnitOffset = qkNormUnitOffset,
             bias = bias,
             name = id,
             rope = ropeModule,
@@ -159,11 +161,12 @@ public fun <T : DType, V> StageImpl<T, V>.embedding(vocabSize: Int, dim: Int, id
     lastDimension = dim
 }
 
-public fun <T : DType, V> StageImpl<T, V>.rmsNorm(normalizedShape: Int, eps: Float = 1e-5f, id: String = "") {
+public fun <T : DType, V> StageImpl<T, V>.rmsNorm(normalizedShape: Int, eps: Float = 1e-5f, id: String = "", unitOffset: Boolean = false) {
     modules += RMSNormalization<T, V>(
         normalizedShape = intArrayOf(normalizedShape),
         eps = eps.toDouble(),
-        name = getDefaultName(id, "RMSNorm", modules.size)
+        name = getDefaultName(id, "RMSNorm", modules.size),
+        unitOffset = unitOffset
     )
 }
 
@@ -173,6 +176,7 @@ public fun <T : DType, V> StageImpl<T, V>.multiHeadAttention(
     nKVHeads: Int = nHeads,
     causal: Boolean = true,
     qkNorm: Boolean = false,
+    qkNormUnitOffset: Boolean = false,
     bias: Boolean = false,
     id: String = "",
     slidingWindow: Int? = null,
@@ -186,6 +190,7 @@ public fun <T : DType, V> StageImpl<T, V>.multiHeadAttention(
         nKVHeads = nKVHeads,
         causal = causal,
         qkNorm = qkNorm,
+        qkNormUnitOffset = qkNormUnitOffset,
         bias = bias,
         id = attnName,
         slidingWindow = slidingWindow,
@@ -248,11 +253,12 @@ public fun <T : DType, V> NeuralNetworkDslImpl<T, V>.embedding(vocabSize: Int, d
     lastDimension = dim
 }
 
-public fun <T : DType, V> NeuralNetworkDslImpl<T, V>.rmsNorm(normalizedShape: Int, eps: Float = 1e-5f, id: String = "") {
+public fun <T : DType, V> NeuralNetworkDslImpl<T, V>.rmsNorm(normalizedShape: Int, eps: Float = 1e-5f, id: String = "", unitOffset: Boolean = false) {
     modules += RMSNormalization<T, V>(
         normalizedShape = intArrayOf(normalizedShape),
         eps = eps.toDouble(),
-        name = getDefaultName(id, "RMSNorm", modules.size)
+        name = getDefaultName(id, "RMSNorm", modules.size),
+        unitOffset = unitOffset
     )
 }
 

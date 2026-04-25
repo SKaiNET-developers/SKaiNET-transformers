@@ -149,13 +149,14 @@ public fun <T : DType, V> gemmaNetwork(
         val isInSharedGroup = metadata.kvSharedLayers > 0 && layer >= firstSharedLayer
 
         val stage = StageImpl<T, V>(nnCtx, "blk.$layer", dtype)
-        stage.rmsNorm(dim, eps, id = "attn_norm")
+        stage.rmsNorm(dim, eps, id = "attn_norm", unitOffset = true)
         stage.multiHeadAttention(
             dim = dim,
             nHeads = nHeads,
             nKVHeads = nKVHeads,
             causal = true,
             qkNorm = qkNorm, // Gemma 4 per-head RMSNorm on Q and K before RoPE
+            qkNormUnitOffset = true, // Gemma RMSNorm gain stored centered at zero
             id = "attn",
             slidingWindow = slidingWindow
         ) {
@@ -211,12 +212,12 @@ public fun <T : DType, V> gemmaNetwork(
                 }
             }
         }
-        if (sandwichNorms) stage.rmsNorm(dim, eps, id = "post_attention_norm")
+        if (sandwichNorms) stage.rmsNorm(dim, eps, id = "post_attention_norm", unitOffset = true)
         stage.residual()
 
-        stage.rmsNorm(dim, eps, id = "ffn_norm")
+        stage.rmsNorm(dim, eps, id = "ffn_norm", unitOffset = true)
         stage.geGluFFN(dim, ffnDim, id = "ffn")
-        if (sandwichNorms) stage.rmsNorm(dim, eps, id = "post_ffw_norm")
+        if (sandwichNorms) stage.rmsNorm(dim, eps, id = "post_ffw_norm", unitOffset = true)
         stage.residual()
 
         // PLE hook fires between FFN residual and layer_output_scale.
@@ -238,7 +239,7 @@ public fun <T : DType, V> gemmaNetwork(
         dslImpl.modules += HybridTransformerBlock(stage.modules.toList(), name = "blk.$layer")
     }
 
-    dslImpl.rmsNorm(dim, eps, id = "output_norm")
+    dslImpl.rmsNorm(dim, eps, id = "output_norm", unitOffset = true)
     // Void placeholder for output projection — Gemma 4 E2B vocab is 262 144
     // and dense(vocabSize) would eagerly allocate ~1.5 GB of zeros before
     // WeightMapper runs.
@@ -270,6 +271,11 @@ public fun <T : DType, V> gemmaNetwork(
         outputNorm = outputNormModule,
         lmHead = lmHead,
         dtype = dtype,
+        // Gemma 4 scales token embeddings by sqrt(hidden_size) before the trunk
+        // (HF: `embed_scale=config.hidden_size**0.5`). Without this, trunk
+        // activations are ~1/sqrt(dim) of their trained magnitude and decode
+        // collapses to a near-uniform distribution.
+        embedScale = kotlin.math.sqrt(dim.toFloat()),
         finalLogitSoftcapping = metadata.finalLogitSoftcapping,
         name = "GemmaModel"
     )

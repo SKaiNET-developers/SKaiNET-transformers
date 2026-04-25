@@ -39,6 +39,12 @@ public class MultiHeadAttention<T : DType, V>(
     public val nKVHeads: Int = nHeads,
     public val causal: Boolean = true,
     public val qkNorm: Boolean = false,
+    /**
+     * When `true`, the q_norm/k_norm RMSNorm layers use the Gemma "unit-offset"
+     * formula `output = normalized * (1 + weight)`. Required for Gemma
+     * checkpoints whose RMSNorm gain tensors are stored centered at zero.
+     */
+    public val qkNormUnitOffset: Boolean = false,
     public val bias: Boolean = false,
     override val name: String = "MultiHeadAttention",
     public var rope: RoPE<T, V>? = null,
@@ -115,11 +121,11 @@ public class MultiHeadAttention<T : DType, V>(
 
     // Optional QK-Norm layers
     public val qNorm: RMSNormalization<T, V>? = if (qkNorm) {
-        RMSNormalization(intArrayOf(headDim), name = "$name.q_norm")
+        RMSNormalization(intArrayOf(headDim), name = "$name.q_norm", unitOffset = qkNormUnitOffset)
     } else null
 
     public val kNorm: RMSNormalization<T, V>? = if (qkNorm) {
-        RMSNormalization(intArrayOf(headDim), name = "$name.k_norm")
+        RMSNormalization(intArrayOf(headDim), name = "$name.k_norm", unitOffset = qkNormUnitOffset)
     } else null
 
     @Suppress("UNCHECKED_CAST")
