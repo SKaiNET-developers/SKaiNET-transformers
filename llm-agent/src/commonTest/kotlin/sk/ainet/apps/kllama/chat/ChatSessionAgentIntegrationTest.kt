@@ -2,9 +2,15 @@ package sk.ainet.apps.kllama.chat
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonObject
 import sk.ainet.apps.llm.InferenceRuntime
 import sk.ainet.apps.llm.Tokenizer
 import sk.ainet.lang.tensor.Shape
@@ -260,5 +266,104 @@ class ChatSessionAgentIntegrationTest {
 
         val customized = ChatSession(mock, tokenizer, metadata, defaultSystemPrompt = "Session-level default")
         assertEquals("Session-level default", customized.defaultSystemPrompt)
+    }
+
+    /**
+     * Tool that declares `expression` as a required string argument. Used to
+     * drive a scripted model output that omits it and prove the validator
+     * intercepts before the tool's `execute()` runs.
+     */
+    private class StrictCalculatorTool : Tool {
+        var invoked = false
+            private set
+        override val definition = ToolDefinition(
+            name = "calculator",
+            description = "Evaluate a math expression",
+            parameters = buildJsonObject {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("expression") { put("type", "string") }
+                }
+                put("required", buildJsonArray { add("expression") })
+            }
+        )
+        override fun execute(arguments: JsonObject): String {
+            invoked = true
+            return "unreachable"
+        }
+    }
+
+    @Test
+    fun `AgentLoop feeds validation error back when tool call omits required argument`() {
+        val tokenizer = ByteTokenizer()
+        val template = Gemma4ChatTemplate()
+        val tool = StrictCalculatorTool()
+
+        val round1Messages = listOf(
+            ChatMessage(ChatRole.SYSTEM, "You are a helpful assistant with access to tools."),
+            ChatMessage(ChatRole.USER, "calc please")
+        )
+        val round1Prompt = template.apply(
+            round1Messages,
+            listOf(tool.definition),
+            addGenerationPrompt = true
+        )
+        val round1PromptLen = tokenizer.encode(round1Prompt).size
+
+        // Scripted tool call WITHOUT the required "expression" field.
+        val badToolCallText = "<|tool_call>{\"name\":\"calculator\",\"args\":{\"precision\":2}}<tool_call|>"
+        val scriptedOutput = tokenizer.encode(badToolCallText)
+
+        val mock = MockRuntime(
+            promptLen = round1PromptLen,
+            scriptedOutput = scriptedOutput,
+            eosTokenId = tokenizer.eosTokenId,
+            vocabSize = tokenizer.vocabSize
+        )
+
+        // Drive AgentLoop directly with maxToolRounds=1 so only round 1 runs —
+        // proving validation + error-feedback happen without needing to script
+        // a recovery round.
+        val registry = ToolRegistry().also { it.register(tool) }
+        val loop = AgentLoop<FP32>(
+            runtime = mock,
+            template = template,
+            toolRegistry = registry,
+            eosTokenId = tokenizer.eosTokenId,
+            config = AgentConfig(
+                maxToolRounds = 1,
+                maxTokensPerRound = scriptedOutput.size + 4,
+                temperature = 0.0f
+            ),
+            decode = { tokenizer.decode(it) }
+        )
+
+        val validationFailures = mutableListOf<Pair<String, String>>()
+        val toolResults = mutableListOf<String>()
+        val listener = object : AgentListener {
+            override fun onToolCallValidationFailed(call: ToolCall, reason: String) {
+                validationFailures += call.name to reason
+            }
+            override fun onToolResult(call: ToolCall, result: String) {
+                toolResults += result
+            }
+        }
+
+        val messages = round1Messages.toMutableList()
+        loop.runWithEncoder(messages, encode = { tokenizer.encode(it) }, listener = listener)
+
+        assertEquals(1, validationFailures.size, "expected one validation failure")
+        assertEquals("calculator", validationFailures[0].first)
+        assertTrue(
+            validationFailures[0].second.contains("missing required argument 'expression'"),
+            "reason should name the missing field, got: ${validationFailures[0].second}"
+        )
+        assertEquals(1, toolResults.size)
+        assertTrue(
+            toolResults[0].startsWith("validation error:"),
+            "tool result should report validation error, got: ${toolResults[0]}"
+        )
+        // Tool's execute() must never run when validation fails.
+        assertFalse(tool.invoked, "tool.execute() must not run when validation fails")
     }
 }

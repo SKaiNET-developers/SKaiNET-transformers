@@ -37,6 +37,13 @@ public interface AgentListener {
     /** Called when a tool returns a result. */
     public fun onToolResult(call: ToolCall, result: String) {}
 
+    /**
+     * Called when a parsed tool call fails JSON-Schema validation against its
+     * [ToolDefinition]. The loop treats the call as failed, feeds the reason
+     * back to the model as the tool result, and does NOT invoke the tool.
+     */
+    public fun onToolCallValidationFailed(call: ToolCall, reason: String) {}
+
     /** Called when the agent loop finishes. */
     public fun onComplete(finalResponse: String) {}
 }
@@ -80,6 +87,7 @@ public class AgentLoop<T : DType>(
         listener: AgentListener? = null
     ): String {
         val tools = toolRegistry.definitions()
+        val toolsByName = tools.associateBy { it.name }
         var lastResponse = ""
 
         for (round in 0 until config.maxToolRounds) {
@@ -125,7 +133,7 @@ public class AgentLoop<T : DType>(
             )
 
             for (call in toolCalls) {
-                val toolResult = toolRegistry.execute(call)
+                val toolResult = executeWithValidation(call, toolsByName, listener)
                 listener?.onToolResult(call, toolResult)
                 messages.add(
                     ChatMessage(
@@ -140,6 +148,29 @@ public class AgentLoop<T : DType>(
         // Max rounds exhausted — return last response
         listener?.onComplete(lastResponse)
         return lastResponse
+    }
+
+    /**
+     * Validate [call] against the schema declared by its [ToolDefinition]. On
+     * failure, notify the listener and return the validation error as the
+     * tool result so the model sees the problem on the next round instead of
+     * crashing inside the tool. Unknown tools bypass validation and reach
+     * [ToolRegistry.execute], which handles them explicitly.
+     */
+    private fun executeWithValidation(
+        call: ToolCall,
+        toolsByName: Map<String, ToolDefinition>,
+        listener: AgentListener?
+    ): String {
+        val def = toolsByName[call.name]
+        if (def != null) {
+            val result = ToolCallValidator.validate(call, def)
+            if (result is ToolCallValidationResult.Invalid) {
+                listener?.onToolCallValidationFailed(call, result.reason)
+                return "validation error: ${result.reason}"
+            }
+        }
+        return toolRegistry.execute(call)
     }
 
     /**
@@ -171,6 +202,7 @@ public class AgentLoop<T : DType>(
         listener: AgentListener? = null
     ): String {
         val tools = toolRegistry.definitions()
+        val toolsByName = tools.associateBy { it.name }
         var lastResponse = ""
 
         for (round in 0 until config.maxToolRounds) {
@@ -210,7 +242,7 @@ public class AgentLoop<T : DType>(
             )
 
             for (call in toolCalls) {
-                val toolResult = toolRegistry.execute(call)
+                val toolResult = executeWithValidation(call, toolsByName, listener)
                 listener?.onToolResult(call, toolResult)
                 messages.add(
                     ChatMessage(
