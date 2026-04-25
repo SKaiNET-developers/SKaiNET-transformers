@@ -2,6 +2,8 @@ package sk.ainet.apps.kgemma.cli
 
 import java.io.File
 import java.lang.foreign.Arena
+import java.lang.management.BufferPoolMXBean
+import java.lang.management.ManagementFactory
 import java.nio.file.Path
 import kotlin.io.path.exists
 import kotlin.io.path.isDirectory
@@ -128,6 +130,7 @@ class Gemma4E2BToolCallSmokeTest {
         }
 
         runBlocking {
+            memDump("test-start")
             val memSegFactory = MemorySegmentTensorDataFactory()
             val ctx = DirectCpuExecutionContext(tensorDataFactory = memSegFactory)
             val quantArena = Arena.ofShared()
@@ -142,16 +145,19 @@ class Gemma4E2BToolCallSmokeTest {
                 )
 
                 println("Loading Gemma 4 from $path via DSL NATIVE_OPTIMIZED...")
+                memDump("before-load")
                 val runtime = ingestion.loadDslRuntimeNativeStreaming(
                     randomAccessProvider = { JvmRandomAccessSource.open(path.toString()) },
                     ctx = ctx,
                     dtype = FP32::class,
                     arena = quantArena
                 )
+                memDump("after-load")
 
                 val tokenizer = JvmRandomAccessSource.open(path.toString()).use { source ->
                     GGUFTokenizer.fromRandomAccessSource(source)
                 }
+                memDump("after-tokenizer")
 
                 val metadata = ModelMetadata(
                     family = "gemma",
@@ -159,6 +165,7 @@ class Gemma4E2BToolCallSmokeTest {
                     sourceFormat = "gguf"
                 )
                 val session = ChatSession(runtime, tokenizer, metadata)
+                memDump("after-chatsession")
 
                 val tool = CalculatorTool()
                 val rawResponses = mutableListOf<String>()
@@ -169,6 +176,7 @@ class Gemma4E2BToolCallSmokeTest {
                 }
 
                 val prompt = "What is 17 * 23? Use the calculator tool."
+                memDump("before-runSingleTurn")
                 val response = session.runSingleTurn(
                     prompt = prompt,
                     tools = listOf(tool),
@@ -176,6 +184,7 @@ class Gemma4E2BToolCallSmokeTest {
                     temperature = 0.0f,
                     listener = listener
                 )
+                memDump("after-runSingleTurn")
 
                 val allText = rawResponses.joinToString("\n")
                 println("--- raw round 1 response ---\n$allText\n---")
@@ -207,5 +216,23 @@ class Gemma4E2BToolCallSmokeTest {
     companion object {
         @Suppress("unused") // referenced from KDoc
         private val modelPathHelp: String = "Set GEMMA4_E2B_MODEL_PATH=/path/to/gemma-4-e2b.gguf to enable."
+
+        private val directBufferPool: BufferPoolMXBean by lazy {
+            ManagementFactory.getPlatformMXBeans(BufferPoolMXBean::class.java)
+                .first { it.name == "direct" }
+        }
+
+        private fun mb(bytes: Long): String = "%,.0f MB".format(bytes / (1024.0 * 1024.0))
+
+        // Diagnostic memory snapshot used to localize a stubborn direct-memory leak
+        // in the Gemma 4 forward pass. Prints heap, non-heap, and direct buffer
+        // pool usage at named stages so the OOM curve can be plotted across load,
+        // tokenizer init, and inference. See pickup notes for context.
+        internal fun memDump(stage: String) {
+            val rt = Runtime.getRuntime()
+            val heap = rt.totalMemory() - rt.freeMemory()
+            val direct = directBufferPool.memoryUsed
+            println("[mem] $stage: heap=${mb(heap)}, direct=${mb(direct)}")
+        }
     }
 }
