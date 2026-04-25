@@ -102,6 +102,9 @@ kotlin {
                 implementation(libs.kotlin.test)
                 implementation(libs.kotlinx.coroutines.test)
                 implementation(libs.skainet.backend.cpu)
+                // Needed by Gemma4E2BToolCallSmokeTest for building
+                // ToolDefinition parameter schemas inline.
+                implementation(libs.kotlinx.serialization.json)
             }
         }
         if (!project.hasProperty("buildFatJar")) {
@@ -125,6 +128,10 @@ kotlin {
 
 tasks.withType<Test>().configureEach {
     jvmArgs("--enable-preview", "--add-modules", "jdk.incubator.vector")
+    // Gemma4E2BToolCallSmokeTest dequantizes Q4_K → FP32 and wants ~20 GB.
+    // The 4g default keeps the fast suite cheap; real-checkpoint runs can
+    // override with -PkgemmaTestMaxHeap=20g.
+    maxHeapSize = (findProperty("kgemmaTestMaxHeap") as? String) ?: "4g"
 }
 
 tasks.withType<JavaExec>().configureEach {
