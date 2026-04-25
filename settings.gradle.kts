@@ -14,6 +14,13 @@ dependencyResolutionManagement {
     }
 }
 
+// Temporary composite build for validating local SKaiNET fixes
+// (executor liveness freeing + ofAuto leak fix). Remove once shipped.
+val localSkaiNet = file("../SKaiNET")
+if (localSkaiNet.isDirectory) {
+    includeBuild(localSkaiNet)
+}
+
 rootProject.name = "SKaiNET-transformers"
 
 include("llm-core")

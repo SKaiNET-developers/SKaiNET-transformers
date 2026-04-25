@@ -48,8 +48,17 @@ import sk.ainet.lang.types.FP32
  * To run locally:
  * ```
  * export GEMMA4_E2B_MODEL_PATH=/path/to/gemma-4-e2b.gguf
- * ./gradlew :llm-runtime:kgemma:jvmTest --tests '*Gemma4E2BToolCallSmokeTest*'
+ * ./gradlew :llm-runtime:kgemma:jvmTest \
+ *     --tests '*Gemma4E2BToolCallSmokeTest*' \
+ *     -PkgemmaTestMaxHeap=24g -PkgemmaTestMaxDirect=32g
  * ```
+ *
+ * Both `-PkgemmaTestMaxHeap` and `-PkgemmaTestMaxDirect` are required for the
+ * real run: the Q4_K → FP32 dequant lands in MemorySegment-backed direct
+ * memory (≈ 20 GB for E2B), so without raising `-XX:MaxDirectMemorySize` the
+ * worker JVM hits a `Cannot reserve N bytes of direct buffer memory` and
+ * JUnit reports the test as SKIPPED — misleadingly, because the assertion
+ * never runs. Defaults stay at 4g so CI and the rest of the suite are cheap.
  *
  * If the test finds the model but the model does NOT produce a parseable
  * tool call, it fails with the raw response captured so the grammar

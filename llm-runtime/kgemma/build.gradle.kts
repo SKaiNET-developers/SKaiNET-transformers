@@ -127,10 +127,18 @@ kotlin {
 }
 
 tasks.withType<Test>().configureEach {
-    jvmArgs("--enable-preview", "--add-modules", "jdk.incubator.vector")
-    // Gemma4E2BToolCallSmokeTest dequantizes Q4_K → FP32 and wants ~20 GB.
-    // The 4g default keeps the fast suite cheap; real-checkpoint runs can
-    // override with -PkgemmaTestMaxHeap=20g.
+    // Gemma4E2BToolCallSmokeTest dequantizes Q4_K → FP32 into MemorySegment-backed
+    // direct memory (~20 GB for E2B). JDK 21 caps direct memory at ≈ -Xmx by
+    // default, so bumping just the heap also lifts the direct cap — but we set
+    // both explicitly to document intent. The 4g defaults keep the fast suite
+    // cheap; real-checkpoint runs override, e.g.
+    //   -PkgemmaTestMaxHeap=24g -PkgemmaTestMaxDirect=32g
+    val maxDirect = (findProperty("kgemmaTestMaxDirect") as? String) ?: "4g"
+    jvmArgs(
+        "--enable-preview",
+        "--add-modules", "jdk.incubator.vector",
+        "-XX:MaxDirectMemorySize=$maxDirect",
+    )
     maxHeapSize = (findProperty("kgemmaTestMaxHeap") as? String) ?: "4g"
 }
 
