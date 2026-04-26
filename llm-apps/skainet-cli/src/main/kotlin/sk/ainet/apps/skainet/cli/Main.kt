@@ -254,7 +254,17 @@ fun main(args: Array<String>) {
 
         // Standard generation mode
         val promptText = cliArgs.prompt ?: error("Prompt is required for standard generation mode.")
-        val promptTokens = tokenizer.encode(promptText)
+        // Tokenize and prepend BOS — Gemma 4's GGUF sets
+        // `tokenizer.ggml.add_bos_token = true` and the model is trained to
+        // expect BOS at position 0. The Tokenizer interface intentionally
+        // doesn't auto-prepend special tokens (so other callers can handle
+        // chat templates / system prefixes themselves), so the CLI does it
+        // here. Most other modern decoder GGUFs also want this; the only
+        // ones that don't would set add_bos_token=false. (We currently don't
+        // surface that flag — until a non-BOS GGUF comes up, prepending
+        // unconditionally is the right default.)
+        val rawTokens = tokenizer.encode(promptText)
+        val promptTokens = intArrayOf(tokenizer.bosTokenId) + rawTokens
 
         println("Generating ${cliArgs.steps} tokens with temperature=${cliArgs.temperature}...")
         println("---")
