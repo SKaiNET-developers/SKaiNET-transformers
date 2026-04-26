@@ -112,6 +112,37 @@ public class OptimizedLLMRuntime<T : DType>(
         return logits
     }
 
+    /**
+     * Single batched forward over [tokenIds]. Equivalent to N consecutive
+     * single-token [forward] calls — produces an [N, vocab] logits tensor
+     * where row `i` is the prediction-for-next-token at sequence position
+     * `i`. Mainly useful for prefill: feeding the whole prompt in one call
+     * saves the per-step overhead of constructing/running the graph N times.
+     *
+     * Diagnostic note: a numerical match between batched prefill output and
+     * the equivalent autoregressive sequence at the LAST position is the
+     * tightest test of whether the autoregressive prefill path has any
+     * step-to-step accumulation drift. (See `position_collapse_bug.md`.)
+     *
+     * Only supported in DIRECT / HYBRID modes — the OPTIMIZED graph is
+     * compiled for a fixed input shape `[1]` and would need re-tracing for
+     * `[N]`.
+     */
+    public fun forwardBatched(tokenIds: IntArray): Tensor<T, Float> {
+        require(position + tokenIds.size <= seqLen) {
+            "Context length exceeded: pos=$position newLen=${tokenIds.size} seqLen=$seqLen"
+        }
+        require(mode != OptimizedLLMMode.OPTIMIZED) {
+            "forwardBatched is only supported in DIRECT / HYBRID modes"
+        }
+        val shape = Shape(intArrayOf(tokenIds.size))
+        val data = DenseFloatArrayTensorData<T>(shape, FloatArray(tokenIds.size) { tokenIds[it].toFloat() })
+        val input: Tensor<T, Float> = VoidOpsTensor(data = data, dtype = dtype)
+        val logits = model.forward(input, ctx)
+        position += tokenIds.size
+        return logits
+    }
+
     /** Reset to initial state (clear KV caches, rewind position to 0). */
     override fun reset() {
         resetModuleState(model)

@@ -88,10 +88,28 @@ class Gemma4ReferenceParityDiagnostic {
                 println("Decode of token 18428 (what our tokenizer produces for 'Hi'): '${runCatching { tokenizer.decode(18428) }.getOrElse { "<err>" }}'")
                 println()
 
-                // Prefill: forward each prompt token, only keep last logits.
-                var lastLogits = runtime.forward(promptTokens[0])
-                for (i in 1 until promptTokens.size) {
-                    lastLogits = runtime.forward(promptTokens[i])
+                // Prefill: by default, forward each prompt token autoregressively
+                // (equivalent to decode loop). When GEMMA4_BATCHED_PREFILL=1, run
+                // a single batched forward over the entire prompt — the LAST row
+                // of the [N, vocab] output is the same prediction-for-next-token
+                // logits the autoregressive path would produce. Different
+                // numerically only if the autoregressive single-token prefill
+                // has step-to-step accumulation drift.
+                val batchedPrefill = System.getenv("GEMMA4_BATCHED_PREFILL") == "1"
+                val lastLogits: sk.ainet.lang.tensor.Tensor<FP32, Float> = if (batchedPrefill) {
+                    println("[diag] GEMMA4_BATCHED_PREFILL=1 → single batched forward over ${promptTokens.size} tokens")
+                    val out = (runtime as sk.ainet.apps.llm.OptimizedLLMRuntime<FP32>).forwardBatched(promptTokens)
+                    // Slice the last row [N-1, :] → [vocab].
+                    val ops = ctx.ops
+                    val n = promptTokens.size
+                    @Suppress("UNCHECKED_CAST")
+                    ops.narrow(out as sk.ainet.lang.tensor.Tensor<FP32, Float>, 0, n - 1, 1)
+                } else {
+                    var l = runtime.forward(promptTokens[0])
+                    for (i in 1 until promptTokens.size) {
+                        l = runtime.forward(promptTokens[i])
+                    }
+                    l
                 }
 
                 // Top-5 of the very first decode step (after the last prompt token).
