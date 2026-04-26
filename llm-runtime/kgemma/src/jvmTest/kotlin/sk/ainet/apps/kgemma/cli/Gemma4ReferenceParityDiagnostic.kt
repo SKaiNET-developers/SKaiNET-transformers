@@ -77,7 +77,10 @@ class Gemma4ReferenceParityDiagnostic {
 
                 // Use llama.cpp's exact reference token sequence so any
                 // forward-pass divergence is isolated from tokenizer differences.
-                val promptTokens = intArrayOf(2, 10979)
+                // GEMMA4_PROMPT_TOKENS=comma-separated overrides; default = BOS+Hi.
+                val promptTokens = System.getenv("GEMMA4_PROMPT_TOKENS")?.let { csv ->
+                    csv.split(',').map { it.trim().toInt() }.toIntArray()
+                } ?: intArrayOf(2, 10979)
                 println("Prompt tokens (REFERENCE): ${promptTokens.toList()}")
                 println("Reference output (llama.cpp Q4_K_M, greedy): ' = 100\\n\$1 = 10'")
                 println("BOS token id: ${tokenizer.bosTokenId}")
