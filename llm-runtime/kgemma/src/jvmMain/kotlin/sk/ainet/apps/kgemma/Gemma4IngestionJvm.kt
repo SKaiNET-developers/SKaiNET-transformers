@@ -40,7 +40,15 @@ public suspend fun <T : DType> Gemma4Ingestion<T>.loadDslRuntimeNativeStreaming(
 
     @Suppress("UNCHECKED_CAST")
     val convertedAny = convertGemmaWeightsToMemSeg(rawWeights, ctx, arena) as Gemma4Weights<T, Float>
-    return buildDslRuntime(convertedAny)
+    // DIAGNOSTIC env flag: GEMMA4_NO_KV_SHARING=1 forces every layer to use
+    // its own KV cache (kvSharedLayers=0). Used to isolate whether the
+    // length-dependent confidence collapse is caused by the shared-KV-cache
+    // architecture or something elsewhere in the stack.
+    val finalWeights = if (System.getenv("GEMMA4_NO_KV_SHARING") == "1") {
+        println("[diag] GEMMA4_NO_KV_SHARING=1 → forcing kvSharedLayers=0")
+        convertedAny.copy(metadata = convertedAny.metadata.copy(kvSharedLayers = 0))
+    } else convertedAny
+    return buildDslRuntime(finalWeights)
 }
 
 /** Sequential-Source variant of [loadDslRuntimeNativeStreaming] for GGUFs under 2 GB. */
