@@ -19,10 +19,12 @@ import kotlinx.serialization.json.jsonPrimitive
 public object ToolCallParser {
 
     private val hermesStrategy = HermesToolCallParserStrategy()
+    private val llama3FunctionTagStrategy = Llama3FunctionTagParserStrategy()
     private val llama31Strategy = Llama31ToolCallParserStrategy()
 
     private val defaultStrategies: List<ToolCallParserStrategy> = listOf(
         hermesStrategy,
+        llama3FunctionTagStrategy,
         llama31Strategy
     )
 
@@ -57,14 +59,19 @@ public object ToolCallParser {
     /**
      * Parse a single JSON object into a [ToolCall].
      *
-     * Expects `{"name": "...", "arguments": {...}}` with an optional `"id"` field.
+     * Accepts either `"arguments"` (Hermes / our internal shape) or `"parameters"`
+     * (Meta's Llama 3.x docs) as the argument-object key. The `"id"` field is
+     * optional and auto-generated when absent.
+     *
      * Returns `null` if parsing fails or the `"name"` field is missing.
      */
     public fun parseJsonToolCall(jsonStr: String): ToolCall? {
         return try {
             val obj = json.parseToJsonElement(jsonStr).jsonObject
             val name = obj["name"]?.jsonPrimitive?.content ?: return null
-            val arguments = obj["arguments"]?.jsonObject ?: JsonObject(emptyMap())
+            val arguments = obj["arguments"]?.jsonObject
+                ?: obj["parameters"]?.jsonObject
+                ?: JsonObject(emptyMap())
             val id = obj["id"]?.jsonPrimitive?.content ?: generateCallId()
             ToolCall(id = id, name = name, arguments = arguments)
         } catch (_: Exception) {
@@ -107,22 +114,100 @@ internal class HermesToolCallParserStrategy : ToolCallParserStrategy {
         text.contains("<tool_call>")
 }
 
-/** Parses bare JSON objects with a `"name"` key (Llama 3.1 style). */
+/**
+ * Parses bare JSON objects with a `"name"` key (Llama 3.1 / 3.2 JSON tool
+ * format — Meta's `text_prompt_format.md` for Llama 3.2 custom tools).
+ *
+ * Accepts:
+ * - `{"name": "fn", "parameters": {...}}` — Llama 3.x docs
+ * - `{"name": "fn", "arguments": {...}}` — Hermes / our internal shape
+ *
+ * Tolerates a leading `<|python_tag|>` marker (used in some Llama 3.2 variants
+ * for the built-in tool calls; harmless on custom tools) and stray prose
+ * before/after the JSON object — finds the first balanced `{...}` block that
+ * starts the assistant turn after stripping the marker.
+ */
 internal class Llama31ToolCallParserStrategy : ToolCallParserStrategy {
 
-    override val formatName: String = "llama31"
+    override val formatName: String = "llama3-json"
 
     override fun parse(text: String): List<ToolCall> {
-        val trimmed = text.trim()
-        if (trimmed.startsWith("{") && trimmed.contains("\"name\"")) {
-            val parsed = ToolCallParser.parseJsonToolCall(trimmed)
-            if (parsed != null) return listOf(parsed)
-        }
-        return emptyList()
+        val candidate = stripPythonTag(text).trim()
+        if (!candidate.startsWith("{") || !candidate.contains("\"name\"")) return emptyList()
+        val firstObject = extractFirstJsonObject(candidate) ?: return emptyList()
+        val parsed = ToolCallParser.parseJsonToolCall(firstObject) ?: return emptyList()
+        return listOf(parsed)
     }
 
     override fun containsToolCall(text: String): Boolean {
-        val trimmed = text.trim()
-        return trimmed.startsWith("{") && trimmed.contains("\"name\"") && trimmed.contains("\"arguments\"")
+        val candidate = stripPythonTag(text).trim()
+        return candidate.startsWith("{") &&
+            candidate.contains("\"name\"") &&
+            (candidate.contains("\"arguments\"") || candidate.contains("\"parameters\""))
     }
+
+    private fun stripPythonTag(text: String): String {
+        val trimmed = text.trimStart()
+        return if (trimmed.startsWith("<|python_tag|>")) trimmed.removePrefix("<|python_tag|>") else text
+    }
+
+    /** Find the first `{...}` block at the start of [text], respecting brace nesting and string literals. */
+    private fun extractFirstJsonObject(text: String): String? {
+        if (!text.startsWith("{")) return null
+        var depth = 0
+        var inString = false
+        var escape = false
+        for ((i, c) in text.withIndex()) {
+            if (escape) {
+                escape = false
+                continue
+            }
+            if (inString) {
+                when (c) {
+                    '\\' -> escape = true
+                    '"' -> inString = false
+                }
+                continue
+            }
+            when (c) {
+                '"' -> inString = true
+                '{' -> depth++
+                '}' -> {
+                    depth--
+                    if (depth == 0) return text.substring(0, i + 1)
+                }
+            }
+        }
+        return null
+    }
+}
+
+/**
+ * Parses Llama 3.1 legacy `<function=name>{"arg": "value"}</function>` tool calls.
+ *
+ * This is the format `kllama --demo --template=llama3` emits when the
+ * `Llama3ChatTemplate` is constructed with `Llama3ToolFormat.FUNCTION_TAG`.
+ * Selectable rather than default because Meta's Llama 3.2 docs recommend
+ * the bare-JSON format ([Llama31ToolCallParserStrategy]).
+ */
+internal class Llama3FunctionTagParserStrategy : ToolCallParserStrategy {
+
+    override val formatName: String = "llama3-function-tag"
+
+    private val pattern = Regex("""<function=([A-Za-z_][A-Za-z0-9_]*)>\s*(\{[\s\S]*?\})\s*</function>""")
+
+    override fun parse(text: String): List<ToolCall> {
+        val matches = pattern.findAll(text).toList()
+        if (matches.isEmpty()) return emptyList()
+        return matches.mapNotNull { m ->
+            val name = m.groupValues[1]
+            val args = m.groupValues[2]
+            // Synthesize the JSON shape parseJsonToolCall expects so we get unified
+            // id-generation + arguments/parameters handling.
+            val synthesized = "{\"name\": \"$name\", \"arguments\": $args}"
+            ToolCallParser.parseJsonToolCall(synthesized)
+        }
+    }
+
+    override fun containsToolCall(text: String): Boolean = pattern.containsMatchIn(text)
 }

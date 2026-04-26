@@ -41,8 +41,16 @@ public interface ToolCallingSupport {
 // Built-in providers
 // ---------------------------------------------------------------------------
 
-/** Tool-calling support for the Llama 3 / 3.1 / 3.2 family. */
-public class Llama3ToolCallingSupport : ToolCallingSupport {
+/**
+ * Tool-calling support for the Llama 3 / 3.1 / 3.2 family.
+ *
+ * @param format Tool-calling response format the chat template instructs the
+ *   model to emit. Defaults to [Llama3ToolFormat.JSON] (Llama 3.2 default).
+ *   See [Llama3ToolFormat] and `docs/llama3-tool-calling.md`.
+ */
+public class Llama3ToolCallingSupport(
+    private val format: Llama3ToolFormat = Llama3ToolFormat.JSON
+) : ToolCallingSupport {
     override val family: String = "llama3"
 
     override fun supports(metadata: ModelMetadata): Boolean {
@@ -52,7 +60,7 @@ public class Llama3ToolCallingSupport : ToolCallingSupport {
         return tpl.contains("<|start_header_id|>")
     }
 
-    override fun createChatTemplate(): ChatTemplate = Llama3ChatTemplate()
+    override fun createChatTemplate(): ChatTemplate = Llama3ChatTemplate(format)
 
     override fun parseToolCalls(content: String): List<ToolCall> =
         ToolCallParser.parse(content)
