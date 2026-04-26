@@ -466,3 +466,65 @@ public class PaddedSharedPositionalKVCache<T : DType, V>(
         )
     }
 }
+
+/**
+ * Read-only KV-cache wrapper that *discards* the K/V tensors passed to
+ * [update] and instead returns the [delegate]'s currently-cached slice (up
+ * to the delegate's own `position`).
+ *
+ * This is the canonical semantic for Gemma 4's "kv-shared" decoder layers
+ * (per HF `Gemma4Attention`, transformers 5.6.0): shared layers don't
+ * compute or store their own K/V — they reuse the K/V tensors of the
+ * **last non-shared layer of the same attention type** (`sliding` or
+ * `global`). The non-shared owner writes its K/V to its own
+ * [PositionalKVCache] in the usual way; every shared follower of the same
+ * type wraps that cache through this class so its `multiHeadAttention`
+ * sees the owner's accumulated K/V history.
+ *
+ * Differences from the older [PaddedSharedPositionalKVCache]:
+ *  - **No write-through.** Followers no longer overwrite the delegate's
+ *    slot, so consecutive same-position writes from the 20 followers in
+ *    the shared group can't clobber the owner's data.
+ *  - **No padding.** Each layer-type group has its own owner cache at
+ *    that type's actual head_dim — sliding followers share a 256-wide
+ *    cache, global followers share a 512-wide cache. No cross-type slot.
+ *  - **No own position counter.** The follower advances in lockstep
+ *    with the owner via `delegate.position`; whichever non-shared layer
+ *    of this type wrote most recently has bumped it for us.
+ *
+ * @param delegate the owner layer's positional KV cache. Must already
+ *   have its position incremented for the current decode step *before*
+ *   any follower wrapping it gets called — i.e. the owner layer must
+ *   appear earlier in the decoder than any of its followers, which is
+ *   always true for Gemma 4 (owners are layers `firstSharedLayer - 1`
+ *   or `firstSharedLayer - 2`).
+ */
+public class OwnerReadOnlyKVCache<T : DType, V>(
+    public val delegate: PositionalKVCache<T, V>,
+    name: String = "OwnerReadOnlyKVCache"
+) : KVCache<T, V>(delegate.maxSeqLen, delegate.nKVHeads, delegate.headDim, name) {
+
+    override fun update(
+        newKey: Tensor<T, V>,
+        newValue: Tensor<T, V>,
+        ctx: ExecutionContext
+    ): Pair<Tensor<T, V>, Tensor<T, V>> {
+        // Discard newKey/newValue — they came from the follower's own
+        // (unused) k_proj/v_proj. Per HF, shared layers don't have those
+        // weights at all; in our build the projections still run because
+        // GGUF ships their weights, but their output is dropped here.
+        return delegate.sliceView(
+            ctx,
+            newKey.dtype,
+            upToPos = delegate.position,
+            sliceHeadDim = delegate.headDim
+        )
+    }
+
+    override fun reset() {
+        // No-op: the owner layer resets the delegate; clearing it from a
+        // follower would race with other followers still attending.
+    }
+
+    override val position: Int get() = delegate.position
+}

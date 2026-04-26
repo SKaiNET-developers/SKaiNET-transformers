@@ -14,7 +14,7 @@ import sk.ainet.lang.nn.dsl.sequential
 import sk.ainet.lang.nn.layers.EmbeddingAdapter
 import sk.ainet.lang.nn.normalization.RMSNormalization
 import sk.ainet.lang.nn.transformer.LayerScalarMul
-import sk.ainet.lang.nn.transformer.PaddedSharedPositionalKVCache
+import sk.ainet.lang.nn.transformer.OwnerReadOnlyKVCache
 import sk.ainet.lang.nn.transformer.PositionalKVCache
 import sk.ainet.lang.nn.transformer.RoPEScaling
 import sk.ainet.lang.nn.transformer.VoidDense
@@ -117,26 +117,30 @@ public fun <T : DType, V> gemmaNetwork(
     val dslImpl = NeuralNetworkDslImpl<T, V>(nnCtx, dtype)
     dslImpl.embedding(vocabSize, dim, id = "token_embd")
 
-    // Owner layers' PositionalKVCache delegates, indexed by their layer
-    // number. For the kvSharedLayers trailing group, the delegate's headDim
-    // is the MAX across the group — Gemma 4 E2B mixes SLIDING (256) and
-    // GLOBAL (512) inside the same group, so the delegate must be 512-wide.
-    // Layers in the group (owner and followers both) wrap the delegate in
-    // a PaddedSharedPositionalKVCache that pads-on-write and slices-on-read
-    // to the layer's own head_dim — matches HeapGemma4KvCache semantics.
-    val ownerCaches = mutableMapOf<Int, PositionalKVCache<T, V>>()
-
+    // Per HF `Gemma4Attention`, kv-shared layers reuse the K/V tensors of
+    // the **last non-shared layer of the same attention type**. So the
+    // sliding follower set (layers ≥ firstSharedLayer with type=SLIDING)
+    // shares the cache of the last sliding layer in [0, firstSharedLayer);
+    // global followers share the last global layer's cache. The two owner
+    // caches stay at their respective head_dim (256 / 512) — no cross-type
+    // padding is needed because each follower attends to data computed by
+    // an owner of the *same* head_dim.
     val firstSharedLayer = nLayers - metadata.kvSharedLayers
-    val sharedGroupPaddedHeadDim = if (metadata.kvSharedLayers > 0) {
-        (firstSharedLayer until nLayers).maxOf { metadata.getHeadDim(it) }
-    } else {
-        0 // unused
+    val typeOwners = mutableMapOf<LayerType, PositionalKVCache<T, V>>()
+    val typeOwnerLayerIdx = mutableMapOf<LayerType, Int>()
+    if (metadata.kvSharedLayers > 0) {
+        for (l in 0 until firstSharedLayer) {
+            // Track latest of each type seen so far; the LAST entry per
+            // type before firstSharedLayer wins.
+            typeOwnerLayerIdx[metadata.getLayerType(l)] = l
+        }
     }
 
     for (layer in 0 until nLayers) {
         val layerHeadDim = metadata.getHeadDim(layer)
         val ropeBase = metadata.getRopeBase(layer)
-        val isGlobal = metadata.getLayerType(layer) == LayerType.GLOBAL
+        val layerType = metadata.getLayerType(layer)
+        val isGlobal = layerType == LayerType.GLOBAL
         val ropeScaling = if (isGlobal && metadata.ropeParametersFull.ropeType == "proportional") {
             RoPEScaling.PROPORTIONAL
         } else {
@@ -145,7 +149,6 @@ public fun <T : DType, V> gemmaNetwork(
         // Sliding layers get a bounded attention window; global layers see everything.
         val slidingWindow = if (isGlobal) null else metadata.slidingWindow
         val ffnDim = metadata.getIntermediateSize(layer)
-        val cacheOwnerLayer = metadata.getCacheLayerIndex(layer)
         val isInSharedGroup = metadata.kvSharedLayers > 0 && layer >= firstSharedLayer
 
         val stage = StageImpl<T, V>(nnCtx, "blk.$layer", dtype)
@@ -170,48 +173,43 @@ public fun <T : DType, V> gemmaNetwork(
                 scalingFactor = if (ropeScaling == RoPEScaling.PROPORTIONAL) scalingFactor else 1.0f,
                 partialRotaryFactor = if (isGlobal) partialRotaryFactor else 1.0f
             )
-            when {
-                !isInSharedGroup -> {
-                    // Plain per-layer cache. Own this layer's own head_dim.
-                    val own = PositionalKVCache<T, V>(
-                        maxSeqLen = seqLen,
-                        nKVHeads = nKVHeads,
-                        headDim = layerHeadDim,
+            if (!isInSharedGroup) {
+                // Non-shared layer: plain per-layer cache at its own head_dim.
+                // If this is the LAST non-shared layer of its type, the cache
+                // also serves as the read-only delegate for downstream
+                // shared-group followers of the same type.
+                val own = PositionalKVCache<T, V>(
+                    maxSeqLen = seqLen,
+                    nKVHeads = nKVHeads,
+                    headDim = layerHeadDim,
+                    name = "blk.$layer.attn.kv_cache"
+                )
+                kvCache(own)
+                if (typeOwnerLayerIdx[layerType] == layer) {
+                    typeOwners[layerType] = own
+                }
+            } else {
+                // Shared follower: discard our k_proj/v_proj output and read
+                // the same-type owner's cache. Per HF Gemma4Attention,
+                // shared layers don't even have their own k_proj/v_proj —
+                // GGUF carries them anyway, but their forward output is
+                // ignored by this wrapper.
+                val ownerCache = typeOwners[layerType]
+                    ?: error(
+                        "Gemma: kv-shared layer $layer (type=$layerType) has no " +
+                            "non-shared owner of the same type before " +
+                            "firstSharedLayer=$firstSharedLayer"
+                    )
+                require(ownerCache.headDim == layerHeadDim) {
+                    "Gemma: kv-shared layer $layer head_dim=$layerHeadDim != " +
+                        "owner head_dim=${ownerCache.headDim} (type=$layerType)"
+                }
+                kvCache(
+                    OwnerReadOnlyKVCache(
+                        delegate = ownerCache,
                         name = "blk.$layer.attn.kv_cache"
                     )
-                    kvCache(own)
-                }
-                cacheOwnerLayer == layer -> {
-                    // Owner of the shared group: allocate the padded-max storage
-                    // delegate and wrap it with a PaddedSharedPositionalKVCache at
-                    // this layer's own head_dim.
-                    val delegate = PositionalKVCache<T, V>(
-                        maxSeqLen = seqLen,
-                        nKVHeads = nKVHeads,
-                        headDim = sharedGroupPaddedHeadDim,
-                        name = "blk.$layer.attn.kv_cache.storage"
-                    )
-                    ownerCaches[layer] = delegate
-                    kvCache(
-                        PaddedSharedPositionalKVCache(
-                            delegate = delegate,
-                            layerHeadDim = layerHeadDim,
-                            name = "blk.$layer.attn.kv_cache"
-                        )
-                    )
-                }
-                else -> {
-                    // Follower: wrap the shared delegate at this layer's head_dim.
-                    val delegate = ownerCaches[cacheOwnerLayer]
-                        ?: error("Gemma: layer $layer expects to share KV with layer $cacheOwnerLayer, but owner hasn't been built yet")
-                    kvCache(
-                        PaddedSharedPositionalKVCache(
-                            delegate = delegate,
-                            layerHeadDim = layerHeadDim,
-                            name = "blk.$layer.attn.kv_cache"
-                        )
-                    )
-                }
+                )
             }
         }
         if (sandwichNorms) stage.rmsNorm(dim, eps, id = "post_attention_norm", unitOffset = false)
