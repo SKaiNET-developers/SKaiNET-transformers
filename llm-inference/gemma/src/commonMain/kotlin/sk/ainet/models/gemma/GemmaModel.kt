@@ -173,6 +173,25 @@ public class GemmaModel<T : DType, V>(
         var sum = 0.0
         var sumSq = 0.0
         var nanCount = 0
+        // For per-feature alignment vs HF: also track argmax of |x| over the
+        // last (= feature) dim of the LAST sequence position. Shape is
+        // [seq, dim] for rank-2 hiddens or [batch, seq, dim] for rank-3.
+        // We assume the dump is called with rank ∈ {2, 3} and the last dim
+        // is the feature dim.
+        val rank = t.shape.rank
+        val dim = t.shape[rank - 1]
+        // Index of last position in flattened arr.
+        val lastPosOff = arr.size - dim
+        var argmaxAbs = 0
+        var argmaxAbsVal = 0f
+        if (lastPosOff >= 0) {
+            for (i in 0 until dim) {
+                val v = arr[lastPosOff + i]
+                if (v.isNaN()) continue
+                val av = if (v < 0f) -v else v
+                if (av > argmaxAbsVal) { argmaxAbsVal = av; argmaxAbs = i }
+            }
+        }
         for (v in arr) {
             if (v.isNaN()) { nanCount++; continue }
             if (v < mn) mn = v
@@ -183,9 +202,17 @@ public class GemmaModel<T : DType, V>(
         val n = arr.size - nanCount
         val mean = if (n > 0) sum / n else 0.0
         val rms = if (n > 0) kotlin.math.sqrt(sumSq / n) else 0.0
-        println("[hidden] $stage shape=${t.shape.dimensions.toList()} min=%+.3f max=%+.3f mean=%+.3f rms=%.3f%s".format(
-            mn, mx, mean, rms, if (nanCount > 0) " NaN=$nanCount" else ""
+        println("[hidden] $stage shape=${t.shape.dimensions.toList()} min=%+.3f max=%+.3f mean=%+.3f rms=%.3f argmaxAbs=%d v=%+.3f%s".format(
+            mn, mx, mean, rms, argmaxAbs, argmaxAbsVal, if (nanCount > 0) " NaN=$nanCount" else ""
         ))
+        // Fingerprint dims spanning the feature axis for element-wise compare vs HF.
+        if (lastPosOff >= 0) {
+            val fpDims = intArrayOf(0, 12, 16, 100, 438, 660, 809, 1213, 1273, 1295, 1500)
+            val fp = fpDims.filter { it < dim }.joinToString(" ") { d ->
+                "v[$d]=%+.4f".format(arr[lastPosOff + d])
+            }
+            println("        $fp")
+        }
     }
 
     @Suppress("UNCHECKED_CAST")
