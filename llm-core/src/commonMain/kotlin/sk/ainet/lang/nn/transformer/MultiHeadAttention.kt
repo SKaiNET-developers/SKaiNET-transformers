@@ -164,6 +164,16 @@ public class MultiHeadAttention<T : DType, V>(
         val ops = ctx.ops
         val scale = attentionScale ?: (1.0f / sqrt(headDim.toFloat()))
 
+        // Per-substep diagnostic: dump rms/min/max of intermediate tensors
+        // (post-Q-proj, post-K-proj, post-V-proj, post-Q-norm, post-K-norm,
+        // post-V-norm, post-RoPE-Q, post-RoPE-K, cached-K, cached-V,
+        // post-SDPA, final output) ONLY for blk.0's attention. Gated on a
+        // per-call flag set by `HybridTransformerBlock.directForward` when
+        // `block.name == "blk.0"` and `GEMMA4_DUMP_MHA=1`. The MHA module
+        // itself is named just "attn" (every block's MHA shares that name)
+        // so we can't gate on `this.name` alone.
+        val mhaDump = MultiHeadAttentionDiag.shouldDumpThisCall
+
         val wQ = params[qWIdx].value
         val wK = params[kWIdx].value
         val wV = params[vWIdx].value
@@ -175,6 +185,11 @@ public class MultiHeadAttention<T : DType, V>(
         var q = linearProject(ops, input, wQ)
         var k = linearProject(ops, input, wK)
         var v = linearProject(ops, input, wV)
+        if (mhaDump) {
+            mhaDumpStat("[blk.0.mha post-Q-proj      ]", q)
+            mhaDumpStat("[blk.0.mha post-K-proj      ]", k)
+            mhaDumpStat("[blk.0.mha post-V-proj      ]", v)
+        }
 
         if (bias) {
             q = ops.add(q, params[qWIdx + 1].value)
@@ -192,6 +207,10 @@ public class MultiHeadAttention<T : DType, V>(
         if (qNorm != null && kNorm != null) {
             q = qNorm.forward(q, ctx)
             k = kNorm.forward(k, ctx)
+            if (mhaDump) {
+                mhaDumpStat("[blk.0.mha post-Q-norm      ]", q)
+                mhaDumpStat("[blk.0.mha post-K-norm      ]", k)
+            }
         }
 
         // Optional V-Norm (no scale): divide V by per-head RMS so attention
@@ -203,14 +222,20 @@ public class MultiHeadAttention<T : DType, V>(
             val vMean = ops.mean(vSq, dim = vReshaped.rank - 1)
             val vRms = ops.unsqueeze(ops.sqrt(ops.addScalar(vMean, 1e-6f)), vReshaped.rank - 1)
             vReshaped = ops.divide(vReshaped, vRms)
+            if (mhaDump) mhaDumpStat("[blk.0.mha post-V-norm      ]", vReshaped)
         }
 
         // Optional RoPE
         val ropeModule = rope
         if (ropeModule != null) {
             val position = kvCache?.position ?: 0
+            if (mhaDump) println("[blk.0.mha pos=$position]")
             q = ropeModule.forward(q, position, ctx)
             k = ropeModule.forward(k, position, ctx)
+            if (mhaDump) {
+                mhaDumpStat("[blk.0.mha post-RoPE-Q      ]", q)
+                mhaDumpStat("[blk.0.mha post-RoPE-K      ]", k)
+            }
         }
 
         // Optional KV Cache update
@@ -218,6 +243,10 @@ public class MultiHeadAttention<T : DType, V>(
             kvCache!!.update(k, vReshaped, ctx)
         } else {
             k to vReshaped
+        }
+        if (mhaDump) {
+            mhaDumpStat("[blk.0.mha cached-K (full)  ]", fullK)
+            mhaDumpStat("[blk.0.mha cached-V (full)  ]", fullV)
         }
 
         // Expand KV heads for GQA if needed
@@ -245,6 +274,7 @@ public class MultiHeadAttention<T : DType, V>(
             scale = scale,
             causal = useCausalPath
         )
+        if (mhaDump) mhaDumpStat("[blk.0.mha post-SDPA        ]", attnOut)
 
         // Remove batch dim and merge heads: [1, nHeads, seqLen, headDim] → [seqLen, qDim]
         val squeezed = ops.squeeze(attnOut, 0)
@@ -306,4 +336,58 @@ public class MultiHeadAttention<T : DType, V>(
         }
         return ops.concat(expanded, dim = 0)
     }
+
+    /** Diagnostic stat dump for MHA substeps. Gated by [MultiHeadAttentionDiag.shouldDumpThisCall];
+     *  same min/max/mean/rms format as `dumpInnerStats` in `HybridTransformerBlock`
+     *  so output reads consistently. Stats are over the *whole* tensor, not just
+     *  last position — different MHA substeps have different shapes (e.g. K is
+     *  `[nKVHeads, seq, headDim]` for one path, `[1, nKVHeads, fullSeqLen, headDim]`
+     *  for another), so a "last position" marker would not be uniform here. */
+    private fun mhaDumpStat(label: String, t: Tensor<T, V>) {
+        val data = t.data
+        val arr: FloatArray = when (data) {
+            is sk.ainet.lang.tensor.data.DenseFloatArrayTensorData<*> -> data.buffer.copyOf()
+            is sk.ainet.lang.tensor.data.MemorySegmentTensorData<*> -> {
+                val n = t.shape.volume
+                val out = FloatArray(n)
+                @Suppress("UNCHECKED_CAST")
+                val seg = (data as sk.ainet.lang.tensor.data.MemorySegmentTensorData<sk.ainet.lang.types.FP32>).segment
+                @Suppress("UNCHECKED_CAST")
+                val off = (data as sk.ainet.lang.tensor.data.MemorySegmentTensorData<sk.ainet.lang.types.FP32>).segmentByteOffset
+                java.lang.foreign.MemorySegment.copy(
+                    seg, java.lang.foreign.ValueLayout.JAVA_FLOAT, off, out, 0, n
+                )
+                out
+            }
+            else -> {
+                println("$label shape=${t.shape.dimensions.toList()} backing=${data::class.simpleName} (skip)")
+                return
+            }
+        }
+        var mn = Float.POSITIVE_INFINITY
+        var mx = Float.NEGATIVE_INFINITY
+        var sum = 0.0; var sumSq = 0.0
+        for (v in arr) {
+            if (v.isNaN()) continue
+            if (v < mn) mn = v; if (v > mx) mx = v
+            sum += v; sumSq += v.toDouble() * v
+        }
+        val n = arr.size
+        val mean = if (n > 0) sum / n else 0.0
+        val rms = if (n > 0) kotlin.math.sqrt(sumSq / n) else 0.0
+        println("$label shape=${t.shape.dimensions.toList()} min=%+.3f max=%+.3f mean=%+.3f rms=%.3f".format(mn, mx, mean, rms))
+    }
+}
+
+/**
+ * Per-call MHA-substep dump gate. The MHA module itself is named just `"attn"`
+ * (every block's MHA shares that name), so we can't gate the dump from inside
+ * MHA based on its own `name`. Instead, the calling `HybridTransformerBlock`
+ * (which knows it's `blk.0`) sets [shouldDumpThisCall] to `true` immediately
+ * before calling MHA's forward, and resets it after. Effective mutex:
+ * single-threaded forward path, so a static var is OK.
+ */
+public object MultiHeadAttentionDiag {
+    @JvmStatic
+    public var shouldDumpThisCall: Boolean = false
 }

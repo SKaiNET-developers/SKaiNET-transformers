@@ -144,6 +144,7 @@ public class HybridTransformerBlock<T : DType, V>(
 
     private fun directForward(input: Tensor<T, V>, ctx: ExecutionContext): Tensor<T, V> {
         val dumpInner = System.getenv("GEMMA4_DUMP_INNER") == "1" && name == "blk.0"
+        val dumpMha = System.getenv("GEMMA4_DUMP_MHA") == "1" && name == "blk.0"
         val outputs = arrayOfNulls<Any>(modulesList.size + 1)
         outputs[0] = input
         var tmp = input
@@ -156,7 +157,14 @@ public class HybridTransformerBlock<T : DType, V>(
                 (module as ResidualAdd<T, V>).savedInput =
                     outputs[blockStart] as Tensor<T, V>
             }
+            // Set the MHA substep-dump gate ONLY around this block's MHA call.
+            // The MHA module is named just "attn" — every block has one with
+            // the same name — so MHA can't gate its own dump on the block id.
+            // Toggle the static flag from here, where we know which block we're in.
+            val isMhaCall = dumpMha && module is MultiHeadAttention<*, *>
+            if (isMhaCall) sk.ainet.lang.nn.transformer.MultiHeadAttentionDiag.shouldDumpThisCall = true
             tmp = module.forward(tmp, ctx)
+            if (isMhaCall) sk.ainet.lang.nn.transformer.MultiHeadAttentionDiag.shouldDumpThisCall = false
             outputs[i + 1] = tmp
             if (dumpInner) dumpInnerStats("[blk.0 after ${module::class.simpleName}/${module.name}]", tmp)
         }
