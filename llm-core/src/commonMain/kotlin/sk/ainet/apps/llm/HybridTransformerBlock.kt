@@ -163,7 +163,10 @@ public class HybridTransformerBlock<T : DType, V>(
         return tmp
     }
 
-    /** Diagnostic only. Env-gated on GEMMA4_DUMP_INNER=1 + block name "blk.0". */
+    /** Diagnostic only. Env-gated on GEMMA4_DUMP_INNER=1 + block name "blk.0".
+     *  Format mirrors `GemmaModel.dumpHiddenStats`: stats line + 11-dim
+     *  fingerprint of the LAST sequence position so we can compare element-wise
+     *  to `/tmp/hf_per_layer_dump.py`'s `hf-blk0.*` intra-block dumps. */
     private fun dumpInnerStats(label: String, t: Tensor<T, V>) {
         val data = t.data
         val arr: FloatArray = when (data) {
@@ -182,6 +185,19 @@ public class HybridTransformerBlock<T : DType, V>(
                 return
             }
         }
+        val rank = t.shape.rank
+        val featureDim = t.shape[rank - 1]
+        val lastPosOff = arr.size - featureDim
+        var argmaxAbs = 0
+        var argmaxAbsVal = 0f
+        if (lastPosOff >= 0) {
+            for (i in 0 until featureDim) {
+                val v = arr[lastPosOff + i]
+                if (v.isNaN()) continue
+                val av = if (v < 0f) -v else v
+                if (av > argmaxAbsVal) { argmaxAbsVal = av; argmaxAbs = i }
+            }
+        }
         var mn = Float.POSITIVE_INFINITY
         var mx = Float.NEGATIVE_INFINITY
         var sum = 0.0
@@ -190,7 +206,16 @@ public class HybridTransformerBlock<T : DType, V>(
         val n = arr.size
         val mean = sum / n
         val rms = kotlin.math.sqrt(sumSq / n)
-        println("$label shape=${t.shape.dimensions.toList()} min=%+.3f max=%+.3f mean=%+.3f rms=%.3f".format(mn, mx, mean, rms))
+        println("$label shape=${t.shape.dimensions.toList()} min=%+.3f max=%+.3f mean=%+.3f rms=%.3f argmaxAbs=%d v=%+.3f".format(
+            mn, mx, mean, rms, argmaxAbs, argmaxAbsVal
+        ))
+        if (lastPosOff >= 0) {
+            val fpDims = intArrayOf(0, 12, 16, 100, 438, 660, 809, 1213, 1273, 1295, 1500)
+            val fp = fpDims.filter { it < featureDim }.joinToString(" ") { d ->
+                "v[$d]=%+.4f".format(arr[lastPosOff + d])
+            }
+            println("        $fp")
+        }
     }
 
     // --- HYBRID mode: compiled subgraphs + imperative attention ---
