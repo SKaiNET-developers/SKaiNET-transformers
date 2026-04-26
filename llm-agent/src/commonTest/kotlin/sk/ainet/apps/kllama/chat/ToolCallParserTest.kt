@@ -116,4 +116,79 @@ class ToolCallParserTest {
         val calls = ToolCallParser.parse(text)
         assertTrue(calls.isEmpty())
     }
+
+    // --- Llama 3.2 JSON: "parameters" key alias for "arguments" ---
+
+    @Test
+    fun parseLlama32JsonWithParametersKey() {
+        // Meta's Llama 3.2 docs use "parameters" as the argument-object key.
+        val text = """{"name": "list_files", "parameters": {"path": "/tmp"}}"""
+        val calls = ToolCallParser.parse(text)
+        assertEquals(1, calls.size)
+        assertEquals("list_files", calls[0].name)
+        assertEquals("/tmp", calls[0].arguments["path"]?.toString()?.trim('"'))
+    }
+
+    @Test
+    fun parseLlama32JsonStripsPythonTagPrefix() {
+        // Llama 3.2 sometimes emits <|python_tag|> before the JSON for built-in tools.
+        // The parser should tolerate it on custom tool calls too.
+        val text = """<|python_tag|>{"name": "calc", "parameters": {"x": 1}}"""
+        val calls = ToolCallParser.parse(text)
+        assertEquals(1, calls.size)
+        assertEquals("calc", calls[0].name)
+    }
+
+    @Test
+    fun parseLlama32JsonIgnoresTrailingProse() {
+        // Small models often append commentary after the JSON. The parser must
+        // grab the first balanced {...} and ignore the rest.
+        val text = """{"name": "list_files", "parameters": {"path": "/tmp"}} I hope that helps!"""
+        val calls = ToolCallParser.parse(text)
+        assertEquals(1, calls.size)
+        assertEquals("list_files", calls[0].name)
+    }
+
+    // --- Llama 3.1 legacy <function=...>...</function> ---
+
+    @Test
+    fun parseLlama31FunctionTagSingleCall() {
+        val text = """<function=list_files>{"path": "/tmp"}</function>"""
+        val calls = ToolCallParser.parse(text)
+        assertEquals(1, calls.size)
+        assertEquals("list_files", calls[0].name)
+        assertEquals("/tmp", calls[0].arguments["path"]?.toString()?.trim('"'))
+    }
+
+    @Test
+    fun parseLlama31FunctionTagMultipleCalls() {
+        val text = """
+            <function=search>{"q": "weather"}</function>
+            <function=calc>{"expression": "1+1"}</function>
+        """.trimIndent()
+        val calls = ToolCallParser.parse(text)
+        assertEquals(2, calls.size)
+        assertEquals("search", calls[0].name)
+        assertEquals("calc", calls[1].name)
+    }
+
+    @Test
+    fun parseLlama31FunctionTagWithSurroundingProse() {
+        val text = """Sure, let me check.
+            <function=list_files>{"path": "/tmp"}</function>
+            One moment."""
+        val calls = ToolCallParser.parse(text)
+        assertEquals(1, calls.size)
+        assertEquals("list_files", calls[0].name)
+    }
+
+    @Test
+    fun containsToolCallDetectsFunctionTag() {
+        assertTrue(ToolCallParser.containsToolCall("""<function=x>{}</function>"""))
+    }
+
+    @Test
+    fun containsToolCallDetectsParametersKey() {
+        assertTrue(ToolCallParser.containsToolCall("""{"name": "x", "parameters": {}}"""))
+    }
 }

@@ -72,6 +72,79 @@ class ChatTemplateTest {
         assertContains(result, "42")
     }
 
+    // --- Llama 3 Tool-Format Variants ---
+
+    @Test
+    fun llama3JsonFormatInstructsBareJsonResponse() {
+        val template = Llama3ChatTemplate(Llama3ToolFormat.JSON)
+        val tool = ToolDefinition(
+            name = "list_files",
+            description = "List files",
+            parameters = buildJsonObject { put("type", "object") }
+        )
+        val result = template.apply(listOf(userMsg), tools = listOf(tool))
+
+        // Tool definition is embedded
+        assertContains(result, "list_files")
+        // System prompt instructs the bare-JSON format using "parameters"
+        assertContains(result, "\"name\": <function-name>")
+        assertContains(result, "\"parameters\": <arguments-object>")
+        // Must NOT instruct the legacy <function=...> tag format
+        assertTrue(!result.contains("<function="), "JSON format must not mention <function=...> tag")
+    }
+
+    @Test
+    fun llama3FunctionTagFormatInstructsTaggedResponse() {
+        val template = Llama3ChatTemplate(Llama3ToolFormat.FUNCTION_TAG)
+        val tool = ToolDefinition(
+            name = "list_files",
+            description = "List files",
+            parameters = buildJsonObject { put("type", "object") }
+        )
+        val result = template.apply(listOf(userMsg), tools = listOf(tool))
+
+        assertContains(result, "list_files")
+        // System prompt instructs the <function=...>...</function> format
+        assertContains(result, "<function=function_name>")
+        assertContains(result, "</function>")
+    }
+
+    @Test
+    fun llama3MergesUserSystemPromptWithToolBlock() {
+        val template = Llama3ChatTemplate()
+        val tool = ToolDefinition(
+            name = "calculator",
+            description = "Math",
+            parameters = buildJsonObject { put("type", "object") }
+        )
+        val userSystem = ChatMessage(ChatRole.SYSTEM, "Be terse.")
+        val result = template.apply(listOf(userSystem, userMsg), tools = listOf(tool))
+
+        // Both the tool block AND the user system message must be preserved
+        assertContains(result, "calculator")
+        assertContains(result, "Be terse.")
+        // User system message comes after the tool block in the merged single
+        // system turn (so the tool instructions take precedence visually).
+        val toolIdx = result.indexOf("calculator")
+        val userIdx = result.indexOf("Be terse.")
+        assertTrue(toolIdx in 0 until userIdx, "tool block must precede user system text")
+    }
+
+    @Test
+    fun llama3DefaultFormatIsJson() {
+        // Regression guard: changing the default format silently would shift
+        // production behavior across every Llama 3 deployment.
+        val templateDefault = Llama3ChatTemplate()
+        val templateExplicit = Llama3ChatTemplate(Llama3ToolFormat.JSON)
+        val tool = ToolDefinition(
+            name = "x",
+            description = "y",
+            parameters = buildJsonObject { put("type", "object") }
+        )
+        val msgs = listOf(userMsg)
+        assertEquals(templateExplicit.apply(msgs, listOf(tool)), templateDefault.apply(msgs, listOf(tool)))
+    }
+
     // --- ChatML Template Tests ---
 
     @Test
