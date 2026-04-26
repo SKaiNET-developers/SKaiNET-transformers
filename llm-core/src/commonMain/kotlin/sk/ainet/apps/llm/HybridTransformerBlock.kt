@@ -145,6 +145,10 @@ public class HybridTransformerBlock<T : DType, V>(
     private fun directForward(input: Tensor<T, V>, ctx: ExecutionContext): Tensor<T, V> {
         val dumpInner = System.getenv("GEMMA4_DUMP_INNER") == "1" && name == "blk.0"
         val dumpMha = System.getenv("GEMMA4_DUMP_MHA") == "1" && name == "blk.0"
+        // GEMMA4_DUMP_BLOCKS=1 → one line per block (attn output + block output)
+        // for every block in the model. Used to bisect against HF's per-layer
+        // dump (`/tmp/dump_gemma4_intermediate.py`).
+        val dumpBlocks = System.getenv("GEMMA4_DUMP_BLOCKS") == "1"
         val outputs = arrayOfNulls<Any>(modulesList.size + 1)
         outputs[0] = input
         var tmp = input
@@ -167,7 +171,11 @@ public class HybridTransformerBlock<T : DType, V>(
             if (isMhaCall) sk.ainet.lang.nn.transformer.MultiHeadAttentionDiag.shouldDumpThisCall = false
             outputs[i + 1] = tmp
             if (dumpInner) dumpInnerStats("[blk.0 after ${module::class.simpleName}/${module.name}]", tmp)
+            if (dumpBlocks && module is MultiHeadAttention<*, *>) {
+                dumpInnerStats("[$name attn-out] ", tmp)
+            }
         }
+        if (dumpBlocks) dumpInnerStats("[$name block-out]", tmp)
         return tmp
     }
 

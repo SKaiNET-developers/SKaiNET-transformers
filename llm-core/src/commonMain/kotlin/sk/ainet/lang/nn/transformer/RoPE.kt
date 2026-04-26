@@ -149,8 +149,15 @@ public class RoPE<T : DType, V>(
     }
 
     /**
-     * Split-half mode: first half and second half of the *rotary* portion form pairs.
-     * The trailing `headDim - rotaryDim` tail is left untouched.
+     * Split-half mode: pair `dim_i` with `dim_{i + headDim/2}` (full split-half),
+     * and apply rotation only to pairs whose `i < halfRotary`. The remaining
+     * pairs (where `i >= halfRotary`) are left untouched.
+     *
+     * This matches HF's "proportional RoPE" semantics: `inv_freq` has length
+     * `headDim/2`, with the first `halfRotary` entries non-zero and the rest
+     * zero (yielding cos=1, sin=0 → no rotation). The pairing offset is
+     * always `halfHead = headDim/2`, NOT `halfRotary`. See HF transformers
+     * `_compute_proportional_rope_parameters` and `apply_rotary_pos_emb`.
      */
     private fun applyRoPESplitHalf(input: Tensor<T, V>, position: Int, ctx: ExecutionContext): Tensor<T, V> {
         val lastDim = input.shape[input.rank - 1]
@@ -160,13 +167,38 @@ public class RoPE<T : DType, V>(
             return applyRoPESplitHalfFull(input, position, ctx)
         }
 
-        // Partial rotary: split input into [rotary | passthrough], rotate the first, concat back.
+        // Partial rotary, HF-compatible. Split input by headDim/2, then within
+        // each half pull out the rotated subset of length halfRotary:
+        //   first half:  A = dims [0, halfRotary)        | B = dims [halfRotary, halfHead)
+        //   second half: C = dims [halfHead, halfHead+halfRotary) | D = dims [halfHead+halfRotary, headDim)
+        // Rotate (A, C) as a pair; leave B and D unchanged.
         val ops = ctx.ops
-        val parts = ops.split(input, rotaryDim, dim = input.rank - 1)
-        val rotary = parts[0]
-        val passthrough = parts[1]
-        val rotated = applyRoPESplitHalfFull(rotary, position, ctx)
-        return ops.concat(listOf(rotated, passthrough), dim = input.rank - 1)
+        val featureAxis = input.rank - 1
+        val halfHead = headDim / 2
+        val A = ops.narrow(input, featureAxis, 0, halfRotary)
+        val B = ops.narrow(input, featureAxis, halfRotary, halfHead - halfRotary)
+        val C = ops.narrow(input, featureAxis, halfHead, halfRotary)
+        val D = ops.narrow(input, featureAxis, halfHead + halfRotary, headDim - halfHead - halfRotary)
+
+        val seqLen = input.shape[input.rank - 2]
+        val cosData = FloatArray(seqLen * halfRotary)
+        val sinData = FloatArray(seqLen * halfRotary)
+        for (s in 0 until seqLen) {
+            val pos = position + s
+            for (i in 0 until halfRotary) {
+                cosData[s * halfRotary + i] = cosTable[pos * halfRotary + i]
+                sinData[s * halfRotary + i] = sinTable[pos * halfRotary + i]
+            }
+        }
+        val cosShape = Shape(seqLen, halfRotary)
+        val cosTensor: Tensor<T, V> = ctx.fromFloatArray(cosShape, input.dtype, cosData)
+        val sinTensor: Tensor<T, V> = ctx.fromFloatArray(cosShape, input.dtype, sinData)
+
+        // Standard 2D rotation: (a, b) -> (a*cos - b*sin, a*sin + b*cos)
+        val rotA = ops.subtract(ops.multiply(A, cosTensor), ops.multiply(C, sinTensor))
+        val rotC = ops.add(ops.multiply(C, cosTensor), ops.multiply(A, sinTensor))
+
+        return ops.concat(listOf(rotA, B, rotC, D), dim = featureAxis)
     }
 
     private fun applyRoPESplitHalfFull(input: Tensor<T, V>, position: Int, ctx: ExecutionContext): Tensor<T, V> {

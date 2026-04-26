@@ -16,6 +16,7 @@ import sk.ainet.lang.nn.normalization.RMSNormalization
 import sk.ainet.lang.nn.transformer.LayerScalarMul
 import sk.ainet.lang.nn.transformer.OwnerReadOnlyKVCache
 import sk.ainet.lang.nn.transformer.PositionalKVCache
+import sk.ainet.lang.nn.transformer.RoPEMode
 import sk.ainet.lang.nn.transformer.RoPEScaling
 import sk.ainet.lang.nn.transformer.VoidDense
 import sk.ainet.lang.types.DType
@@ -168,6 +169,17 @@ public fun <T : DType, V> gemmaNetwork(
             rope(
                 headDim = layerHeadDim,
                 maxSeqLen = seqLen,
+                // Gemma 4 (and all HF transformers): split-half (NEOX) pairing.
+                // Pair dim_i with dim_{i + headDim/2}. The default INTERLEAVED
+                // pairing (i, i+1) does NOT match HF / GGUF storage convention
+                // for Gemma — see `convert_hf_to_gguf.py` Gemma4Model: weights
+                // are stored as-is from HF, and HF uses split-half pairing in
+                // `apply_rotary_pos_emb`. Using INTERLEAVED gives correct-by-
+                // accident outputs at small N but compounds wrong rotations
+                // across positions for N≥3 (especially at full-attention
+                // layers, where partial_rotary_factor=0.25 amplifies the
+                // pairing mismatch).
+                mode = RoPEMode.SPLIT_HALF,
                 base = ropeBase,
                 scaling = ropeScaling,
                 scalingFactor = if (ropeScaling == RoPEScaling.PROPORTIONAL) scalingFactor else 1.0f,
