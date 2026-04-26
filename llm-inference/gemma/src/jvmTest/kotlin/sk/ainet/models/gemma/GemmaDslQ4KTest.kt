@@ -36,11 +36,16 @@ class GemmaDslQ4KTest {
 
     private val ctx = DirectCpuExecutionContext()
 
-    private val dim = 256
+    // dim and ffnDim chosen so each Q4_K weight has multiple input blocks per
+    // row — `inDim = 512 → blocksPerRow = 2`. With one block per row the
+    // `relayoutKSeriesRowMajorToBlockMajor` is the identity transform and the
+    // test silently misses any relayout bug. Two blocks per row exercises the
+    // real ggml strided codes layout end-to-end.
+    private val dim = 512
     private val nHeads = 2
     private val nKvHeads = 1
     private val headDim = dim / nHeads
-    private val ffnDim = 256
+    private val ffnDim = 512
     private val vocabSize = 32
     private val seqLen = 8
 
@@ -70,43 +75,46 @@ class GemmaDslQ4KTest {
     private val F16_ZERO: Pair<Byte, Byte> = 0x00.toByte() to 0x00.toByte()
 
     /**
-     * Pack 8 sub-block (scaleIdx, minIdx) pairs into 12 bytes of Q4_K's
-     * scale/min packed region. Each sub-block gets 12 bits: low 6 for
-     * scale index, next 6 for min index.
+     * Pack 8 sub-block (scaleIdx, minIdx) pairs into 12 bytes using ggml's
+     * `get_scale_min_k4` layout — *not* a flat 12-bits-per-sub-block packing.
+     * For sub-blocks 0..3:
+     *   `scales[j]   = scaleIdx & 0x3F` plus top-2-bits of `(scaleIdx_{j+4} >> 4)`
+     *   `scales[j+4] = minIdx   & 0x3F` plus top-2-bits of `(minIdx_{j+4}   >> 4)`
+     * For sub-blocks 4..7:
+     *   `scales[j+4] low 4 bits = scaleIdx & 0x0F`; high 4 bits = `minIdx & 0x0F`.
+     *
+     * This helper assumes a uniform `(scaleIdx, minIdx)` across all 8
+     * sub-blocks (the only mode the test currently exercises) and rejects
+     * inputs whose top 2 bits would conflict between sub-block groups.
      */
-    private fun packScaleMins(scaleIdx: Int, minIdx: Int): ByteArray {
-        val packed = LongArray(2) // 8 subblocks × 12 bits = 96 bits; use two longs
-        val sm = ((minIdx and 0x3F).toLong() shl 6) or (scaleIdx and 0x3F).toLong()
-        var bits = 0L
-        for (sb in 0 until 8) {
-            bits = bits or (sm shl (sb * 12))
+    private fun packCanonicalScaleMins(scaleIdx: Int, minIdx: Int): ByteArray {
+        require(scaleIdx in 0..0x3F && minIdx in 0..0x3F) {
+            "scaleIdx/minIdx must fit in 6 bits, got scaleIdx=$scaleIdx minIdx=$minIdx"
         }
-        // lower 64 bits → first 8 bytes, upper 32 bits (of a logical 96-bit) → last 4 bytes
-        val high = bits.shl(0).shr(64) // Kotlin Long is 64 bits; need another 32 bits for bits 64..95
-        // Redo using two Long fields covering the bit range:
-        // easier: compute byte-by-byte
         val out = ByteArray(12)
-        for (sb in 0 until 8) {
-            val bitPos = sb * 12
-            val bytePos = bitPos / 8
-            val bitShift = bitPos % 8
-            val value = ((minIdx and 0x3F) shl 6) or (scaleIdx and 0x3F) // 12 bits
-            val raw = value.toLong() shl bitShift // up to 12 + 7 = 19 bits, fits in Long
-            // Spread across up to 3 bytes
-            for (b in 0 until 3) {
-                val dstIdx = bytePos + b
-                if (dstIdx >= out.size) break
-                val shifted = (raw ushr (b * 8)).toInt() and 0xFF
-                out[dstIdx] = (out[dstIdx].toInt() or shifted).toByte()
-            }
+        val scaleHigh2 = (scaleIdx ushr 4) and 0x03
+        val minHigh2 = (minIdx ushr 4) and 0x03
+        // Sub-blocks 0..3: low 6 bits in bytes [j] / [j+4]; bits 6..7 carry the
+        // top-2-bits of sub-blocks 4..7's scaleIdx/minIdx.
+        for (j in 0 until 4) {
+            out[j] = ((scaleIdx and 0x3F) or (scaleHigh2 shl 6)).toByte()
+            out[j + 4] = ((minIdx and 0x3F) or (minHigh2 shl 6)).toByte()
+        }
+        // Sub-blocks 4..7 (j = 4..7): byte [j+4] holds (minIdx & 0x0F) in
+        // high 4 bits and (scaleIdx & 0x0F) in low 4 bits.
+        for (j in 4 until 8) {
+            out[j + 4] = (((minIdx and 0x0F) shl 4) or (scaleIdx and 0x0F)).toByte()
         }
         return out
     }
 
     /**
-     * Build one Q4_K block (144 bytes) with d=1, dMin=0, all sub-block
-     * scales = 63/63 = 1.0, all mins = 0, codes provided by the caller.
-     * Dequantisation: output[i] = codes[i].
+     * Build one Q4_K block (144 bytes) with `d=1`, `dMin=0`, scaleIdx=1 across
+     * all 8 sub-blocks (so per-element scale `= d * sc = 1.0`) and codes
+     * provided by the caller. Codes are laid out in the canonical *strided*
+     * ggml order: in each 32-byte qs group `j`, byte `j*32 + i` holds the
+     * code at position `i` of sub-block `2j` in its lo nibble, and the code at
+     * position `i` of sub-block `2j+1` in its hi nibble.
      */
     private fun q4kBlock(codes: IntArray): ByteArray {
         require(codes.size == 256) { "Q4_K block needs 256 codes, got ${codes.size}" }
@@ -115,12 +123,16 @@ class GemmaDslQ4KTest {
         block[1] = F16_ONE.second
         block[2] = F16_ZERO.first
         block[3] = F16_ZERO.second
-        val scaleMinBytes = packScaleMins(scaleIdx = 63, minIdx = 0)
+        val scaleMinBytes = packCanonicalScaleMins(scaleIdx = 1, minIdx = 0)
         for (i in 0 until 12) block[4 + i] = scaleMinBytes[i]
-        for (i in 0 until 128) {
-            val lo = codes[i * 2] and 0x0F
-            val hi = codes[i * 2 + 1] and 0x0F
-            block[16 + i] = ((hi shl 4) or lo).toByte()
+        // Strided codes: 4 groups of 32 bytes each; group `j` carries
+        // sub-blocks (2j, 2j+1).
+        for (j in 0 until 4) {
+            for (i in 0 until 32) {
+                val lo = codes[2 * j * 32 + i] and 0x0F
+                val hi = codes[(2 * j + 1) * 32 + i] and 0x0F
+                block[16 + j * 32 + i] = ((hi shl 4) or lo).toByte()
+            }
         }
         return block
     }
