@@ -23,8 +23,10 @@ if (localSkaiNet.isDirectory) {
 
 rootProject.name = "SKaiNET-transformers"
 
+include("llm-api")
 include("llm-core")
 include("llm-agent")
+include("llm-providers")
 include("llm-inference:llama")
 include("llm-inference:qwen")
 include("llm-inference:gemma")

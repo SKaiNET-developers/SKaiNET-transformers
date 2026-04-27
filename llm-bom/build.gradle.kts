@@ -15,11 +15,17 @@ dependencies {
     api(platform("sk.ainet:skainet-bom:${libs.versions.skainet.get()}"))
 
     constraints {
+        // Public SPI (provider-neutral)
+        api(project(":llm-api"))
+
         // LLM core
         api(project(":llm-core"))
 
         // Agent
         api(project(":llm-agent"))
+
+        // Providers — concrete adapters from runtimes to llm-api
+        api(project(":llm-providers"))
 
         // Inference — model loaders
         api(project(":llm-inference:llama"))
