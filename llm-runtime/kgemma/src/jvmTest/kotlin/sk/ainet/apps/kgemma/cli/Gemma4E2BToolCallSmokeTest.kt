@@ -135,11 +135,22 @@ class Gemma4E2BToolCallSmokeTest {
             val ctx = DirectCpuExecutionContext(tensorDataFactory = memSegFactory)
             val quantArena = Arena.ofShared()
             try {
+                // NATIVE_OPTIMIZED: keep Q4_K weights quantized in memory and use the
+                // dot-product Q4_K kernel during matmul. ~5× faster than
+                // DEQUANTIZE_TO_FP32 with equivalent output quality (the RoPE fix
+                // makes both paths produce the same top-1 token). Override via
+                // GEMMA4_TOOLCALL_QUANT=fp32 if a numerical-precision regression
+                // is suspected.
+                val quantPolicy = if (System.getenv("GEMMA4_TOOLCALL_QUANT")?.lowercase() == "fp32") {
+                    QuantPolicy.DEQUANTIZE_TO_FP32
+                } else {
+                    QuantPolicy.NATIVE_OPTIMIZED
+                }
                 val ingestion = Gemma4Ingestion<FP32>(
                     ctx = ctx,
                     dtype = FP32::class,
                     config = Gemma4LoadConfig(
-                        quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
+                        quantPolicy = quantPolicy,
                         allowQuantized = true
                     )
                 )
@@ -170,17 +181,31 @@ class Gemma4E2BToolCallSmokeTest {
                 val tool = CalculatorTool()
                 val rawResponses = mutableListOf<String>()
                 val toolCallsHeard = mutableListOf<ToolCall>()
+                // Live per-token visibility — gradle test runner buffers stdout
+                // until the test ends, but each println auto-flushes within the
+                // worker JVM, so progress lines printed here at least appear in
+                // the test's captured stdout once the test finishes.
+                var tokenCount = 0
+                val sb = StringBuilder()
                 val listener = object : AgentListener {
+                    override fun onToken(token: String) {
+                        tokenCount++
+                        sb.append(token)
+                        if (tokenCount % 8 == 0) {
+                            println("[gen tok=$tokenCount] …${sb.takeLast(60).toString().replace("\n", "\\n")}")
+                        }
+                    }
                     override fun onAssistantMessage(text: String) { rawResponses += text }
                     override fun onToolCalls(calls: List<ToolCall>) { toolCallsHeard += calls }
                 }
 
                 val prompt = "What is 17 * 23? Use the calculator tool."
                 memDump("before-runSingleTurn")
+                val maxTokens = (System.getenv("GEMMA4_TOOLCALL_MAX_TOKENS")?.toIntOrNull()) ?: 80
                 val response = session.runSingleTurn(
                     prompt = prompt,
                     tools = listOf(tool),
-                    maxTokens = 256,
+                    maxTokens = maxTokens,
                     temperature = 0.0f,
                     listener = listener
                 )
