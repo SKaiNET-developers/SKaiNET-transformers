@@ -39,13 +39,24 @@ import sk.ainet.lang.types.FP32
  * checkpoint. Gated on the `GEMMA4_E2B_MODEL_PATH` env var so CI stays green
  * without the ~3 GB weights on disk.
  *
- * Purpose: this is the first test that empirically pins down whether the
- * trained Gemma 4 model natively emits `<|tool_call>...<tool_call|>` against
- * our [sk.ainet.apps.kllama.chat.Gemma4ChatTemplate]. Every other test in
- * this repo uses synthetic weights or a mock runtime with a scripted token
- * stream, so the grammar choices in the template (including the paired
- * `<|think>` / `<think|>` convention introduced for thinking mode) rest on
- * spec reading, not observed behavior. A pass here closes that gap.
+ * Purpose: full-stack regression check. The chat-template grammar and
+ * parser are *already* empirically validated end-to-end via two faster
+ * paths:
+ *
+ *   1. [sk.ainet.apps.kllama.chat.Gemma4ChatTemplateHfParityTest]
+ *      asserts byte-for-byte parity between our Kotlin
+ *      [sk.ainet.apps.kllama.chat.Gemma4ChatTemplate] render and HF's
+ *      official Jinja `chat_template.jinja`.
+ *   2. HF Python ground truth (run separately via `uv run`, see
+ *      `gemma4_chat_template_mismatch.md`) confirms the trained model
+ *      emits exactly `<|tool_call>call:calculator{expression:<|"|>17 *
+ *      23<|"|>}<tool_call|>` for the calculator prompt.
+ *
+ * What this test adds on top: it confirms the *DSL forward + agent
+ * loop* reproduces the same behavior end-to-end against the real
+ * checkpoint. If it fails, the format and parser are not the suspect —
+ * look for a regression in the DSL inference path (RoPE, KV-share,
+ * Q4_K kernel) or the agent loop wiring.
  *
  * To run locally:
  * ```
@@ -62,11 +73,9 @@ import sk.ainet.lang.types.FP32
  * JUnit reports the test as SKIPPED — misleadingly, because the assertion
  * never runs. Defaults stay at 4g so CI and the rest of the suite are cheap.
  *
- * If the test finds the model but the model does NOT produce a parseable
- * tool call, it fails with the raw response captured so the grammar
- * mismatch can be diagnosed and written up in
- * `gemma4-research/findings/tool_calling.md` (tracked as Group 5 in
- * `PLAN-tool-calling.md`).
+ * If the test finds the model but the assertions fail, the raw response
+ * is captured in stdout. Most likely cause is a regression somewhere in
+ * the DSL forward — the chat-template grammar is no longer the suspect.
  */
 class Gemma4E2BToolCallSmokeTest {
 
@@ -215,21 +224,61 @@ class Gemma4E2BToolCallSmokeTest {
                 println("--- raw round 1 response ---\n$allText\n---")
                 println("final response: $response")
 
+                // Format empirically validated against the trained model
+                // via HF Python ground truth (2026-04-27): on this prompt
+                // the model emits exactly
+                //   <|tool_call>call:calculator{expression:<|"|>17 * 23<|"|>}<tool_call|>
+                // with all delimiter and quote tokens atomic. Assertions
+                // below pin the contract our parser depends on. See
+                // gemma4_chat_template_mismatch.md for the trail.
+
                 assertTrue(
                     allText.contains("<|tool_call>"),
-                    "real Gemma 4 E2B did not emit a <|tool_call> marker — the template grammar " +
-                        "may not match the trained model. Raw response captured above. Record findings in " +
-                        "gemma4-research/findings/tool_calling.md before adjusting the template."
+                    "Expected `<|tool_call>` opener in model output. The HF Python ground truth on " +
+                        "this prompt emits one — if our DSL doesn't, suspect a regression in the " +
+                        "DSL forward pass, not the chat template. Raw response captured above."
                 )
                 assertTrue(
                     allText.contains("<tool_call|>"),
-                    "found opener but no closer <tool_call|> — check if the model uses a different " +
-                        "closing delimiter."
+                    "Found `<|tool_call>` opener but no `<tool_call|>` closer — generation likely " +
+                        "truncated mid-call. Increase GEMMA4_TOOLCALL_MAX_TOKENS or check why the " +
+                        "model stopped early."
                 )
                 assertTrue(
-                    toolCallsHeard.any { it.name == "calculator" },
-                    "Gemma4ChatTemplate.parseToolCalls did not recover a 'calculator' call from the " +
-                        "model output. Raw response above."
+                    allText.contains("call:calculator{"),
+                    "Expected HF-format body `call:calculator{...}` inside the tool_call markers. " +
+                        "Got something else — model may have emitted a different tool name or body " +
+                        "shape. Raw response above."
+                )
+                assertTrue(
+                    allText.contains("<|\"|>"),
+                    "Expected at least one `<|\"|>` quote token (string-literal delimiter) in the " +
+                        "tool-call body. Without it the argument parser can't recover string values."
+                )
+
+                val calculatorCall = toolCallsHeard.firstOrNull { it.name == "calculator" }
+                    ?: fail(
+                        "Gemma4ChatTemplate.parseToolCalls did not recover a `calculator` call from " +
+                            "the model output, even though the markers and body shape look right. " +
+                            "Either the parser regressed or the body grammar diverged. Raw response above."
+                    )
+                val expression = calculatorCall.arguments["expression"]?.jsonPrimitive?.content
+                assertTrue(
+                    expression != null && "17" in expression && "23" in expression,
+                    "Recovered `calculator` call but the `expression` argument doesn't contain " +
+                        "the prompt operands. Got: $expression. Raw response above."
+                )
+
+                // The CalculatorTool is wired into the agent loop, so it
+                // should have actually run with that expression.
+                assertTrue(
+                    tool.invoked,
+                    "calculator.execute() was never called — the agent loop didn't dispatch the " +
+                        "parsed tool call. Check ToolRegistry wiring."
+                )
+                assertTrue(
+                    tool.receivedExpression?.let { "17" in it && "23" in it } ?: false,
+                    "Tool ran but with a surprising expression argument: ${tool.receivedExpression}"
                 )
             } finally {
                 quantArena.close()
