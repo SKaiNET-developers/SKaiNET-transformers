@@ -19,10 +19,19 @@ import kotlinx.serialization.json.put
  * - Tool calls use `<|tool_call>...<tool_call|>` delimiters
  * - Tool responses use `<|tool_response>...<tool_response|>` delimiters
  * - Thinking mode: `<|think>...<think|>` blocks in model output (same paired-
- *   delimiter convention as the other markers). These are reasoning traces
- *   the model is allowed to emit; the agent loop consumes them separately
- *   and does not feed them back into subsequent prompts or persist them in
- *   the assistant message.
+ *   delimiter convention as the other markers). The agent loop consumes them
+ *   separately and does not feed them back into subsequent prompts or persist
+ *   them in the assistant message.
+ *
+ *   **Status (2026-04-27): unverified for the released gemma-4-E2B-it
+ *   checkpoint.** GGUF inspection shows `<|think>` / `<think|>` are NOT in
+ *   the tokenizer vocab (compare `<|tool>`/`<tool|>` at ids 46/47, type=3
+ *   CONTROL). The model therefore cannot emit these as atomic tokens. The
+ *   parser still runs string-level pattern matching, so if a future Gemma 4
+ *   variant adds these tokens (or trains the model to emit the literal
+ *   character sequence under byte-fallback), the existing path will pick
+ *   it up. Until verified against a real checkpoint that emits them, treat
+ *   `parseThinkingBlocks` as a best-effort no-op for Gemma 4.
  *
  * Turn format:
  * ```
