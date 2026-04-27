@@ -397,6 +397,50 @@ class TokenizerEncodingTest {
     }
 
     @Test
+    fun `BPE encode emits USER_DEFINED tokens atomically (Gemma 4 tool markers)`() {
+        // Regression for the Gemma 4 multi-turn tool-calling case. GGUF type=4
+        // (USER_DEFINED) marks visible-but-atomic tokens — `convert_hf_to_gguf.py`
+        // Gemma4Model.set_vocab assigns this type to <|tool_call> / <tool_call|> /
+        // <|tool_response> / <tool_response|> "so that the chat parser can read
+        // them". They must round-trip through encode the same as type=3 CONTROL.
+        val vocab = listOf(
+            "<", "|", "t", "o", "_", "c", "a", "l", "r", "e", "s", "p", "n", ">",  // 0..13 single chars
+            "<|tool_call>",      // 14  USER_DEFINED
+            "<tool_call|>",      // 15  USER_DEFINED
+            "<|tool_response>",  // 16  USER_DEFINED
+            "<tool_response|>",  // 17  USER_DEFINED
+            "x"                  // 18
+        )
+        val scores = FloatArray(vocab.size) { 0f }
+        val tokenTypes = IntArray(vocab.size) { 1 }
+        tokenTypes[14] = 4 // USER_DEFINED
+        tokenTypes[15] = 4
+        tokenTypes[16] = 4
+        tokenTypes[17] = 4
+
+        val tok = GGUFTokenizer.forTesting(
+            vocab = vocab,
+            scores = scores,
+            bosTokenId = 14,
+            eosTokenId = 15,
+            unkTokenId = 0,
+            strategy = BPEStrategy,
+            tokenTypes = tokenTypes
+        )
+
+        val ids = tok.encode("<|tool_call>x<tool_call|>")
+        // First and last must be the atomic IDs, not char-fragmented.
+        assertEquals(14, ids.first(), "first token must be atomic <|tool_call> id (14)")
+        assertEquals(15, ids.last(), "last token must be atomic <tool_call|> id (15)")
+        assertTrue(ids.size <= 3, "expected ≤3 ids ([14, 18, 15]), got ${ids.toList()}")
+
+        // Multi-turn case: tool_response in conversation history.
+        val ids2 = tok.encode("<|tool_response>x<tool_response|>")
+        assertEquals(16, ids2.first())
+        assertEquals(17, ids2.last())
+    }
+
+    @Test
     fun `BPE encode without tokenTypes falls back to plain BPE`() {
         // No tokenTypes provided → no special handling, plain BPE on chars.
         // Guards against accidental behavior change for callers that don't pass tokenTypes.

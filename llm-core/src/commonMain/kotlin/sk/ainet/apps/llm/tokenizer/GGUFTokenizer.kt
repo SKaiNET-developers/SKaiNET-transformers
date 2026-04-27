@@ -44,7 +44,15 @@ class GGUFTokenizer private constructor(
 
         // GGUF token_type values (per llama.cpp convention).
         // CONTROL marks atomic special tokens like <|begin_of_text|>, <|eot_id|>, <|im_start|>.
+        // USER_DEFINED marks visible-but-atomic tokens; e.g. Gemma 4's
+        // `<|tool_call>` / `<tool_call|>` / `<|tool_response>` / `<tool_response|>`
+        // are USER_DEFINED specifically so the chat parser can read them
+        // (see convert_hf_to_gguf.py Gemma4Model.set_vocab). Both must be
+        // emitted as a single token id on encode — otherwise multi-turn
+        // prompts that include tool responses byte-fragment, and the model
+        // sees a different prompt structure than what it was trained on.
         private const val TOKEN_TYPE_CONTROL = 3
+        private const val TOKEN_TYPE_USER_DEFINED = 4
 
         /** Test-only factory; do not use from production code. */
         internal fun forTesting(
@@ -618,16 +626,19 @@ class GGUFTokenizer private constructor(
             .sortedByDescending { (_, idx) -> scores.getOrElse(idx) { 0f } }
     }
 
-    // Atomic special tokens (GGUF token_type == CONTROL), longest-first for greedy matching.
-    // These must be emitted as a single ID even though greedy bottom-up BPE could never assemble
-    // their multi-character form from single-char starting tokens.
+    // Atomic special tokens (GGUF token_type ∈ {CONTROL, USER_DEFINED}), longest-first
+    // for greedy matching. These must be emitted as a single ID even though greedy
+    // bottom-up BPE could never assemble their multi-character form from single-char
+    // starting tokens. USER_DEFINED is included because Gemma 4's tool-call /
+    // tool-response markers are USER_DEFINED-by-design — they need atomic emission
+    // exactly the same way as CONTROL tokens to round-trip through chat templates.
     private val specialTokensByLength: List<Pair<String, Int>> by lazy {
         if (tokenTypes == null) emptyList()
         else vocab.asSequence()
             .mapIndexedNotNull { id, str ->
-                if (id < tokenTypes.size && tokenTypes[id] == TOKEN_TYPE_CONTROL && str.isNotEmpty()) {
-                    str to id
-                } else null
+                val isAtomic = id < tokenTypes.size &&
+                    (tokenTypes[id] == TOKEN_TYPE_CONTROL || tokenTypes[id] == TOKEN_TYPE_USER_DEFINED)
+                if (isAtomic && str.isNotEmpty()) str to id else null
             }
             .sortedByDescending { it.first.length }
             .toList()
