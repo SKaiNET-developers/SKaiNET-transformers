@@ -1,0 +1,19 @@
+public final class sk/ainet/llm/providers/SkaiNetChatModel : sk/ainet/llm/api/StreamingChatModel {
+	public fun <init> (Lsk/ainet/apps/llm/InferenceRuntime;Lsk/ainet/apps/llm/Tokenizer;Lsk/ainet/apps/kllama/chat/ChatTemplate;Lsk/ainet/llm/api/ChatOptions;IILkotlin/random/Random;Ljava/lang/String;)V
+	public synthetic fun <init> (Lsk/ainet/apps/llm/InferenceRuntime;Lsk/ainet/apps/llm/Tokenizer;Lsk/ainet/apps/kllama/chat/ChatTemplate;Lsk/ainet/llm/api/ChatOptions;IILkotlin/random/Random;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun call (Lsk/ainet/llm/api/ChatRequest;)Lsk/ainet/llm/api/ChatResponse;
+	public fun close ()V
+	public fun getDefaultOptions ()Lsk/ainet/llm/api/ChatOptions;
+	public fun stream (Lsk/ainet/llm/api/ChatRequest;)Lkotlinx/coroutines/flow/Flow;
+}
+
+public final class sk/ainet/llm/providers/SkaiNetEmbeddingModel : sk/ainet/llm/api/EmbeddingModel {
+	public fun <init> (Lsk/ainet/models/bert/BertRuntime;Lsk/ainet/apps/llm/Tokenizer;ILjava/lang/String;)V
+	public synthetic fun <init> (Lsk/ainet/models/bert/BertRuntime;Lsk/ainet/apps/llm/Tokenizer;ILjava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun call (Lsk/ainet/llm/api/EmbeddingRequest;)Lsk/ainet/llm/api/EmbeddingResponse;
+	public fun close ()V
+	public fun embed (Ljava/lang/String;)[F
+	public fun embed (Ljava/util/List;)Ljava/util/List;
+	public fun getDimensions ()I
+}
+

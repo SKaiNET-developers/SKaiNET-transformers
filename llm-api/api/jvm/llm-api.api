@@ -1,0 +1,280 @@
+public abstract interface class sk/ainet/llm/api/ChatModel : java/lang/AutoCloseable {
+	public abstract fun call (Lsk/ainet/llm/api/ChatRequest;)Lsk/ainet/llm/api/ChatResponse;
+	public fun close ()V
+	public abstract fun getDefaultOptions ()Lsk/ainet/llm/api/ChatOptions;
+}
+
+public final class sk/ainet/llm/api/ChatModel$DefaultImpls {
+	public static fun close (Lsk/ainet/llm/api/ChatModel;)V
+}
+
+public final class sk/ainet/llm/api/ChatOptions {
+	public static final field Companion Lsk/ainet/llm/api/ChatOptions$Companion;
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/String;Ljava/lang/Float;Ljava/lang/Integer;Ljava/lang/Float;Ljava/lang/Integer;Ljava/util/List;Ljava/lang/Long;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/Float;Ljava/lang/Integer;Ljava/lang/Float;Ljava/lang/Integer;Ljava/util/List;Ljava/lang/Long;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/Float;
+	public final fun component3 ()Ljava/lang/Integer;
+	public final fun component4 ()Ljava/lang/Float;
+	public final fun component5 ()Ljava/lang/Integer;
+	public final fun component6 ()Ljava/util/List;
+	public final fun component7 ()Ljava/lang/Long;
+	public final fun copy (Ljava/lang/String;Ljava/lang/Float;Ljava/lang/Integer;Ljava/lang/Float;Ljava/lang/Integer;Ljava/util/List;Ljava/lang/Long;)Lsk/ainet/llm/api/ChatOptions;
+	public static synthetic fun copy$default (Lsk/ainet/llm/api/ChatOptions;Ljava/lang/String;Ljava/lang/Float;Ljava/lang/Integer;Ljava/lang/Float;Ljava/lang/Integer;Ljava/util/List;Ljava/lang/Long;ILjava/lang/Object;)Lsk/ainet/llm/api/ChatOptions;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getMaxTokens ()Ljava/lang/Integer;
+	public final fun getModel ()Ljava/lang/String;
+	public final fun getSeed ()Ljava/lang/Long;
+	public final fun getStopSequences ()Ljava/util/List;
+	public final fun getTemperature ()Ljava/lang/Float;
+	public final fun getTopK ()Ljava/lang/Integer;
+	public final fun getTopP ()Ljava/lang/Float;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/llm/api/ChatOptions$Companion {
+	public final fun getDEFAULTS ()Lsk/ainet/llm/api/ChatOptions;
+}
+
+public final class sk/ainet/llm/api/ChatRequest {
+	public fun <init> (Ljava/lang/String;)V
+	public fun <init> (Ljava/util/List;Lsk/ainet/llm/api/ChatOptions;Ljava/util/List;)V
+	public synthetic fun <init> (Ljava/util/List;Lsk/ainet/llm/api/ChatOptions;Ljava/util/List;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/util/List;
+	public final fun component2 ()Lsk/ainet/llm/api/ChatOptions;
+	public final fun component3 ()Ljava/util/List;
+	public final fun copy (Ljava/util/List;Lsk/ainet/llm/api/ChatOptions;Ljava/util/List;)Lsk/ainet/llm/api/ChatRequest;
+	public static synthetic fun copy$default (Lsk/ainet/llm/api/ChatRequest;Ljava/util/List;Lsk/ainet/llm/api/ChatOptions;Ljava/util/List;ILjava/lang/Object;)Lsk/ainet/llm/api/ChatRequest;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getMessages ()Ljava/util/List;
+	public final fun getOptions ()Lsk/ainet/llm/api/ChatOptions;
+	public final fun getTools ()Ljava/util/List;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/llm/api/ChatResponse {
+	public fun <init> (Ljava/util/List;Lsk/ainet/llm/api/Usage;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/util/List;Lsk/ainet/llm/api/Usage;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/util/List;
+	public final fun component2 ()Lsk/ainet/llm/api/Usage;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun copy (Ljava/util/List;Lsk/ainet/llm/api/Usage;Ljava/lang/String;)Lsk/ainet/llm/api/ChatResponse;
+	public static synthetic fun copy$default (Lsk/ainet/llm/api/ChatResponse;Ljava/util/List;Lsk/ainet/llm/api/Usage;Ljava/lang/String;ILjava/lang/Object;)Lsk/ainet/llm/api/ChatResponse;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getGenerations ()Ljava/util/List;
+	public final fun getModelId ()Ljava/lang/String;
+	public final fun getText ()Ljava/lang/String;
+	public final fun getUsage ()Lsk/ainet/llm/api/Usage;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/llm/api/ChatResponseChunk {
+	public fun <init> (Ljava/lang/String;Ljava/util/List;Lsk/ainet/llm/api/FinishReason;Lsk/ainet/llm/api/Usage;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/util/List;Lsk/ainet/llm/api/FinishReason;Lsk/ainet/llm/api/Usage;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/util/List;
+	public final fun component3 ()Lsk/ainet/llm/api/FinishReason;
+	public final fun component4 ()Lsk/ainet/llm/api/Usage;
+	public final fun copy (Ljava/lang/String;Ljava/util/List;Lsk/ainet/llm/api/FinishReason;Lsk/ainet/llm/api/Usage;)Lsk/ainet/llm/api/ChatResponseChunk;
+	public static synthetic fun copy$default (Lsk/ainet/llm/api/ChatResponseChunk;Ljava/lang/String;Ljava/util/List;Lsk/ainet/llm/api/FinishReason;Lsk/ainet/llm/api/Usage;ILjava/lang/Object;)Lsk/ainet/llm/api/ChatResponseChunk;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getDelta ()Ljava/lang/String;
+	public final fun getFinishReason ()Lsk/ainet/llm/api/FinishReason;
+	public final fun getToolCallDelta ()Ljava/util/List;
+	public final fun getUsage ()Lsk/ainet/llm/api/Usage;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/llm/api/Embedding {
+	public fun <init> (I[F)V
+	public final fun component1 ()I
+	public final fun component2 ()[F
+	public final fun copy (I[F)Lsk/ainet/llm/api/Embedding;
+	public static synthetic fun copy$default (Lsk/ainet/llm/api/Embedding;I[FILjava/lang/Object;)Lsk/ainet/llm/api/Embedding;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getIndex ()I
+	public final fun getVector ()[F
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class sk/ainet/llm/api/EmbeddingModel : java/lang/AutoCloseable {
+	public abstract fun call (Lsk/ainet/llm/api/EmbeddingRequest;)Lsk/ainet/llm/api/EmbeddingResponse;
+	public fun close ()V
+	public fun embed (Ljava/lang/String;)[F
+	public fun embed (Ljava/util/List;)Ljava/util/List;
+	public abstract fun getDimensions ()I
+}
+
+public final class sk/ainet/llm/api/EmbeddingModel$DefaultImpls {
+	public static fun close (Lsk/ainet/llm/api/EmbeddingModel;)V
+	public static fun embed (Lsk/ainet/llm/api/EmbeddingModel;Ljava/lang/String;)[F
+	public static fun embed (Lsk/ainet/llm/api/EmbeddingModel;Ljava/util/List;)Ljava/util/List;
+}
+
+public final class sk/ainet/llm/api/EmbeddingOptions {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/String;Ljava/lang/Integer;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/Integer;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/Integer;
+	public final fun copy (Ljava/lang/String;Ljava/lang/Integer;)Lsk/ainet/llm/api/EmbeddingOptions;
+	public static synthetic fun copy$default (Lsk/ainet/llm/api/EmbeddingOptions;Ljava/lang/String;Ljava/lang/Integer;ILjava/lang/Object;)Lsk/ainet/llm/api/EmbeddingOptions;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getDimensions ()Ljava/lang/Integer;
+	public final fun getModel ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/llm/api/EmbeddingRequest {
+	public fun <init> (Ljava/lang/String;)V
+	public fun <init> (Ljava/util/List;Lsk/ainet/llm/api/EmbeddingOptions;)V
+	public synthetic fun <init> (Ljava/util/List;Lsk/ainet/llm/api/EmbeddingOptions;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/util/List;
+	public final fun component2 ()Lsk/ainet/llm/api/EmbeddingOptions;
+	public final fun copy (Ljava/util/List;Lsk/ainet/llm/api/EmbeddingOptions;)Lsk/ainet/llm/api/EmbeddingRequest;
+	public static synthetic fun copy$default (Lsk/ainet/llm/api/EmbeddingRequest;Ljava/util/List;Lsk/ainet/llm/api/EmbeddingOptions;ILjava/lang/Object;)Lsk/ainet/llm/api/EmbeddingRequest;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getInputs ()Ljava/util/List;
+	public final fun getOptions ()Lsk/ainet/llm/api/EmbeddingOptions;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/llm/api/EmbeddingResponse {
+	public fun <init> (Ljava/util/List;Lsk/ainet/llm/api/Usage;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/util/List;Lsk/ainet/llm/api/Usage;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/util/List;
+	public final fun component2 ()Lsk/ainet/llm/api/Usage;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun copy (Ljava/util/List;Lsk/ainet/llm/api/Usage;Ljava/lang/String;)Lsk/ainet/llm/api/EmbeddingResponse;
+	public static synthetic fun copy$default (Lsk/ainet/llm/api/EmbeddingResponse;Ljava/util/List;Lsk/ainet/llm/api/Usage;Ljava/lang/String;ILjava/lang/Object;)Lsk/ainet/llm/api/EmbeddingResponse;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getEmbeddings ()Ljava/util/List;
+	public final fun getModelId ()Ljava/lang/String;
+	public final fun getUsage ()Lsk/ainet/llm/api/Usage;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/llm/api/FinishReason : java/lang/Enum {
+	public static final field ERROR Lsk/ainet/llm/api/FinishReason;
+	public static final field LENGTH Lsk/ainet/llm/api/FinishReason;
+	public static final field STOP Lsk/ainet/llm/api/FinishReason;
+	public static final field TOOL_CALL Lsk/ainet/llm/api/FinishReason;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lsk/ainet/llm/api/FinishReason;
+	public static fun values ()[Lsk/ainet/llm/api/FinishReason;
+}
+
+public final class sk/ainet/llm/api/Generation {
+	public fun <init> (Lsk/ainet/llm/api/Message;Lsk/ainet/llm/api/FinishReason;)V
+	public final fun component1 ()Lsk/ainet/llm/api/Message;
+	public final fun component2 ()Lsk/ainet/llm/api/FinishReason;
+	public final fun copy (Lsk/ainet/llm/api/Message;Lsk/ainet/llm/api/FinishReason;)Lsk/ainet/llm/api/Generation;
+	public static synthetic fun copy$default (Lsk/ainet/llm/api/Generation;Lsk/ainet/llm/api/Message;Lsk/ainet/llm/api/FinishReason;ILjava/lang/Object;)Lsk/ainet/llm/api/Generation;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getFinishReason ()Lsk/ainet/llm/api/FinishReason;
+	public final fun getMessage ()Lsk/ainet/llm/api/Message;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/llm/api/Message {
+	public static final field Companion Lsk/ainet/llm/api/Message$Companion;
+	public fun <init> (Lsk/ainet/llm/api/Role;Ljava/lang/String;Ljava/util/List;Ljava/lang/String;Ljava/lang/String;)V
+	public synthetic fun <init> (Lsk/ainet/llm/api/Role;Ljava/lang/String;Ljava/util/List;Ljava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Lsk/ainet/llm/api/Role;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/util/List;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun copy (Lsk/ainet/llm/api/Role;Ljava/lang/String;Ljava/util/List;Ljava/lang/String;Ljava/lang/String;)Lsk/ainet/llm/api/Message;
+	public static synthetic fun copy$default (Lsk/ainet/llm/api/Message;Lsk/ainet/llm/api/Role;Ljava/lang/String;Ljava/util/List;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lsk/ainet/llm/api/Message;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getContent ()Ljava/lang/String;
+	public final fun getName ()Ljava/lang/String;
+	public final fun getRole ()Lsk/ainet/llm/api/Role;
+	public final fun getToolCallId ()Ljava/lang/String;
+	public final fun getToolCalls ()Ljava/util/List;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/llm/api/Message$Companion {
+	public final fun assistant (Ljava/lang/String;Ljava/util/List;)Lsk/ainet/llm/api/Message;
+	public static synthetic fun assistant$default (Lsk/ainet/llm/api/Message$Companion;Ljava/lang/String;Ljava/util/List;ILjava/lang/Object;)Lsk/ainet/llm/api/Message;
+	public final fun system (Ljava/lang/String;)Lsk/ainet/llm/api/Message;
+	public final fun tool (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Lsk/ainet/llm/api/Message;
+	public static synthetic fun tool$default (Lsk/ainet/llm/api/Message$Companion;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lsk/ainet/llm/api/Message;
+	public final fun user (Ljava/lang/String;)Lsk/ainet/llm/api/Message;
+}
+
+public final class sk/ainet/llm/api/Role : java/lang/Enum {
+	public static final field ASSISTANT Lsk/ainet/llm/api/Role;
+	public static final field SYSTEM Lsk/ainet/llm/api/Role;
+	public static final field TOOL Lsk/ainet/llm/api/Role;
+	public static final field USER Lsk/ainet/llm/api/Role;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lsk/ainet/llm/api/Role;
+	public static fun values ()[Lsk/ainet/llm/api/Role;
+}
+
+public abstract interface class sk/ainet/llm/api/StreamingChatModel : sk/ainet/llm/api/ChatModel {
+	public abstract fun stream (Lsk/ainet/llm/api/ChatRequest;)Lkotlinx/coroutines/flow/Flow;
+}
+
+public final class sk/ainet/llm/api/StreamingChatModel$DefaultImpls {
+	public static fun close (Lsk/ainet/llm/api/StreamingChatModel;)V
+}
+
+public final class sk/ainet/llm/api/ToolCall {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Lsk/ainet/llm/api/ToolCall;
+	public static synthetic fun copy$default (Lsk/ainet/llm/api/ToolCall;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lsk/ainet/llm/api/ToolCall;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getArgumentsJson ()Ljava/lang/String;
+	public final fun getId ()Ljava/lang/String;
+	public final fun getName ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/llm/api/ToolDefinition {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Lsk/ainet/llm/api/ToolDefinition;
+	public static synthetic fun copy$default (Lsk/ainet/llm/api/ToolDefinition;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lsk/ainet/llm/api/ToolDefinition;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getDescription ()Ljava/lang/String;
+	public final fun getName ()Ljava/lang/String;
+	public final fun getParametersJsonSchema ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/llm/api/Usage {
+	public fun <init> (II)V
+	public final fun component1 ()I
+	public final fun component2 ()I
+	public final fun copy (II)Lsk/ainet/llm/api/Usage;
+	public static synthetic fun copy$default (Lsk/ainet/llm/api/Usage;IIILjava/lang/Object;)Lsk/ainet/llm/api/Usage;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCompletionTokens ()I
+	public final fun getPromptTokens ()I
+	public final fun getTotalTokens ()I
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
