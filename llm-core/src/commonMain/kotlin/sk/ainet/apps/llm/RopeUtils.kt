@@ -5,6 +5,46 @@ import kotlin.math.pow
 import kotlin.math.sin
 
 /**
+ * RoPE rotation conventions used by GGUF-based models.
+ *
+ * The two conventions are mathematically equivalent under different weight
+ * permutations and produce identical results IF the weights are stored in the
+ * matching layout. Mismatching them silently corrupts attention.
+ *
+ * | Convention   | llama.cpp name      | Pair indexing                      | Used by                  |
+ * |--------------|---------------------|------------------------------------|--------------------------|
+ * | [INTERLEAVED]| `LLAMA_ROPE_TYPE_NORM` (mode 0) | `(buf[2i], buf[2i+1])` | LLaMA, Mistral, Gemma    |
+ * | [HALF_SPLIT] | `LLAMA_ROPE_TYPE_NEOX` (mode 2) | `(buf[i], buf[i+ropeDim/2])` | Qwen 2/3, Phi, Falcon |
+ *
+ * llama.cpp picks the right convention per architecture via
+ * `llm_arch_rope_type(arch)`. We mirror that mapping in [CpuAttentionBackend]
+ * (and any other backend) so that GGUF tensors load as-is — no weight
+ * permutation at conversion time.
+ */
+public enum class RopeType {
+    /** Interleaved adjacent-pair rotation (llama.cpp NORM, mode 0). */
+    INTERLEAVED,
+    /** Half-split rotation (llama.cpp NEOX, mode 2) — first half rotates with second half. */
+    HALF_SPLIT;
+
+    public companion object {
+        /**
+         * Map a GGUF `general.architecture` string to the RoPE convention the
+         * model was trained / converted with. Mirrors `llm_arch_rope_type()` in
+         * `llama.cpp/src/llama-arch.cpp`.
+         *
+         * Defaults to [INTERLEAVED] for unknown architectures (the LLaMA-family
+         * default), since most new families that need [HALF_SPLIT] derive from
+         * Qwen / Phi / Falcon and should be added here explicitly.
+         */
+        public fun forArchitecture(arch: String): RopeType = when (arch.lowercase()) {
+            "qwen2", "qwen3", "qwen35", "phi2", "phi3", "phi4", "falcon", "mpt", "stablelm", "starcoder2" -> HALF_SPLIT
+            else -> INTERLEAVED
+        }
+    }
+}
+
+/**
  * Compute RoPE (Rotary Position Embedding) frequency for a given pair index and position.
  *
  * Formula: freq = pos / base^(2 * pair / dim)
@@ -63,15 +103,16 @@ public fun applyRopeRotation(
     precomputedCos: FloatArray? = null,
     precomputedSin: FloatArray? = null,
     ropeStride: Int = ropeDim / 2,
-    precomputedMatchBase: Float? = null
+    precomputedMatchBase: Float? = null,
+    ropeType: RopeType = RopeType.INTERLEAVED
 ) {
     val usePrecomputed = precomputedCos != null && precomputedSin != null &&
             (precomputedMatchBase == null || base == precomputedMatchBase)
+    val halfDim = ropeDim / 2
 
     for (h in 0 until nHeads) {
         val headOffset = h * headSize
-        for (pair in 0 until ropeDim / 2) {
-            val i = pair * 2
+        for (pair in 0 until halfDim) {
             val fcr: Float
             val fci: Float
             if (usePrecomputed) {
@@ -81,10 +122,16 @@ public fun applyRopeRotation(
                 fcr = ropeCos(pair, pos, ropeDim, base)
                 fci = ropeSin(pair, pos, ropeDim, base)
             }
-            val v0 = buf[headOffset + i]
-            val v1 = buf[headOffset + i + 1]
-            buf[headOffset + i] = v0 * fcr - v1 * fci
-            buf[headOffset + i + 1] = v0 * fci + v1 * fcr
+            // INTERLEAVED rotates (2i, 2i+1) — adjacent pairs (Llama / Gemma / Mistral).
+            // HALF_SPLIT rotates (i, i + ropeDim/2) — first-half / second-half (Qwen / Phi / Falcon).
+            val (idxA, idxB) = when (ropeType) {
+                RopeType.INTERLEAVED -> headOffset + pair * 2 to headOffset + pair * 2 + 1
+                RopeType.HALF_SPLIT -> headOffset + pair to headOffset + pair + halfDim
+            }
+            val v0 = buf[idxA]
+            val v1 = buf[idxB]
+            buf[idxA] = v0 * fcr - v1 * fci
+            buf[idxB] = v0 * fci + v1 * fcr
         }
     }
 }
