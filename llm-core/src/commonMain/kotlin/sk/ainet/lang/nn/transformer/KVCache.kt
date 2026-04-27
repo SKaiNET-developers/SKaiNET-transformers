@@ -5,6 +5,7 @@ import sk.ainet.lang.nn.Module
 import sk.ainet.lang.tensor.Slice
 import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.tensor.slice
+import sk.ainet.lang.tensor.data.DenseFloatArrayTensorData
 import sk.ainet.lang.types.DType
 
 /**
@@ -299,9 +300,22 @@ public class PositionalKVCache<T : DType, V>(
                 valueBuf.copyInto(vOut, dstOff, srcOff, srcOff + sliceHeadDim)
             }
         }
+        // Wrap the slice as heap-backed DenseFloatArrayTensorData rather than
+        // copying into a fresh `MemorySegmentTensorData` via `ctx.fromFloatArray`.
+        // The MemSeg path was leaking direct memory: every Gemma 4 attention
+        // layer calls `sliceView` once per forward, each call allocating two
+        // MemSegs from `Arena.ofAuto()`. Direct memory pressure doesn't trigger
+        // GC, so `Cleaner` never runs and the segments accumulate until
+        // `-XX:MaxDirectMemorySize` is exhausted (observed: 42 GB direct on a
+        // ~190-token agent demo). Heap arrays GC normally and SDPA accepts
+        // `FloatArrayTensorData` inputs natively.
         val shape = sk.ainet.lang.tensor.Shape(nKVHeads, upToPos, sliceHeadDim)
-        val k: Tensor<T, V> = ctx.fromFloatArray<T, V>(shape, dtype, kOut)
-        val v: Tensor<T, V> = ctx.fromFloatArray<T, V>(shape, dtype, vOut)
+        val kData = DenseFloatArrayTensorData<T>(shape, kOut)
+        val vData = DenseFloatArrayTensorData<T>(shape, vOut)
+        @Suppress("UNCHECKED_CAST")
+        val k: Tensor<T, V> = ctx.fromData(kData as sk.ainet.lang.tensor.data.TensorData<T, V>, dtype)
+        @Suppress("UNCHECKED_CAST")
+        val v: Tensor<T, V> = ctx.fromData(vData as sk.ainet.lang.tensor.data.TensorData<T, V>, dtype)
         return k to v
     }
 
