@@ -3,6 +3,7 @@ package sk.ainet.apps.kllama
 import kotlin.math.sqrt
 import sk.ainet.apps.llm.KvCache
 import sk.ainet.apps.llm.HeapKvCache
+import sk.ainet.apps.llm.RopeType
 import sk.ainet.apps.llm.applyRopeRotation
 import sk.ainet.apps.llm.softmaxInPlace
 import sk.ainet.context.ExecutionContext
@@ -31,7 +32,8 @@ public class CpuAttentionBackend<T : DType>(
     private val dtype: KClass<T>,
     kvCache: KvCache? = null,
     private val ropeFreqBase: Float = 10000f,
-    maxContextLength: Int? = null
+    maxContextLength: Int? = null,
+    private val ropeType: RopeType = RopeType.forArchitecture(weights.metadata.architecture)
 ) : AttentionBackend<T> {
 
     private val dim = weights.metadata.embeddingLength
@@ -113,8 +115,8 @@ public class CpuAttentionBackend<T : DType>(
 
         require(headSize % 2 == 0) { "RoPE requires even head size; got $headSize" }
 
-        applyRopeRotation(qBuf, nHeads, headSize, ropeDim, pos, ropeFreqBase, ropeReal, ropeImag, ropeStride)
-        applyRopeRotation(kBuf, nKvHeads, headSize, ropeDim, pos, ropeFreqBase, ropeReal, ropeImag, ropeStride)
+        applyRopeRotation(qBuf, nHeads, headSize, ropeDim, pos, ropeFreqBase, ropeReal, ropeImag, ropeStride, ropeType = ropeType)
+        applyRopeRotation(kBuf, nKvHeads, headSize, ropeDim, pos, ropeFreqBase, ropeReal, ropeImag, ropeStride, ropeType = ropeType)
     }
 
     private fun attentionGqa(layerIdx: Int, qBuf: FloatArray, pos: Int): FloatArray {
