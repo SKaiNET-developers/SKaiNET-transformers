@@ -1,5 +1,7 @@
 package sk.ainet.llm.api
 
+import kotlin.jvm.JvmOverloads
+
 /**
  * A chat completion request.
  *
@@ -7,7 +9,7 @@ package sk.ainet.llm.api
  * @param options Per-request overrides; `null` means fall back to the model's [ChatModel.defaultOptions].
  * @param tools Tools the model may call (empty if tool calling is not in use).
  */
-public data class ChatRequest(
+public data class ChatRequest @JvmOverloads constructor(
     public val messages: List<Message>,
     public val options: ChatOptions? = null,
     public val tools: List<ToolDefinition> = emptyList(),

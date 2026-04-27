@@ -12,6 +12,7 @@ kotlin {
     jvmToolchain(21)
     compilerOptions {
         jvmTarget.set(JvmTarget.JVM_21)
+        freeCompilerArgs.add("-Xjvm-default=all")
     }
     explicitApi()
 }
@@ -31,6 +32,9 @@ dependencies {
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly(libs.junit.platform.launcher)
 }
+
+// Pick up Java sources alongside Kotlin in src/test
+sourceSets["test"].java.srcDir("src/test/java")
 
 tasks.test {
     useJUnitPlatform()

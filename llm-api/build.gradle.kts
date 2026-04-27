@@ -25,7 +25,14 @@ kotlin {
     linuxArm64()
     macosArm64()
 
-    jvm()
+    jvm {
+        compilerOptions {
+            // Generate real Java default methods for interface defaults instead of $DefaultImpls
+            // so Java consumers can implement ChatModel / EmbeddingModel without overriding
+            // close() or the embed() overloads.
+            freeCompilerArgs.add("-Xjvm-default=all")
+        }
+    }
 
     js {
         browser()

@@ -11,9 +11,6 @@ public final class sk/ainet/llm/providers/SkaiNetEmbeddingModel : sk/ainet/llm/a
 	public fun <init> (Lsk/ainet/models/bert/BertRuntime;Lsk/ainet/apps/llm/Tokenizer;ILjava/lang/String;)V
 	public synthetic fun <init> (Lsk/ainet/models/bert/BertRuntime;Lsk/ainet/apps/llm/Tokenizer;ILjava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun call (Lsk/ainet/llm/api/EmbeddingRequest;)Lsk/ainet/llm/api/EmbeddingResponse;
-	public fun close ()V
-	public fun embed (Ljava/lang/String;)[F
-	public fun embed (Ljava/util/List;)Ljava/util/List;
 	public fun getDimensions ()I
 }
 

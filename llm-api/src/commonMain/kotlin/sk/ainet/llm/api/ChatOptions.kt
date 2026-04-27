@@ -1,5 +1,8 @@
 package sk.ainet.llm.api
 
+import kotlin.jvm.JvmField
+import kotlin.jvm.JvmOverloads
+
 /**
  * Per-request knobs for chat generation.
  *
@@ -7,7 +10,7 @@ package sk.ainet.llm.api
  * `null` means "use the model's default". Concrete adapters MAY ignore knobs they
  * don't support (and should log a one-time warning when they do).
  */
-public data class ChatOptions(
+public data class ChatOptions @JvmOverloads constructor(
     public val model: String? = null,
     public val temperature: Float? = null,
     public val topK: Int? = null,
@@ -17,6 +20,7 @@ public data class ChatOptions(
     public val seed: Long? = null,
 ) {
     public companion object {
+        @JvmField
         public val DEFAULTS: ChatOptions = ChatOptions(
             temperature = 0.7f,
             maxTokens = 512,
@@ -25,7 +29,7 @@ public data class ChatOptions(
 }
 
 /** Per-request knobs for embedding generation. */
-public data class EmbeddingOptions(
+public data class EmbeddingOptions @JvmOverloads constructor(
     public val model: String? = null,
     /** Request a specific output dimensionality (only honored if the model supports projection). */
     public val dimensions: Int? = null,

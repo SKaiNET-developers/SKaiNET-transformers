@@ -1,7 +1,9 @@
 package sk.ainet.llm.api
 
+import kotlin.jvm.JvmOverloads
+
 /** Embedding generation request — one or more input strings. */
-public data class EmbeddingRequest(
+public data class EmbeddingRequest @JvmOverloads constructor(
     public val inputs: List<String>,
     public val options: EmbeddingOptions? = null,
 ) {
@@ -23,7 +25,7 @@ public data class Embedding(
 }
 
 /** Embedding generation response. */
-public data class EmbeddingResponse(
+public data class EmbeddingResponse @JvmOverloads constructor(
     public val embeddings: List<Embedding>,
     public val usage: Usage? = null,
     public val modelId: String? = null,
