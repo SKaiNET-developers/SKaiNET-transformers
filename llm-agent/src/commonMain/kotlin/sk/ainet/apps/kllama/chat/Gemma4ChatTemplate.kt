@@ -253,10 +253,13 @@ public class Gemma4ChatTemplate(
             sb.append(",parameters:{")
             var addComma = false
             if (properties != null && properties.isNotEmpty()) {
-                sb.append("properties:{ ")
+                // HF Jinja's `properties:{ {{- … -}} },` whitespace-strips
+                // the spaces around the macro call (the `{{-` / `-}}`
+                // markers eat surrounding whitespace), so the rendered
+                // text is `properties:{…},` with no padding.
+                sb.append("properties:{")
                 formatProperties(sb, properties, required)
-                sb.append(" },")
-                // HF emits the trailing comma even before required/type
+                sb.append("},")
                 addComma = false
             }
             if (required.isNotEmpty()) {
