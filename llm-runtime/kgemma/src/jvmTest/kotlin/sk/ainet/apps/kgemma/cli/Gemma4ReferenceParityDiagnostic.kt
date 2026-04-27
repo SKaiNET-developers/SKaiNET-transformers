@@ -98,12 +98,9 @@ class Gemma4ReferenceParityDiagnostic {
                 val batchedPrefill = System.getenv("GEMMA4_BATCHED_PREFILL") == "1"
                 val lastLogits: sk.ainet.lang.tensor.Tensor<FP32, Float> = if (batchedPrefill) {
                     println("[diag] GEMMA4_BATCHED_PREFILL=1 → single batched forward over ${promptTokens.size} tokens")
-                    val out = (runtime as sk.ainet.apps.llm.OptimizedLLMRuntime<FP32>).forwardBatched(promptTokens)
-                    // Slice the last row [N-1, :] → [vocab].
-                    val ops = ctx.ops
-                    val n = promptTokens.size
-                    @Suppress("UNCHECKED_CAST")
-                    ops.narrow(out as sk.ainet.lang.tensor.Tensor<FP32, Float>, 0, n - 1, 1)
+                    // forwardBatched now returns the last-position logits
+                    // directly (shape [vocab]) — no caller-side narrow.
+                    runtime.forwardBatched(promptTokens)
                 } else {
                     var l = runtime.forward(promptTokens[0])
                     for (i in 1 until promptTokens.size) {

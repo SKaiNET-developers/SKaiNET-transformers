@@ -32,15 +32,15 @@ public fun <T : DType> InferenceRuntime<T>.generateUntilStop(
     onToken: ((Int) -> Unit)? = null,
     decode: ((Int) -> String)? = null
 ): GenerateResult {
-    // Feed prompt tokens through the model
-    var lastLogits: Tensor<T, Float>? = null
-    for (tokenId in prompt) {
-        lastLogits = forward(tokenId)
-    }
-
-    if (lastLogits == null) {
+    // Feed prompt tokens through the model. Use forwardBatched so
+    // runtimes that support it (e.g. OptimizedLLMRuntime in DIRECT/HYBRID
+    // mode) can dispatch a single forward over the whole prompt instead
+    // of N separate single-token forwards. Cuts a ~250-token chat-
+    // template prefill from minutes to seconds.
+    if (prompt.isEmpty()) {
         return GenerateResult(emptyList(), "", false)
     }
+    val lastLogits: Tensor<T, Float> = forwardBatched(prompt)
 
     val generated = mutableListOf<Int>()
     val textBuilder = StringBuilder()

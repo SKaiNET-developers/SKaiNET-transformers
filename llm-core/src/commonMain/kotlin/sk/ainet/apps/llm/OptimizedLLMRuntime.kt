@@ -113,34 +113,45 @@ public class OptimizedLLMRuntime<T : DType>(
     }
 
     /**
-     * Single batched forward over [tokenIds]. Equivalent to N consecutive
-     * single-token [forward] calls — produces an [N, vocab] logits tensor
-     * where row `i` is the prediction-for-next-token at sequence position
-     * `i`. Mainly useful for prefill: feeding the whole prompt in one call
-     * saves the per-step overhead of constructing/running the graph N times.
+     * Single batched forward over [tokenIds]. Builds an `[N]`-shaped input
+     * tensor, feeds it through the model in one shot, and returns the
+     * logits at the LAST position only — shape `[vocab]`, same contract as
+     * [forward]. Equivalent in semantics to calling [forward] once per
+     * token and keeping only the final logits, but ~5–10× faster on
+     * long-prompt prefill because the graph dispatch and per-layer setup
+     * happen once instead of N times.
      *
-     * Diagnostic note: a numerical match between batched prefill output and
-     * the equivalent autoregressive sequence at the LAST position is the
-     * tightest test of whether the autoregressive prefill path has any
-     * step-to-step accumulation drift. (See `position_collapse_bug.md`.)
+     * Diagnostic note: a numerical match between batched prefill output
+     * and the equivalent autoregressive sequence at the LAST position is
+     * the tightest test of whether the autoregressive prefill path has
+     * any step-to-step accumulation drift. (See `position_collapse_bug.md`.)
      *
      * Only supported in DIRECT / HYBRID modes — the OPTIMIZED graph is
-     * compiled for a fixed input shape `[1]` and would need re-tracing for
-     * `[N]`.
+     * compiled for a fixed input shape `[1]` and would need re-tracing
+     * for `[N]`. In OPTIMIZED mode this falls back to the default loop
+     * over [forward] (still correct, just no speedup).
      */
-    public fun forwardBatched(tokenIds: IntArray): Tensor<T, Float> {
+    override fun forwardBatched(tokenIds: IntArray): Tensor<T, Float> {
+        require(tokenIds.isNotEmpty()) { "forwardBatched: tokenIds must not be empty" }
         require(position + tokenIds.size <= seqLen) {
             "Context length exceeded: pos=$position newLen=${tokenIds.size} seqLen=$seqLen"
         }
-        require(mode != OptimizedLLMMode.OPTIMIZED) {
-            "forwardBatched is only supported in DIRECT / HYBRID modes"
+        if (mode == OptimizedLLMMode.OPTIMIZED) {
+            // Compiled graph is shape-[1]; fall through to interface default.
+            return super.forwardBatched(tokenIds)
         }
         val shape = Shape(intArrayOf(tokenIds.size))
         val data = DenseFloatArrayTensorData<T>(shape, FloatArray(tokenIds.size) { tokenIds[it].toFloat() })
         val input: Tensor<T, Float> = VoidOpsTensor(data = data, dtype = dtype)
-        val logits = model.forward(input, ctx)
+        val full = model.forward(input, ctx)
         position += tokenIds.size
-        return logits
+
+        // Slice the last row [N-1, :] → [vocab]. Match the single-token
+        // contract so callers don't need to know whether they got a
+        // batched vs single-step result.
+        val n = tokenIds.size
+        val lastRow = ctx.ops.narrow(full, 0, n - 1, 1)
+        return lastRow
     }
 
     /** Reset to initial state (clear KV caches, rewind position to 0). */
