@@ -5,10 +5,27 @@ import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlin.test.assertFalse
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
+import kotlinx.serialization.json.putJsonArray
 
+/**
+ * Tests for the HF-faithful Gemma 4 chat template (per the Jinja
+ * `chat_template.jinja` shipped with `google/gemma-4-e2b-it`). Earlier
+ * versions of this file tested a JSON-flavored grammar that turned out
+ * not to match what the model was trained on; running the smoke test
+ * against the real E2B checkpoint produced prose instead of tool
+ * calls. The format is now: per-tool `<|tool>declaration:NAME{…}<tool|>`
+ * blocks, `call:NAME{key:value,…}` tool-call bodies, and
+ * `response:NAME{key:value}` tool-response bodies, with `<|"|>` as the
+ * string-literal quote token. See `gemma4_chat_template_mismatch.md`
+ * memory for the empirical evidence trail.
+ */
 class Gemma4ChatTemplateTest {
 
     private val systemMsg = ChatMessage(ChatRole.SYSTEM, "You are helpful.")
@@ -22,30 +39,34 @@ class Gemma4ChatTemplateTest {
             putJsonObject("properties") {
                 putJsonObject("expression") {
                     put("type", "string")
+                    put("description", "The expression to evaluate")
                 }
             }
+            putJsonArray("required") { add(JsonPrimitive("expression")) }
         }
     )
 
     @Test
-    fun basicFormat() {
-        val template = Gemma4ChatTemplate()
-        val result = template.apply(listOf(systemMsg, userMsg))
+    fun bosIsPrependedExactlyOnce() {
+        val result = Gemma4ChatTemplate().apply(listOf(userMsg))
+        assertTrue(result.startsWith("<bos>"), "rendered prompt must start with <bos>")
+        assertEquals(1, countOf(result, "<bos>"), "<bos> must appear exactly once")
+    }
 
+    @Test
+    fun basicFormat() {
+        val result = Gemma4ChatTemplate().apply(listOf(systemMsg, userMsg))
         assertContains(result, "<|turn>system")
         assertContains(result, "You are helpful.")
-        assertContains(result, "<turn|>")
         assertContains(result, "<|turn>user")
         assertContains(result, "Hello!")
+        assertContains(result, "<turn|>")
         assertTrue(result.endsWith("<|turn>model\n"))
     }
 
     @Test
     fun systemRoleUsesSystemTurn() {
-        val template = Gemma4ChatTemplate()
-        val result = template.apply(listOf(systemMsg), addGenerationPrompt = false)
-
-        // Gemma 4 has native system role (unlike Gemma 2/3 which maps to user)
+        val result = Gemma4ChatTemplate().apply(listOf(systemMsg), addGenerationPrompt = false)
         assertContains(result, "<|turn>system\n")
         assertContains(result, "You are helpful.")
         assertContains(result, "<turn|>")
@@ -54,10 +75,8 @@ class Gemma4ChatTemplateTest {
 
     @Test
     fun assistantRoleUsesModelTurn() {
-        val template = Gemma4ChatTemplate()
         val assistantMsg = ChatMessage(ChatRole.ASSISTANT, "Hi there!")
-        val result = template.apply(listOf(assistantMsg), addGenerationPrompt = false)
-
+        val result = Gemma4ChatTemplate().apply(listOf(assistantMsg), addGenerationPrompt = false)
         assertContains(result, "<|turn>model")
         assertContains(result, "Hi there!")
         assertContains(result, "<turn|>")
@@ -65,70 +84,116 @@ class Gemma4ChatTemplateTest {
 
     @Test
     fun noGenerationPrompt() {
-        val template = Gemma4ChatTemplate()
-        val result = template.apply(listOf(userMsg), addGenerationPrompt = false)
-
+        val result = Gemma4ChatTemplate().apply(listOf(userMsg), addGenerationPrompt = false)
         assertFalse(result.endsWith("<|turn>model\n"))
         assertTrue(result.endsWith("<turn|>\n"))
     }
 
-    @Test
-    fun toolDefinitionsAsToolBlock() {
-        val template = Gemma4ChatTemplate()
-        val result = template.apply(listOf(userMsg), tools = listOf(sampleTool))
+    // ---- HF tool-definition format ----
 
-        assertContains(result, "<|tool>")
+    @Test
+    fun toolDefinitionUsesDeclarationFormatWithCustomQuote() {
+        val result = Gemma4ChatTemplate().apply(listOf(userMsg), tools = listOf(sampleTool))
+
+        // Per-tool wrapping with HF `declaration:NAME{...}` body
+        assertContains(result, "<|tool>declaration:calculator{")
         assertContains(result, "<tool|>")
-        assertContains(result, "\"name\":\"calculator\"")
-        assertContains(result, "\"description\":\"Evaluate math expressions\"")
-        // Tool definitions should be in a system turn
+
+        // Description uses the <|"|> quote token
+        assertContains(result, "description:<|\"|>Evaluate math expressions<|\"|>")
+
+        // Type names are uppercased
+        assertContains(result, "type:<|\"|>OBJECT<|\"|>")
+        assertContains(result, "type:<|\"|>STRING<|\"|>")
+
+        // Required list uses <|"|> quotes
+        assertContains(result, "required:[<|\"|>expression<|\"|>]")
+
+        // Tool block goes inside a system turn
         assertContains(result, "<|turn>system")
+
+        // CRUCIALLY: standard JSON should NOT appear — that's what the
+        // model wasn't trained on.
+        assertFalse(result.contains("\"name\":\"calculator\""),
+            "tool block must NOT use standard JSON formatting; the model wasn't trained on that")
+        assertFalse(result.contains("\"type\":\"string\""),
+            "type names must be uppercased (STRING, not \"string\")")
     }
 
     @Test
-    fun toolResponseFormatting() {
-        val template = Gemma4ChatTemplate()
-        val toolMsg = ChatMessage(ChatRole.TOOL, "42", toolCallId = "calculator")
-        val result = template.apply(listOf(toolMsg), addGenerationPrompt = false)
+    fun multipleToolsGetSeparateToolBlocks() {
+        val tool2 = ToolDefinition(
+            name = "lookup",
+            description = "Lookup a value",
+            parameters = buildJsonObject {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("key") { put("type", "string") }
+                }
+            }
+        )
+        val result = Gemma4ChatTemplate().apply(listOf(userMsg), tools = listOf(sampleTool, tool2))
 
-        assertContains(result, "<|turn>user")
-        assertContains(result, "<|tool_response>")
-        assertContains(result, "<tool_response|>")
-        assertContains(result, "\"name\":\"calculator\"")
-        assertContains(result, "\"result\":\"42\"")
+        // Each tool gets its own <|tool>...<tool|> block — NOT one block
+        // wrapping a JSON array of all tools.
+        assertEquals(2, countOf(result, "<|tool>"))
+        assertEquals(2, countOf(result, "<tool|>"))
+        assertContains(result, "<|tool>declaration:calculator{")
+        assertContains(result, "<|tool>declaration:lookup{")
     }
 
-    @Test
-    fun parseToolCallWithDelimiters() {
-        val template = Gemma4ChatTemplate()
-        val text = """Let me calculate that. <|tool_call>{"name": "calculator", "args": {"expression": "2 + 3"}}<tool_call|>"""
+    // ---- Tool-call output (model → us) parsing ----
 
-        val calls = template.parseToolCalls(text)
+    @Test
+    fun parseToolCallWithCallBody() {
+        val text = "Let me run that.\n" +
+            "<|tool_call>call:calculator{expression:<|\"|>2 + 3<|\"|>}<tool_call|>"
+        val calls = Gemma4ChatTemplate().parseToolCalls(text)
         assertEquals(1, calls.size)
         assertEquals("calculator", calls[0].name)
-        assertEquals(
-            "2 + 3",
-            calls[0].arguments["expression"]?.toString()?.trim('"')
-        )
+        assertEquals(JsonPrimitive("2 + 3"), calls[0].arguments["expression"])
     }
 
     @Test
-    fun parseToolCallMissingArgs() {
-        val template = Gemma4ChatTemplate()
-        val text = """<|tool_call>{"name": "list_files"}<tool_call|>"""
-
-        val calls = template.parseToolCalls(text)
+    fun parseToolCallNoArgs() {
+        val text = "<|tool_call>call:list_files{}<tool_call|>"
+        val calls = Gemma4ChatTemplate().parseToolCalls(text)
         assertEquals(1, calls.size)
         assertEquals("list_files", calls[0].name)
         assertTrue(calls[0].arguments.isEmpty())
     }
 
     @Test
-    fun parseMultipleToolCalls() {
-        val template = Gemma4ChatTemplate()
-        val text = """<|tool_call>{"name": "search", "args": {"q": "a"}}<tool_call|> then <|tool_call>{"name": "fetch", "args": {"url": "b"}}<tool_call|>"""
+    fun parseToolCallWithMixedScalarTypes() {
+        val text = "<|tool_call>call:fn{name:<|\"|>foo<|\"|>,n:42,active:true,ratio:3.14}<tool_call|>"
+        val calls = Gemma4ChatTemplate().parseToolCalls(text)
+        assertEquals(1, calls.size)
+        val args = calls[0].arguments
+        assertEquals(JsonPrimitive("foo"), args["name"])
+        assertEquals(JsonPrimitive(42L), args["n"])
+        assertEquals(JsonPrimitive(true), args["active"])
+        assertEquals(JsonPrimitive(3.14), args["ratio"])
+    }
 
-        val calls = template.parseToolCalls(text)
+    @Test
+    fun parseToolCallWithNestedObjectAndArray() {
+        val text = "<|tool_call>call:fn{point:{x:1,y:2},tags:[<|\"|>a<|\"|>,<|\"|>b<|\"|>]}<tool_call|>"
+        val calls = Gemma4ChatTemplate().parseToolCalls(text)
+        assertEquals(1, calls.size)
+        val args = calls[0].arguments
+        val point = args["point"] as JsonObject
+        assertEquals(JsonPrimitive(1L), point["x"])
+        assertEquals(JsonPrimitive(2L), point["y"])
+        val tags = args["tags"] as JsonArray
+        assertEquals(JsonPrimitive("a"), tags[0])
+        assertEquals(JsonPrimitive("b"), tags[1])
+    }
+
+    @Test
+    fun parseMultipleToolCalls() {
+        val text = "<|tool_call>call:search{q:<|\"|>a<|\"|>}<tool_call|> then " +
+            "<|tool_call>call:fetch{url:<|\"|>b<|\"|>}<tool_call|>"
+        val calls = Gemma4ChatTemplate().parseToolCalls(text)
         assertEquals(2, calls.size)
         assertEquals("search", calls[0].name)
         assertEquals("fetch", calls[1].name)
@@ -136,141 +201,210 @@ class Gemma4ChatTemplateTest {
 
     @Test
     fun parsePlainTextReturnsEmpty() {
-        val template = Gemma4ChatTemplate()
-        val calls = template.parseToolCalls("This is a normal response.")
+        val calls = Gemma4ChatTemplate().parseToolCalls("This is a normal response.")
         assertTrue(calls.isEmpty())
     }
 
     @Test
-    fun containsToolCallDetectsGemma4Format() {
+    fun parseMalformedToolCallReturnsEmpty() {
+        // Missing closing brace inside the call body
+        val text = "<|tool_call>call:fn{key:<|\"|>val<|\"|><tool_call|>"
+        val calls = Gemma4ChatTemplate().parseToolCalls(text)
+        assertTrue(calls.isEmpty(), "malformed body should yield no calls, not throw")
+    }
+
+    @Test
+    fun containsToolCallDetectsHfFormat() {
         val template = Gemma4ChatTemplate()
-        assertTrue(template.containsToolCall("""<|tool_call>{"name": "test"}<tool_call|>"""))
+        assertTrue(template.containsToolCall("<|tool_call>call:test{}<tool_call|>"))
         assertFalse(template.containsToolCall("Hello, world!"))
     }
 
-    @Test
-    fun containsToolCallDetectsLegacyFormat() {
-        val template = Gemma4ChatTemplate()
-        assertTrue(template.containsToolCall("""{"functionCall": {"name": "test"}}"""))
-    }
+    // ---- Tool-response emission (us → model on continuation) ----
 
     @Test
-    fun allSpecialMarkersAppearLiterally() {
-        val template = Gemma4ChatTemplate()
+    fun toolResponseEmitsResponseBlockOnAssistantContinuation() {
+        // History: assistant called calculator → tool returned 42 →
+        // we re-prompt to let the model use the result.
+        val callId = "call_1"
         val messages = listOf(
-            ChatMessage(ChatRole.SYSTEM, "sys"),
+            ChatMessage(ChatRole.USER, "What is 17*23?"),
+            ChatMessage(
+                ChatRole.ASSISTANT,
+                content = "",
+                toolCalls = listOf(ToolCall(id = callId, name = "calculator", arguments = buildJsonObject {
+                    put("expression", "17*23")
+                }))
+            ),
+            ChatMessage(ChatRole.TOOL, content = "391", toolCallId = callId)
+        )
+        val result = Gemma4ChatTemplate().apply(messages, addGenerationPrompt = true)
+
+        // tool_call goes through with HF format
+        assertContains(result, "<|tool_call>call:calculator{expression:<|\"|>17*23<|\"|>}<tool_call|>")
+
+        // Tool response uses HF response:NAME{...} body
+        assertContains(result, "<|tool_response>response:calculator{value:<|\"|>391<|\"|>}<tool_response|>")
+
+        // Tool response is NOT wrapped in a separate user turn — it's a
+        // continuation of the assistant model turn.
+        val toolResponseIdx = result.indexOf("<|tool_response>")
+        val precedingFragment = result.substring(0, toolResponseIdx)
+        // The most recent <|turn> opener before the tool_response should be `model`.
+        val lastTurnOpenerIdx = precedingFragment.lastIndexOf("<|turn>")
+        val openerLine = precedingFragment.substring(lastTurnOpenerIdx).lines().first()
+        assertTrue(openerLine.startsWith("<|turn>model"),
+            "tool_response must continue the assistant model turn, not open a new user turn (got '$openerLine')")
+    }
+
+    @Test
+    fun toolResponseAcceptsJsonObjectContent() {
+        val callId = "x"
+        val messages = listOf(
             ChatMessage(ChatRole.USER, "q"),
-            ChatMessage(ChatRole.ASSISTANT, "a"),
-            ChatMessage(ChatRole.TOOL, "42", toolCallId = "calculator")
+            ChatMessage(
+                ChatRole.ASSISTANT,
+                content = "",
+                toolCalls = listOf(ToolCall(id = callId, name = "fn", arguments = buildJsonObject {}))
+            ),
+            ChatMessage(ChatRole.TOOL, content = """{"result":391,"unit":"none"}""", toolCallId = callId)
         )
-        val result = template.apply(messages, tools = listOf(sampleTool))
+        val result = Gemma4ChatTemplate().apply(messages, addGenerationPrompt = false)
 
-        // Every marker the Gemma 4 grammar relies on must appear literally at
-        // least once — no HTML escaping, no unicode corruption, no accidental
-        // splitting into multiple tokens that look similar but aren't.
-        assertContains(result, "<|turn>")
-        assertContains(result, "<turn|>")
-        assertContains(result, "<|tool>")
-        assertContains(result, "<tool|>")
-        assertContains(result, "<|tool_response>")
-        assertContains(result, "<tool_response|>")
+        // Object content is rendered as `response:NAME{key:value,…}` with
+        // bare keys (alphabetical order via dictsort: result, unit).
+        assertContains(result, "<|tool_response>response:fn{result:391,unit:<|\"|>none<|\"|>}<tool_response|>")
+    }
 
-        // Opener/closer must balance for each marker family.
-        assertEquals(countOf(result, "<|turn>"), countOf(result, "<turn|>") + 1,
-            "<|turn> count should exceed <turn|> by exactly one (the trailing generation prompt)")
-        assertEquals(countOf(result, "<|tool>"), countOf(result, "<tool|>"),
-            "<|tool> and <tool|> must balance")
-        assertEquals(countOf(result, "<|tool_response>"), countOf(result, "<tool_response|>"),
-            "<|tool_response> and <tool_response|> must balance")
+    // ---- Thinking mode (HF channel-based) ----
 
-        // The prompt must not leak <|tool_call>...<tool_call|> — the template
-        // never emits those; they only appear in model output.
-        assertFalse(result.contains("<|tool_call>"),
-            "<|tool_call> must not appear in a rendered prompt; it belongs only in model output")
-        assertFalse(result.contains("<tool_call|>"),
-            "<tool_call|> must not appear in a rendered prompt; it belongs only in model output")
+    @Test
+    fun enableThinkingPrependsThinkTokenInSystemTurn() {
+        val result = Gemma4ChatTemplate(enableThinking = true).apply(
+            listOf(userMsg),
+            tools = listOf(sampleTool)
+        )
+        // The single (unpaired) <|think|> token signals "thinking enabled"
+        // at the top of the first system turn.
+        assertContains(result, "<|turn>system\n<|think|>\n")
     }
 
     @Test
-    fun toolCallRoundTripPreservesArguments() {
-        val template = Gemma4ChatTemplate()
-
-        // Simulate what the model would emit: an assistant turn containing
-        // a tool_call block with JSON arguments.
-        val modelOutput = "Let me run that.\n" +
-            "<|tool_call>{\"name\":\"calculator\",\"args\":{\"expression\":\"3+4\",\"precision\":2}}<tool_call|>"
-
-        val parsed = template.parseToolCalls(modelOutput)
-        assertEquals(1, parsed.size)
-        assertEquals("calculator", parsed[0].name)
-        assertEquals(
-            "3+4",
-            parsed[0].arguments["expression"]?.toString()?.trim('"')
-        )
-        assertEquals("2", parsed[0].arguments["precision"]?.toString())
+    fun thinkingDisabledByDefault() {
+        val result = Gemma4ChatTemplate().apply(listOf(userMsg), tools = listOf(sampleTool))
+        assertFalse(result.contains("<|think|>"),
+            "<|think|> must not be emitted when enableThinking=false (default)")
     }
 
     @Test
-    fun parseSingleThinkingBlock() {
-        val template = Gemma4ChatTemplate()
-        val text = "Sure.\n<|think>Let me work this out: 1 + 1 = 2.<think|>\nThe answer is 2."
-        val blocks = template.parseThinkingBlocks(text)
+    fun parseThinkingFromChannelBlock() {
+        val text = "Sure.\n<|channel>thought\nLet me work this out.<channel|>\nAnswer: 42."
+        val blocks = Gemma4ChatTemplate().parseThinkingBlocks(text)
         assertEquals(1, blocks.size)
-        assertEquals("Let me work this out: 1 + 1 = 2.", blocks[0])
+        assertEquals("Let me work this out.", blocks[0])
     }
 
     @Test
-    fun parseMultipleThinkingBlocks() {
-        val template = Gemma4ChatTemplate()
-        val text = "<|think>first<think|> between <|think>second<think|>"
-        val blocks = template.parseThinkingBlocks(text)
+    fun parseMultipleThinkingChannels() {
+        val text = "<|channel>thought\nfirst<channel|> mid <|channel>thought\nsecond<channel|>"
+        val blocks = Gemma4ChatTemplate().parseThinkingBlocks(text)
         assertEquals(listOf("first", "second"), blocks)
     }
 
     @Test
-    fun parseInterleavedThinkAndToolCall() {
-        val template = Gemma4ChatTemplate()
-        val text = "<|think>plan: use the calculator<think|>\n" +
-            "<|tool_call>{\"name\":\"calculator\",\"args\":{\"expression\":\"3+4\"}}<tool_call|>"
-
-        val thinks = template.parseThinkingBlocks(text)
-        val calls = template.parseToolCalls(text)
-
-        assertEquals(1, thinks.size)
-        assertEquals("plan: use the calculator", thinks[0])
-        assertEquals(1, calls.size)
-        assertEquals("calculator", calls[0].name)
+    fun parseChannelOnlyPicksUpThoughtChannel() {
+        // HF's strip_thinking only treats `<|channel>thought` as reasoning.
+        // A hypothetical other channel type (e.g. `<|channel>analysis`) is
+        // surfaced via different mechanics; our parser ignores non-thought
+        // channels.
+        val text = "<|channel>analysis\nshould not surface<channel|>"
+        val blocks = Gemma4ChatTemplate().parseThinkingBlocks(text)
+        assertTrue(blocks.isEmpty())
     }
 
     @Test
-    fun stripThinkingRemovesBlockAndLeavesVisibleText() {
-        val template = Gemma4ChatTemplate()
-        val text = "Here's the answer.\n<|think>hidden reasoning<think|>\nThe result is 7."
-        val stripped = template.stripThinking(text)
-        assertFalse(stripped.contains("<|think>"))
-        assertFalse(stripped.contains("<think|>"))
+    fun stripThinkingRemovesChannelBlock() {
+        val text = "Here.\n<|channel>thought\nhidden reasoning<channel|>\nResult: 7."
+        val stripped = Gemma4ChatTemplate().stripThinking(text)
+        assertFalse(stripped.contains("<|channel>"))
+        assertFalse(stripped.contains("<channel|>"))
         assertFalse(stripped.contains("hidden reasoning"))
-        assertContains(stripped, "Here's the answer.")
-        assertContains(stripped, "The result is 7.")
+        assertContains(stripped, "Here.")
+        assertContains(stripped, "Result: 7.")
     }
 
     @Test
     fun stripThinkingIdempotentWhenNoBlock() {
-        val template = Gemma4ChatTemplate()
-        val text = "Plain output with no thinking at all."
-        assertEquals(text, template.stripThinking(text))
+        val text = "Plain output with no channel at all."
+        assertEquals(text, Gemma4ChatTemplate().stripThinking(text))
     }
 
     @Test
     fun stripThinkingDropsUnterminatedBlock() {
-        val template = Gemma4ChatTemplate()
-        // Generation truncation may cut a thinking block mid-sentence. Must
-        // not leak the partial thinking into conversation history.
-        val text = "Looking at it:\n<|think>I should reason about"
-        val stripped = template.stripThinking(text)
+        // Generation truncation may cut a channel block mid-content.
+        // The partial reasoning must NOT leak into history.
+        val text = "Looking at it:\n<|channel>thought\nI should reason about"
+        val stripped = Gemma4ChatTemplate().stripThinking(text)
         assertFalse(stripped.contains("I should reason about"))
-        assertFalse(stripped.contains("<|think>"))
+        assertFalse(stripped.contains("<|channel>"))
         assertContains(stripped, "Looking at it:")
+    }
+
+    // ---- Aggregate / golden ----
+
+    @Test
+    fun allSpecialMarkersAppearLiterallyAndBalance() {
+        val callId = "abc"
+        val messages = listOf(
+            ChatMessage(ChatRole.SYSTEM, "sys"),
+            ChatMessage(ChatRole.USER, "q"),
+            ChatMessage(
+                ChatRole.ASSISTANT,
+                content = "",
+                toolCalls = listOf(ToolCall(id = callId, name = "calculator", arguments = buildJsonObject { put("expression", "1+1") }))
+            ),
+            ChatMessage(ChatRole.TOOL, content = "2", toolCallId = callId)
+        )
+        val result = Gemma4ChatTemplate().apply(messages, tools = listOf(sampleTool))
+
+        // BOS prepended
+        assertTrue(result.startsWith("<bos>"))
+
+        // All marker families present literally
+        assertContains(result, "<|turn>")
+        assertContains(result, "<turn|>")
+        assertContains(result, "<|tool>")
+        assertContains(result, "<tool|>")
+        assertContains(result, "<|tool_call>")
+        assertContains(result, "<tool_call|>")
+        assertContains(result, "<|tool_response>")
+        assertContains(result, "<tool_response|>")
+
+        // Marker pairs balance (modulo the trailing generation prompt for <|turn>)
+        assertEquals(countOf(result, "<|turn>"), countOf(result, "<turn|>") + 1)
+        assertEquals(countOf(result, "<|tool>"), countOf(result, "<tool|>"))
+        assertEquals(countOf(result, "<|tool_call>"), countOf(result, "<tool_call|>"))
+        assertEquals(countOf(result, "<|tool_response>"), countOf(result, "<tool_response|>"))
+    }
+
+    @Test
+    fun fullConversationGoldenTest() {
+        val messages = listOf(
+            ChatMessage(ChatRole.SYSTEM, "You are helpful."),
+            ChatMessage(ChatRole.USER, "What is 2+2?"),
+            ChatMessage(ChatRole.ASSISTANT, "4"),
+            ChatMessage(ChatRole.USER, "Thanks!")
+        )
+        val result = Gemma4ChatTemplate().apply(messages)
+
+        val expected = "<bos>" +
+            "<|turn>system\nYou are helpful.<turn|>\n" +
+            "<|turn>user\nWhat is 2+2?<turn|>\n" +
+            "<|turn>model\n4<turn|>\n" +
+            "<|turn>user\nThanks!<turn|>\n" +
+            "<|turn>model\n"
+
+        assertEquals(expected, result)
     }
 
     private fun countOf(haystack: String, needle: String): Int {
@@ -282,25 +416,5 @@ class Gemma4ChatTemplateTest {
             count++
             idx = next + needle.length
         }
-    }
-
-    @Test
-    fun fullConversationGoldenTest() {
-        val template = Gemma4ChatTemplate()
-        val messages = listOf(
-            ChatMessage(ChatRole.SYSTEM, "You are helpful."),
-            ChatMessage(ChatRole.USER, "What is 2+2?"),
-            ChatMessage(ChatRole.ASSISTANT, "4"),
-            ChatMessage(ChatRole.USER, "Thanks!")
-        )
-        val result = template.apply(messages)
-
-        val expected = "<|turn>system\nYou are helpful.<turn|>\n" +
-            "<|turn>user\nWhat is 2+2?<turn|>\n" +
-            "<|turn>model\n4<turn|>\n" +
-            "<|turn>user\nThanks!<turn|>\n" +
-            "<|turn>model\n"
-
-        assertEquals(expected, result)
     }
 }

@@ -72,9 +72,12 @@ class Gemma4ToolCallingSupportTest {
     @Test
     fun `Gemma 4 provider parses native tool_call delimiters`() {
         val provider = Gemma4ToolCallingSupport()
-        val modelOutput = """Sure, let me compute that.
-<|tool_call>{"name": "calculator", "args": {"expression": "3+4"}}<tool_call|>
-""".trimMargin()
+        // HF format (post-rewrite): `<|tool_call>call:NAME{key:value}<tool_call|>`
+        // with `<|"|>` as the string-literal quote token. See
+        // gemma4_chat_template_mismatch.md for the empirical evidence
+        // that the pre-rewrite JSON form was not what the model emits.
+        val modelOutput = "Sure, let me compute that.\n" +
+            "<|tool_call>call:calculator{expression:<|\"|>3+4<|\"|>}<tool_call|>\n"
         val calls = provider.parseToolCalls(modelOutput)
         assertEquals(1, calls.size, "Expected 1 tool call, got ${calls.size}")
         assertEquals("calculator", calls[0].name)

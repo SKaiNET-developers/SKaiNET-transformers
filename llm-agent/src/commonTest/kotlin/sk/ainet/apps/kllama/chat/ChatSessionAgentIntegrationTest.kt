@@ -29,8 +29,10 @@ import sk.ainet.lang.types.FP32
  *      when metadata says `architecture = "gemma4"`.
  *   2. [Gemma4ChatTemplate] formats the prompt with `<|turn>…<turn|>`
  *      markers.
- *   3. The mock runtime "generates" `<|tool_call>{"name":"calculator",
- *      "args":{"expression":"3+4"}}<tool_call|>`.
+ *   3. The mock runtime "generates"
+ *      `<|tool_call>call:calculator{expression:<|"|>3+4<|"|>}<tool_call|>`
+ *      (the actual HF format the model emits — see
+ *      `gemma4_chat_template_mismatch.md`).
  *   4. [Gemma4ChatTemplate.parseToolCalls] pulls the call out.
  *   5. The [Tool] executes with `expression="3+4"` and returns `7`.
  *   6. Agent loop records the call + result.
@@ -149,7 +151,7 @@ class ChatSessionAgentIntegrationTest {
         val round1PromptLen = tokenizer.encode(round1Prompt).size
 
         val toolCallText =
-            "I'll compute that.\n<|tool_call>{\"name\":\"calculator\",\"args\":{\"expression\":\"3+4\"}}<tool_call|>"
+            "I'll compute that.\n<|tool_call>call:calculator{expression:<|\"|>3+4<|\"|>}<tool_call|>"
         val scriptedOutput = tokenizer.encode(toolCallText)
 
         val mock = MockRuntime(
@@ -221,7 +223,7 @@ class ChatSessionAgentIntegrationTest {
         val round1PromptLen = tokenizer.encode(round1Prompt).size
 
         val toolCallText =
-            "<|tool_call>{\"name\":\"calculator\",\"args\":{\"expression\":\"3+4\"}}<tool_call|>"
+            "<|tool_call>call:calculator{expression:<|\"|>3+4<|\"|>}<tool_call|>"
         val scriptedOutput = tokenizer.encode(toolCallText)
 
         val mock = MockRuntime(
@@ -311,7 +313,7 @@ class ChatSessionAgentIntegrationTest {
         val round1PromptLen = tokenizer.encode(round1Prompt).size
 
         // Scripted tool call WITHOUT the required "expression" field.
-        val badToolCallText = "<|tool_call>{\"name\":\"calculator\",\"args\":{\"precision\":2}}<tool_call|>"
+        val badToolCallText = "<|tool_call>call:calculator{precision:2}<tool_call|>"
         val scriptedOutput = tokenizer.encode(badToolCallText)
 
         val mock = MockRuntime(
@@ -387,8 +389,8 @@ class ChatSessionAgentIntegrationTest {
         // Scripted output: thinking block followed by a tool call — the model
         // reasons, then decides to call the calculator.
         val scriptedText =
-            "<|think>I should use the calculator for this.<think|>\n" +
-            "<|tool_call>{\"name\":\"calculator\",\"args\":{\"expression\":\"3+4\"}}<tool_call|>"
+            "<|channel>thought\nI should use the calculator for this.<channel|>\n" +
+            "<|tool_call>call:calculator{expression:<|\"|>3+4<|\"|>}<tool_call|>"
         val scriptedOutput = tokenizer.encode(scriptedText)
 
         val mock = MockRuntime(
@@ -427,7 +429,7 @@ class ChatSessionAgentIntegrationTest {
         // Thinking must not leak into the persisted assistant message.
         val assistantMsg = messages.firstOrNull { it.role == ChatRole.ASSISTANT }
             ?: error("expected an assistant message in conversation")
-        assertFalse(assistantMsg.content.contains("<|think>"), "thinking opener leaked into assistant message")
+        assertFalse(assistantMsg.content.contains("<|channel>"), "thinking channel opener leaked into assistant message")
         assertFalse(assistantMsg.content.contains("I should use the calculator"), "thinking text leaked into assistant message")
 
         // Tool still fired based on the raw text.

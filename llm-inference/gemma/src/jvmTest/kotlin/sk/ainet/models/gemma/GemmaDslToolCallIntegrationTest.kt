@@ -41,7 +41,9 @@ import sk.ainet.lang.types.FP32
  * softcap, etc. — proves nothing crashes mid-decode), then ignore the
  * resulting logits and return a one-hot logits tensor whose argmax is the
  * next byte in a scripted Gemma-4-formatted tool call. The agent loop sees
- * a coherent `<|tool_call>{…}<tool_call|>` emission and should parse it
+ * a coherent `<|tool_call>call:NAME{key:value,…}<tool_call|>` emission (the
+ * actual HF format Gemma 4 was trained on — see
+ * `gemma4_chat_template_mismatch.md`) and should parse it
  * via [Gemma4ChatTemplate] and dispatch to our calculator tool.
  *
  * What this validates that the mock-runtime test does NOT:
@@ -251,7 +253,7 @@ class GemmaDslToolCallIntegrationTest {
         val promptLen = tokenizer.encode(round1Prompt).size
 
         val toolCallText =
-            "I'll compute that.\n<|tool_call>{\"name\":\"calculator\",\"args\":{\"expression\":\"3+4\"}}<tool_call|>"
+            "I'll compute that.\n<|tool_call>call:calculator{expression:<|\"|>3+4<|\"|>}<tool_call|>"
         val scriptedOutput = tokenizer.encode(toolCallText)
 
         val scripted = ScriptedDslRuntime(dslRuntime, promptLen, scriptedOutput)
