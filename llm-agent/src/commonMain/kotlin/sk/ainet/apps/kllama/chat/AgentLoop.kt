@@ -31,11 +31,26 @@ public interface AgentListener {
     /** Called when the model's full response for a round is available. */
     public fun onAssistantMessage(text: String) {}
 
+    /**
+     * Called once for each thinking block (e.g. Gemma 4 `<|think>...<think|>`)
+     * emitted by the model this round. Thinking blocks are stripped before
+     * being persisted to the conversation so they do not leak into the next
+     * prompt; this callback is the only way to observe them.
+     */
+    public fun onThinking(text: String) {}
+
     /** Called when tool calls are detected in the model's response. */
     public fun onToolCalls(calls: List<ToolCall>) {}
 
     /** Called when a tool returns a result. */
     public fun onToolResult(call: ToolCall, result: String) {}
+
+    /**
+     * Called when a parsed tool call fails JSON-Schema validation against its
+     * [ToolDefinition]. The loop treats the call as failed, feeds the reason
+     * back to the model as the tool result, and does NOT invoke the tool.
+     */
+    public fun onToolCallValidationFailed(call: ToolCall, reason: String) {}
 
     /** Called when the agent loop finishes. */
     public fun onComplete(finalResponse: String) {}
@@ -80,7 +95,9 @@ public class AgentLoop<T : DType>(
         listener: AgentListener? = null
     ): String {
         val tools = toolRegistry.definitions()
+        val toolsByName = tools.associateBy { it.name }
         var lastResponse = ""
+        var lastVisibleResponse = ""
 
         for (round in 0 until config.maxToolRounds) {
             // Reset runtime state for each round (re-process full context)
@@ -104,14 +121,22 @@ public class AgentLoop<T : DType>(
             lastResponse = result.text
             listener?.onAssistantMessage(lastResponse)
 
-            // Parse for tool calls
+            // Extract thinking blocks first so the listener sees them, and
+            // strip them out of the text we persist to the conversation.
+            template.parseThinkingBlocks(lastResponse).forEach { block ->
+                listener?.onThinking(block)
+            }
+            lastVisibleResponse = template.stripThinking(lastResponse)
+
+            // Parse tool calls from the RAW text so a model can emit thinking
+            // and tool_call in the same response.
             val toolCalls = template.parseToolCalls(lastResponse)
 
             if (toolCalls.isEmpty()) {
                 // No tool calls — this is the final response
-                messages.add(ChatMessage(role = ChatRole.ASSISTANT, content = lastResponse))
-                listener?.onComplete(lastResponse)
-                return lastResponse
+                messages.add(ChatMessage(role = ChatRole.ASSISTANT, content = lastVisibleResponse))
+                listener?.onComplete(lastVisibleResponse)
+                return lastVisibleResponse
             }
 
             // Tool calls found — execute them
@@ -119,13 +144,13 @@ public class AgentLoop<T : DType>(
             messages.add(
                 ChatMessage(
                     role = ChatRole.ASSISTANT,
-                    content = lastResponse,
+                    content = lastVisibleResponse,
                     toolCalls = toolCalls
                 )
             )
 
             for (call in toolCalls) {
-                val toolResult = toolRegistry.execute(call)
+                val toolResult = executeWithValidation(call, toolsByName, listener)
                 listener?.onToolResult(call, toolResult)
                 messages.add(
                     ChatMessage(
@@ -138,8 +163,31 @@ public class AgentLoop<T : DType>(
         }
 
         // Max rounds exhausted — return last response
-        listener?.onComplete(lastResponse)
-        return lastResponse
+        listener?.onComplete(lastVisibleResponse)
+        return lastVisibleResponse
+    }
+
+    /**
+     * Validate [call] against the schema declared by its [ToolDefinition]. On
+     * failure, notify the listener and return the validation error as the
+     * tool result so the model sees the problem on the next round instead of
+     * crashing inside the tool. Unknown tools bypass validation and reach
+     * [ToolRegistry.execute], which handles them explicitly.
+     */
+    private fun executeWithValidation(
+        call: ToolCall,
+        toolsByName: Map<String, ToolDefinition>,
+        listener: AgentListener?
+    ): String {
+        val def = toolsByName[call.name]
+        if (def != null) {
+            val result = ToolCallValidator.validate(call, def)
+            if (result is ToolCallValidationResult.Invalid) {
+                listener?.onToolCallValidationFailed(call, result.reason)
+                return "validation error: ${result.reason}"
+            }
+        }
+        return toolRegistry.execute(call)
     }
 
     /**
@@ -171,7 +219,9 @@ public class AgentLoop<T : DType>(
         listener: AgentListener? = null
     ): String {
         val tools = toolRegistry.definitions()
+        val toolsByName = tools.associateBy { it.name }
         var lastResponse = ""
+        var lastVisibleResponse = ""
 
         for (round in 0 until config.maxToolRounds) {
             runtime.reset()
@@ -192,25 +242,30 @@ public class AgentLoop<T : DType>(
             lastResponse = result.text
             listener?.onAssistantMessage(lastResponse)
 
+            template.parseThinkingBlocks(lastResponse).forEach { block ->
+                listener?.onThinking(block)
+            }
+            lastVisibleResponse = template.stripThinking(lastResponse)
+
             val toolCalls = template.parseToolCalls(lastResponse)
 
             if (toolCalls.isEmpty()) {
-                messages.add(ChatMessage(role = ChatRole.ASSISTANT, content = lastResponse))
-                listener?.onComplete(lastResponse)
-                return lastResponse
+                messages.add(ChatMessage(role = ChatRole.ASSISTANT, content = lastVisibleResponse))
+                listener?.onComplete(lastVisibleResponse)
+                return lastVisibleResponse
             }
 
             listener?.onToolCalls(toolCalls)
             messages.add(
                 ChatMessage(
                     role = ChatRole.ASSISTANT,
-                    content = lastResponse,
+                    content = lastVisibleResponse,
                     toolCalls = toolCalls
                 )
             )
 
             for (call in toolCalls) {
-                val toolResult = toolRegistry.execute(call)
+                val toolResult = executeWithValidation(call, toolsByName, listener)
                 listener?.onToolResult(call, toolResult)
                 messages.add(
                     ChatMessage(
@@ -222,7 +277,7 @@ public class AgentLoop<T : DType>(
             }
         }
 
-        listener?.onComplete(lastResponse)
-        return lastResponse
+        listener?.onComplete(lastVisibleResponse)
+        return lastVisibleResponse
     }
 }

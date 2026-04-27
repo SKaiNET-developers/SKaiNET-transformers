@@ -4,9 +4,16 @@ import sk.ainet.apps.kllama.CpuAttentionBackend
 import sk.ainet.apps.kllama.cli.AgentCli
 import sk.ainet.apps.kllama.cli.ToolCallingDemo
 import sk.ainet.apps.llm.InferenceRuntime
+import sk.ainet.apps.llm.ModelFamily
+import sk.ainet.apps.llm.OptimizedLLMMode
+import sk.ainet.apps.llm.OptimizedLLMRuntime
 import sk.ainet.apps.llm.Tokenizer
 import sk.ainet.apps.llm.UnifiedModelLoader
 import sk.ainet.apps.llm.generate
+import sk.ainet.models.gemma.Gemma4WeightLoader
+import sk.ainet.models.gemma.Gemma4Weights
+import sk.ainet.models.gemma.GemmaNetworkLoader
+import sk.ainet.models.gemma.convertGemmaWeightsToMemSeg
 import sk.ainet.apps.llm.backend.BackendRegistry
 import sk.ainet.apps.llm.backend.bestAvailable
 import sk.ainet.apps.llm.tokenizer.TokenizerFactory
@@ -156,40 +163,58 @@ fun main(args: Array<String>) {
             memSegFactory.close()
         })
 
-        // Load model based on detected family
-        val acceptedArchitectures = modelInfo.family.architectures + setOf(modelInfo.architecture)
-        val loader = LlamaWeightLoader(
-            randomAccessProvider = { JvmRandomAccessSource.open(modelPath.toString()) },
-            quantPolicy = QuantPolicy.NATIVE_OPTIMIZED,
-            acceptedArchitectures = acceptedArchitectures
-        )
-
-        println("Loading GGUF model from $modelPath (${modelInfo.family.displayName}, streaming)...")
-        val loaded = loader.loadToMapStreaming<FP32, Float>(ctx, FP32::class)
-        val rawWeights = LlamaWeightMapper.map(loaded)
-
-        val runtimeWeights = if (rawWeights.quantTypes.isNotEmpty()) {
-            println("Converting ${rawWeights.quantTypes.size} quantized tensors to SIMD format...")
-            MemSegWeightConverter.convert(rawWeights, ctx, quantArena)
+        // Load model based on detected family. Gemma routes through the DSL
+        // pipeline (gemmaNetwork() + OptimizedLLMRuntime, Phase 5d parity);
+        // everything else (LLaMA, Qwen, Apertus, ...) takes the LlamaRuntime
+        // path which supports NATIVE_OPTIMIZED quant tensors for low-RAM loads.
+        val runtime: InferenceRuntime<FP32> = if (modelInfo.family == ModelFamily.GEMMA) {
+            println("Loading Gemma GGUF model from $modelPath via gemmaNetwork() + OptimizedLLMRuntime (NATIVE_OPTIMIZED)...")
+            if (cliArgs.contextLength != null) {
+                println("  --context flag currently ignored on the Gemma path; uses model default capped to 4096.")
+            }
+            val rawWeights = Gemma4WeightLoader(
+                randomAccessProvider = { JvmRandomAccessSource.open(modelPath.toString()) },
+                quantPolicy = QuantPolicy.NATIVE_OPTIMIZED
+            ).loadToMapStreaming<FP32, Float>(ctx, FP32::class)
+            @Suppress("UNCHECKED_CAST")
+            val converted = convertGemmaWeightsToMemSeg(rawWeights, ctx, quantArena) as Gemma4Weights<FP32, Float>
+            val model = GemmaNetworkLoader.fromWeights(ctx, converted, FP32::class)
+            OptimizedLLMRuntime(model, ctx, OptimizedLLMMode.DIRECT, FP32::class)
         } else {
-            rawWeights
+            val acceptedArchitectures = modelInfo.family.architectures + setOf(modelInfo.architecture)
+            val loader = LlamaWeightLoader(
+                randomAccessProvider = { JvmRandomAccessSource.open(modelPath.toString()) },
+                quantPolicy = QuantPolicy.NATIVE_OPTIMIZED,
+                acceptedArchitectures = acceptedArchitectures
+            )
+
+            println("Loading GGUF model from $modelPath (${modelInfo.family.displayName}, streaming)...")
+            val loaded = loader.loadToMapStreaming<FP32, Float>(ctx, FP32::class)
+            val rawWeights = LlamaWeightMapper.map(loaded)
+
+            val runtimeWeights = if (rawWeights.quantTypes.isNotEmpty()) {
+                println("Converting ${rawWeights.quantTypes.size} quantized tensors to SIMD format...")
+                MemSegWeightConverter.convert(rawWeights, ctx, quantArena)
+            } else {
+                rawWeights
+            }
+
+            if (cliArgs.contextLength != null) {
+                println("Context length capped to ${cliArgs.contextLength} (model default: ${runtimeWeights.metadata.contextLength})")
+            }
+
+            val backend = CpuAttentionBackend<FP32>(
+                ctx, runtimeWeights, FP32::class,
+                ropeFreqBase = runtimeWeights.metadata.ropeFreqBase,
+                maxContextLength = cliArgs.contextLength
+            )
+
+            @Suppress("DEPRECATION")
+            LlamaRuntime<FP32>(
+                ctx, runtimeWeights, backend, FP32::class,
+                eps = runtimeWeights.metadata.rmsNormEps
+            )
         }
-
-        if (cliArgs.contextLength != null) {
-            println("Context length capped to ${cliArgs.contextLength} (model default: ${runtimeWeights.metadata.contextLength})")
-        }
-
-        val backend = CpuAttentionBackend<FP32>(
-            ctx, runtimeWeights, FP32::class,
-            ropeFreqBase = runtimeWeights.metadata.ropeFreqBase,
-            maxContextLength = cliArgs.contextLength
-        )
-
-        @Suppress("DEPRECATION")
-        val runtime: InferenceRuntime<FP32> = LlamaRuntime<FP32>(
-            ctx, runtimeWeights, backend, FP32::class,
-            eps = runtimeWeights.metadata.rmsNormEps
-        )
 
         // Load tokenizer from GGUF
         println("Loading embedded GGUF tokenizer...")
@@ -229,7 +254,17 @@ fun main(args: Array<String>) {
 
         // Standard generation mode
         val promptText = cliArgs.prompt ?: error("Prompt is required for standard generation mode.")
-        val promptTokens = tokenizer.encode(promptText)
+        // Tokenize and prepend BOS — Gemma 4's GGUF sets
+        // `tokenizer.ggml.add_bos_token = true` and the model is trained to
+        // expect BOS at position 0. The Tokenizer interface intentionally
+        // doesn't auto-prepend special tokens (so other callers can handle
+        // chat templates / system prefixes themselves), so the CLI does it
+        // here. Most other modern decoder GGUFs also want this; the only
+        // ones that don't would set add_bos_token=false. (We currently don't
+        // surface that flag — until a non-BOS GGUF comes up, prepending
+        // unconditionally is the right default.)
+        val rawTokens = tokenizer.encode(promptText)
+        val promptTokens = intArrayOf(tokenizer.bosTokenId) + rawTokens
 
         println("Generating ${cliArgs.steps} tokens with temperature=${cliArgs.temperature}...")
         println("---")

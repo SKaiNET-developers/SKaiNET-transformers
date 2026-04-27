@@ -306,6 +306,161 @@ class TokenizerEncodingTest {
         assertEquals(" the", decoded)
     }
 
+    // ==================== Special-token (CONTROL) Encoding ====================
+    //
+    // GGUF marks atomic special tokens (e.g. Llama 3's <|begin_of_text|>, <|eot_id|>;
+    // ChatML's <|im_start|>) with token_type == 3 (CONTROL). These must be emitted
+    // as a single atomic token ID even though their multi-character string would never
+    // be assembled by greedy bottom-up BPE merging from single-char starting tokens.
+
+    @Test
+    fun `BPE encode emits CONTROL tokens atomically not as char fragments`() {
+        // Vocab: byte-level chars + a CONTROL special token.
+        // BPE has no merge chain that could ever assemble "<|begin|>" from chars,
+        // so without special handling encoding it would yield ~9 fragment IDs.
+        val vocab = listOf(
+            "<", "|", "b", "e", "g", "i", "n", ">",  // 0..7  single chars
+            "<|begin|>",                              // 8     CONTROL
+            "h", "l", "o"                             // 9..11 single chars
+        )
+        val scores = FloatArray(vocab.size) { 0f }
+        val tokenTypes = IntArray(vocab.size) { 1 }   // 1 = NORMAL
+        tokenTypes[8] = 3                             // 3 = CONTROL
+
+        val tok = GGUFTokenizer.forTesting(
+            vocab = vocab,
+            scores = scores,
+            bosTokenId = 8,
+            eosTokenId = 8,
+            unkTokenId = 0,
+            strategy = BPEStrategy,
+            tokenTypes = tokenTypes
+        )
+
+        val ids = tok.encode("<|begin|>hello")
+        assertEquals(8, ids[0], "first token must be the atomic <|begin|> id (8), not a fragment of '<'")
+        // Remaining ids should encode "hello" — exact tokenization is irrelevant here;
+        // what matters is that the special token didn't get char-split.
+        assertTrue(ids.size < 9, "expected ~5 ids (1 special + 'hello' chars), got ${ids.size}: ${ids.toList()}")
+    }
+
+    @Test
+    fun `BPE encode finds CONTROL token in middle of plain text`() {
+        val vocab = listOf(
+            "h", "i",                  // 0..1
+            "<|stop|>",                // 2     CONTROL
+            "b", "y", "e"              // 3..5
+        )
+        val scores = FloatArray(vocab.size) { 0f }
+        val tokenTypes = IntArray(vocab.size) { 1 }
+        tokenTypes[2] = 3
+
+        val tok = GGUFTokenizer.forTesting(
+            vocab = vocab,
+            scores = scores,
+            bosTokenId = 2,
+            eosTokenId = 2,
+            unkTokenId = 0,
+            strategy = BPEStrategy,
+            tokenTypes = tokenTypes
+        )
+
+        val ids = tok.encode("hi<|stop|>bye")
+        // Atomic stop token must appear exactly once, and only once.
+        val stopOccurrences = ids.count { it == 2 }
+        assertEquals(1, stopOccurrences, "atomic <|stop|> must appear exactly once, got ids=${ids.toList()}")
+    }
+
+    @Test
+    fun `BPE encode handles two adjacent CONTROL tokens`() {
+        val vocab = listOf(
+            "<|a|>",   // 0  CONTROL
+            "<|b|>",   // 1  CONTROL
+            "x"        // 2
+        )
+        val scores = FloatArray(vocab.size) { 0f }
+        val tokenTypes = intArrayOf(3, 3, 1)
+
+        val tok = GGUFTokenizer.forTesting(
+            vocab = vocab,
+            scores = scores,
+            bosTokenId = 0,
+            eosTokenId = 1,
+            unkTokenId = 2,
+            strategy = BPEStrategy,
+            tokenTypes = tokenTypes
+        )
+
+        val ids = tok.encode("<|a|><|b|>x")
+        // Adjacent specials should yield exactly [0, 1, 2] — no char fragments between them.
+        assertEquals(listOf(0, 1, 2), ids.toList())
+    }
+
+    @Test
+    fun `BPE encode emits USER_DEFINED tokens atomically Gemma 4 tool markers`() {
+        // Regression for the Gemma 4 multi-turn tool-calling case. GGUF type=4
+        // (USER_DEFINED) marks visible-but-atomic tokens — `convert_hf_to_gguf.py`
+        // Gemma4Model.set_vocab assigns this type to <|tool_call> / <tool_call|> /
+        // <|tool_response> / <tool_response|> "so that the chat parser can read
+        // them". They must round-trip through encode the same as type=3 CONTROL.
+        val vocab = listOf(
+            "<", "|", "t", "o", "_", "c", "a", "l", "r", "e", "s", "p", "n", ">",  // 0..13 single chars
+            "<|tool_call>",      // 14  USER_DEFINED
+            "<tool_call|>",      // 15  USER_DEFINED
+            "<|tool_response>",  // 16  USER_DEFINED
+            "<tool_response|>",  // 17  USER_DEFINED
+            "x"                  // 18
+        )
+        val scores = FloatArray(vocab.size) { 0f }
+        val tokenTypes = IntArray(vocab.size) { 1 }
+        tokenTypes[14] = 4 // USER_DEFINED
+        tokenTypes[15] = 4
+        tokenTypes[16] = 4
+        tokenTypes[17] = 4
+
+        val tok = GGUFTokenizer.forTesting(
+            vocab = vocab,
+            scores = scores,
+            bosTokenId = 14,
+            eosTokenId = 15,
+            unkTokenId = 0,
+            strategy = BPEStrategy,
+            tokenTypes = tokenTypes
+        )
+
+        val ids = tok.encode("<|tool_call>x<tool_call|>")
+        // First and last must be the atomic IDs, not char-fragmented.
+        assertEquals(14, ids.first(), "first token must be atomic <|tool_call> id (14)")
+        assertEquals(15, ids.last(), "last token must be atomic <tool_call|> id (15)")
+        assertTrue(ids.size <= 3, "expected ≤3 ids ([14, 18, 15]), got ${ids.toList()}")
+
+        // Multi-turn case: tool_response in conversation history.
+        val ids2 = tok.encode("<|tool_response>x<tool_response|>")
+        assertEquals(16, ids2.first())
+        assertEquals(17, ids2.last())
+    }
+
+    @Test
+    fun `BPE encode without tokenTypes falls back to plain BPE`() {
+        // No tokenTypes provided → no special handling, plain BPE on chars.
+        // Guards against accidental behavior change for callers that don't pass tokenTypes.
+        val vocab = listOf("h", "i")
+        val scores = floatArrayOf(0f, 0f)
+
+        val tok = GGUFTokenizer.forTesting(
+            vocab = vocab,
+            scores = scores,
+            bosTokenId = 0,
+            eosTokenId = 1,
+            unkTokenId = 0,
+            strategy = BPEStrategy,
+            tokenTypes = null
+        )
+
+        val ids = tok.encode("hi")
+        assertEquals(listOf(0, 1), ids.toList())
+    }
+
     @Test
     fun `BPE round trip`() {
         val vocab = listOf(

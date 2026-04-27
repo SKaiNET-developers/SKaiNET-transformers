@@ -39,12 +39,58 @@ public class MultiHeadAttention<T : DType, V>(
     public val nKVHeads: Int = nHeads,
     public val causal: Boolean = true,
     public val qkNorm: Boolean = false,
+    /**
+     * When `true`, the q_norm/k_norm RMSNorm layers use the Gemma "unit-offset"
+     * formula `output = normalized * (1 + weight)`. Required for Gemma
+     * checkpoints whose RMSNorm gain tensors are stored centered at zero.
+     */
+    public val qkNormUnitOffset: Boolean = false,
+    /**
+     * Explicit scale applied to the attention scores `Q @ K^T`. When `null`
+     * (default), uses the standard `1 / sqrt(head_dim)`. Gemma 4 sets this
+     * to `1.0f` because q_norm/k_norm have already normalized Q and K to
+     * unit-RMS — adding `1 / sqrt(head_dim)` on top makes the softmax
+     * over-flat (~uniform), averaging V across positions and producing
+     * residual-stream outputs dominated by the most-magnitude embedding
+     * (typically BOS). HF Gemma4TextAttention.__init__ sets `self.scaling =
+     * 1.0` and passes that to `eager_attention_forward`, bypassing the
+     * default `head_dim ** -0.5`.
+     */
+    public val attentionScale: Float? = null,
+    /**
+     * When `true`, applies an unscaled per-head RMS norm to V before the
+     * attention dot product (`v / sqrt(mean(v²) + eps)` over `head_dim`).
+     * HF `Gemma4TextAttention` constructs `v_norm = Gemma4RMSNorm(head_dim,
+     * eps=rms_norm_eps, with_scale=False)` — there's no learnable scale, the
+     * norm just divides by RMS so V values land at unit RMS regardless of
+     * what magnitudes v_proj produced. Without this, V values drift positive
+     * and attention output (a weighted sum of V) inherits a strong positive
+     * mean bias — the symptom that produces BOS-dominated logits.
+     */
+    public val vNormNoScale: Boolean = false,
     public val bias: Boolean = false,
     override val name: String = "MultiHeadAttention",
     public var rope: RoPE<T, V>? = null,
     public var kvCache: KVCache<T, V>? = null,
-    explicitHeadDim: Int? = null
+    explicitHeadDim: Int? = null,
+    /**
+     * Sliding-window size (in tokens). When non-null, each query position only
+     * attends to keys within `slidingWindow` positions back (inclusive). Used
+     * by Gemma 4 local-attention layers. Null = no windowing.
+     */
+    public val slidingWindow: Int? = null
 ) : Module<T, V>(), ModuleParameters<T, V> {
+
+    init {
+        if (slidingWindow != null) {
+            require(slidingWindow > 0) {
+                "MultiHeadAttention: slidingWindow must be > 0 when set, got $slidingWindow"
+            }
+            require(causal) {
+                "MultiHeadAttention: slidingWindow currently requires causal=true (non-causal windowed attention not supported)"
+            }
+        }
+    }
 
     public val headDim: Int = explicitHeadDim ?: (dim / nHeads)
     public val qDim: Int = headDim * nHeads
@@ -98,11 +144,11 @@ public class MultiHeadAttention<T : DType, V>(
 
     // Optional QK-Norm layers
     public val qNorm: RMSNormalization<T, V>? = if (qkNorm) {
-        RMSNormalization(intArrayOf(headDim), name = "$name.q_norm")
+        RMSNormalization(intArrayOf(headDim), name = "$name.q_norm", unitOffset = qkNormUnitOffset)
     } else null
 
     public val kNorm: RMSNormalization<T, V>? = if (qkNorm) {
-        RMSNormalization(intArrayOf(headDim), name = "$name.k_norm")
+        RMSNormalization(intArrayOf(headDim), name = "$name.k_norm", unitOffset = qkNormUnitOffset)
     } else null
 
     @Suppress("UNCHECKED_CAST")
@@ -116,17 +162,34 @@ public class MultiHeadAttention<T : DType, V>(
 
     override fun onForward(input: Tensor<T, V>, ctx: ExecutionContext): Tensor<T, V> {
         val ops = ctx.ops
-        val scale = 1.0f / sqrt(headDim.toFloat())
+        val scale = attentionScale ?: (1.0f / sqrt(headDim.toFloat()))
+
+        // Per-substep diagnostic: dump rms/min/max of intermediate tensors
+        // (post-Q-proj, post-K-proj, post-V-proj, post-Q-norm, post-K-norm,
+        // post-V-norm, post-RoPE-Q, post-RoPE-K, cached-K, cached-V,
+        // post-SDPA, final output) ONLY for blk.0's attention. Gated on a
+        // per-call flag set by `HybridTransformerBlock.directForward` when
+        // `block.name == "blk.0"` and `GEMMA4_DUMP_MHA=1`. The MHA module
+        // itself is named just "attn" (every block's MHA shares that name)
+        // so we can't gate on `this.name` alone.
+        val mhaDump = MultiHeadAttentionDiag.shouldDumpThisCall
 
         val wQ = params[qWIdx].value
         val wK = params[kWIdx].value
         val wV = params[vWIdx].value
         val wO = params[oWIdx].value
 
-        // Project Q, K, V: input @ W^T (+ bias if enabled)
-        var q = ops.matmul(input, ops.transpose(wQ))
-        var k = ops.matmul(input, ops.transpose(wK))
-        var v = ops.matmul(input, ops.transpose(wV))
+        // Project Q, K, V: input @ W^T (+ bias if enabled).
+        // linearProject handles both the stock [out, in] layout and the
+        // [in, out] pre-transposed layout produced by MemSeg conversion.
+        var q = linearProject(ops, input, wQ)
+        var k = linearProject(ops, input, wK)
+        var v = linearProject(ops, input, wV)
+        if (mhaDump) {
+            mhaDumpStat("[blk.0.mha post-Q-proj      ]", q)
+            mhaDumpStat("[blk.0.mha post-K-proj      ]", k)
+            mhaDumpStat("[blk.0.mha post-V-proj      ]", v)
+        }
 
         if (bias) {
             q = ops.add(q, params[qWIdx + 1].value)
@@ -138,20 +201,41 @@ public class MultiHeadAttention<T : DType, V>(
         val seqLen = if (input.rank >= 2) input.shape[input.rank - 2] else 1
         q = ops.reshape(q, Shape(nHeads, seqLen, headDim))
         k = ops.reshape(k, Shape(nKVHeads, seqLen, headDim))
-        val vReshaped = ops.reshape(v, Shape(nKVHeads, seqLen, headDim))
+        var vReshaped = ops.reshape(v, Shape(nKVHeads, seqLen, headDim))
 
         // Optional QK-Norm
         if (qNorm != null && kNorm != null) {
             q = qNorm.forward(q, ctx)
             k = kNorm.forward(k, ctx)
+            if (mhaDump) {
+                mhaDumpStat("[blk.0.mha post-Q-norm      ]", q)
+                mhaDumpStat("[blk.0.mha post-K-norm      ]", k)
+            }
+        }
+
+        // Optional V-Norm (no scale): divide V by per-head RMS so attention
+        // output (sum_t softmax × V_t) doesn't inherit a positive mean bias
+        // from raw v_proj output. HF Gemma4TextAttention's `v_norm` is
+        // `Gemma4RMSNorm(..., with_scale=False)`.
+        if (vNormNoScale) {
+            val vSq = ops.multiply(vReshaped, vReshaped)
+            val vMean = ops.mean(vSq, dim = vReshaped.rank - 1)
+            val vRms = ops.unsqueeze(ops.sqrt(ops.addScalar(vMean, 1e-6f)), vReshaped.rank - 1)
+            vReshaped = ops.divide(vReshaped, vRms)
+            if (mhaDump) mhaDumpStat("[blk.0.mha post-V-norm      ]", vReshaped)
         }
 
         // Optional RoPE
         val ropeModule = rope
         if (ropeModule != null) {
             val position = kvCache?.position ?: 0
+            if (mhaDump) println("[blk.0.mha pos=$position]")
             q = ropeModule.forward(q, position, ctx)
             k = ropeModule.forward(k, position, ctx)
+            if (mhaDump) {
+                mhaDumpStat("[blk.0.mha post-RoPE-Q      ]", q)
+                mhaDumpStat("[blk.0.mha post-RoPE-K      ]", k)
+            }
         }
 
         // Optional KV Cache update
@@ -159,6 +243,10 @@ public class MultiHeadAttention<T : DType, V>(
             kvCache!!.update(k, vReshaped, ctx)
         } else {
             k to vReshaped
+        }
+        if (mhaDump) {
+            mhaDumpStat("[blk.0.mha cached-K (full)  ]", fullK)
+            mhaDumpStat("[blk.0.mha cached-V (full)  ]", fullV)
         }
 
         // Expand KV heads for GQA if needed
@@ -170,26 +258,71 @@ public class MultiHeadAttention<T : DType, V>(
         val kBatched = ops.unsqueeze(expandedK, 0)
         val vBatched = ops.unsqueeze(expandedV, 0)
 
+        // When sliding-window attention is active, we build a combined
+        // causal+window mask ourselves and disable SDPA's built-in causal
+        // path (which would otherwise re-mask the same positions).
+        val seqKV = kBatched.shape[2]
+        val slidingMask = slidingWindow?.let { buildSlidingCausalMask(seqLen, seqKV, it, ctx, qBatched.dtype) }
+        val useCausalPath = causal && slidingMask == null
+
         // Scaled dot-product attention
         val attnOut = ops.scaledDotProductAttention(
             query = qBatched,
             key = kBatched,
             value = vBatched,
-            mask = null,
+            mask = slidingMask,
             scale = scale,
-            causal = causal
+            causal = useCausalPath
         )
+        if (mhaDump) mhaDumpStat("[blk.0.mha post-SDPA        ]", attnOut)
 
         // Remove batch dim and merge heads: [1, nHeads, seqLen, headDim] → [seqLen, qDim]
         val squeezed = ops.squeeze(attnOut, 0)
         val merged = ops.reshape(squeezed, Shape(seqLen, qDim))
 
         // Output projection: merged @ wO^T (+ bias if enabled)
-        var output = ops.matmul(merged, ops.transpose(wO))
+        var output = linearProject(ops, merged, wO)
         if (bias) {
             output = ops.add(output, params[oWIdx + 1].value)
         }
         return output
+    }
+
+    /**
+     * Build an additive mask tensor of shape `[1, 1, seqQ, seqKV]` where allowed
+     * (query, key) cells are 0 and masked cells are a large negative value so
+     * the post-softmax attention weight is effectively zero.
+     *
+     * Query qi at (absolute) position `abs_q = seqKV - seqQ + qi` attends to
+     * any key ki at abs position `ki` such that:
+     *   abs_q - window < ki <= abs_q
+     *
+     * The causal bound is subsumed by the sliding bound so this mask also
+     * covers the causal case — SDPA's own causal path is disabled when this
+     * mask is in use.
+     *
+     * Assumes keys are laid out in ascending absolute position order (true for
+     * [AppendKVCache] and [SlidingWindowKVCache] with the trailing tail).
+     */
+    private fun buildSlidingCausalMask(
+        seqQ: Int,
+        seqKV: Int,
+        window: Int,
+        ctx: ExecutionContext,
+        dtype: KClass<T>
+    ): Tensor<T, V> {
+        val neg = -1.0e30f
+        val data = FloatArray(seqQ * seqKV)
+        val qAbsOffset = seqKV - seqQ
+        for (qi in 0 until seqQ) {
+            val absQ = qAbsOffset + qi
+            val lowerExclusive = absQ - window
+            for (ki in 0 until seqKV) {
+                val allowed = ki in (lowerExclusive + 1)..absQ
+                data[qi * seqKV + ki] = if (allowed) 0f else neg
+            }
+        }
+        return ctx.fromFloatArray(Shape(1, 1, seqQ, seqKV), dtype, data)
     }
 
     private fun repeatKVHeads(t: Tensor<T, V>, repeats: Int, ops: sk.ainet.lang.tensor.ops.TensorOps): Tensor<T, V> {
@@ -203,4 +336,25 @@ public class MultiHeadAttention<T : DType, V>(
         }
         return ops.concat(expanded, dim = 0)
     }
+
+    /** Diagnostic stat dump for MHA substeps. Gated by [MultiHeadAttentionDiag.shouldDumpThisCall];
+     *  delegates to the platform diagnostic helper so the multiplatform
+     *  metadata compile doesn't see JVM-only formatter / MemorySegment
+     *  references. Stats are over the *whole* tensor, not just last
+     *  position — different MHA substeps have different shapes. */
+    private fun mhaDumpStat(label: String, t: Tensor<T, V>) {
+        sk.ainet.apps.llm.diag.dumpStats(label, t)
+    }
+}
+
+/**
+ * Per-call MHA-substep dump gate. The MHA module itself is named just `"attn"`
+ * (every block's MHA shares that name), so we can't gate the dump from inside
+ * MHA based on its own `name`. Instead, the calling `HybridTransformerBlock`
+ * (which knows it's `blk.0`) sets [shouldDumpThisCall] to `true` immediately
+ * before calling MHA's forward, and resets it after. Effective mutex:
+ * single-threaded forward path, so a static var is OK.
+ */
+public object MultiHeadAttentionDiag {
+    public var shouldDumpThisCall: Boolean = false
 }

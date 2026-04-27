@@ -91,6 +91,10 @@ kotlin {
         val jvmMain by getting {
             dependencies {
                 implementation(project(":llm-runtime:kllama"))
+                // Direct dep on llm-agent for the --agent CLI flag.
+                // kllama's `implementation(project(":llm-agent"))` isn't
+                // transitively visible by default.
+                implementation(project(":llm-agent"))
             }
         }
         val jvmTest by getting {
@@ -98,6 +102,9 @@ kotlin {
                 implementation(libs.kotlin.test)
                 implementation(libs.kotlinx.coroutines.test)
                 implementation(libs.skainet.backend.cpu)
+                // Needed by Gemma4E2BToolCallSmokeTest for building
+                // ToolDefinition parameter schemas inline.
+                implementation(libs.kotlinx.serialization.json)
             }
         }
         if (!project.hasProperty("buildFatJar")) {
@@ -120,11 +127,23 @@ kotlin {
 }
 
 tasks.withType<Test>().configureEach {
-    jvmArgs("--enable-preview", "--add-modules", "jdk.incubator.vector")
+    // Gemma4E2BToolCallSmokeTest dequantizes Q4_K → FP32 into MemorySegment-backed
+    // direct memory (~20 GB for E2B). JDK 21 caps direct memory at ≈ -Xmx by
+    // default, so bumping just the heap also lifts the direct cap — but we set
+    // both explicitly to document intent. The 4g defaults keep the fast suite
+    // cheap; real-checkpoint runs override, e.g.
+    //   -PkgemmaTestMaxHeap=24g -PkgemmaTestMaxDirect=32g
+    val maxDirect = (findProperty("kgemmaTestMaxDirect") as? String) ?: "4g"
+    jvmArgs(
+        "--enable-preview",
+        "--add-modules", "jdk.incubator.vector",
+        "-XX:MaxDirectMemorySize=$maxDirect",
+    )
+    maxHeapSize = (findProperty("kgemmaTestMaxHeap") as? String) ?: "4g"
 }
 
 tasks.withType<JavaExec>().configureEach {
-    jvmArgs("--enable-preview", "--add-modules", "jdk.incubator.vector")
+    jvmArgs("--enable-preview", "--add-modules", "jdk.incubator.vector", "-XX:MaxDirectMemorySize=36g")
     minHeapSize = "4g"
     maxHeapSize = "24g"
 }

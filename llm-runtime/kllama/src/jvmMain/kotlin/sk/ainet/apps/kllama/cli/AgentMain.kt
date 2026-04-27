@@ -199,8 +199,11 @@ public class AgentCli<T : DType>(
 
 /**
  * Demo calculator tool for testing the agent loop.
+ *
+ * Public so `kgemma --agent` can register the same built-in tool as
+ * `skainet-cli --agent`.
  */
-internal class CalculatorTool : Tool {
+public class CalculatorTool : Tool {
 
     override val definition: ToolDefinition = ToolDefinition(
         name = "calculator",

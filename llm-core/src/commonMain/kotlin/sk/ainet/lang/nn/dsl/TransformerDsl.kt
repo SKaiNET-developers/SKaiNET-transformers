@@ -5,11 +5,14 @@ import sk.ainet.lang.nn.layers.Embedding
 import sk.ainet.lang.nn.layers.EmbeddingAdapter
 import sk.ainet.lang.nn.layers.EmbeddingParams
 import sk.ainet.lang.nn.normalization.RMSNormalization
+import sk.ainet.lang.nn.transformer.AppendKVCache
 import sk.ainet.lang.nn.transformer.KVCache
 import sk.ainet.lang.nn.transformer.MultiHeadAttention
 import sk.ainet.lang.nn.transformer.ResidualAdd
 import sk.ainet.lang.nn.transformer.RoPE
 import sk.ainet.lang.nn.transformer.RoPEMode
+import sk.ainet.lang.nn.transformer.RoPEScaling
+import sk.ainet.lang.nn.transformer.GeGLUFFN
 import sk.ainet.lang.nn.transformer.SwiGLUFFN
 import sk.ainet.lang.nn.transformer.XIELUActivation
 import sk.ainet.context.ExecutionContext
@@ -47,8 +50,19 @@ import kotlin.reflect.KClass
 
 @NetworkDsl
 public interface ATTENTION<T : DType, V> : NetworkDslItem {
-    public fun rope(headDim: Int, maxSeqLen: Int, mode: RoPEMode = RoPEMode.INTERLEAVED, base: Float = 10000.0f)
+    public fun rope(
+        headDim: Int,
+        maxSeqLen: Int,
+        mode: RoPEMode = RoPEMode.INTERLEAVED,
+        base: Float = 10000.0f,
+        scaling: RoPEScaling = RoPEScaling.NONE,
+        scalingFactor: Float = 1.0f,
+        partialRotaryFactor: Float = 1.0f
+    )
+    /** Build a default [AppendKVCache] in place. */
     public fun kvCache(maxSeqLen: Int, nKVHeads: Int, headDim: Int)
+    /** Attach a pre-built KV cache variant (e.g. [SlidingWindowKVCache] or [SharedKVCache]). */
+    public fun kvCache(cache: KVCache<T, V>)
 }
 
 public class AttentionImpl<T : DType, V>(
@@ -58,26 +72,51 @@ public class AttentionImpl<T : DType, V>(
     private val nKVHeads: Int,
     private val causal: Boolean,
     private val qkNorm: Boolean,
+    private val qkNormUnitOffset: Boolean = false,
+    private val attentionScale: Float? = null,
+    private val vNormNoScale: Boolean = false,
     private val bias: Boolean,
     private val id: String,
+    private val slidingWindow: Int? = null,
 ) : ATTENTION<T, V> {
 
     private var ropeModule: RoPE<T, V>? = null
     private var kvCacheModule: KVCache<T, V>? = null
     private var explicitHeadDim: Int? = null
 
-    override fun rope(headDim: Int, maxSeqLen: Int, mode: RoPEMode, base: Float) {
-        ropeModule = RoPE(headDim = headDim, maxSeqLen = maxSeqLen, base = base, mode = mode, name = "$id.rope")
+    override fun rope(
+        headDim: Int,
+        maxSeqLen: Int,
+        mode: RoPEMode,
+        base: Float,
+        scaling: RoPEScaling,
+        scalingFactor: Float,
+        partialRotaryFactor: Float
+    ) {
+        ropeModule = RoPE(
+            headDim = headDim,
+            maxSeqLen = maxSeqLen,
+            base = base,
+            mode = mode,
+            scaling = scaling,
+            scalingFactor = scalingFactor,
+            partialRotaryFactor = partialRotaryFactor,
+            name = "$id.rope"
+        )
         explicitHeadDim = headDim
     }
 
     override fun kvCache(maxSeqLen: Int, nKVHeads: Int, headDim: Int) {
-        kvCacheModule = KVCache(
+        kvCacheModule = AppendKVCache(
             maxSeqLen = maxSeqLen,
             nKVHeads = nKVHeads,
             headDim = headDim,
             name = "$id.kv_cache"
         )
+    }
+
+    override fun kvCache(cache: KVCache<T, V>) {
+        kvCacheModule = cache
     }
 
     public fun create(): MultiHeadAttention<T, V> {
@@ -89,11 +128,15 @@ public class AttentionImpl<T : DType, V>(
             nKVHeads = nKVHeads,
             causal = causal,
             qkNorm = qkNorm,
+            qkNormUnitOffset = qkNormUnitOffset,
+            attentionScale = attentionScale,
+            vNormNoScale = vNormNoScale,
             bias = bias,
             name = id,
             rope = ropeModule,
             kvCache = kvCacheModule,
-            explicitHeadDim = if (needsExplicitHeadDim) explicitHeadDim else null
+            explicitHeadDim = if (needsExplicitHeadDim) explicitHeadDim else null,
+            slidingWindow = slidingWindow
         )
     }
 }
@@ -122,11 +165,12 @@ public fun <T : DType, V> StageImpl<T, V>.embedding(vocabSize: Int, dim: Int, id
     lastDimension = dim
 }
 
-public fun <T : DType, V> StageImpl<T, V>.rmsNorm(normalizedShape: Int, eps: Float = 1e-5f, id: String = "") {
+public fun <T : DType, V> StageImpl<T, V>.rmsNorm(normalizedShape: Int, eps: Float = 1e-5f, id: String = "", unitOffset: Boolean = false) {
     modules += RMSNormalization<T, V>(
         normalizedShape = intArrayOf(normalizedShape),
         eps = eps.toDouble(),
-        name = getDefaultName(id, "RMSNorm", modules.size)
+        name = getDefaultName(id, "RMSNorm", modules.size),
+        unitOffset = unitOffset
     )
 }
 
@@ -136,8 +180,12 @@ public fun <T : DType, V> StageImpl<T, V>.multiHeadAttention(
     nKVHeads: Int = nHeads,
     causal: Boolean = true,
     qkNorm: Boolean = false,
+    qkNormUnitOffset: Boolean = false,
+    attentionScale: Float? = null,
+    vNormNoScale: Boolean = false,
     bias: Boolean = false,
     id: String = "",
+    slidingWindow: Int? = null,
     content: ATTENTION<T, V>.() -> Unit = {}
 ) {
     val attnName = getDefaultName(id, "MultiHeadAttention", modules.size)
@@ -148,8 +196,12 @@ public fun <T : DType, V> StageImpl<T, V>.multiHeadAttention(
         nKVHeads = nKVHeads,
         causal = causal,
         qkNorm = qkNorm,
+        qkNormUnitOffset = qkNormUnitOffset,
+        attentionScale = attentionScale,
+        vNormNoScale = vNormNoScale,
         bias = bias,
         id = attnName,
+        slidingWindow = slidingWindow,
     )
     impl.content()
     modules += impl.create()
@@ -160,6 +212,14 @@ public fun <T : DType, V> StageImpl<T, V>.swiGluFFN(dim: Int, hiddenDim: Int, id
         dim = dim,
         hiddenDim = hiddenDim,
         name = getDefaultName(id, "SwiGLUFFN", modules.size)
+    )
+}
+
+public fun <T : DType, V> StageImpl<T, V>.geGluFFN(dim: Int, hiddenDim: Int, id: String = "") {
+    modules += GeGLUFFN<T, V>(
+        dim = dim,
+        hiddenDim = hiddenDim,
+        name = getDefaultName(id, "GeGLUFFN", modules.size)
     )
 }
 
@@ -201,11 +261,12 @@ public fun <T : DType, V> NeuralNetworkDslImpl<T, V>.embedding(vocabSize: Int, d
     lastDimension = dim
 }
 
-public fun <T : DType, V> NeuralNetworkDslImpl<T, V>.rmsNorm(normalizedShape: Int, eps: Float = 1e-5f, id: String = "") {
+public fun <T : DType, V> NeuralNetworkDslImpl<T, V>.rmsNorm(normalizedShape: Int, eps: Float = 1e-5f, id: String = "", unitOffset: Boolean = false) {
     modules += RMSNormalization<T, V>(
         normalizedShape = intArrayOf(normalizedShape),
         eps = eps.toDouble(),
-        name = getDefaultName(id, "RMSNorm", modules.size)
+        name = getDefaultName(id, "RMSNorm", modules.size),
+        unitOffset = unitOffset
     )
 }
 
@@ -217,6 +278,7 @@ public fun <T : DType, V> NeuralNetworkDslImpl<T, V>.multiHeadAttention(
     qkNorm: Boolean = false,
     bias: Boolean = false,
     id: String = "",
+    slidingWindow: Int? = null,
     content: ATTENTION<T, V>.() -> Unit = {}
 ) {
     val attnName = getDefaultName(id, "MultiHeadAttention", modules.size)
@@ -229,6 +291,7 @@ public fun <T : DType, V> NeuralNetworkDslImpl<T, V>.multiHeadAttention(
         qkNorm = qkNorm,
         bias = bias,
         id = attnName,
+        slidingWindow = slidingWindow,
     )
     impl.content()
     modules += impl.create()
@@ -239,6 +302,14 @@ public fun <T : DType, V> NeuralNetworkDslImpl<T, V>.swiGluFFN(dim: Int, hiddenD
         dim = dim,
         hiddenDim = hiddenDim,
         name = getDefaultName(id, "SwiGLUFFN", modules.size)
+    )
+}
+
+public fun <T : DType, V> NeuralNetworkDslImpl<T, V>.geGluFFN(dim: Int, hiddenDim: Int, id: String = "") {
+    modules += GeGLUFFN<T, V>(
+        dim = dim,
+        hiddenDim = hiddenDim,
+        name = getDefaultName(id, "GeGLUFFN", modules.size)
     )
 }
 

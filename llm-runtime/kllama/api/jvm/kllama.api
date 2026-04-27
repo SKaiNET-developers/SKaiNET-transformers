@@ -23,29 +23,6 @@ public final class sk/ainet/apps/kllama/FusedQKVAccelerator : sk/ainet/models/ll
 	public fun runQKV (ILsk/ainet/lang/tensor/Tensor;)Lsk/ainet/models/llama/GraphAccelerator$QKVResult;
 }
 
-public final class sk/ainet/apps/kllama/GGUFTokenizer : sk/ainet/apps/llm/Tokenizer {
-	public static final field Companion Lsk/ainet/apps/kllama/GGUFTokenizer$Companion;
-	public synthetic fun <init> (Ljava/util/List;[FIIILsk/ainet/apps/llm/TokenizerStrategy;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public fun decode (I)Ljava/lang/String;
-	public fun decode ([I)Ljava/lang/String;
-	public fun encode (Ljava/lang/String;)[I
-	public final fun getBosId ()I
-	public final fun getEosId ()I
-	public final fun getTokenizerType ()Lsk/ainet/apps/llm/TokenizerType;
-	public final fun getVocabSize ()I
-}
-
-public final class sk/ainet/apps/kllama/GGUFTokenizer$Companion {
-	public final fun fromGGUF (Lsk/ainet/io/gguf/GGUFReader;Z)Lsk/ainet/apps/kllama/GGUFTokenizer;
-	public static synthetic fun fromGGUF$default (Lsk/ainet/apps/kllama/GGUFTokenizer$Companion;Lsk/ainet/io/gguf/GGUFReader;ZILjava/lang/Object;)Lsk/ainet/apps/kllama/GGUFTokenizer;
-	public final fun fromRandomAccessSource (Lsk/ainet/io/RandomAccessSource;Z)Lsk/ainet/apps/kllama/GGUFTokenizer;
-	public static synthetic fun fromRandomAccessSource$default (Lsk/ainet/apps/kllama/GGUFTokenizer$Companion;Lsk/ainet/io/RandomAccessSource;ZILjava/lang/Object;)Lsk/ainet/apps/kllama/GGUFTokenizer;
-	public final fun fromSource (Lkotlinx/io/Source;Z)Lsk/ainet/apps/kllama/GGUFTokenizer;
-	public static synthetic fun fromSource$default (Lsk/ainet/apps/kllama/GGUFTokenizer$Companion;Lkotlinx/io/Source;ZILjava/lang/Object;)Lsk/ainet/apps/kllama/GGUFTokenizer;
-	public final fun fromTokenizerJson (Ljava/lang/String;Z)Lsk/ainet/apps/kllama/GGUFTokenizer;
-	public static synthetic fun fromTokenizerJson$default (Lsk/ainet/apps/kllama/GGUFTokenizer$Companion;Ljava/lang/String;ZILjava/lang/Object;)Lsk/ainet/apps/kllama/GGUFTokenizer;
-}
-
 public final class sk/ainet/apps/kllama/GpuAttentionBackend : sk/ainet/models/llama/AttentionBackend {
 	public fun <init> (Lsk/ainet/context/ExecutionContext;Lsk/ainet/apps/kllama/GpuTensorBridge;Lsk/ainet/models/llama/LlamaRuntimeWeights;Lkotlin/reflect/KClass;F)V
 	public synthetic fun <init> (Lsk/ainet/context/ExecutionContext;Lsk/ainet/apps/kllama/GpuTensorBridge;Lsk/ainet/models/llama/LlamaRuntimeWeights;Lkotlin/reflect/KClass;FILkotlin/jvm/internal/DefaultConstructorMarker;)V
@@ -158,10 +135,14 @@ public final class sk/ainet/apps/kllama/PagedKvCache : java/lang/AutoCloseable, 
 }
 
 public final class sk/ainet/apps/kllama/TokenizerImpl : sk/ainet/apps/llm/Tokenizer {
-	public fun <init> ([Ljava/lang/String;[F)V
+	public fun <init> ([Ljava/lang/String;[FII)V
+	public synthetic fun <init> ([Ljava/lang/String;[FIIILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun decode (I)Ljava/lang/String;
 	public fun decode ([I)Ljava/lang/String;
 	public fun encode (Ljava/lang/String;)[I
+	public fun getBosTokenId ()I
+	public fun getEosTokenId ()I
+	public fun getVocabSize ()I
 }
 
 public final class sk/ainet/apps/kllama/TokenizerUtils {
@@ -203,12 +184,26 @@ public abstract interface class sk/ainet/apps/kllama/chat/java/JavaTool {
 }
 
 public final class sk/ainet/apps/kllama/cli/AgentCli {
-	public fun <init> (Lsk/ainet/apps/llm/InferenceRuntime;Lsk/ainet/apps/kllama/GGUFTokenizer;Ljava/lang/String;Lsk/ainet/apps/kllama/chat/ModelMetadata;)V
-	public synthetic fun <init> (Lsk/ainet/apps/llm/InferenceRuntime;Lsk/ainet/apps/kllama/GGUFTokenizer;Ljava/lang/String;Lsk/ainet/apps/kllama/chat/ModelMetadata;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lsk/ainet/apps/llm/InferenceRuntime;Lsk/ainet/apps/llm/Tokenizer;Ljava/lang/String;Lsk/ainet/apps/kllama/chat/ModelMetadata;)V
+	public synthetic fun <init> (Lsk/ainet/apps/llm/InferenceRuntime;Lsk/ainet/apps/llm/Tokenizer;Ljava/lang/String;Lsk/ainet/apps/kllama/chat/ModelMetadata;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun runAgent (Ljava/lang/String;IF)V
 	public static synthetic fun runAgent$default (Lsk/ainet/apps/kllama/cli/AgentCli;Ljava/lang/String;IFILjava/lang/Object;)V
 	public final fun runChat (Ljava/lang/String;IF)V
 	public static synthetic fun runChat$default (Lsk/ainet/apps/kllama/cli/AgentCli;Ljava/lang/String;IFILjava/lang/Object;)V
+	public final fun runChatOnce (Ljava/lang/String;Ljava/lang/String;IF)V
+	public static synthetic fun runChatOnce$default (Lsk/ainet/apps/kllama/cli/AgentCli;Ljava/lang/String;Ljava/lang/String;IFILjava/lang/Object;)V
+}
+
+public final class sk/ainet/apps/kllama/cli/CalculatorTool : sk/ainet/apps/kllama/chat/Tool {
+	public fun <init> ()V
+	public fun execute (Lkotlinx/serialization/json/JsonObject;)Ljava/lang/String;
+	public fun getDefinition ()Lsk/ainet/apps/kllama/chat/ToolDefinition;
+}
+
+public final class sk/ainet/apps/kllama/cli/ListFilesTool : sk/ainet/apps/kllama/chat/Tool {
+	public fun <init> ()V
+	public fun execute (Lkotlinx/serialization/json/JsonObject;)Ljava/lang/String;
+	public fun getDefinition ()Lsk/ainet/apps/kllama/chat/ToolDefinition;
 }
 
 public final class sk/ainet/apps/kllama/cli/MainKt {
@@ -216,10 +211,12 @@ public final class sk/ainet/apps/kllama/cli/MainKt {
 }
 
 public final class sk/ainet/apps/kllama/cli/ToolCallingDemo {
-	public fun <init> (Lsk/ainet/apps/llm/InferenceRuntime;Lsk/ainet/apps/kllama/GGUFTokenizer;Ljava/lang/String;Lsk/ainet/apps/kllama/chat/ModelMetadata;)V
-	public synthetic fun <init> (Lsk/ainet/apps/llm/InferenceRuntime;Lsk/ainet/apps/kllama/GGUFTokenizer;Ljava/lang/String;Lsk/ainet/apps/kllama/chat/ModelMetadata;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lsk/ainet/apps/llm/InferenceRuntime;Lsk/ainet/apps/llm/Tokenizer;Ljava/lang/String;Lsk/ainet/apps/kllama/chat/ModelMetadata;)V
+	public synthetic fun <init> (Lsk/ainet/apps/llm/InferenceRuntime;Lsk/ainet/apps/llm/Tokenizer;Ljava/lang/String;Lsk/ainet/apps/kllama/chat/ModelMetadata;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun run (IF)V
 	public static synthetic fun run$default (Lsk/ainet/apps/kllama/cli/ToolCallingDemo;IFILjava/lang/Object;)V
+	public final fun runSingleShot (Ljava/lang/String;IF)V
+	public static synthetic fun runSingleShot$default (Lsk/ainet/apps/kllama/cli/ToolCallingDemo;Ljava/lang/String;IFILjava/lang/Object;)V
 }
 
 public final class sk/ainet/apps/kllama/java/GenerationConfig {

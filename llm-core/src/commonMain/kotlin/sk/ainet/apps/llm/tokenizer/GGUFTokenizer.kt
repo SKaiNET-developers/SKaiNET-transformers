@@ -23,13 +23,47 @@ class GGUFTokenizer private constructor(
     private val _bosTokenId: Int,
     private val _eosTokenId: Int,
     private val unkTokenId: Int,
-    private val strategy: TokenizerStrategy
+    private val strategy: TokenizerStrategy,
+    private val tokenTypes: IntArray? = null,
+    /**
+     * Whether SentencePiece's leading word-boundary marker (`▁`) is prepended
+     * to the input text on `encode`. Per GGUF metadata key
+     * `tokenizer.ggml.add_space_prefix`. Llama-family checkpoints set this to
+     * `true` (the historical default). Gemma 4 sets it to `false` — when
+     * unset, our default of `true` would tokenise "Hi" as `[18428]` (= `▁Hi`)
+     * instead of the correct `[10979]` (= `Hi`).
+     */
+    private val addSpacePrefix: Boolean = true,
 ) : Tokenizer {
 
     companion object {
         private const val DEFAULT_BOS_TOKEN_ID = 1
         private const val DEFAULT_EOS_TOKEN_ID = 2
         private const val DEFAULT_UNK_TOKEN_ID = 0
+        private const val DEFAULT_ADD_SPACE_PREFIX = true
+
+        // GGUF token_type values (per llama.cpp convention).
+        // CONTROL marks atomic special tokens like <|begin_of_text|>, <|eot_id|>, <|im_start|>.
+        // USER_DEFINED marks visible-but-atomic tokens; e.g. Gemma 4's
+        // `<|tool_call>` / `<tool_call|>` / `<|tool_response>` / `<tool_response|>`
+        // are USER_DEFINED specifically so the chat parser can read them
+        // (see convert_hf_to_gguf.py Gemma4Model.set_vocab). Both must be
+        // emitted as a single token id on encode — otherwise multi-turn
+        // prompts that include tool responses byte-fragment, and the model
+        // sees a different prompt structure than what it was trained on.
+        private const val TOKEN_TYPE_CONTROL = 3
+        private const val TOKEN_TYPE_USER_DEFINED = 4
+
+        /** Test-only factory; do not use from production code. */
+        internal fun forTesting(
+            vocab: List<String>,
+            scores: FloatArray,
+            bosTokenId: Int,
+            eosTokenId: Int,
+            unkTokenId: Int,
+            strategy: TokenizerStrategy,
+            tokenTypes: IntArray? = null
+        ): GGUFTokenizer = GGUFTokenizer(vocab, scores, bosTokenId, eosTokenId, unkTokenId, strategy, tokenTypes)
 
         /**
          * Create a tokenizer from a HuggingFace tokenizer.json string.
@@ -246,6 +280,10 @@ class GGUFTokenizer private constructor(
             val bosTokenId = fields["tokenizer.ggml.bos_token_id"]?.scalarInt() ?: DEFAULT_BOS_TOKEN_ID
             val eosTokenId = fields["tokenizer.ggml.eos_token_id"]?.scalarInt() ?: DEFAULT_EOS_TOKEN_ID
             val unkTokenId = fields["tokenizer.ggml.unknown_token_id"]?.scalarInt() ?: DEFAULT_UNK_TOKEN_ID
+            val addSpacePrefix = fields["tokenizer.ggml.add_space_prefix"]?.scalarBool() ?: DEFAULT_ADD_SPACE_PREFIX
+
+            // Per-token classification (CONTROL = atomic special tokens that must not be BPE-split).
+            val tokenTypes = fields["tokenizer.ggml.token_type"]?.let { extractIntArray(it) }
 
             // Detect tokenizer type from metadata
             val modelType = fields["tokenizer.ggml.model"]?.scalarString()
@@ -255,12 +293,12 @@ class GGUFTokenizer private constructor(
             println("Tokenizer: ${strategy.type} (model=${modelType ?: "auto-detected"})")
 
             if (debug) {
-                println("DEBUG: BOS=$bosTokenId, EOS=$eosTokenId, UNK=$unkTokenId")
+                println("DEBUG: BOS=$bosTokenId, EOS=$eosTokenId, UNK=$unkTokenId addSpacePrefix=$addSpacePrefix")
                 println("DEBUG: Tokenizer model type from metadata: ${modelType ?: "(not specified)"}")
                 println("DEBUG: Using tokenizer strategy: ${strategy.type}")
             }
 
-            return GGUFTokenizer(vocab, scores, bosTokenId, eosTokenId, unkTokenId, strategy)
+            return GGUFTokenizer(vocab, scores, bosTokenId, eosTokenId, unkTokenId, strategy, tokenTypes, addSpacePrefix)
         }
 
         /**
@@ -314,6 +352,10 @@ class GGUFTokenizer private constructor(
             val bosTokenId = fields["tokenizer.ggml.bos_token_id"]?.toIntValue() ?: DEFAULT_BOS_TOKEN_ID
             val eosTokenId = fields["tokenizer.ggml.eos_token_id"]?.toIntValue() ?: DEFAULT_EOS_TOKEN_ID
             val unkTokenId = fields["tokenizer.ggml.unknown_token_id"]?.toIntValue() ?: DEFAULT_UNK_TOKEN_ID
+            val addSpacePrefix = (fields["tokenizer.ggml.add_space_prefix"] as? Boolean) ?: DEFAULT_ADD_SPACE_PREFIX
+
+            // Per-token classification (CONTROL = atomic special tokens that must not be BPE-split).
+            val tokenTypes = fields["tokenizer.ggml.token_type"]?.let { extractIntList(it) }
 
             // Detect tokenizer type from metadata
             val modelType = fields["tokenizer.ggml.model"]?.toString()
@@ -323,12 +365,12 @@ class GGUFTokenizer private constructor(
             println("Tokenizer: ${strategy.type} (model=${modelType ?: "auto-detected"})")
 
             if (debug) {
-                println("DEBUG: BOS=$bosTokenId, EOS=$eosTokenId, UNK=$unkTokenId")
+                println("DEBUG: BOS=$bosTokenId, EOS=$eosTokenId, UNK=$unkTokenId addSpacePrefix=$addSpacePrefix")
                 println("DEBUG: Tokenizer model type from metadata: ${modelType ?: "(not specified)"}")
                 println("DEBUG: Using tokenizer strategy: ${strategy.type}")
             }
 
-            return GGUFTokenizer(vocab, scores, bosTokenId, eosTokenId, unkTokenId, strategy)
+            return GGUFTokenizer(vocab, scores, bosTokenId, eosTokenId, unkTokenId, strategy, tokenTypes, addSpacePrefix)
         }
 
         /**
@@ -482,6 +524,43 @@ class GGUFTokenizer private constructor(
             return floats.toFloatArray()
         }
 
+        private fun extractIntArray(field: ReaderField): IntArray {
+            val ints = mutableListOf<Int>()
+            for (idx in field.data) {
+                if (idx < 0 || idx >= field.parts.size) continue
+                val part = field.parts[idx]
+                for (value in part) {
+                    when (value) {
+                        is Int -> ints.add(value)
+                        is UInt -> ints.add(value.toInt())
+                        is Long -> ints.add(value.toInt())
+                        is ULong -> ints.add(value.toInt())
+                        is Number -> ints.add(value.toInt())
+                    }
+                }
+            }
+            return ints.toIntArray()
+        }
+
+        private fun extractIntList(value: Any): IntArray {
+            return when (value) {
+                is List<*> -> {
+                    val ints = mutableListOf<Int>()
+                    for (item in value) {
+                        when (item) {
+                            is Int -> ints.add(item)
+                            is UInt -> ints.add(item.toInt())
+                            is Long -> ints.add(item.toInt())
+                            is ULong -> ints.add(item.toInt())
+                            is Number -> ints.add(item.toInt())
+                        }
+                    }
+                    ints.toIntArray()
+                }
+                else -> error("Expected List<Number> for token_type field, got ${value::class.simpleName}")
+            }
+        }
+
         private fun ReaderField.scalarInt(): Int {
             val idx = data.firstOrNull() ?: 0
             val part = parts.getOrNull(idx) ?: return 0
@@ -510,6 +589,17 @@ class GGUFTokenizer private constructor(
             } ?: return null
             return bytes.toByteArray().decodeToString()
         }
+
+        private fun ReaderField.scalarBool(): Boolean? {
+            val idx = data.firstOrNull() ?: return null
+            val part = parts.getOrNull(idx) ?: return null
+            val value = (part as? List<*>)?.firstOrNull() ?: return null
+            return when (value) {
+                is Boolean -> value
+                is Number -> value.toInt() != 0
+                else -> null
+            }
+        }
     }
 
     /** The detected tokenizer type/strategy in use */
@@ -536,19 +626,86 @@ class GGUFTokenizer private constructor(
             .sortedByDescending { (_, idx) -> scores.getOrElse(idx) { 0f } }
     }
 
+    // Atomic special tokens (GGUF token_type ∈ {CONTROL, USER_DEFINED}), longest-first
+    // for greedy matching. These must be emitted as a single ID even though greedy
+    // bottom-up BPE could never assemble their multi-character form from single-char
+    // starting tokens. USER_DEFINED is included because Gemma 4's tool-call /
+    // tool-response markers are USER_DEFINED-by-design — they need atomic emission
+    // exactly the same way as CONTROL tokens to round-trip through chat templates.
+    private val specialTokensByLength: List<Pair<String, Int>> by lazy {
+        if (tokenTypes == null) emptyList()
+        else vocab.asSequence()
+            .mapIndexedNotNull { id, str ->
+                val isAtomic = id < tokenTypes.size &&
+                    (tokenTypes[id] == TOKEN_TYPE_CONTROL || tokenTypes[id] == TOKEN_TYPE_USER_DEFINED)
+                if (isAtomic && str.isNotEmpty()) str to id else null
+            }
+            .sortedByDescending { it.first.length }
+            .toList()
+    }
+
     override fun encode(text: String): IntArray {
         if (text.isEmpty()) return intArrayOf()
-
-        // Use strategy-specific preprocessing
-        val preprocessed = strategy.preprocess(text)
 
         // Handle WordPiece differently - it splits on whitespace first
         if (strategy.type == TokenizerType.WORDPIECE) {
             return encodeWordPiece(text)
         }
 
-        // Standard BPE encoding for SentencePiece and GPT-2 style tokenizers
-        return encodeBPE(preprocessed)
+        val specials = specialTokensByLength
+        if (specials.isEmpty()) {
+            // No CONTROL tokens registered — preserve legacy behavior.
+            return encodeBPE(preprocessText(text))
+        }
+
+        // Two-pass: walk the raw text, emit atomic IDs for special-token matches,
+        // BPE-encode the plain-text gaps in between.
+        val out = mutableListOf<Int>()
+        val gap = StringBuilder()
+        var i = 0
+        while (i < text.length) {
+            var match: Pair<String, Int>? = null
+            for (s in specials) {
+                if (text.regionMatches(i, s.first, 0, s.first.length)) {
+                    match = s
+                    break
+                }
+            }
+            if (match != null) {
+                if (gap.isNotEmpty()) {
+                    for (id in encodeBPE(preprocessText(gap.toString()))) out.add(id)
+                    gap.clear()
+                }
+                out.add(match.second)
+                i += match.first.length
+            } else {
+                gap.append(text[i])
+                i++
+            }
+        }
+        if (gap.isNotEmpty()) {
+            for (id in encodeBPE(preprocessText(gap.toString()))) out.add(id)
+        }
+        return out.toIntArray()
+    }
+
+    /**
+     * Strategy-specific preprocessing, with the GGUF
+     * `tokenizer.ggml.add_space_prefix` flag honoured for SentencePiece.
+     * When `addSpacePrefix=false` (e.g. Gemma 4), the leading word-boundary
+     * marker that `SentencePieceStrategy.preprocess` always prepends is
+     * stripped — otherwise `encode("Hi")` would return `[18428]` (= `▁Hi`)
+     * instead of `[10979]` (= `Hi`).
+     */
+    private fun preprocessText(text: String): String {
+        val out = strategy.preprocess(text)
+        if (!addSpacePrefix && strategy.type == TokenizerType.SENTENCEPIECE) {
+            val marker = strategy.spaceMarker
+            if (marker.isNotEmpty() && out.startsWith(marker)) {
+                return out.substring(marker.length)
+            }
+        }
+        return out
     }
 
     /**

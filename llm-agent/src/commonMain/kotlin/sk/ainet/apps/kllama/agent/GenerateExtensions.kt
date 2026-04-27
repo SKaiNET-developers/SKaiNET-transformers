@@ -32,15 +32,23 @@ public fun <T : DType> InferenceRuntime<T>.generateUntilStop(
     onToken: ((Int) -> Unit)? = null,
     decode: ((Int) -> String)? = null
 ): GenerateResult {
-    // Feed prompt tokens through the model
+    // Feed prompt tokens through the model. NOTE: previously this used
+    // `forwardBatched(prompt)` for ~5–10× faster prefill, but
+    // `OptimizedLLMRuntime.forwardBatched` has known correctness issues
+    // at N>1 in our DSL (the batched prefill path produces different
+    // logits than the equivalent autoregressive sequence — see
+    // `position_collapse_bug.md` and the post-RoPE-fix smoke-test
+    // results: model output goes from a clean `<|tool_call>` to garbage
+    // prose). Reverted to autoregressive prefill until forwardBatched
+    // is brought to parity with autoregressive on real-model output.
+    if (prompt.isEmpty()) {
+        return GenerateResult(emptyList(), "", false)
+    }
     var lastLogits: Tensor<T, Float>? = null
     for (tokenId in prompt) {
         lastLogits = forward(tokenId)
     }
-
-    if (lastLogits == null) {
-        return GenerateResult(emptyList(), "", false)
-    }
+    lastLogits ?: return GenerateResult(emptyList(), "", false)
 
     val generated = mutableListOf<Int>()
     val textBuilder = StringBuilder()

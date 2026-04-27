@@ -58,12 +58,12 @@ public class SwiGLUFFN<T : DType, V>(
         val downW = params[2].value
 
         // gate = silu(input @ gate_proj^T)
-        val gate = ops.silu(ops.matmul(input, ops.transpose(gateW)))
+        val gate = ops.silu(linearProject(ops, input, gateW))
         // up = input @ up_proj^T
-        val up = ops.matmul(input, ops.transpose(upW))
+        val up = linearProject(ops, input, upW)
         // gated = gate * up
         val gated = ops.multiply(gate, up)
         // output = gated @ down_proj^T
-        return ops.matmul(gated, ops.transpose(downW))
+        return linearProject(ops, gated, downW)
     }
 }
