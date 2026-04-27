@@ -338,44 +338,12 @@ public class MultiHeadAttention<T : DType, V>(
     }
 
     /** Diagnostic stat dump for MHA substeps. Gated by [MultiHeadAttentionDiag.shouldDumpThisCall];
-     *  same min/max/mean/rms format as `dumpInnerStats` in `HybridTransformerBlock`
-     *  so output reads consistently. Stats are over the *whole* tensor, not just
-     *  last position — different MHA substeps have different shapes (e.g. K is
-     *  `[nKVHeads, seq, headDim]` for one path, `[1, nKVHeads, fullSeqLen, headDim]`
-     *  for another), so a "last position" marker would not be uniform here. */
+     *  delegates to the platform diagnostic helper so the multiplatform
+     *  metadata compile doesn't see JVM-only formatter / MemorySegment
+     *  references. Stats are over the *whole* tensor, not just last
+     *  position — different MHA substeps have different shapes. */
     private fun mhaDumpStat(label: String, t: Tensor<T, V>) {
-        val data = t.data
-        val arr: FloatArray = when (data) {
-            is sk.ainet.lang.tensor.data.DenseFloatArrayTensorData<*> -> data.buffer.copyOf()
-            is sk.ainet.lang.tensor.data.MemorySegmentTensorData<*> -> {
-                val n = t.shape.volume
-                val out = FloatArray(n)
-                @Suppress("UNCHECKED_CAST")
-                val seg = (data as sk.ainet.lang.tensor.data.MemorySegmentTensorData<sk.ainet.lang.types.FP32>).segment
-                @Suppress("UNCHECKED_CAST")
-                val off = (data as sk.ainet.lang.tensor.data.MemorySegmentTensorData<sk.ainet.lang.types.FP32>).segmentByteOffset
-                java.lang.foreign.MemorySegment.copy(
-                    seg, java.lang.foreign.ValueLayout.JAVA_FLOAT, off, out, 0, n
-                )
-                out
-            }
-            else -> {
-                println("$label shape=${t.shape.dimensions.toList()} backing=${data::class.simpleName} (skip)")
-                return
-            }
-        }
-        var mn = Float.POSITIVE_INFINITY
-        var mx = Float.NEGATIVE_INFINITY
-        var sum = 0.0; var sumSq = 0.0
-        for (v in arr) {
-            if (v.isNaN()) continue
-            if (v < mn) mn = v; if (v > mx) mx = v
-            sum += v; sumSq += v.toDouble() * v
-        }
-        val n = arr.size
-        val mean = if (n > 0) sum / n else 0.0
-        val rms = if (n > 0) kotlin.math.sqrt(sumSq / n) else 0.0
-        println("$label shape=${t.shape.dimensions.toList()} min=%+.3f max=%+.3f mean=%+.3f rms=%.3f".format(mn, mx, mean, rms))
+        sk.ainet.apps.llm.diag.dumpStats(label, t)
     }
 }
 
@@ -388,6 +356,5 @@ public class MultiHeadAttention<T : DType, V>(
  * single-threaded forward path, so a static var is OK.
  */
 public object MultiHeadAttentionDiag {
-    @JvmStatic
     public var shouldDumpThisCall: Boolean = false
 }

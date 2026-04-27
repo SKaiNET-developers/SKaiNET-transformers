@@ -397,7 +397,7 @@ class TokenizerEncodingTest {
     }
 
     @Test
-    fun `BPE encode emits USER_DEFINED tokens atomically (Gemma 4 tool markers)`() {
+    fun `BPE encode emits USER_DEFINED tokens atomically Gemma 4 tool markers`() {
         // Regression for the Gemma 4 multi-turn tool-calling case. GGUF type=4
         // (USER_DEFINED) marks visible-but-atomic tokens — `convert_hf_to_gguf.py`
         // Gemma4Model.set_vocab assigns this type to <|tool_call> / <tool_call|> /

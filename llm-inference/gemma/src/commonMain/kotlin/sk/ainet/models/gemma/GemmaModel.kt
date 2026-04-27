@@ -77,7 +77,7 @@ public class GemmaModel<T : DType, V>(
         // Diagnostic: dump per-block hidden state stats when GEMMA4_DUMP_HIDDEN=1.
         // Compares against expected llama.cpp magnitudes to localize the
         // BOS-loop forward-pass bug. See gemma4-research/findings/dsl_vs_llamacpp_logit_divergence.md.
-        val dumpHidden = System.getenv("GEMMA4_DUMP_HIDDEN") == "1"
+        val dumpHidden = sk.ainet.apps.llm.diag.envFlag("GEMMA4_DUMP_HIDDEN")
 
         // Step 1: run main embedding. OptimizedLLMRuntime passes a token-id
         // tensor (Int32, shape [seq] — often [1] for single-token decode);
@@ -114,7 +114,7 @@ public class GemmaModel<T : DType, V>(
                 }
             }
             hidden = block.forward(hidden, ctx)
-            if (dumpHidden) dumpHiddenStats("blk.${"%02d".format(layerIdx)}     ", hidden)
+            if (dumpHidden) dumpHiddenStats("blk.${layerIdx.toString().padStart(2, '0')}     ", hidden)
         }
 
         // Step 4: final norm + lm_head.
@@ -141,78 +141,14 @@ public class GemmaModel<T : DType, V>(
     }
 
     /**
-     * Diagnostic: read a tensor's float values, compute summary stats,
-     * print one line. Used only when `GEMMA4_DUMP_HIDDEN=1`.
-     * Supports DenseFloatArrayTensorData and MemorySegmentTensorData backings.
+     * Diagnostic: dump per-block hidden state stats. Delegates to the
+     * platform diagnostic helper so the multiplatform metadata compile
+     * doesn't see JVM-only formatter / MemorySegment references. JVM
+     * does the full formatted dump; non-JVM targets are no-ops (no
+     * profiling story there worth maintaining).
      */
     private fun dumpHiddenStats(stage: String, t: Tensor<T, V>) {
-        val data = t.data
-        val arr: FloatArray = when (data) {
-            is sk.ainet.lang.tensor.data.DenseFloatArrayTensorData<*> ->
-                data.buffer.copyOf()
-            is sk.ainet.lang.tensor.data.MemorySegmentTensorData<*> -> {
-                val n = t.shape.volume
-                val out = FloatArray(n)
-                @Suppress("UNCHECKED_CAST")
-                val seg = (data as sk.ainet.lang.tensor.data.MemorySegmentTensorData<sk.ainet.lang.types.FP32>).segment
-                @Suppress("UNCHECKED_CAST")
-                val off = (data as sk.ainet.lang.tensor.data.MemorySegmentTensorData<sk.ainet.lang.types.FP32>).segmentByteOffset
-                java.lang.foreign.MemorySegment.copy(
-                    seg, java.lang.foreign.ValueLayout.JAVA_FLOAT, off,
-                    out, 0, n
-                )
-                out
-            }
-            else -> {
-                println("[hidden] $stage shape=${t.shape.dimensions.toList()} backing=${data::class.simpleName} (skip)")
-                return
-            }
-        }
-        var mn = Float.POSITIVE_INFINITY
-        var mx = Float.NEGATIVE_INFINITY
-        var sum = 0.0
-        var sumSq = 0.0
-        var nanCount = 0
-        // For per-feature alignment vs HF: also track argmax of |x| over the
-        // last (= feature) dim of the LAST sequence position. Shape is
-        // [seq, dim] for rank-2 hiddens or [batch, seq, dim] for rank-3.
-        // We assume the dump is called with rank ∈ {2, 3} and the last dim
-        // is the feature dim.
-        val rank = t.shape.rank
-        val dim = t.shape[rank - 1]
-        // Index of last position in flattened arr.
-        val lastPosOff = arr.size - dim
-        var argmaxAbs = 0
-        var argmaxAbsVal = 0f
-        if (lastPosOff >= 0) {
-            for (i in 0 until dim) {
-                val v = arr[lastPosOff + i]
-                if (v.isNaN()) continue
-                val av = if (v < 0f) -v else v
-                if (av > argmaxAbsVal) { argmaxAbsVal = av; argmaxAbs = i }
-            }
-        }
-        for (v in arr) {
-            if (v.isNaN()) { nanCount++; continue }
-            if (v < mn) mn = v
-            if (v > mx) mx = v
-            sum += v
-            sumSq += v.toDouble() * v
-        }
-        val n = arr.size - nanCount
-        val mean = if (n > 0) sum / n else 0.0
-        val rms = if (n > 0) kotlin.math.sqrt(sumSq / n) else 0.0
-        println("[hidden] $stage shape=${t.shape.dimensions.toList()} min=%+.3f max=%+.3f mean=%+.3f rms=%.3f argmaxAbs=%d v=%+.3f%s".format(
-            mn, mx, mean, rms, argmaxAbs, argmaxAbsVal, if (nanCount > 0) " NaN=$nanCount" else ""
-        ))
-        // Fingerprint dims spanning the feature axis for element-wise compare vs HF.
-        if (lastPosOff >= 0) {
-            val fpDims = intArrayOf(0, 12, 16, 100, 438, 660, 809, 1213, 1273, 1295, 1500)
-            val fp = fpDims.filter { it < dim }.joinToString(" ") { d ->
-                "v[$d]=%+.4f".format(arr[lastPosOff + d])
-            }
-            println("        $fp")
-        }
+        sk.ainet.apps.llm.diag.dumpStats("[hidden] $stage", t)
     }
 
     @Suppress("UNCHECKED_CAST")

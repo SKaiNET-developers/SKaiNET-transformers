@@ -143,16 +143,18 @@ public class HybridTransformerBlock<T : DType, V>(
     // --- DIRECT mode: same as TransformerBlock ---
 
     private fun directForward(input: Tensor<T, V>, ctx: ExecutionContext): Tensor<T, V> {
-        val dumpInner = System.getenv("GEMMA4_DUMP_INNER") == "1" && name == "blk.0"
-        val dumpMha = System.getenv("GEMMA4_DUMP_MHA") == "1" && name == "blk.0"
+        // Diagnostic gates — JVM-only, always false on JS/wasm/native.
+        // See `sk.ainet.apps.llm.diag.envFlag` / `dumpStats`.
+        val dumpInner = sk.ainet.apps.llm.diag.envFlag("GEMMA4_DUMP_INNER") && name == "blk.0"
+        val dumpMha = sk.ainet.apps.llm.diag.envFlag("GEMMA4_DUMP_MHA") && name == "blk.0"
         // GEMMA4_DUMP_BLOCKS=1 → one line per block (attn output + block output)
         // for every block in the model. Used to bisect against HF's per-layer
         // dump (`/tmp/dump_gemma4_intermediate.py`).
-        val dumpBlocks = System.getenv("GEMMA4_DUMP_BLOCKS") == "1"
+        val dumpBlocks = sk.ainet.apps.llm.diag.envFlag("GEMMA4_DUMP_BLOCKS")
         val outputs = arrayOfNulls<Any>(modulesList.size + 1)
         outputs[0] = input
         var tmp = input
-        if (dumpInner) dumpInnerStats("[blk.0 input]                  ", tmp)
+        if (dumpInner) sk.ainet.apps.llm.diag.dumpStats("[blk.0 input]                  ", tmp)
         for (i in modulesList.indices) {
             val module = modulesList[i]
             val blockStart = residualBlockStarts[i]
@@ -170,68 +172,13 @@ public class HybridTransformerBlock<T : DType, V>(
             tmp = module.forward(tmp, ctx)
             if (isMhaCall) sk.ainet.lang.nn.transformer.MultiHeadAttentionDiag.shouldDumpThisCall = false
             outputs[i + 1] = tmp
-            if (dumpInner) dumpInnerStats("[blk.0 after ${module::class.simpleName}/${module.name}]", tmp)
+            if (dumpInner) sk.ainet.apps.llm.diag.dumpStats("[blk.0 after ${module::class.simpleName}/${module.name}]", tmp)
             if (dumpBlocks && module is MultiHeadAttention<*, *>) {
-                dumpInnerStats("[$name attn-out] ", tmp)
+                sk.ainet.apps.llm.diag.dumpStats("[$name attn-out] ", tmp)
             }
         }
-        if (dumpBlocks) dumpInnerStats("[$name block-out]", tmp)
+        if (dumpBlocks) sk.ainet.apps.llm.diag.dumpStats("[$name block-out]", tmp)
         return tmp
-    }
-
-    /** Diagnostic only. Env-gated on GEMMA4_DUMP_INNER=1 + block name "blk.0".
-     *  Format mirrors `GemmaModel.dumpHiddenStats`: stats line + 11-dim
-     *  fingerprint of the LAST sequence position so we can compare element-wise
-     *  to `/tmp/hf_per_layer_dump.py`'s `hf-blk0.*` intra-block dumps. */
-    private fun dumpInnerStats(label: String, t: Tensor<T, V>) {
-        val data = t.data
-        val arr: FloatArray = when (data) {
-            is sk.ainet.lang.tensor.data.DenseFloatArrayTensorData<*> -> data.buffer.copyOf()
-            is sk.ainet.lang.tensor.data.MemorySegmentTensorData<*> -> {
-                val n = t.shape.volume
-                val out = FloatArray(n)
-                java.lang.foreign.MemorySegment.copy(
-                    data.segment, java.lang.foreign.ValueLayout.JAVA_FLOAT, data.segmentByteOffset,
-                    out, 0, n
-                )
-                out
-            }
-            else -> {
-                println("$label shape=${t.shape.dimensions.toList()} backing=${data::class.simpleName}")
-                return
-            }
-        }
-        val rank = t.shape.rank
-        val featureDim = t.shape[rank - 1]
-        val lastPosOff = arr.size - featureDim
-        var argmaxAbs = 0
-        var argmaxAbsVal = 0f
-        if (lastPosOff >= 0) {
-            for (i in 0 until featureDim) {
-                val v = arr[lastPosOff + i]
-                if (v.isNaN()) continue
-                val av = if (v < 0f) -v else v
-                if (av > argmaxAbsVal) { argmaxAbsVal = av; argmaxAbs = i }
-            }
-        }
-        var mn = Float.POSITIVE_INFINITY
-        var mx = Float.NEGATIVE_INFINITY
-        var sum = 0.0
-        var sumSq = 0.0
-        for (v in arr) { if (!v.isNaN()) { if (v < mn) mn = v; if (v > mx) mx = v; sum += v; sumSq += v.toDouble() * v } }
-        val n = arr.size
-        val mean = sum / n
-        val rms = kotlin.math.sqrt(sumSq / n)
-        println("$label shape=${t.shape.dimensions.toList()} min=%+.3f max=%+.3f mean=%+.3f rms=%.3f argmaxAbs=%d v=%+.3f".format(
-            mn, mx, mean, rms, argmaxAbs, argmaxAbsVal
-        ))
-        if (lastPosOff >= 0) {
-            val fpDims = intArrayOf(0, 12, 16, 100, 438, 660, 809, 1213, 1273, 1295, 1500)
-            val fp = fpDims.filter { it < featureDim }.joinToString(" ") { d ->
-                "v[$d]=%+.4f".format(arr[lastPosOff + d])
-            }
-            println("        $fp")
-        }
     }
 
     // --- HYBRID mode: compiled subgraphs + imperative attention ---
