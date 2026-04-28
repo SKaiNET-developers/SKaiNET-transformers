@@ -473,10 +473,15 @@ public class PaddedSharedPositionalKVCache<T : DType, V>(
                 // remaining [srcHeadDim, targetHeadDim) stays zero
             }
         }
-        return ctx.fromFloatArray<T, V>(
-            sk.ainet.lang.tensor.Shape(nKV, seq, targetHeadDim),
-            t.dtype,
-            out
+        // Heap-backed wrap — fromFloatArray would copy into a fresh
+        // Arena.ofAuto MemorySegment per call; padHeadDim runs every
+        // attention forward when src/target head_dim differ (Gemma 4
+        // value-head padding), so direct memory accumulates without GC
+        // pressure. Same root cause as commit 319c394.
+        val padShape = sk.ainet.lang.tensor.Shape(nKV, seq, targetHeadDim)
+        return ctx.fromData(
+            sk.ainet.lang.tensor.data.DenseFloatArrayTensorData<T>(padShape, out) as sk.ainet.lang.tensor.data.TensorData<T, V>,
+            t.dtype
         )
     }
 }

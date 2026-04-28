@@ -191,8 +191,21 @@ public class RoPE<T : DType, V>(
             }
         }
         val cosShape = Shape(seqLen, halfRotary)
-        val cosTensor: Tensor<T, V> = ctx.fromFloatArray(cosShape, input.dtype, cosData)
-        val sinTensor: Tensor<T, V> = ctx.fromFloatArray(cosShape, input.dtype, sinData)
+        // Heap-backed wrap, NOT ctx.fromFloatArray — fromFloatArray would
+        // copy these transient cos/sin tables into fresh MemorySegments
+        // from Arena.ofAuto(). RoPE runs twice per MHA (Q, K) × every
+        // layer × every forward, and direct-memory pressure doesn't trigger
+        // GC, so the auto-arenas accumulate until -XX:MaxDirectMemorySize
+        // is exhausted. Same root-cause class as the sliceView leak
+        // (commit 319c394). Heap arrays follow normal GC.
+        val cosTensor: Tensor<T, V> = ctx.fromData(
+            sk.ainet.lang.tensor.data.DenseFloatArrayTensorData<T>(cosShape, cosData) as sk.ainet.lang.tensor.data.TensorData<T, V>,
+            input.dtype
+        )
+        val sinTensor: Tensor<T, V> = ctx.fromData(
+            sk.ainet.lang.tensor.data.DenseFloatArrayTensorData<T>(cosShape, sinData) as sk.ainet.lang.tensor.data.TensorData<T, V>,
+            input.dtype
+        )
 
         // Standard 2D rotation: (a, b) -> (a*cos - b*sin, a*sin + b*cos)
         val rotA = ops.subtract(ops.multiply(A, cosTensor), ops.multiply(C, sinTensor))
@@ -219,8 +232,16 @@ public class RoPE<T : DType, V>(
         }
 
         val cosShape = Shape(seqLen, halfRotary)
-        val cosTensor: Tensor<T, V> = ctx.fromFloatArray(cosShape, input.dtype, cosData)
-        val sinTensor: Tensor<T, V> = ctx.fromFloatArray(cosShape, input.dtype, sinData)
+        // Heap-backed wrap — see applyRoPESplitHalf for why fromFloatArray
+        // is poison on the hot path (direct-memory leak via Arena.ofAuto).
+        val cosTensor: Tensor<T, V> = ctx.fromData(
+            sk.ainet.lang.tensor.data.DenseFloatArrayTensorData<T>(cosShape, cosData) as sk.ainet.lang.tensor.data.TensorData<T, V>,
+            input.dtype
+        )
+        val sinTensor: Tensor<T, V> = ctx.fromData(
+            sk.ainet.lang.tensor.data.DenseFloatArrayTensorData<T>(cosShape, sinData) as sk.ainet.lang.tensor.data.TensorData<T, V>,
+            input.dtype
+        )
 
         val rotEven = ops.subtract(ops.multiply(even, cosTensor), ops.multiply(odd, sinTensor))
         val rotOdd = ops.add(ops.multiply(odd, cosTensor), ops.multiply(even, sinTensor))

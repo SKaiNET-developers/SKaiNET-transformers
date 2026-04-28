@@ -322,7 +322,15 @@ public class MultiHeadAttention<T : DType, V>(
                 data[qi * seqKV + ki] = if (allowed) 0f else neg
             }
         }
-        return ctx.fromFloatArray(Shape(1, 1, seqQ, seqKV), dtype, data)
+        // Heap-backed wrap — fromFloatArray would copy into a fresh
+        // Arena.ofAuto MemorySegment every forward (× layers using the
+        // sliding-mask path), and direct memory doesn't pressure the GC.
+        // Same root cause as the sliceView leak (commit 319c394).
+        val maskShape = Shape(1, 1, seqQ, seqKV)
+        return ctx.fromData(
+            sk.ainet.lang.tensor.data.DenseFloatArrayTensorData<T>(maskShape, data) as sk.ainet.lang.tensor.data.TensorData<T, V>,
+            dtype
+        )
     }
 
     private fun repeatKVHeads(t: Tensor<T, V>, repeats: Int, ops: sk.ainet.lang.tensor.ops.TensorOps): Tensor<T, V> {

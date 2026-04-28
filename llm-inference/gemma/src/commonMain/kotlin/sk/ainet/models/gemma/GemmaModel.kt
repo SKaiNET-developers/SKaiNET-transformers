@@ -128,11 +128,18 @@ public class GemmaModel<T : DType, V>(
         // onto degenerate attractor tokens during decode.
         if (finalLogitSoftcapping > 0f) {
             val ops = ctx.ops
-            val scale = ctx.fromFloatArray<T, V>(
-                sk.ainet.lang.tensor.Shape(1), dtype, floatArrayOf(1f / finalLogitSoftcapping)
+            // Heap-backed scalar wrap — fromFloatArray copies even
+            // single-float tables into a fresh Arena.ofAuto MemorySegment;
+            // running per forward step accumulates direct memory the GC
+            // can't see. Same root cause as commit 319c394.
+            val scaleShape = sk.ainet.lang.tensor.Shape(1)
+            val scale: Tensor<T, V> = ctx.fromData(
+                sk.ainet.lang.tensor.data.DenseFloatArrayTensorData<T>(scaleShape, floatArrayOf(1f / finalLogitSoftcapping)) as sk.ainet.lang.tensor.data.TensorData<T, V>,
+                dtype
             )
-            val inv = ctx.fromFloatArray<T, V>(
-                sk.ainet.lang.tensor.Shape(1), dtype, floatArrayOf(finalLogitSoftcapping)
+            val inv: Tensor<T, V> = ctx.fromData(
+                sk.ainet.lang.tensor.data.DenseFloatArrayTensorData<T>(scaleShape, floatArrayOf(finalLogitSoftcapping)) as sk.ainet.lang.tensor.data.TensorData<T, V>,
+                dtype
             )
             logits = ops.multiply(ops.tanh(ops.multiply(logits, scale)), inv)
         }
