@@ -197,11 +197,29 @@ public class MultiHeadAttention<T : DType, V>(
             v = ops.add(v, params[vWIdx + 1].value)
         }
 
-        // Reshape to multi-head: [seqLen, dim] → [nHeads, seqLen, headDim]
+        // Reshape to multi-head and put heads first.
+        //
+        // Q/K/V projections produce [seqLen, qDim] where qDim = nHeads*headDim.
+        // Row-major flat layout is [s, h, d] → s*qDim + h*headDim + d. SDPA
+        // expects [batch, nHeads, seqLen, headDim] — i.e. heads-first layout
+        // [h, s, d] → h*seqLen*headDim + s*headDim + d.
+        //
+        // For seqLen == 1 the two layouts coincide flat-byte-for-flat-byte,
+        // so a naked `reshape(t, Shape(nHeads, seqLen, headDim))` was visibly
+        // correct in the autoregressive (one-token-per-forward) path. For
+        // seqLen > 1 it silently reorders the data: `t.get(h, s, d)` reads
+        // `data[h*N*headDim + s*headDim + d]` from a buffer laid out as
+        // `s*nHeads*headDim + h*headDim + d`, mixing the rows of head h with
+        // values from other heads. That is the root cause of the batched-
+        // prefill divergence (commit `bd3eb9c`).
+        //
+        // The correct transformation needs an explicit dim-0/dim-1 swap.
+        // SKaiNET's `ops.transpose` only swaps the LAST two dims, so we
+        // can't reuse it here; we materialise the permute via a copy.
         val seqLen = if (input.rank >= 2) input.shape[input.rank - 2] else 1
-        q = ops.reshape(q, Shape(nHeads, seqLen, headDim))
-        k = ops.reshape(k, Shape(nKVHeads, seqLen, headDim))
-        var vReshaped = ops.reshape(v, Shape(nKVHeads, seqLen, headDim))
+        q = swapSeqHeadDims(ops.reshape(q, Shape(seqLen, nHeads, headDim)), ctx)
+        k = swapSeqHeadDims(ops.reshape(k, Shape(seqLen, nKVHeads, headDim)), ctx)
+        var vReshaped = swapSeqHeadDims(ops.reshape(v, Shape(seqLen, nKVHeads, headDim)), ctx)
 
         // Optional QK-Norm
         if (qNorm != null && kNorm != null) {
@@ -276,9 +294,18 @@ public class MultiHeadAttention<T : DType, V>(
         )
         if (mhaDump) mhaDumpStat("[blk.0.mha post-SDPA        ]", attnOut)
 
-        // Remove batch dim and merge heads: [1, nHeads, seqLen, headDim] → [seqLen, qDim]
+        // Remove batch dim and merge heads.
+        //
+        // SDPA returns [1, nHeads, seqLen, headDim]. We need [seqLen, qDim].
+        // Symmetric inverse of the heads-first permute on the input side:
+        // first squeeze the batch dim → [nHeads, seqLen, headDim], then
+        // swap dims 0/1 → [seqLen, nHeads, headDim], finally reshape to
+        // [seqLen, qDim] (contiguous: row s = concatenation of head 0..N-1
+        // for that token). For seqLen == 1 the swap is identity, so this
+        // matches the prior naked reshape for the autoregressive case.
         val squeezed = ops.squeeze(attnOut, 0)
-        val merged = ops.reshape(squeezed, Shape(seqLen, qDim))
+        val swappedBack = swapSeqHeadDims(squeezed, ctx)
+        val merged = ops.reshape(swappedBack, Shape(seqLen, qDim))
 
         // Output projection: merged @ wO^T (+ bias if enabled)
         var output = linearProject(ops, merged, wO)
@@ -331,6 +358,38 @@ public class MultiHeadAttention<T : DType, V>(
             sk.ainet.lang.tensor.data.DenseFloatArrayTensorData<T>(maskShape, data) as sk.ainet.lang.tensor.data.TensorData<T, V>,
             dtype
         )
+    }
+
+    /**
+     * Swap dims 0 and 1 of a rank-3 tensor: `[D0, D1, D2]` → `[D1, D0, D2]`.
+     *
+     * SKaiNET's [TensorOps.transpose] only swaps the last two dims, so this
+     * transformation is materialised via a copy. For `D0 == 1` or `D1 == 1`
+     * the result has the same flat layout as the input, but we still pay
+     * the copy cost; callers that know seqLen == 1 can short-circuit.
+     */
+    private fun swapSeqHeadDims(t: Tensor<T, V>, ctx: ExecutionContext): Tensor<T, V> {
+        require(t.rank == 3) { "swapSeqHeadDims: expected rank-3 tensor, got rank ${t.rank}" }
+        val d0 = t.shape[0]
+        val d1 = t.shape[1]
+        val d2 = t.shape[2]
+        if (d0 == 1 || d1 == 1) {
+            // Layouts coincide; just reinterpret the shape.
+            return ctx.ops.reshape(t, Shape(d1, d0, d2))
+        }
+        val src = t.data.copyToFloatArray()
+        val out = FloatArray(d1 * d0 * d2)
+        for (i in 0 until d0) {
+            for (j in 0 until d1) {
+                val srcOff = (i * d1 + j) * d2
+                val dstOff = (j * d0 + i) * d2
+                src.copyInto(out, dstOff, srcOff, srcOff + d2)
+            }
+        }
+        @Suppress("UNCHECKED_CAST")
+        val data = sk.ainet.lang.tensor.data.DenseFloatArrayTensorData<T>(Shape(d1, d0, d2), out)
+            as sk.ainet.lang.tensor.data.TensorData<T, V>
+        return ctx.fromData(data, t.dtype)
     }
 
     private fun repeatKVHeads(t: Tensor<T, V>, repeats: Int, ops: sk.ainet.lang.tensor.ops.TensorOps): Tensor<T, V> {
