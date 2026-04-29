@@ -363,10 +363,11 @@ public class MultiHeadAttention<T : DType, V>(
     /**
      * Swap dims 0 and 1 of a rank-3 tensor: `[D0, D1, D2]` → `[D1, D0, D2]`.
      *
-     * SKaiNET's [TensorOps.transpose] only swaps the last two dims, so this
-     * transformation is materialised via a copy. For `D0 == 1` or `D1 == 1`
-     * the result has the same flat layout as the input, but we still pay
-     * the copy cost; callers that know seqLen == 1 can short-circuit.
+     * Routes through upstream [TensorOps.permute] (sk.ainet.core ≥ 0.21.0)
+     * for the general case. When `D0 == 1` or `D1 == 1` the two layouts
+     * coincide flat-byte-for-flat-byte, so we short-circuit to a shape-only
+     * reshape — the autoregressive decode path (where seqLen is always 1)
+     * pays zero data-movement cost.
      */
     private fun swapSeqHeadDims(t: Tensor<T, V>, ctx: ExecutionContext): Tensor<T, V> {
         require(t.rank == 3) { "swapSeqHeadDims: expected rank-3 tensor, got rank ${t.rank}" }
@@ -374,22 +375,9 @@ public class MultiHeadAttention<T : DType, V>(
         val d1 = t.shape[1]
         val d2 = t.shape[2]
         if (d0 == 1 || d1 == 1) {
-            // Layouts coincide; just reinterpret the shape.
             return ctx.ops.reshape(t, Shape(d1, d0, d2))
         }
-        val src = t.data.copyToFloatArray()
-        val out = FloatArray(d1 * d0 * d2)
-        for (i in 0 until d0) {
-            for (j in 0 until d1) {
-                val srcOff = (i * d1 + j) * d2
-                val dstOff = (j * d0 + i) * d2
-                src.copyInto(out, dstOff, srcOff, srcOff + d2)
-            }
-        }
-        @Suppress("UNCHECKED_CAST")
-        val data = sk.ainet.lang.tensor.data.DenseFloatArrayTensorData<T>(Shape(d1, d0, d2), out)
-            as sk.ainet.lang.tensor.data.TensorData<T, V>
-        return ctx.fromData(data, t.dtype)
+        return ctx.ops.permute(t, intArrayOf(1, 0, 2))
     }
 
     private fun repeatKVHeads(t: Tensor<T, V>, repeats: Int, ops: sk.ainet.lang.tensor.ops.TensorOps): Tensor<T, V> {
