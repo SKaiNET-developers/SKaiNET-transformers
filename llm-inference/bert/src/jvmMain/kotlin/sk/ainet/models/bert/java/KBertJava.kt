@@ -5,6 +5,7 @@ package sk.ainet.models.bert.java
 import kotlinx.coroutines.runBlocking
 import sk.ainet.models.bert.*
 import sk.ainet.context.DirectCpuExecutionContext
+import sk.ainet.models.bert.PooledExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
 import sk.ainet.io.safetensors.SafeTensorsParametersLoader
 import sk.ainet.lang.types.FP32
@@ -46,7 +47,11 @@ public object KBertJava {
         val config = detectConfig(modelDir)
 
         val tokenizer = HuggingFaceTokenizer.fromVocabTxt(vocabPath.readText())
-        val ctx = DirectCpuExecutionContext()
+        // Pool scratch buffers across encode() calls — embedding workloads
+        // typically encode many strings in a row, so the SizeClassedScratchPool
+        // returns real wins. With a single one-shot call the pool is no
+        // worse than NoopScratchPool.
+        val ctx = PooledExecutionContext(DirectCpuExecutionContext())
 
         val ingestion = BertIngestion<FP32>(ctx, FP32::class, config)
         val loader = SafeTensorsParametersLoader(

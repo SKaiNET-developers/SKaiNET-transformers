@@ -110,26 +110,33 @@ public class BertRuntime<T : DType>(
      * @param tokenTypeIds optional segment IDs, shape [seqLen] (defaults to all zeros)
      * @return hidden states tensor of shape [seqLen, hiddenSize]
      */
-    public fun forward(tokenIds: IntArray, tokenTypeIds: IntArray? = null): Tensor<T, Float> {
-        val seqLen = tokenIds.size
-        val typeIds = tokenTypeIds ?: IntArray(seqLen) { 0 }
-        val positionIds = IntArray(seqLen) { it }
+    public fun forward(tokenIds: IntArray, tokenTypeIds: IntArray? = null): Tensor<T, Float> =
+        ctx.scratch.scope {
+            // ScratchPool scope for the whole forward pass: upstream SIMD
+            // kernels (matmul, dequant) acquire their per-call workspace
+            // from ctx.scratch and the buffers are returned to the pool on
+            // scope exit. With the default NoopScratchPool this is a plain
+            // pass-through; with a SizeClassedScratchPool it eliminates per-
+            // forward FloatArray allocations on the embedding hot path.
+            val seqLen = tokenIds.size
+            val typeIds = tokenTypeIds ?: IntArray(seqLen) { 0 }
+            val positionIds = IntArray(seqLen) { it }
 
-        // Embedding: word + position + token_type
-        val wordEmb = wordEmbedding.forward(tokenIds, ctx)
-        val posEmb = positionEmbedding.forward(positionIds, ctx)
-        val typeEmb = tokenTypeEmbedding.forward(typeIds, ctx)
+            // Embedding: word + position + token_type
+            val wordEmb = wordEmbedding.forward(tokenIds, ctx)
+            val posEmb = positionEmbedding.forward(positionIds, ctx)
+            val typeEmb = tokenTypeEmbedding.forward(typeIds, ctx)
 
-        var hidden = wordEmb + posEmb + typeEmb
-        hidden = embeddingLayerNorm.forward(hidden, ctx)
+            var hidden = wordEmb + posEmb + typeEmb
+            hidden = embeddingLayerNorm.forward(hidden, ctx)
 
-        // Encoder layers
-        for (i in weights.layers.indices) {
-            hidden = runEncoderLayer(i, hidden)
+            // Encoder layers
+            for (i in weights.layers.indices) {
+                hidden = runEncoderLayer(i, hidden)
+            }
+
+            hidden
         }
-
-        return hidden
-    }
 
     /**
      * Encode text tokens into a single embedding vector (mean pooling + optional projection + L2 norm).
