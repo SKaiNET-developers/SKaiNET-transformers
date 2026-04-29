@@ -85,20 +85,24 @@ public class CpuAttentionBackend<T : DType>(
         val result = FloatArray(batchSize * dim)
 
         for (i in 0 until batchSize) {
-            val pos = startPos + i
+            ctx.scratch.scope {
+                val pos = startPos + i
 
-            // Extract per-token slices
-            val qBuf = qAll.copyOfRange(i * dim, (i + 1) * dim)
-            val kBuf = kAll.copyOfRange(i * kvDim, (i + 1) * kvDim)
-            val vBuf = vAll.copyOfRange(i * kvDim, (i + 1) * kvDim)
+                // Extract per-token slices
+                val qBuf = qAll.copyOfRange(i * dim, (i + 1) * dim)
+                val kBuf = kAll.copyOfRange(i * kvDim, (i + 1) * kvDim)
+                val vBuf = vAll.copyOfRange(i * kvDim, (i + 1) * kvDim)
 
-            // RoPE + KV cache store
-            applyRopeGqa(qBuf, kBuf, pos)
-            cache.store(layerIdx, pos, kBuf, 0, vBuf, 0)
+                // RoPE + KV cache store
+                applyRopeGqa(qBuf, kBuf, pos)
+                cache.store(layerIdx, pos, kBuf, 0, vBuf, 0)
 
-            // Attention with causal mask (attend to 0..pos)
-            val attnOut = attentionGqa(layerIdx, qBuf, pos)
-            attnOut.copyInto(result, i * dim)
+                // Attention with causal mask (attend to 0..pos); use a pooled
+                // output buffer that is recycled on scope exit.
+                val attnOut = ctx.scratch.acquireFloatZeroed(dim)
+                attentionGqaInto(layerIdx, qBuf, pos, attnOut)
+                attnOut.copyInto(result, i * dim)
+            }
         }
 
         return ctx.fromFloatArray<T, Float>(Shape(batchSize, dim), dtype, result)
@@ -119,8 +123,15 @@ public class CpuAttentionBackend<T : DType>(
         applyRopeRotation(kBuf, nKvHeads, headSize, ropeDim, pos, ropeFreqBase, ropeReal, ropeImag, ropeStride, ropeType = ropeType)
     }
 
-    private fun attentionGqa(layerIdx: Int, qBuf: FloatArray, pos: Int): FloatArray {
-        val out = FloatArray(dim)
+    private fun attentionGqa(layerIdx: Int, qBuf: FloatArray, pos: Int): FloatArray =
+        attentionGqaInto(layerIdx, qBuf, pos, FloatArray(dim))
+
+    /**
+     * GQA attention that accumulates into a caller-provided buffer. [out] must be
+     * sized at least [dim] and zeroed by the caller — enables ScratchPool reuse
+     * without forcing a clear on every acquire.
+     */
+    private fun attentionGqaInto(layerIdx: Int, qBuf: FloatArray, pos: Int, out: FloatArray): FloatArray {
         val scale = 1f / sqrt(headSize.toDouble()).toFloat()
         val scores = scoreBuffer // reuse pre-allocated buffer
 
