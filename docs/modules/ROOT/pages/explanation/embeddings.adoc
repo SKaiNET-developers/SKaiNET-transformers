@@ -1,0 +1,97 @@
+= How Embeddings Work
+:description: What the BERT runtime actually computes, why mean pooling + L2 normalization, and where the dimensionality comes from.
+
+This page is the "why" companion to xref:tutorials/embeddings.adoc[Embeddings — Getting Started]. It explains what a `BertRuntime.forward(...)` actually returns, why the public API performs mean pooling and L2 normalization on your behalf, and why two embeddings of the same dimension can still be incompatible.
+
+== From Tokens to a Single Vector
+
+A BERT-style encoder produces *one vector per token*. For an input of length _N_ tokens with hidden size _H_, the encoder output is an _N × H_ matrix.
+
+For most downstream uses (semantic search, similarity, RAG retrieval) you want a *single vector per input* — independent of length. Two ways to collapse the _N × H_ matrix into a 1D vector dominate in practice:
+
+* *`[CLS]` pooling*: take the embedding of the first token (the special `[CLS]` token BERT prepends). Original BERT was trained to use this for classification.
+* *Mean pooling*: average across the token dimension. Sentence-transformers (and `all-MiniLM-L6-v2`, `all-mpnet-base-v2`, etc.) are *fine-tuned* for this — they outperform `[CLS]` for similarity tasks, often by a wide margin.
+
+The `BertRuntime` implements *mean pooling* because that's what every modern sentence-encoder GGUF in the wild expects. The `EmbeddingModel.embed(...)` methods return the pooled vector directly.
+
+[mermaid]
+....
+graph LR
+    A[Input text] --> B[Tokenizer<br/>WordPiece or SentencePiece]
+    B --> C["Token IDs<br/>[CLS] x1 x2 ... [SEP]"]
+    C --> D[BERT encoder<br/>N x H matrix]
+    D --> E[Mean pool<br/>across token dim]
+    E --> F[L2 normalize]
+    F --> G[Vector<br/>FloatArray of size H]
+....
+
+== Why L2 Normalize
+
+After mean pooling you get a vector whose *magnitude* depends on the input — longer inputs, different vocab distributions, layer-norm idiosyncrasies all push the norm around. For similarity comparisons you almost always want the *direction* of the vector, not its length:
+
+* *cosine similarity* is the inner product divided by the product of norms;
+* if both vectors are L2-normalized to length 1, that division is 1, and cosine similarity reduces to a plain dot product;
+* most vector stores assume normalized inputs and compute cosine as dot product internally — passing un-normalized vectors silently gives the wrong rankings.
+
+`BertRuntime` therefore L2-normalizes the pooled vector before returning it. The Java/Kotlin `embed(...)` calls always return unit-length vectors.
+
+== Where Does the Dimension Come From?
+
+The dimension of the output (`EmbeddingModel.dimensions`) equals the encoder's *hidden size* _H_:
+
+[cols="2,1,2", options="header"]
+|===
+| Model | _H_ | Notes
+
+| `all-MiniLM-L6-v2`         | 384  | 6 layers, fast; popular default
+| `all-mpnet-base-v2`        | 768  | 12 layers; higher quality
+| `bert-base-uncased`        | 768  | original BERT; uses `[CLS]` not mean pooling
+| `bge-large-en`             | 1024 | 24 layers; SOTA for English retrieval
+|===
+
+The dimension is fixed at training time — different models almost never produce mutually-compatible vectors even when their dimensions match by accident.
+
+== Numerical Caveats
+
+The encoder runs in FP32 internally; output components are typically in `[-0.5, 0.5]` after pooling (before normalization). After L2 normalization each component is in `[-1, 1]`.
+
+Cosine similarity for L2-normalized vectors is in `[-1, 1]`:
+
+[cols="1,2", options="header"]
+|===
+| Cosine | Interpretation
+
+| `> 0.9`  | very similar (often near-duplicate)
+| `0.5–0.9` | semantically related
+| `0.0–0.5` | weakly related
+| `≈ 0`    | unrelated
+| `< 0`    | actively dissimilar (rare for English sentences with the same encoder)
+|===
+
+For practical retrieval, *thresholds vary by encoder* — a 0.7 cutoff on `all-MiniLM-L6-v2` is roughly the same recall as 0.4 on `bge-large-en`. Always calibrate against a labelled set rather than picking thresholds in the abstract.
+
+== Tokenization Matters
+
+The same text can produce different vectors with different tokenizers — this is not a bug, it's the model's input representation changing. Always pair an encoder with the tokenizer it was trained with. `KBertJava.loadGGUF(...)` reads the tokenizer config out of the GGUF metadata so you can't accidentally mix them up; if you wire `BertRuntime` and `HuggingFaceTokenizer` manually in Kotlin, make sure both come from the same model.
+
+== Where the Code Lives
+
+[cols="2,3"]
+|===
+| Concern | Source
+
+| Encoder forward pass + mean pooling + L2 norm
+| `llm-inference/bert/.../BertRuntime.kt`
+
+| Provider-neutral SPI
+| `llm-api/.../EmbeddingModel.kt`
+
+| BERT → SPI adapter
+| `llm-providers/.../SkaiNetEmbeddingModel.kt`
+
+| Java surface
+| `llm-inference/bert/jvmMain/.../java/KBertJava.kt`
+
+| WordPiece / SentencePiece tokenizer
+| `llm-inference/bert/.../HuggingFaceTokenizer.kt`
+|===

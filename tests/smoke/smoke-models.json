@@ -41,6 +41,14 @@
       "model": "~/.lmstudio/models/lmstudio-community/gemma-4-E4B-it-GGUF/gemma-4-E4B-it-Q4_K_M.gguf",
       "format": "gguf",
       "steps": 16
+    },
+    {
+      "name": "all-MiniLM-L6-v2",
+      "runner": "kbert",
+      "model": "all-MiniLM-L6-v2.gguf",
+      "format": "gguf",
+      "prompt": "The quick brown fox jumps over the lazy dog",
+      "doc": "A pangram is a sentence that contains every letter of the alphabet."
     }
   ]
 }

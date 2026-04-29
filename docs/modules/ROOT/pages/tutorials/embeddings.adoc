@@ -1,0 +1,114 @@
+= Embeddings — Getting Started
+:description: Compute text embeddings with the BERT runtime and the provider-neutral EmbeddingModel SPI.
+
+This tutorial walks through producing dense vector embeddings for text — the kind you feed into a vector store for semantic search, RAG, or sentence similarity. The runtime is BERT-style; the public API is the provider-neutral `EmbeddingModel` SPI from `llm-api`.
+
+== Prerequisites
+
+* JDK 21+ (Java 25 preferred for the Vector API)
+* A BERT-family GGUF model on disk, e.g. `all-MiniLM-L6-v2.gguf` (384 dims, ~80 MB) or any sentence-transformers model converted to GGUF
+
+== From the CLI
+
+The fastest way to verify embeddings work end-to-end:
+
+[source,bash]
+----
+./gradlew :llm-apps:kbert-cli:run \
+  --args="all-MiniLM-L6-v2.gguf 'The quick brown fox jumps over the lazy dog'"
+----
+
+Or with a document for similarity:
+
+[source,bash]
+----
+./gradlew :llm-apps:kbert-cli:run \
+  --args="all-MiniLM-L6-v2.gguf 'pangram' 'A pangram is a sentence that contains every letter of the alphabet.'"
+----
+
+== From Kotlin / Java — `EmbeddingModel` SPI
+
+The neutral SPI lives in `llm-api`:
+
+[source,kotlin]
+----
+public interface EmbeddingModel : AutoCloseable {
+    public fun call(request: EmbeddingRequest): EmbeddingResponse
+    public fun embed(text: String): FloatArray
+    public fun embed(texts: List<String>): List<FloatArray>
+    public val dimensions: Int
+}
+----
+
+Adapter wiring `BertRuntime` to the SPI lives in `llm-providers/SkaiNetEmbeddingModel.kt`:
+
+[source,kotlin]
+----
+import sk.ainet.llm.providers.SkaiNetEmbeddingModel
+import sk.ainet.models.bert.BertIngestion
+
+val ingestion = BertIngestion<FP32>(ctx = ctx, dtype = FP32::class)
+val weights = ingestion.loadGguf { JvmRandomAccessSource.open("all-MiniLM-L6-v2.gguf") }
+val runtime = BertRuntime(ctx, weights, FP32::class)
+val tokenizer = HuggingFaceTokenizer.fromGguf(weights.metadata)
+
+val model: EmbeddingModel = SkaiNetEmbeddingModel(
+    runtime = runtime,
+    tokenizer = tokenizer,
+    dimensions = weights.metadata.embeddingLength,
+    modelId = "all-MiniLM-L6-v2",
+)
+
+// Single text — convenience overload.
+val vector: FloatArray = model.embed("The quick brown fox")
+println("dim=${vector.size}")
+
+// Batch — the response preserves request order.
+val vectors: List<FloatArray> = model.embed(listOf(
+    "Cats are mammals.",
+    "The Eiffel Tower is in Paris.",
+))
+----
+
+The runtime already applies *mean pooling over token embeddings* and *L2 normalization* internally, so cosine similarity reduces to a dot product:
+
+[source,kotlin]
+----
+fun cosine(a: FloatArray, b: FloatArray): Float {
+    require(a.size == b.size)
+    var dot = 0f
+    for (i in a.indices) dot += a[i] * b[i]
+    return dot   // already L2-normalised; no division needed
+}
+----
+
+== From Java
+
+`KBertJava` exposes the same surface for pure-Java consumers:
+
+[source,java]
+----
+import sk.ainet.models.bert.java.KBertJava;
+import sk.ainet.models.bert.java.KBertSession;
+
+try (KBertSession session = KBertJava.loadGGUF(Path.of("all-MiniLM-L6-v2.gguf"))) {
+    float[] vector = session.embed("The quick brown fox");
+    System.out.println("dim=" + vector.length);
+}
+----
+
+== Verifying it Runs
+
+The smoke harness includes a kbert entry — see xref:tutorials/smoke-tests.adoc[Running Smoke Tests]:
+
+[source,bash]
+----
+./tests/smoke/smoke-test.sh
+----
+
+For the BERT entry, the script computes embeddings for the prompt and the document and prints the cosine similarity.
+
+== What's Next
+
+* xref:explanation/embeddings.adoc[How embeddings work — pooling, normalization, dimensionality] — the deeper "why".
+* xref:tutorials/getting-started-java.adoc[Getting Started for Java Developers] — the analogous Java surface for chat / tool calling.
