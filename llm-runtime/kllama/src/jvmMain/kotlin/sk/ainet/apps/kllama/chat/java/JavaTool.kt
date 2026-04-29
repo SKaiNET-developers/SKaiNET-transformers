@@ -5,6 +5,41 @@ import sk.ainet.apps.kllama.chat.Tool
 import sk.ainet.apps.kllama.chat.ToolDefinition
 
 /**
+ * Java-friendly factories for the kllama tool-calling surface.
+ *
+ * Avoids forcing Java consumers to import `kotlinx.serialization` types directly
+ * when constructing a [ToolDefinition].
+ *
+ * Example usage from Java:
+ * ```java
+ * ToolDefinition calc = JavaTools.definition(
+ *     "calculator",
+ *     "Evaluate a simple arithmetic expression",
+ *     "{\"type\":\"object\",\"properties\":{\"expression\":{\"type\":\"string\"}},\"required\":[\"expression\"]}"
+ * );
+ * ```
+ */
+public object JavaTools {
+
+    /**
+     * Construct a [ToolDefinition] from a JSON Schema string.
+     *
+     * @param name Unique tool name (e.g. "calculator").
+     * @param description Human-readable description.
+     * @param parametersJsonSchema JSON Schema document describing the tool's argument shape.
+     */
+    @JvmStatic
+    public fun definition(
+        name: String,
+        description: String,
+        parametersJsonSchema: String,
+    ): ToolDefinition {
+        val parameters = Json.parseToJsonElement(parametersJsonSchema) as JsonObject
+        return ToolDefinition(name, description, parameters)
+    }
+}
+
+/**
  * Java-friendly tool interface that uses `Map<String, Object>` instead of
  * kotlinx.serialization.json.JsonObject.
  *

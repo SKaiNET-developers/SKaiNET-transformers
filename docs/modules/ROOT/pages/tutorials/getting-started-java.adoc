@@ -1,0 +1,231 @@
+= Getting Started for Java Developers
+:description: Run text generation and tool calling from pure Java with the SKaiNET-transformers Java surface — KLlamaJava, KLlamaSession, JavaTool, JavaAgentLoop.
+
+This tutorial walks through running text generation and tool calling from a pure-Java application, using the kllama Java surface. No Kotlin, no `kotlinx.serialization` types, no suspend functions — every step is a normal Java call.
+
+== Prerequisites
+
+* JDK 21+ (Java 25 preferred; the runtime uses the Vector API as an incubator module)
+* A Llama / TinyLlama / Qwen GGUF model on disk (e.g. `tinyllama-1.1b-chat-v1.0.Q8_0.gguf`)
+
+== Add the Dependency
+
+In your `build.gradle.kts`:
+
+[source,kotlin]
+----
+dependencies {
+    implementation("sk.ainet.transformers:llm-runtime-kllama:0.21.0")
+    implementation("sk.ainet.transformers:llm-agent:0.21.0")
+}
+----
+
+Or in Maven:
+
+[source,xml]
+----
+<dependency>
+  <groupId>sk.ainet.transformers</groupId>
+  <artifactId>llm-runtime-kllama</artifactId>
+  <version>0.21.0</version>
+</dependency>
+----
+
+You also need the JVM args for the Vector API at runtime:
+
+[source]
+----
+--enable-preview --add-modules jdk.incubator.vector
+----
+
+== 1. Load a Model
+
+`KLlamaJava` returns a `KLlamaSession` that implements `AutoCloseable`, so use try-with-resources to release the off-heap memory when you're done.
+
+[source,java]
+----
+import sk.ainet.apps.kllama.java.KLlamaJava;
+import sk.ainet.apps.kllama.java.KLlamaSession;
+import java.nio.file.Path;
+
+try (KLlamaSession session = KLlamaJava.loadGGUF(
+        Path.of("tinyllama-1.1b-chat-v1.0.Q8_0.gguf"),
+        /* systemPrompt = */ null)) {
+    // ... use session ...
+}
+----
+
+The loader:
+
+* parses the GGUF metadata streaming (no full-model read),
+* builds a `DirectCpuExecutionContext` on top of an off-heap `MemorySegment` factory,
+* converts quantized weights for the SIMD dispatch path (`NATIVE_OPTIMIZED`),
+* loads the embedded GGUF tokenizer.
+
+== 2. Plain Text Generation
+
+[source,java]
+----
+import sk.ainet.apps.kllama.java.GenerationConfig;
+
+String response = session.generate(
+        "The capital of France is",
+        GenerationConfig.builder()
+                .maxTokens(64)
+                .temperature(0.0f)   // greedy
+                .build());
+
+System.out.println(response);
+----
+
+== 3. Tool Calling
+
+The Java tool-calling surface has four pieces:
+
+[cols="1,3"]
+|===
+| Type | Role
+
+| `JavaTool`
+| Interface you implement: a definition + an `execute(Map<String, ?>)` callback.
+
+| `JavaTools.definition(name, description, parametersJsonSchema)`
+| Static factory that constructs a `ToolDefinition` from a JSON Schema string — no `kotlinx.serialization` import needed.
+
+| `JavaAgentLoop.builder()`
+| Builder that wires session + tools + system prompt into an agent loop.
+
+| `JavaAgentLoop.chat(...)`
+| One round trip; can stream tokens via `Consumer<String>`.
+|===
+
+=== Define a Tool
+
+[source,java]
+----
+import sk.ainet.apps.kllama.chat.ToolDefinition;
+import sk.ainet.apps.kllama.chat.java.JavaTool;
+import sk.ainet.apps.kllama.chat.java.JavaTools;
+import java.util.Map;
+
+JavaTool calculator = new JavaTool() {
+    @Override
+    public ToolDefinition getDefinition() {
+        return JavaTools.definition(
+            "calculator",
+            "Evaluate a simple arithmetic expression like '17 * 23'.",
+            "{\"type\":\"object\","
+              + "\"properties\":{\"expression\":{\"type\":\"string\","
+              + "\"description\":\"Arithmetic expression to evaluate\"}},"
+              + "\"required\":[\"expression\"]}"
+        );
+    }
+
+    @Override
+    public String execute(Map<String, ?> arguments) {
+        String expr = (String) arguments.get("expression");
+        // ... evaluate ...
+        return result;
+    }
+};
+----
+
+NOTE: Argument values in `arguments` are decoded from the model's JSON output as plain Java types — `String`, `Long`, `Double`, `Boolean`, `List`, or nested `Map`. `null` is a `null` value.
+
+=== Run the Agent
+
+[source,java]
+----
+import sk.ainet.apps.kllama.chat.AgentConfig;
+import sk.ainet.apps.kllama.chat.ModelMetadata;
+import sk.ainet.apps.kllama.chat.java.JavaAgentLoop;
+
+JavaAgentLoop agent = JavaAgentLoop.builder()
+        .session(session)
+        .tool(calculator)
+        .systemPrompt("You are a helpful assistant. When asked an arithmetic "
+                + "question, call the calculator tool exactly once.")
+        .config(new AgentConfig())
+        .template("llama3")           // explicit template for Llama 3.x;
+                                       // omit to auto-detect from metadata
+        .metadata(new ModelMetadata())
+        .build();
+
+String response = agent.chat("What is 17 * 23?");
+System.out.println(response);
+----
+
+=== Streaming Output
+
+If you want token-by-token output:
+
+[source,java]
+----
+String response = agent.chat(
+        "What is 17 * 23?",
+        token -> System.out.print(token)   // Consumer<String>
+);
+System.out.println();   // final newline after the stream
+----
+
+== Picking a Tool-Call Format
+
+The agent loop's parser handles three response shapes — pick the prompt format that matches your model:
+
+* *Llama 3.2 / 3.1 default* — `--template=llama3` with `Llama3ToolFormat.JSON` (single-line JSON `{"name":..., "parameters":...}`); see xref:tutorials/llama3-tool-calling.adoc[Llama 3 Tool Calling].
+* *Hermes / ChatML* — `--template=chatml` (`<tool_call>{...}</tool_call>` markers); used by Qwen 3 instruct.
+* *Llama 3.1 legacy* — `Llama3ToolFormat.FUNCTION_TAG` for `<function=name>{...}</function>` markup.
+
+The parser tries every strategy and returns the first non-empty hit, so you don't usually need to pick — except on the prompt side, where the system prompt declares which one the model should emit.
+
+== A Runnable Sample
+
+The `llm-apps:kllama-java-sample` module ships with a complete `Main.java` that demonstrates everything above:
+
+[source,bash]
+----
+./gradlew :llm-apps:kllama-java-sample:run \
+  --args="/absolute/path/to/tinyllama-1.1b-chat-v1.0.Q8_0.gguf 'What is 17 * 23?'"
+----
+
+Source: `llm-apps/kllama-java-sample/src/main/java/sk/ainet/transformers/samples/kllama/Main.java`.
+
+== Where Things Live
+
+[cols="2,3"]
+|===
+| Class | Source
+
+| `KLlamaJava`
+| `llm-runtime/kllama/src/jvmMain/kotlin/sk/ainet/apps/kllama/java/KLlamaJava.kt`
+
+| `KLlamaSession`
+| `llm-runtime/kllama/src/jvmMain/kotlin/sk/ainet/apps/kllama/java/KLlamaSession.kt`
+
+| `GenerationConfig`
+| `llm-runtime/kllama/src/jvmMain/kotlin/sk/ainet/apps/kllama/java/GenerationConfig.kt`
+
+| `JavaTool`, `JavaTools`
+| `llm-runtime/kllama/src/jvmMain/kotlin/sk/ainet/apps/kllama/chat/java/JavaTool.kt`
+
+| `JavaAgentLoop`
+| `llm-runtime/kllama/src/jvmMain/kotlin/sk/ainet/apps/kllama/chat/java/JavaAgentLoop.kt`
+|===
+
+== End-to-End Java Test
+
+The `llm-test:llm-test-java` module contains a JUnit 5 Java test that exercises the full surface against a real model, gated on `TINYLLAMA_MODEL_PATH`:
+
+[source,bash]
+----
+export TINYLLAMA_MODEL_PATH=~/models/tinyllama-1.1b-chat-v1.0.Q8_0.gguf
+./gradlew :llm-test:llm-test-java:test
+----
+
+Without the env var the test reports as skipped, so CI without a checkpoint stays green.
+
+== What's Next
+
+* xref:tutorials/tool-calling.adoc[Tool Calling with Any Model] — the Kotlin-side overview of `ChatSession`, `AgentLoop`, and templates.
+* xref:tutorials/llama3-tool-calling.adoc[Llama 3 / 3.1 / 3.2 Tool Calling] — format details for the Llama 3 family.
+* xref:how-to/run-unified-cli.adoc[Use the Unified CLI] — same surface from the `skainet` CLI.
