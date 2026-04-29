@@ -33,9 +33,11 @@ Edit `tests/smoke/smoke-models.json`:
     },
     {
       "name": "Qwen3-1.7B-Q8",
-      "runner": "kqwen",
+      "runner": "kllama",
       "model": "Qwen3-1.7B-Q8_0.gguf",
       "format": "gguf",
+      "instruct": true,
+      "prompt": "What is the capital of France?",
       "toolCalling": {
         "prompt": "What is 2 + 2?",
         "steps": 256
@@ -44,6 +46,8 @@ Edit `tests/smoke/smoke-models.json`:
   ]
 }
 ----
+
+NOTE: Qwen models use the same tensor layout as LLaMA, so the `kllama` runner handles them directly. The `kqwen` runner exists for Qwen-specific code paths but is not currently used in the smoke catalog.
 
 === Model Fields
 
@@ -110,8 +114,46 @@ Summary -- Tool Calling
 
 == Adding a New Model
 
-1. Download or locate the GGUF file
-2. Add an entry to `smoke-models.json`
-3. Set `runner` to match the model architecture
-4. Optionally add `toolCalling` for models that support it
-5. Run `./tests/smoke/smoke-test.sh`
+. Download or locate the GGUF file
+. Add an entry to `smoke-models.json`
+. Set `runner` to match the model architecture
+. Optionally add `toolCalling` for models that support it
+. Run `./tests/smoke/smoke-test.sh`
+
+== Adding a New Runner
+
+. Add cases to `runner_task()`, `runner_compile_task()`, and `runner_args()` in `tests/smoke/smoke-test.sh`.
+. Reference the new runner name from any model entry in `smoke-models.json`.
+
+== Environment Variables
+
+[cols="2,3,2", options="header"]
+|===
+| Variable | Purpose | Default
+
+| `MODELS_ROOT`
+| Root directory for resolving relative model paths in the JSON config. Absolute paths (`/` or `~/`) are unaffected.
+| Repository root
+
+| `SMOKE_PROMPT`
+| Default prompt (legacy mode, no JSON config).
+| `The capital of France is`
+
+| `SMOKE_STEPS`
+| Default step count (legacy mode).
+| `32`
+
+| `SMOKE_TEMP`
+| Default temperature (legacy mode).
+| `0.0`
+|===
+
+== Currently Working Runners
+
+The smoke catalog is curated to reflect what runs end-to-end today:
+
+* `kllama` — TinyLlama, Qwen 2/3 (same layout), Llama 3.x — text generation + tool calling
+* `kgemma` — Gemma 4 — text generation only (tool-call format emission has a known gap; see `gemma4_toolcall_status`)
+* `kbert` — BERT — embeddings
+
+Other runners (`kapertus`, `kvoxtral`, `kqwen`) are wired in the harness but are not currently part of the smoke catalog.
