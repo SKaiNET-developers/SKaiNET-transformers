@@ -1,7 +1,7 @@
 = Use the Unified CLI
-:description: Run any GGUF model with the skainet CLI.
+:description: Run any supported architecture with the unified `skainet` CLI — Llama, Qwen, Gemma, BERT, and others.
 
-The `skainet` CLI auto-detects model architecture from GGUF metadata, so you don't need to pick the right runner.
+The `skainet` CLI auto-detects model architecture from GGUF metadata, so you don't need to pick the right runner. One binary handles every supported family.
 
 == Text Generation
 
@@ -45,6 +45,60 @@ Single-shot (for scripts/testing):
   --args="-m model.gguf --demo 'What is 2 + 2?'"
 ----
 
+== Cross-Architecture Examples
+
+The same `skainet` invocation works across families — the CLI resolves the right loader, tokenizer, and chat template from GGUF metadata.
+
+=== TinyLlama (Llama family)
+
+[source,bash]
+----
+./gradlew :llm-apps:skainet-cli:run \
+  --args="-m tinyllama-1.1b-chat-v1.0.Q8_0.gguf 'The capital of France is'"
+----
+
+Detected as `architecture=llama`, uses `Llama3ChatTemplate` for chat / agent / demo modes.
+
+=== Qwen 3 (Llama tensor layout, ChatML template)
+
+[source,bash]
+----
+./gradlew :llm-apps:skainet-cli:run \
+  --args="-m Qwen3-1.7B-Q8_0.gguf --demo 'What is 17 * 23?'"
+----
+
+Auto-resolves to ChatML chat template + Hermes-style `<tool_call>` parser. Override the template explicitly with `--template=chatml` if needed.
+
+=== Llama 3.2 (custom-tools JSON format)
+
+[source,bash]
+----
+./gradlew :llm-apps:skainet-cli:run \
+  --args="-m Llama-3.2-1B-Instruct-Q8_0.gguf --demo --template=llama3 -k 0.0 'What files are in /tmp?'"
+----
+
+See xref:tutorials/llama3-tool-calling.adoc[Llama 3 / 3.1 / 3.2 Tool Calling] for the format details and Meta's two response shapes.
+
+=== Gemma 4
+
+[source,bash]
+----
+./gradlew :llm-apps:skainet-cli:run \
+  --args="-m gemma-4-E2B-it-Q4_K_M.gguf 'The capital of France is'"
+----
+
+NOTE: Tool-call format emission has a known gap on Gemma 4 E2B — basic generation works, agent / demo modes do not yet produce parseable tool-call markup. Track via the `gemma4_toolcall_status` follow-up.
+
+=== BERT (embeddings)
+
+BERT is exposed through the dedicated `kbert` CLI (different surface — embeddings, not generation):
+
+[source,bash]
+----
+./gradlew :llm-apps:kbert-cli:run \
+  --args="model.gguf 'sentence to embed'"
+----
+
 == All Options
 
 [source]
@@ -65,27 +119,23 @@ Options:
 
 == Model-Specific CLIs
 
-The per-model CLIs are still available for advanced use cases:
+Three model-specific CLIs remain alongside the unified one:
 
-[cols="1,2"]
+[cols="1,2,3"]
 |===
-|CLI |Gradle Task
+| CLI | Gradle Task | When to use
 
-|kllama
-|`:llm-apps:kllama-cli:run`
+| `kllama`
+| `:llm-apps:kllama-cli:run`
+| Llama-family advanced flags (custom RoPE, attention backend overrides) and the legacy `--demo` runner used by Llama-3 examples.
 
-|kgemma
-|`:llm-runtime:kgemma:jvmRun`
+| `kgemma`
+| `:llm-runtime:kgemma:jvmRun`
+| Gemma-specific DSL runtime flags (PLE diagnostics, `GEMMA4_*` env knobs).
 
-|kqwen
-|`:llm-runtime:kqwen:jvmRun`
-
-|kapertus
-|`:llm-apps:kapertus-cli:run`
-
-|kvoxtral
-|`:llm-apps:kvoxtral-cli:run`
-
-|kbert
-|`:llm-apps:kbert-cli:run`
+| `kbert`
+| `:llm-apps:kbert-cli:run`
+| BERT embeddings (different output shape; not handled by `skainet-cli`).
 |===
+
+The previously available `kqwen`, `kapertus`, and `kvoxtral` CLIs were removed — Qwen runs through `skainet` / `kllama` (same tensor layout); Apertus and Voxtral runtimes remain as libraries but no longer ship a standalone CLI.

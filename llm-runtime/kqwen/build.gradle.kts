@@ -6,11 +6,7 @@ plugins {
 }
 
 kotlin {
-    jvm {
-        mainRun {
-            mainClass.set("sk.ainet.apps.kqwen.cli.MainKt")
-        }
-    }
+    jvm()
 
     sourceSets {
         commonMain.dependencies {

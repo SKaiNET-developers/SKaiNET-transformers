@@ -42,10 +42,7 @@ runner_task() {
     skainet)  echo ":llm-apps:skainet-cli:run" ;;
     kllama)   echo ":llm-apps:kllama-cli:run" ;;
     kgemma)   echo ":llm-runtime:kgemma:jvmRun" ;;
-    kqwen)    echo ":llm-runtime:kqwen:jvmRun" ;;
     kbert)    echo ":llm-apps:kbert-cli:run" ;;
-    kapertus) echo ":llm-apps:kapertus-cli:run" ;;
-    kvoxtral) echo ":llm-apps:kvoxtral-cli:run" ;;
     *)        echo "UNKNOWN"; return 1 ;;
   esac
 }
@@ -56,28 +53,19 @@ runner_compile_task() {
     skainet)  echo ":llm-apps:skainet-cli:classes" ;;
     kllama)   echo ":llm-apps:kllama-cli:classes" ;;
     kgemma)   echo ":llm-runtime:kgemma:jvmMainClasses" ;;
-    kqwen)    echo ":llm-runtime:kqwen:jvmMainClasses" ;;
     kbert)    echo ":llm-apps:kbert-cli:mainClasses" ;;
-    kapertus) echo ":llm-apps:kapertus-cli:classes" ;;
-    kvoxtral) echo ":llm-apps:kvoxtral-cli:classes" ;;
     *)        echo "UNKNOWN"; return 1 ;;
   esac
 }
 
 # Builds Gradle args string based on the runner type
 runner_args() {
-  local runner="$1" model="$2" prompt="$3" steps="$4" temp="$5" doc="${6:-}" output="${7:-}"
+  local runner="$1" model="$2" prompt="$3" steps="$4" temp="$5" doc="${6:-}"
 
   case "$runner" in
     skainet)  echo "-m ${model} -s ${steps} -k ${temp} \"${prompt}\"" ;;
     kllama)   echo "-m ${model} -s ${steps} -k ${temp} \"${prompt}\"" ;;
     kgemma)   echo "${model} \"${prompt}\" ${steps} ${temp}" ;;
-    kqwen)    echo "${model} \"${prompt}\" ${steps} ${temp}" ;;
-    kapertus) echo "-m ${model} -s ${steps} -k ${temp} \"${prompt}\"" ;;
-    kvoxtral)
-      local out="${output:-smoke-test-output.wav}"
-      echo "--model ${model} --output ${out} \"${prompt}\""
-      ;;
     kbert)
       if [[ -n "$doc" ]]; then
         echo "${model} \"${prompt}\" \"${doc}\""

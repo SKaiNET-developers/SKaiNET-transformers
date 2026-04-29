@@ -152,8 +152,9 @@ Summary -- Tool Calling
 
 The smoke catalog is curated to reflect what runs end-to-end today:
 
+* `skainet` — unified CLI; auto-detects architecture from GGUF metadata
 * `kllama` — TinyLlama, Qwen 2/3 (same layout), Llama 3.x — text generation + tool calling
 * `kgemma` — Gemma 4 — text generation only (tool-call format emission has a known gap; see `gemma4_toolcall_status`)
 * `kbert` — BERT — embeddings
 
-Other runners (`kapertus`, `kvoxtral`, `kqwen`) are wired in the harness but are not currently part of the smoke catalog.
+The previously available `kqwen`, `kapertus`, and `kvoxtral` runners were removed from the harness. Qwen is covered by `kllama`; Apertus and Voxtral runtimes remain as libraries but no longer ship a CLI.
