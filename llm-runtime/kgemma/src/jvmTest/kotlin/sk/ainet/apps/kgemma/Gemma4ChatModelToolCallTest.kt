@@ -52,11 +52,19 @@ class Gemma4ChatModelToolCallTest {
             """.trimIndent(),
         )
 
+        // Real models on a calculator prompt emit the `<|tool_call>` opener
+        // well within the first ~15 tokens. 24 keeps the run cheap (FP32
+        // single-core decode is slow) while leaving headroom for the rest
+        // of the tool-call grammar. `GEMMA4_TOOLCALL_MAX_TOKENS` overrides
+        // for diagnostic runs that need to see more of the response.
+        val maxTokens = System.getenv("GEMMA4_TOOLCALL_MAX_TOKENS")
+            ?.trim()?.toIntOrNull()?.coerceAtLeast(1)
+            ?: 24
         val model = Gemma4ChatModel.fromSafeTensors(
             indexPath = indexPath.toString(),
             options = ChatOptions(
                 temperature = 0f,
-                maxTokens = 64,
+                maxTokens = maxTokens,
             ),
         )
 
