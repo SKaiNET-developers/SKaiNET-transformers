@@ -125,6 +125,13 @@ public object Gemma4ChatModel {
 
         val chatTemplate = Gemma4ChatTemplate(enableThinking = enableThinking)
 
+        // Gemma 4 ships multiple stop ids (`<eos>=1`, `<turn|>=106`, and the
+        // chat-end variant `50` per the released `generation_config.json`).
+        // Without all of them, greedy decoding will keep emitting `<turn|>`
+        // tokens past the natural turn boundary until `maxTokens` runs out.
+        val eosTokenIds = readEosTokenIds(modelDir)
+            ?: setOf(tokenizer.eosTokenId)
+
         // Gemma4ChatTemplate emits `<bos>` itself as the very first character of
         // the rendered prompt, and the tokenizer maps that string to the BOS
         // token id. SkaiNetChatModel.runGenerationLoop only prepends BOS if it
@@ -134,8 +141,36 @@ public object Gemma4ChatModel {
             tokenizer = tokenizer,
             chatTemplate = chatTemplate,
             defaultOptions = options,
+            eosTokenIds = eosTokenIds,
             modelId = modelId,
         )
+    }
+
+    /**
+     * Read `eos_token_id` from `generation_config.json` next to the
+     * checkpoint. Accepts either a scalar (`"eos_token_id": 1`) or a list
+     * (`"eos_token_id": [1, 106, 50]`); returns `null` if the file is
+     * missing or unparseable so the caller can fall back to the
+     * tokenizer's default.
+     */
+    private fun readEosTokenIds(modelDir: Path): Set<Int>? {
+        val genConfig = modelDir.resolve("generation_config.json")
+        if (!genConfig.exists()) return null
+        return runCatching {
+            val text = Files.readString(genConfig)
+            val arrayMatch = Regex("""\"eos_token_id\"\s*:\s*\[\s*([^\]]*)\]""").find(text)
+            if (arrayMatch != null) {
+                arrayMatch.groupValues[1]
+                    .split(',')
+                    .mapNotNull { it.trim().toIntOrNull() }
+                    .toSet()
+                    .takeIf { it.isNotEmpty() }
+            } else {
+                Regex("""\"eos_token_id\"\s*:\s*(\d+)""").find(text)
+                    ?.groupValues?.get(1)?.toIntOrNull()
+                    ?.let { setOf(it) }
+            }
+        }.getOrNull()
     }
 
     private fun resolveIndexAndDir(input: String): Pair<Path, Path> {

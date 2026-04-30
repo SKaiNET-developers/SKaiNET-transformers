@@ -43,7 +43,15 @@ public class SkaiNetChatModel<T : DType>(
     private val chatTemplate: ChatTemplate,
     public override val defaultOptions: ChatOptions = ChatOptions.DEFAULTS,
     private val bosTokenId: Int = tokenizer.bosTokenId,
-    private val eosTokenId: Int = tokenizer.eosTokenId,
+    /**
+     * Stop-sequence token ids. Modern instruction-tuned models often expose
+     * multiple terminators in their `generation_config.json` — e.g. Gemma 4
+     * has `[1, 106, 50]` (`<eos>`, `<turn|>`, plus a chat-end variant). Pass
+     * the full set so a single `<turn|>` cleanly closes the response instead
+     * of running until `maxTokens`. Defaults to the tokenizer's primary EOS
+     * for backward compatibility with single-EOS callers.
+     */
+    private val eosTokenIds: Set<Int> = setOf(tokenizer.eosTokenId),
     private val random: Random = Random.Default,
     private val modelId: String? = null,
 ) : StreamingChatModel {
@@ -59,7 +67,7 @@ public class SkaiNetChatModel<T : DType>(
             maxTokens = opts.maxTokens ?: 512,
             temperature = opts.temperature ?: 0f,
         ) { tokenId ->
-            if (tokenId == eosTokenId) {
+            if (tokenId in eosTokenIds) {
                 finish = FinishReason.STOP
                 false
             } else {
@@ -103,7 +111,7 @@ public class SkaiNetChatModel<T : DType>(
                 temperature = opts.temperature ?: 0f,
             ) { tokenId ->
                 if (!isActive) return@runGenerationLoop false
-                if (tokenId == eosTokenId) {
+                if (tokenId in eosTokenIds) {
                     finish = FinishReason.STOP
                     return@runGenerationLoop false
                 }
