@@ -1,3 +1,5 @@
+import java.util.zip.ZipFile
+
 plugins {
     kotlin("jvm")
     alias(libs.plugins.shadow)
@@ -25,8 +27,48 @@ tasks.withType<com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar> {
         )
     }
 
-    // Merge service files for proper SPI support
+    // Merge service files for proper SPI support.
     mergeServiceFiles()
+
+    // Workaround: shadow's mergeServiceFiles silently drops the
+    // skainet-backend-native-cpu KernelProvider entry on this version
+    // (com.gradleup.shadow:9.4.1) — only the cpu module's
+    // Scalar+PanamaVector lines survive. Reconcile by re-reading every
+    // dependency JAR's services file and rewriting the merged file
+    // with the union of all entries (deduplicated, newline-terminated).
+    val runtimeClasspathFiles = project.configurations.named("runtimeClasspath")
+        .map { it.files.filter { f -> f.name.endsWith(".jar") } }
+    doLast {
+        val jar = archiveFile.get().asFile
+        val servicePath = "META-INF/services/sk.ainet.backend.api.kernel.KernelProvider"
+        val entries = linkedSetOf<String>()
+        for (cpJar in runtimeClasspathFiles.get()) {
+            ZipFile(cpJar).use { zf ->
+                val zipEntry = zf.getEntry(servicePath)
+                if (zipEntry != null) {
+                    zf.getInputStream(zipEntry).bufferedReader().useLines { lines ->
+                        lines.map { it.trim() }
+                            .filter { it.isNotEmpty() && !it.startsWith("#") }
+                            .forEach { entries.add(it) }
+                    }
+                }
+            }
+        }
+        if (entries.isEmpty()) return@doLast
+        val tmpFile = temporaryDir.resolve("kernel-provider-services.txt")
+        tmpFile.writeText(entries.joinToString("\n", postfix = "\n"))
+        ant.withGroovyBuilder {
+            "zip"(
+                "destfile" to jar.absolutePath,
+                "update" to true,
+            ) {
+                "zipfileset"(
+                    "file" to tmpFile.absolutePath,
+                    "fullpath" to servicePath,
+                )
+            }
+        }
+    }
 }
 
 tasks.withType<Test>().configureEach {
