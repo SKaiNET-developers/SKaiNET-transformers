@@ -64,6 +64,12 @@ kotlin {
                 implementation(libs.junit)
                 implementation(libs.kotlinx.coroutines.test)
                 implementation(libs.skainet.backend.cpu)
+                // Pulls the priority-100 native (FFM) provider onto the
+                // jvmTest classpath so KernelRegistry.bestAvailable()
+                // hands out the native Q4_K / FP32 kernels for the
+                // pipeline test. JVM-only: native-cpu has no Kotlin/
+                // Native, JS, or Wasm targets.
+                implementation(libs.skainet.backend.nativeCpu)
             }
         }
     }
