@@ -99,6 +99,13 @@ class GGUFTokenizer private constructor(
             var eosTokenId = DEFAULT_EOS_TOKEN_ID
             var unkTokenId = DEFAULT_UNK_TOKEN_ID
 
+            // Track added-token IDs so we can mark them as CONTROL in
+            // tokenTypes — that's what flips the atomic-special-token branch
+            // in `encode()` on. Without this, `<bos>`, `<|turn>`, `<turn|>`
+            // etc. get split into per-character BPE pieces and the model
+            // sees a mangled prompt instead of the chat-template control
+            // grammar it was trained on.
+            val addedTokenIds = mutableListOf<Int>()
             val addedTokensStart = json.indexOf("\"added_tokens\"")
             if (addedTokensStart >= 0) {
                 val arrStart = json.indexOf('[', addedTokensStart)
@@ -117,9 +124,12 @@ class GGUFTokenizer private constructor(
                             val id = idMatch.groupValues[1].toInt()
                             val content = unescapeJsonString(contentMatch.groupValues[1])
                             vocabMap[content] = id
+                            addedTokenIds += id
                             when {
                                 content.contains("begin_of_text") || content == "<s>" -> bosTokenId = id
                                 content.contains("end_of_text") || content == "</s>" -> eosTokenId = id
+                                content == "<bos>" -> bosTokenId = id
+                                content == "<eos>" -> eosTokenId = id
                                 content == "<unk>" -> unkTokenId = id
                             }
                         }
@@ -131,6 +141,19 @@ class GGUFTokenizer private constructor(
             val vocab = MutableList(totalVocabSize) { "<unk>" }
             for ((token, id) in vocabMap) {
                 if (id < vocab.size) vocab[id] = token
+            }
+
+            // Mark every added token (BOS/EOS/PAD plus chat-template specials
+            // like `<|turn>`, tool delimiters, etc.) as TOKEN_TYPE_CONTROL so
+            // the encoder treats them atomically. The HF `tokenizer.json`
+            // doesn't carry the GGUF `tokenizer.ggml.token_type` array; this
+            // reconstructs the equivalent from `added_tokens`.
+            val tokenTypes: IntArray? = if (addedTokenIds.isEmpty()) null else {
+                IntArray(totalVocabSize).also { arr ->
+                    for (id in addedTokenIds) {
+                        if (id in arr.indices) arr[id] = TOKEN_TYPE_CONTROL
+                    }
+                }
             }
 
             if (debug) println("DEBUG: Total vocab size = ${vocab.size}, BOS=$bosTokenId, EOS=$eosTokenId")
@@ -163,9 +186,9 @@ class GGUFTokenizer private constructor(
             }
 
             val strategy = BPEStrategy
-            println("Tokenizer: BPE (from tokenizer.json, vocab=${vocab.size})")
+            println("Tokenizer: BPE (from tokenizer.json, vocab=${vocab.size}, special=${addedTokenIds.size})")
 
-            return GGUFTokenizer(vocab, scores, bosTokenId, eosTokenId, unkTokenId, strategy)
+            return GGUFTokenizer(vocab, scores, bosTokenId, eosTokenId, unkTokenId, strategy, tokenTypes)
         }
 
         private fun findMatchingBrace(s: String, start: Int): Int {

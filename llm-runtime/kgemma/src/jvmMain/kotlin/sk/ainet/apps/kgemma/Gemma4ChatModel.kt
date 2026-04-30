@@ -1,5 +1,6 @@
 package sk.ainet.apps.kgemma
 
+import java.lang.foreign.Arena
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
@@ -15,6 +16,9 @@ import sk.ainet.lang.tensor.data.MemorySegmentTensorDataFactory
 import sk.ainet.lang.types.FP32
 import sk.ainet.llm.api.ChatOptions
 import sk.ainet.llm.providers.SkaiNetChatModel
+import sk.ainet.models.gemma.Gemma4SafeTensorsMappedPle
+import sk.ainet.models.gemma.Gemma4SafeTensorsWeightLoader
+import sk.ainet.models.gemma.Gemma4Weights
 
 /**
  * One-call factory that wires a Gemma 4 SafeTensors checkpoint into the
@@ -91,9 +95,27 @@ public object Gemma4ChatModel {
                 allowQuantized = false,
             ),
         )
-        val runtime = runBlocking {
-            ingestion.loadDslRuntimeFromSafeTensors(resolvedIndex.toString())
-        }
+
+        // Two-step load so we can inject the mmap'd PLE token-embedding
+        // table between weight loading and DSL build. The eager loader
+        // skips that tensor when it exceeds the 2 GB ByteArray limit
+        // (4.7 GB BF16 on Gemma 4 E2B), and `injectIfMissing` re-attaches
+        // it via FileChannel.map. The shared arena owns the mmap'd region's
+        // lifetime — it intentionally outlives the model on a process basis;
+        // a follow-up will plumb explicit close via a wrapping ChatModel.
+        @Suppress("UNCHECKED_CAST")
+        val rawWeights = runBlocking {
+            Gemma4SafeTensorsWeightLoader(resolvedIndex.toString())
+                .loadToMap(ctx, FP32::class)
+        } as Gemma4Weights<FP32, Float>
+        val pleArena = Arena.ofShared()
+        val weights = Gemma4SafeTensorsMappedPle.injectIfMissing(
+            weights = rawWeights,
+            indexPath = resolvedIndex.toString(),
+            ctx = ctx,
+            arena = pleArena,
+        )
+        val runtime = ingestion.buildDslRuntime(weights)
 
         val tokenizerFile = modelDir.resolve("tokenizer.json")
         require(tokenizerFile.exists()) {
