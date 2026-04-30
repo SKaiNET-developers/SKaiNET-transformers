@@ -6,6 +6,7 @@ import java.nio.file.Path
 import java.nio.file.Paths
 import kotlin.io.path.exists
 import kotlin.io.path.isDirectory
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.runBlocking
 import sk.ainet.apps.kllama.chat.Gemma4ChatTemplate
 import sk.ainet.apps.llm.tokenizer.GGUFTokenizer
@@ -15,6 +16,10 @@ import sk.ainet.io.model.QuantPolicy
 import sk.ainet.lang.tensor.data.MemorySegmentTensorDataFactory
 import sk.ainet.lang.types.FP32
 import sk.ainet.llm.api.ChatOptions
+import sk.ainet.llm.api.ChatRequest
+import sk.ainet.llm.api.ChatResponse
+import sk.ainet.llm.api.ChatResponseChunk
+import sk.ainet.llm.api.StreamingChatModel
 import sk.ainet.llm.providers.SkaiNetChatModel
 import sk.ainet.models.gemma.Gemma4SafeTensorsMappedPle
 import sk.ainet.models.gemma.Gemma4SafeTensorsWeightLoader
@@ -81,7 +86,7 @@ public object Gemma4ChatModel {
         options: ChatOptions = ChatOptions.DEFAULTS,
         modelId: String? = "gemma4",
         enableThinking: Boolean = false,
-    ): SkaiNetChatModel<FP32> {
+    ): StreamingChatModel {
         val (resolvedIndex, modelDir) = resolveIndexAndDir(indexPath)
         require(resolvedIndex.exists()) {
             "SafeTensors index not found: $resolvedIndex"
@@ -136,7 +141,7 @@ public object Gemma4ChatModel {
         // the rendered prompt, and the tokenizer maps that string to the BOS
         // token id. SkaiNetChatModel.runGenerationLoop only prepends BOS if it
         // is not already first, so the natural construction does not double up.
-        return SkaiNetChatModel(
+        val delegate = SkaiNetChatModel(
             runtime = runtime,
             tokenizer = tokenizer,
             chatTemplate = chatTemplate,
@@ -144,6 +149,34 @@ public object Gemma4ChatModel {
             eosTokenIds = eosTokenIds,
             modelId = modelId,
         )
+        return ArenaScopedStreamingChatModel(delegate, pleArena)
+    }
+
+    /**
+     * Wraps a [SkaiNetChatModel] together with a JVM [Arena] that owns the
+     * memory-mapped PLE token-embedding region. Closing this propagates to
+     * both — `delegate.close()` resets the runtime, then `arena.close()`
+     * unmaps the file region, releasing the underlying file handle.
+     *
+     * Without this wrapper, the only way the mmap'd region got cleaned up
+     * was at JVM exit (the arena was unreachable but bound to a long-lived
+     * native segment). Fine for tests; not fine for any process that
+     * builds and discards multiple chat models.
+     */
+    private class ArenaScopedStreamingChatModel(
+        private val delegate: StreamingChatModel,
+        private val arena: Arena,
+    ) : StreamingChatModel {
+        override val defaultOptions: ChatOptions get() = delegate.defaultOptions
+        override fun call(request: ChatRequest): ChatResponse = delegate.call(request)
+        override fun stream(request: ChatRequest): Flow<ChatResponseChunk> = delegate.stream(request)
+        override fun close() {
+            try {
+                delegate.close()
+            } finally {
+                runCatching { arena.close() }
+            }
+        }
     }
 
     /**
