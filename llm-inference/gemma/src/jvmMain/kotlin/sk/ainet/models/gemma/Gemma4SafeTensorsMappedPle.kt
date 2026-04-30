@@ -2,12 +2,12 @@ package sk.ainet.models.gemma
 
 import java.lang.foreign.Arena
 import java.nio.channels.FileChannel
-import java.nio.file.Path
 import java.nio.file.Paths
 import java.nio.file.StandardOpenOption
 import sk.ainet.context.ExecutionContext
 import sk.ainet.io.safetensors.StreamingShardedSafeTensorsReader
 import sk.ainet.lang.tensor.Shape
+import sk.ainet.lang.tensor.storage.BufferHandle
 import sk.ainet.lang.types.FP32
 
 /**
@@ -63,26 +63,33 @@ public object Gemma4SafeTensorsMappedPle {
         }.getOrNull() ?: return weights
 
         return reader.use { r ->
+            // Resolve the tensor's metadata + file location via the upstream
+            // sharded `loadTensorStorageMapped` (added in skainet-io-safetensors
+            // 0.22.1). The returned `TensorStorage`'s `BufferHandle.FileBacked`
+            // tells us the path / offset / size — we then run the JVM-specific
+            // `FileChannel.map(..., Arena)` to materialise a `MemorySegment` of
+            // the right byte range. (`BufferAccessor` upstream returns
+            // ByteArrays, which are 2 GB-capped; we need a long-indexed
+            // segment for the 4.7 GB PLE table on Gemma 4 E2B.)
             val info = r.tensors.firstOrNull { it.name == HF_EMBED_TOKENS_PER_LAYER }
                 ?: return@use weights
-
-            val indexDir: Path = Paths.get(indexPath).let { p ->
-                if (p.toFile().isDirectory) p else (p.parent ?: Paths.get("."))
+            val storage = r.loadTensorStorageMapped(info)
+            val handle = storage.buffer
+            require(handle is BufferHandle.FileBacked) {
+                "Expected file-backed handle from loadTensorStorageMapped, got ${handle::class}"
             }
-            val shardPath = indexDir.resolve(info.shardFilename)
 
-            val segment = FileChannel.open(shardPath, StandardOpenOption.READ).use { fc ->
+            val segment = FileChannel.open(Paths.get(handle.path), StandardOpenOption.READ).use { fc ->
                 fc.map(
                     FileChannel.MapMode.READ_ONLY,
-                    info.absoluteDataOffset,
-                    info.sizeInBytes,
+                    handle.fileOffset,
+                    handle.sizeInBytes,
                     arena,
                 )
             }
 
-            val logicalShape = Shape(*info.shape.map { it.toInt() }.toIntArray()).let {
-                if (it.rank == 2) it else flattenTrailingDims(it)
-            }
+            val logicalShape = if (storage.shape.rank == 2) storage.shape
+                else flattenTrailingDims(storage.shape)
             val data = SafeTensorsPerLayerTokenEmbedTensorData(
                 logicalShape = logicalShape,
                 segment = segment,
