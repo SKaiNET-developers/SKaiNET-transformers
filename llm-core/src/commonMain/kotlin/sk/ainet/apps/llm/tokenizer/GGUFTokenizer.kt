@@ -185,10 +185,42 @@ class GGUFTokenizer private constructor(
                 }
             }
 
-            val strategy = BPEStrategy
-            println("Tokenizer: BPE (from tokenizer.json, vocab=${vocab.size}, special=${addedTokenIds.size})")
+            // Pick strategy by sniffing the vocab's space-marker convention:
+            //  - GPT-2 / OpenAI BPE tokenizers prefix word-leading tokens with
+            //    `Ġ` (Ġ) → BPEStrategy
+            //  - SentencePiece-style (LLaMA, Mistral, Gemma) use `▁` (▁)
+            //    → SentencePieceStrategy
+            // Without this, decoding tokens like `▁hello` returns `▁hello`
+            // instead of ` hello`, since BPEStrategy.postprocess only knows
+            // how to strip Ġ.
+            val sentencePieceMarker = "▁"
+            val gpt2Marker = "Ġ"
+            val spVotes = vocab.count { it.startsWith(sentencePieceMarker) }
+            val bpeVotes = vocab.count { it.startsWith(gpt2Marker) }
+            val strategy: TokenizerStrategy = if (spVotes > bpeVotes) SentencePieceStrategy else BPEStrategy
+            val strategyLabel = if (strategy === SentencePieceStrategy) "SentencePiece" else "BPE"
+            // SentencePiece tokenizers shipped via HF `tokenizer.json` (Gemma 4,
+            // LLaMA-3) typically set `add_dummy_prefix=false` — the modern
+            // convention. Without this, encoding `"Hi"` would produce `[▁Hi]`
+            // (id 18428) instead of `[Hi]` (id 10979), shifting every prompt
+            // token by one and breaking parity with HF reference outputs. The
+            // GGUF path reads `tokenizer.ggml.add_space_prefix` directly; this
+            // is the JSON-path equivalent default.
+            val sentencePieceAddSpace = false
+            println(
+                "Tokenizer: $strategyLabel (from tokenizer.json, vocab=${vocab.size}, special=${addedTokenIds.size})"
+            )
 
-            return GGUFTokenizer(vocab, scores, bosTokenId, eosTokenId, unkTokenId, strategy, tokenTypes)
+            return GGUFTokenizer(
+                vocab = vocab,
+                scores = scores,
+                _bosTokenId = bosTokenId,
+                _eosTokenId = eosTokenId,
+                unkTokenId = unkTokenId,
+                strategy = strategy,
+                tokenTypes = tokenTypes,
+                addSpacePrefix = if (strategy === SentencePieceStrategy) sentencePieceAddSpace else DEFAULT_ADD_SPACE_PREFIX,
+            )
         }
 
         private fun findMatchingBrace(s: String, start: Int): Int {
