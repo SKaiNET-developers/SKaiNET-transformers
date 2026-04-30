@@ -99,6 +99,13 @@ class GGUFTokenizer private constructor(
             var eosTokenId = DEFAULT_EOS_TOKEN_ID
             var unkTokenId = DEFAULT_UNK_TOKEN_ID
 
+            // Track added-token IDs so we can mark them as CONTROL in
+            // tokenTypes — that's what flips the atomic-special-token branch
+            // in `encode()` on. Without this, `<bos>`, `<|turn>`, `<turn|>`
+            // etc. get split into per-character BPE pieces and the model
+            // sees a mangled prompt instead of the chat-template control
+            // grammar it was trained on.
+            val addedTokenIds = mutableListOf<Int>()
             val addedTokensStart = json.indexOf("\"added_tokens\"")
             if (addedTokensStart >= 0) {
                 val arrStart = json.indexOf('[', addedTokensStart)
@@ -117,9 +124,12 @@ class GGUFTokenizer private constructor(
                             val id = idMatch.groupValues[1].toInt()
                             val content = unescapeJsonString(contentMatch.groupValues[1])
                             vocabMap[content] = id
+                            addedTokenIds += id
                             when {
                                 content.contains("begin_of_text") || content == "<s>" -> bosTokenId = id
                                 content.contains("end_of_text") || content == "</s>" -> eosTokenId = id
+                                content == "<bos>" -> bosTokenId = id
+                                content == "<eos>" -> eosTokenId = id
                                 content == "<unk>" -> unkTokenId = id
                             }
                         }
@@ -131,6 +141,19 @@ class GGUFTokenizer private constructor(
             val vocab = MutableList(totalVocabSize) { "<unk>" }
             for ((token, id) in vocabMap) {
                 if (id < vocab.size) vocab[id] = token
+            }
+
+            // Mark every added token (BOS/EOS/PAD plus chat-template specials
+            // like `<|turn>`, tool delimiters, etc.) as TOKEN_TYPE_CONTROL so
+            // the encoder treats them atomically. The HF `tokenizer.json`
+            // doesn't carry the GGUF `tokenizer.ggml.token_type` array; this
+            // reconstructs the equivalent from `added_tokens`.
+            val tokenTypes: IntArray? = if (addedTokenIds.isEmpty()) null else {
+                IntArray(totalVocabSize).also { arr ->
+                    for (id in addedTokenIds) {
+                        if (id in arr.indices) arr[id] = TOKEN_TYPE_CONTROL
+                    }
+                }
             }
 
             if (debug) println("DEBUG: Total vocab size = ${vocab.size}, BOS=$bosTokenId, EOS=$eosTokenId")
@@ -162,10 +185,42 @@ class GGUFTokenizer private constructor(
                 }
             }
 
-            val strategy = BPEStrategy
-            println("Tokenizer: BPE (from tokenizer.json, vocab=${vocab.size})")
+            // Pick strategy by sniffing the vocab's space-marker convention:
+            //  - GPT-2 / OpenAI BPE tokenizers prefix word-leading tokens with
+            //    `Ġ` (Ġ) → BPEStrategy
+            //  - SentencePiece-style (LLaMA, Mistral, Gemma) use `▁` (▁)
+            //    → SentencePieceStrategy
+            // Without this, decoding tokens like `▁hello` returns `▁hello`
+            // instead of ` hello`, since BPEStrategy.postprocess only knows
+            // how to strip Ġ.
+            val sentencePieceMarker = "▁"
+            val gpt2Marker = "Ġ"
+            val spVotes = vocab.count { it.startsWith(sentencePieceMarker) }
+            val bpeVotes = vocab.count { it.startsWith(gpt2Marker) }
+            val strategy: TokenizerStrategy = if (spVotes > bpeVotes) SentencePieceStrategy else BPEStrategy
+            val strategyLabel = if (strategy === SentencePieceStrategy) "SentencePiece" else "BPE"
+            // SentencePiece tokenizers shipped via HF `tokenizer.json` (Gemma 4,
+            // LLaMA-3) typically set `add_dummy_prefix=false` — the modern
+            // convention. Without this, encoding `"Hi"` would produce `[▁Hi]`
+            // (id 18428) instead of `[Hi]` (id 10979), shifting every prompt
+            // token by one and breaking parity with HF reference outputs. The
+            // GGUF path reads `tokenizer.ggml.add_space_prefix` directly; this
+            // is the JSON-path equivalent default.
+            val sentencePieceAddSpace = false
+            println(
+                "Tokenizer: $strategyLabel (from tokenizer.json, vocab=${vocab.size}, special=${addedTokenIds.size})"
+            )
 
-            return GGUFTokenizer(vocab, scores, bosTokenId, eosTokenId, unkTokenId, strategy)
+            return GGUFTokenizer(
+                vocab = vocab,
+                scores = scores,
+                _bosTokenId = bosTokenId,
+                _eosTokenId = eosTokenId,
+                unkTokenId = unkTokenId,
+                strategy = strategy,
+                tokenTypes = tokenTypes,
+                addSpacePrefix = if (strategy === SentencePieceStrategy) sentencePieceAddSpace else DEFAULT_ADD_SPACE_PREFIX,
+            )
         }
 
         private fun findMatchingBrace(s: String, start: Int): Int {

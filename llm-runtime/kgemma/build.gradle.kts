@@ -95,6 +95,11 @@ kotlin {
                 // kllama's `implementation(project(":llm-agent"))` isn't
                 // transitively visible by default.
                 implementation(project(":llm-agent"))
+                // Spring-AI-style ChatModel surface used by Gemma4ChatModel.
+                // llm-providers / llm-api are JVM-only today, so they live
+                // here rather than in commonMain.
+                implementation(project(":llm-providers"))
+                implementation(project(":llm-api"))
             }
         }
         val jvmTest by getting {

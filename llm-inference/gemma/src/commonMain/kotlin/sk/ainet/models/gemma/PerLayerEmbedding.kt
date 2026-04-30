@@ -145,10 +145,11 @@ public class PerLayerEmbedding<T : DType, V>(
         })
         val rawBuf = FloatArray(batch * seq * perLayerTotal)
         val weightData = embedTokensWeight.data
-        if (weightData is GemmaPerLayerTokenEmbedTensorData) {
-            // Quant bytes kept intact on load (Gemma 4 E2B path). Dequant only
-            // the rows we need — cheap for decode (batch*seq=1) even on the
-            // 9 GB logical embedding.
+        if (weightData is RowDequantSource) {
+            // Source kept in its packed/encoded form on load — Q-bytes for
+            // the GGUF path, BF16 mmap for the SafeTensors path. We dequant
+            // only the rows we need (one per token per decode step), even
+            // though the full logical tensor is much larger than 2 GB.
             for (i in 0 until batch * seq) {
                 val tokenId = idsFlat[i]
                 require(tokenId in 0 until vocabSize) {

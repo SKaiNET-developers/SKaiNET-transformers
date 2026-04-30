@@ -91,13 +91,40 @@ public class Gemma4SafeTensorsWeightLoader(
         // Output weight (weight tying - reuse embed_tokens)
         tensorsByGgufName[Gemma4TensorNames.OUTPUT_WEIGHT] = embedTensor
 
-        // Optional PLE global tensors
-        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            HF_PER_LAYER_TOKEN_EMBD, Gemma4TensorNames.PER_LAYER_TOKEN_EMBD, transpose = false)
-        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            HF_PER_LAYER_MODEL_PROJ, Gemma4TensorNames.PER_LAYER_MODEL_PROJ, transpose = false)
-        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            HF_PER_LAYER_PROJ_NORM, Gemma4TensorNames.PER_LAYER_PROJ_NORM, transpose = false)
+        // Optional PLE global tensors. HF names changed in Gemma 4 vs the
+        // earlier "per_layer_*" convention used by Gemma 3n / GGUF; map both
+        // so synthetic GGUF-style fixtures keep working alongside real HF
+        // checkpoints.
+        //
+        // The token-embeddings-per-layer tensor on real Gemma-4 E2B is
+        // [vocab_size, num_layers, per_layer_dim] in BF16 — 4.7 GB raw, well
+        // over the 2 GB JVM ByteArray limit our reader uses. The GGUF path
+        // sidesteps this by keeping the table Q6_K-packed (~1.8 GB) with a
+        // dedicated row-dequant data type. We don't have an equivalent for
+        // SafeTensors yet, so when the BF16 source is too large we skip the
+        // load — leaving `per_layer_token_embd.weight` absent from the
+        // tensor map, which auto-disables PLE in `GemmaNetworkLoader`. The
+        // model still runs (sandwich norms, layer_output_scale and softcap
+        // are intact) but without the per-layer side-channel signal. PLE
+        // support on the SafeTensors path is tracked separately.
+        loadFirstExistingIfFits(
+            ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
+            ggufName = Gemma4TensorNames.PER_LAYER_TOKEN_EMBD,
+            hfCandidates = listOf(HF_EMBED_TOKENS_PER_LAYER, HF_PER_LAYER_TOKEN_EMBD),
+            transpose = false,
+        )
+        loadFirstExisting(
+            ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
+            ggufName = Gemma4TensorNames.PER_LAYER_MODEL_PROJ,
+            hfCandidates = listOf(HF_PER_LAYER_MODEL_PROJECTION, HF_PER_LAYER_MODEL_PROJ),
+            transpose = false,
+        )
+        loadFirstExisting(
+            ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
+            ggufName = Gemma4TensorNames.PER_LAYER_PROJ_NORM,
+            hfCandidates = listOf(HF_PER_LAYER_PROJECTION_NORM, HF_PER_LAYER_PROJ_NORM),
+            transpose = false,
+        )
     }
 
     private fun <T : DType> loadLayerTensors(
@@ -108,11 +135,11 @@ public class Gemma4SafeTensorsWeightLoader(
         tensorsByGgufName: MutableMap<String, Tensor<T, Float>>,
         layer: Int
     ) {
-        // Input layernorm
+        // Pre-attention input layernorm (HF: input_layernorm; GGUF slot: attn_norm).
         loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
             hfInputLayernorm(layer), Gemma4TensorNames.inputLayernorm(layer), transpose = false)
 
-        // Attention weights
+        // Attention projections.
         loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
             hfAttnQ(layer), Gemma4TensorNames.attnQ(layer))
         loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
@@ -122,11 +149,22 @@ public class Gemma4SafeTensorsWeightLoader(
         loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
             hfAttnO(layer), Gemma4TensorNames.attnOut(layer))
 
-        // Post-attention layernorm
+        // Sandwich norms — Gemma 4 has FOUR norms per block:
+        //  - attn_norm           ← input_layernorm (already loaded above)
+        //  - post_attention_norm ← post_attention_layernorm    (Gemma-4 only)
+        //  - ffn_norm            ← pre_feedforward_layernorm   (Gemma-4 only)
+        //  - post_ffw_norm       ← post_feedforward_layernorm  (Gemma-4 only)
+        // The GGUF naming on `Gemma4TensorNames.postAttentionLayernorm` is a
+        // legacy alias for the pre-FFN norm slot (`ffn_norm`); the proper
+        // Gemma-4 source for that slot is HF `pre_feedforward_layernorm`.
         loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            hfPostAttnLayernorm(layer), Gemma4TensorNames.postAttentionLayernorm(layer), transpose = false)
+            hfPostAttnLayernorm(layer), Gemma4TensorNames.postAttentionNorm(layer), transpose = false)
+        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
+            hfPreFfwLayernorm(layer), Gemma4TensorNames.postAttentionLayernorm(layer), transpose = false)
+        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
+            hfPostFfwLayernorm(layer), Gemma4TensorNames.postFfwNorm(layer), transpose = false)
 
-        // MLP weights
+        // MLP weights.
         loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
             hfMlpGate(layer), Gemma4TensorNames.ffnGate(layer))
         loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
@@ -134,11 +172,21 @@ public class Gemma4SafeTensorsWeightLoader(
         loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
             hfMlpDown(layer), Gemma4TensorNames.ffnDown(layer))
 
-        // Optional PLE per-layer tensors
+        // Per-layer scalar (HF: `layer_scalar`, no `.weight` suffix; scalar shape).
         loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            hfPerLayerProjection(layer), Gemma4TensorNames.perLayerInput(layer))
+            hfLayerScalar(layer), Gemma4TensorNames.layerOutputScale(layer), transpose = false)
 
-        // Optional QK normalization
+        // Optional Per-Layer Embedding (PLE) per-layer tensors.
+        // The HF projection sends [B,S,perLayerDim] back into the residual at
+        // hidden_size, so it goes into the `proj` slot, NOT `per_layer_input`.
+        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
+            hfPerLayerInputGate(layer), Gemma4TensorNames.pleInpGate(layer))
+        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
+            hfPerLayerProjection(layer), Gemma4TensorNames.pleProj(layer))
+        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
+            hfPostPerLayerInputNorm(layer), Gemma4TensorNames.plePostNorm(layer), transpose = false)
+
+        // Optional QK normalization (per-head Q/K RMSNorm).
         loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
             hfAttnQNorm(layer), Gemma4TensorNames.attnQNorm(layer), transpose = false)
         loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
@@ -159,6 +207,51 @@ public class Gemma4SafeTensorsWeightLoader(
         if (info != null) {
             val tensor = loadAndConvertTensor<T>(ctx, dtype, reader, info, transpose)
             tensorsByGgufName[ggufName] = tensor
+        }
+    }
+
+    private fun <T : DType> loadFirstExisting(
+        ctx: ExecutionContext,
+        dtype: KClass<T>,
+        reader: StreamingShardedSafeTensorsReader,
+        tensorsByHfName: Map<String, ShardedTensorInfo>,
+        tensorsByGgufName: MutableMap<String, Tensor<T, Float>>,
+        ggufName: String,
+        hfCandidates: List<String>,
+        transpose: Boolean = false
+    ) {
+        for (hfName in hfCandidates) {
+            val info = tensorsByHfName[hfName] ?: continue
+            tensorsByGgufName[ggufName] = loadAndConvertTensor<T>(ctx, dtype, reader, info, transpose)
+            return
+        }
+    }
+
+    /**
+     * Variant of [loadFirstExisting] that silently skips the load if the
+     * raw on-disk tensor exceeds [MAX_BYTES_PER_TENSOR] (the JVM ByteArray
+     * limit our streaming reader is bound by). Used for PLE globals on
+     * real Gemma-4 SafeTensors checkpoints, where the BF16 source is too
+     * large for the eager reader path.
+     */
+    private fun <T : DType> loadFirstExistingIfFits(
+        ctx: ExecutionContext,
+        dtype: KClass<T>,
+        reader: StreamingShardedSafeTensorsReader,
+        tensorsByHfName: Map<String, ShardedTensorInfo>,
+        tensorsByGgufName: MutableMap<String, Tensor<T, Float>>,
+        ggufName: String,
+        hfCandidates: List<String>,
+        transpose: Boolean = false
+    ) {
+        for (hfName in hfCandidates) {
+            val info = tensorsByHfName[hfName] ?: continue
+            if (info.sizeInBytes > MAX_BYTES_PER_TENSOR) {
+                // Leave the slot empty so PLE auto-detection turns off cleanly.
+                return
+            }
+            tensorsByGgufName[ggufName] = loadAndConvertTensor<T>(ctx, dtype, reader, info, transpose)
+            return
         }
     }
 
@@ -202,9 +295,21 @@ public class Gemma4SafeTensorsWeightLoader(
     }
 
     private companion object {
+        // The streaming sharded reader returns each tensor as a single
+        // ByteArray, which the JVM caps at Int.MAX_VALUE bytes. Keep a
+        // little headroom for safety.
+        const val MAX_BYTES_PER_TENSOR: Long = Int.MAX_VALUE.toLong() - 1024L
+
         const val HF_EMBED_TOKENS = "model.language_model.embed_tokens.weight"
         const val HF_OUTPUT_NORM = "model.language_model.norm.weight"
 
+        // Gemma 4 (HF transformers ≥ 5.5) PLE global tensor names.
+        const val HF_EMBED_TOKENS_PER_LAYER = "model.language_model.embed_tokens_per_layer.weight"
+        const val HF_PER_LAYER_MODEL_PROJECTION = "model.language_model.per_layer_model_projection.weight"
+        const val HF_PER_LAYER_PROJECTION_NORM = "model.language_model.per_layer_projection_norm.weight"
+
+        // Legacy aliases (Gemma 3n / GGUF-converted checkpoints). Tried as a
+        // fallback if the new HF names are absent.
         const val HF_PER_LAYER_TOKEN_EMBD = "model.language_model.per_layer_token_embd.weight"
         const val HF_PER_LAYER_MODEL_PROJ = "model.language_model.per_layer_model_proj.weight"
         const val HF_PER_LAYER_PROJ_NORM = "model.language_model.per_layer_proj_norm.weight"
@@ -215,10 +320,15 @@ public class Gemma4SafeTensorsWeightLoader(
         fun hfAttnV(layer: Int) = "model.language_model.layers.$layer.self_attn.v_proj.weight"
         fun hfAttnO(layer: Int) = "model.language_model.layers.$layer.self_attn.o_proj.weight"
         fun hfPostAttnLayernorm(layer: Int) = "model.language_model.layers.$layer.post_attention_layernorm.weight"
+        fun hfPreFfwLayernorm(layer: Int) = "model.language_model.layers.$layer.pre_feedforward_layernorm.weight"
+        fun hfPostFfwLayernorm(layer: Int) = "model.language_model.layers.$layer.post_feedforward_layernorm.weight"
+        fun hfLayerScalar(layer: Int) = "model.language_model.layers.$layer.layer_scalar"
         fun hfMlpGate(layer: Int) = "model.language_model.layers.$layer.mlp.gate_proj.weight"
         fun hfMlpUp(layer: Int) = "model.language_model.layers.$layer.mlp.up_proj.weight"
         fun hfMlpDown(layer: Int) = "model.language_model.layers.$layer.mlp.down_proj.weight"
         fun hfPerLayerProjection(layer: Int) = "model.language_model.layers.$layer.per_layer_projection.weight"
+        fun hfPerLayerInputGate(layer: Int) = "model.language_model.layers.$layer.per_layer_input_gate.weight"
+        fun hfPostPerLayerInputNorm(layer: Int) = "model.language_model.layers.$layer.post_per_layer_input_norm.weight"
         fun hfAttnQNorm(layer: Int) = "model.language_model.layers.$layer.self_attn.q_norm.weight"
         fun hfAttnKNorm(layer: Int) = "model.language_model.layers.$layer.self_attn.k_norm.weight"
     }

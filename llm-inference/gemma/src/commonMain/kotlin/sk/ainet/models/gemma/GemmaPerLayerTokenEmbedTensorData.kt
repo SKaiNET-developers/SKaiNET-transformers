@@ -37,7 +37,7 @@ public class GemmaPerLayerTokenEmbedTensorData(
     logicalShape: Shape,
     public val quantType: GGMLQuantizationType,
     public val packedBytes: ByteArray
-) : TensorData<FP32, Float> {
+) : TensorData<FP32, Float>, RowDequantSource {
 
     override val shape: Shape = logicalShape
 
@@ -71,7 +71,7 @@ public class GemmaPerLayerTokenEmbedTensorData(
      * Dequant one row (vocabulary entry) to FP32. Returns a fresh
      * `FloatArray` of length `shape[1]`.
      */
-    public fun dequantRow(rowIdx: Int): FloatArray {
+    public override fun dequantRow(rowIdx: Int): FloatArray {
         require(rowIdx in 0 until shape[0]) {
             "rowIdx $rowIdx out of range [0, ${shape[0]})"
         }
