@@ -63,7 +63,7 @@ public enum class ModelFamily(
     LLAMA("llama", "LLaMA / Mistral", true, "llama3"),
     QWEN("qwen", "Qwen", true, "qwen"),
     GEMMA("gemma", "Gemma", true, "gemma"),
-    APERTUS("apertus", "Apertus", false, "chatml"),
+    APERTUS("apertus", "Apertus", false, "apertus"),
     BERT("bert", "BERT", false, null),
     VOXTRAL("voxtral", "Voxtral TTS", false, null),
     UNKNOWN("unknown", "Unknown", false, null);
