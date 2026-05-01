@@ -21,6 +21,7 @@ dependencies {
     // Inference modules (for network loaders)
     implementation(project(":llm-inference:llama"))
     implementation(project(":llm-inference:gemma"))
+    implementation(project(":llm-inference:apertus"))
 
     // SKaiNET core libraries
     implementation(libs.skainet.lang.core)
