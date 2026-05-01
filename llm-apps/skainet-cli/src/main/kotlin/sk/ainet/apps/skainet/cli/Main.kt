@@ -10,6 +10,7 @@ import sk.ainet.apps.llm.OptimizedLLMRuntime
 import sk.ainet.apps.llm.Tokenizer
 import sk.ainet.apps.llm.UnifiedModelLoader
 import sk.ainet.apps.llm.generate
+import sk.ainet.models.apertus.ApertusNetworkLoader
 import sk.ainet.models.gemma.Gemma4WeightLoader
 import sk.ainet.models.gemma.Gemma4Weights
 import sk.ainet.models.gemma.GemmaNetworkLoader
@@ -163,10 +164,15 @@ fun main(args: Array<String>) {
             memSegFactory.close()
         })
 
-        // Load model based on detected family. Gemma routes through the DSL
-        // pipeline (gemmaNetwork() + OptimizedLLMRuntime, Phase 5d parity);
-        // everything else (LLaMA, Qwen, Apertus, ...) takes the LlamaRuntime
-        // path which supports NATIVE_OPTIMIZED quant tensors for low-RAM loads.
+        // Load model based on detected family. Gemma and Apertus route
+        // through the DSL pipeline (their respective network() builder +
+        // OptimizedLLMRuntime); everything else (LLaMA, Qwen, ...) takes
+        // the LlamaRuntime path which supports NATIVE_OPTIMIZED quant
+        // tensors for low-RAM loads. Apertus had previously fallen
+        // through to the LlamaRuntime branch — that runtime doesn't
+        // implement Apertus's xIELU activation, QK-Norm, or ungated FFN,
+        // so logits silently diverged from the checkpoint's intent. See
+        // APERTUS_ROLLOUT.md (PR 1) for the rollout context.
         val runtime: InferenceRuntime<FP32> = if (modelInfo.family == ModelFamily.GEMMA) {
             println("Loading Gemma GGUF model from $modelPath via gemmaNetwork() + OptimizedLLMRuntime (NATIVE_OPTIMIZED)...")
             if (cliArgs.contextLength != null) {
@@ -179,6 +185,16 @@ fun main(args: Array<String>) {
             @Suppress("UNCHECKED_CAST")
             val converted = convertGemmaWeightsToMemSeg(rawWeights, ctx, quantArena) as Gemma4Weights<FP32, Float>
             val model = GemmaNetworkLoader.fromWeights(ctx, converted, FP32::class)
+            OptimizedLLMRuntime(model, ctx, OptimizedLLMMode.DIRECT, FP32::class)
+        } else if (modelInfo.family == ModelFamily.APERTUS) {
+            println("Loading Apertus GGUF model from $modelPath via apertusNetwork() + OptimizedLLMRuntime (NATIVE_OPTIMIZED)...")
+            if (cliArgs.contextLength != null) {
+                println("  --context flag currently ignored on the Apertus path; uses model default.")
+            }
+            val model = ApertusNetworkLoader.fromGguf(
+                randomAccessProvider = { JvmRandomAccessSource.open(modelPath.toString()) },
+                quantPolicy = QuantPolicy.NATIVE_OPTIMIZED
+            ).load<FP32, Float>(ctx)
             OptimizedLLMRuntime(model, ctx, OptimizedLLMMode.DIRECT, FP32::class)
         } else {
             val acceptedArchitectures = modelInfo.family.architectures + setOf(modelInfo.architecture)

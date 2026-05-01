@@ -1,8 +1,8 @@
 # Apertus Support Rollout
 
-**Status:** plan landed; PRs 1–4 not started.
+**Status:** PR 1 in flight (skainet-cli routing fix).
 **Owner:** unassigned.
-**Plan PR:** this commit.
+**Plan PR:** #91 (merged).
 
 ## Context
 
@@ -23,7 +23,7 @@ The architecture / library layer itself is solid:
 
 ## Staged delivery
 
-- [ ] **PR 1 — `fix(apertus): route through OptimizedLLMRuntime + apertusNetwork()`** (correctness fix)
+- [x] **PR 1 — `fix(apertus): route through OptimizedLLMRuntime + apertusNetwork()`** (correctness fix) — this PR
 - [ ] **PR 2 — `docs(apertus): document chat template format`** (research)
 - [ ] **PR 3 — `feat(apertus): tool calling support`** (implementation, depends on PR 2)
 - [ ] **PR 4 — `feat(kapertus): rebuild CLI under llm-apps/`** (parity, optional)
