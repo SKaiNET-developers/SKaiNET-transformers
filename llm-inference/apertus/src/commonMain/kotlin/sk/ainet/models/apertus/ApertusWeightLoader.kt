@@ -631,7 +631,7 @@ public class ApertusWeightLoader private constructor(
     }
 
     @Suppress("UNCHECKED_CAST")
-    private fun <T : DType, V> streamingTensorToTensor(
+    internal fun <T : DType, V> streamingTensorToTensor(
         ctx: ExecutionContext,
         dtype: KClass<T>,
         reader: StreamingGGUFReader,
