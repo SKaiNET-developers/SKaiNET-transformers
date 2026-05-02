@@ -2,6 +2,7 @@ package sk.ainet.apps.llm
 
 import sk.ainet.io.RandomAccessSource
 import sk.ainet.io.gguf.StreamingGGUFReader
+import sk.ainet.io.gguf.getInt
 import sk.ainet.lang.types.DType
 
 /**
@@ -54,26 +55,14 @@ public object UnifiedModelLoader {
                 GGUFModelInfo(
                     architecture = arch,
                     family = family,
-                    contextLength = fields["${arch}.context_length"].toIntValue() ?: 4096,
-                    vocabSize = fields["${arch}.vocab_size"].toIntValue()
+                    contextLength = fields.getInt("${arch}.context_length") ?: 4096,
+                    vocabSize = fields.getInt("${arch}.vocab_size")
                         ?: ((fields["tokenizer.ggml.tokens"] as? List<*>)?.size ?: 0),
-                    blockCount = fields["${arch}.block_count"].toIntValue() ?: 0,
-                    embeddingLength = fields["${arch}.embedding_length"].toIntValue() ?: 0,
+                    blockCount = fields.getInt("${arch}.block_count") ?: 0,
+                    embeddingLength = fields.getInt("${arch}.embedding_length") ?: 0,
                     fields = fields
                 )
             }
         }
-    }
-
-    private fun Any?.toIntValue(): Int? = when (this) {
-        is Int -> this
-        is UInt -> this.toInt()
-        is Long -> this.toInt()
-        is ULong -> this.toInt()
-        is Short -> this.toInt()
-        is UShort -> this.toInt()
-        is Byte -> this.toInt()
-        is UByte -> this.toInt()
-        else -> null
     }
 }
