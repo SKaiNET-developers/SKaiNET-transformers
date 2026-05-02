@@ -2,12 +2,16 @@ package sk.ainet.models.apertus
 
 import kotlinx.coroutines.runBlocking
 import sk.ainet.apps.llm.ModelFamily
+import sk.ainet.apps.llm.OptimizedLLMMode
+import sk.ainet.apps.llm.OptimizedLLMRuntime
 import sk.ainet.apps.llm.UnifiedModelLoader
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
 import sk.ainet.io.gguf.StreamingGGUFReader
 import sk.ainet.io.model.QuantPolicy
+import sk.ainet.lang.types.FP32
 import java.io.File
+import java.lang.foreign.Arena
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -180,33 +184,138 @@ class ApertusRealGgufLoadingTest {
         println("[real-load fromGguf NATIVE_OPTIMIZED] top-modules=${topNames.size}")
     }
 
-    /**
-     * End-to-end inference (forward / generate / tool calling) is intentionally
-     * NOT covered here.
-     *
-     * `ApertusNetworkLoader.fromGguf().load()` succeeds end-to-end (verified by
-     * the test above), and the embedding lookup works after the
-     * `loadStreamingTensor` token-embd dequant special case. But the rest of
-     * the forward pass — Q/K/V/O projections, FFN matmuls — relies on the
-     * standard `linearProject(ops, input, weight) = ops.matmul(input, ops.transpose(weight))`
-     * helper, which assumes a logical rank-2 weight. Under
-     * `QuantPolicy.NATIVE_OPTIMIZED` the loader stores quantized weights as
-     * raw byte-level rank-1 `Int8` tensors so the native FFM kernels can
-     * address the block layout directly — but `ops.transpose(byteShape)` then
-     * fails.
-     *
-     * Gemma's Q4_K end-to-end test works because Gemma's loader uses
-     * `Q4_KBlockTensorData(logicalShape, blockMajorBytes)` with a lazy
-     * `transpose` override and a quant-aware `matmul` dispatch (see
-     * `GemmaDslQ4KTest`, `relayoutQ4_KRowMajorToBlockMajor`). Apertus's
-     * loader stores raw Int8 bytes instead, so `linearProject` blows up at
-     * the first attention projection.
-     *
-     * Tracking issue: see the upstream / transformers follow-up — the
-     * Apertus loader needs per-quant-type tensor-data wrappers
-     * (`Q4_KBlockTensorData` / `Q5_KBlockTensorData` / `Q6_KBlockTensorData`)
-     * with row-major → block-major relayout, mirroring Gemma's path.
-     */
+    @Test
+    fun `forward pass on real Apertus produces finite logits of vocab size`() = runBlocking {
+        val file = modelFile ?: run {
+            println("[skip] Apertus GGUF not found.")
+            return@runBlocking
+        }
+        val maxHeapGb = Runtime.getRuntime().maxMemory() / (1024L * 1024L * 1024L)
+        if (maxHeapGb < 8) {
+            println("[skip] heap=$maxHeapGb GB < 8 GB; rerun with -PapertusTestMaxHeap=12g")
+            return@runBlocking
+        }
+
+        val ctx = DirectCpuExecutionContext.create()
+        val info = UnifiedModelLoader.peek { JvmRandomAccessSource.open(file) }
+
+        // load → convert → fromWeights — the converter wraps each quantized
+        // weight in the right block-major TensorData (Q4_K / Q6_K / Q4_0 / Q8_0)
+        // so the SIMD matmul kernels can dispatch directly. Without it the
+        // first attention projection blows up with "Transpose requires at least
+        // 2 dimensions" because NATIVE_OPTIMIZED stores raw byte-shape rank-1
+        // tensors that the standard transpose+matmul path can't consume.
+        Arena.ofShared().use { arena ->
+            val raw = ApertusWeightLoader.fromRandomAccess(
+                randomAccessProvider = { JvmRandomAccessSource.open(file) },
+                quantPolicy = QuantPolicy.NATIVE_OPTIMIZED
+            ).loadToMap<FP32, Float>(ctx)
+
+            println("[real-forward weights] tensors=${raw.tensors.size} quantTypes=${raw.quantTypes.size} xielu=${raw.xieluParams.size}")
+            raw.xieluParams[0]?.let { p ->
+                println("[real-forward xielu0] alpha_p=${p.alphaP} alpha_n=${p.alphaN} beta=${p.beta} eps=${p.eps}")
+            }
+            raw.tensors[ApertusTensorNames.TOKEN_EMBEDDINGS]?.let { t ->
+                println("[real-forward token_embd shape] ${t.shape}")
+            }
+
+            val converted = convertApertusWeightsToMemSeg(raw, ctx, arena)
+            val model = ApertusNetworkLoader.fromWeights(ctx, converted)
+
+            val runtime = OptimizedLLMRuntime(
+                model = model,
+                ctx = ctx,
+                mode = OptimizedLLMMode.DIRECT,
+                dtype = FP32::class
+            )
+
+            val bosTokenId = (info.fields["tokenizer.ggml.bos_token_id"] as? Number)?.toInt()
+                ?: (info.fields["tokenizer.ggml.bos_token_id"] as? UInt)?.toInt()
+                ?: 1
+            val logits = runtime.forward(bosTokenId)
+
+            assertEquals(info.vocabSize, logits.shape[logits.shape.rank - 1],
+                "last logit dim must equal vocabSize=${info.vocabSize}, got shape ${logits.shape}")
+
+            val buf = logits.data.copyToFloatArray()
+            var nonZero = 0
+            var nan = 0
+            var inf = 0
+            var max = Float.NEGATIVE_INFINITY
+            var min = Float.POSITIVE_INFINITY
+            for (v in buf) {
+                if (v.isNaN()) nan++
+                else if (!v.isFinite()) inf++
+                else {
+                    if (v != 0f) nonZero++
+                    if (v > max) max = v
+                    if (v < min) min = v
+                }
+            }
+            println("[real-forward] vocab=${info.vocabSize} nan=$nan inf=$inf non-zero=$nonZero/${buf.size} min=$min max=$max")
+            assertEquals(0, nan, "logits must not contain NaN")
+            assertEquals(0, inf, "logits must not contain ±Inf")
+            assertTrue(nonZero > buf.size / 2,
+                "expected a broad logit distribution; got $nonZero/${buf.size} non-zero (min=$min max=$max)")
+            assertTrue(max > min,
+                "logits look constant (min=$min max=$max) — model didn't actually run")
+        }
+    }
+
+    @Test
+    fun `greedy generate on real Apertus produces in-vocab token sequence`() = runBlocking {
+        val file = modelFile ?: run {
+            println("[skip] Apertus GGUF not found.")
+            return@runBlocking
+        }
+        val maxHeapGb = Runtime.getRuntime().maxMemory() / (1024L * 1024L * 1024L)
+        if (maxHeapGb < 8) {
+            println("[skip] heap=$maxHeapGb GB < 8 GB; rerun with -PapertusTestMaxHeap=12g")
+            return@runBlocking
+        }
+
+        val ctx = DirectCpuExecutionContext.create()
+        val info = UnifiedModelLoader.peek { JvmRandomAccessSource.open(file) }
+
+        Arena.ofShared().use { arena ->
+            val raw = ApertusWeightLoader.fromRandomAccess(
+                randomAccessProvider = { JvmRandomAccessSource.open(file) },
+                quantPolicy = QuantPolicy.NATIVE_OPTIMIZED
+            ).loadToMap<FP32, Float>(ctx)
+            val converted = convertApertusWeightsToMemSeg(raw, ctx, arena)
+            val model = ApertusNetworkLoader.fromWeights(ctx, converted)
+
+            val bosTokenId = (info.fields["tokenizer.ggml.bos_token_id"] as? Number)?.toInt()
+                ?: (info.fields["tokenizer.ggml.bos_token_id"] as? UInt)?.toInt()
+                ?: 1
+            val runtime = OptimizedLLMRuntime(
+                model = model,
+                ctx = ctx,
+                mode = OptimizedLLMMode.DIRECT,
+                dtype = FP32::class,
+                bos = bosTokenId
+            )
+
+            val steps = 4
+            val generated = mutableListOf<Int>()
+            runtime.generate(
+                prompt = intArrayOf(bosTokenId),
+                steps = steps,
+                temperature = 0f
+            ) { tokenId -> generated.add(tokenId) }
+
+            assertEquals(steps, generated.size, "must emit exactly $steps tokens")
+            for (tokenId in generated) {
+                assertTrue(tokenId in 0 until info.vocabSize,
+                    "generated token $tokenId out of [0, ${info.vocabSize})")
+            }
+            // Greedy on real weights should not collapse to the same token every step.
+            assertTrue(generated.toSet().size > 1,
+                "greedy collapsed to a single token across $steps steps: $generated")
+
+            println("[real-generate greedy] tokens=$generated")
+        }
+    }
 
     private fun locateModel(): File? {
         System.getenv("APERTUS_GGUF_PATH")?.let { p ->

@@ -115,18 +115,36 @@ public class ApertusWeightLoader private constructor(
         val tensorByName = reader.tensors.associateBy { it.name }
         val byName = linkedMapOf<String, Tensor<T, V>>()
         val xieluParams = mutableMapOf<Int, ApertusXIELUParams>()
+        val quantTypes = linkedMapOf<String, GGMLQuantizationType>()
+        val logicalShapes = linkedMapOf<String, Shape>()
+        val quantBytes = linkedMapOf<String, ByteArray>()
+        val nativeOptimized = quantPolicy == QuantPolicy.NATIVE_OPTIMIZED
 
         // Load required tensors
         requiredTensorNames(metadata).forEach { name ->
             val rt = tensorByName[name]
                 ?: error("Missing required tensor in GGUF payload: $name")
-            byName[name] = loadReaderTensor(ctx, dtype, reader, rt, name)
+            if (nativeOptimized && shouldDeferToConverterReader(name, rt)) {
+                val raw = if (rt.data.isEmpty()) reader.materialize(rt) else rt.data
+                quantBytes[name] = DequantOps.toByteArray(raw, rt.name)
+                trackQuantInfo(name, rt, quantTypes, logicalShapes)
+            } else {
+                byName[name] = loadReaderTensor(ctx, dtype, reader, rt, name)
+                trackQuantInfo(name, rt, quantTypes, logicalShapes)
+            }
         }
 
         // Load optional rope_freqs tensor
         tensorByName[ApertusTensorNames.ROPE_FREQS]?.let { rt ->
-            byName[ApertusTensorNames.ROPE_FREQS] =
-                loadReaderTensor(ctx, dtype, reader, rt, ApertusTensorNames.ROPE_FREQS)
+            if (nativeOptimized && shouldDeferToConverterReader(ApertusTensorNames.ROPE_FREQS, rt)) {
+                val raw = if (rt.data.isEmpty()) reader.materialize(rt) else rt.data
+                quantBytes[ApertusTensorNames.ROPE_FREQS] = DequantOps.toByteArray(raw, rt.name)
+                trackQuantInfo(ApertusTensorNames.ROPE_FREQS, rt, quantTypes, logicalShapes)
+            } else {
+                byName[ApertusTensorNames.ROPE_FREQS] =
+                    loadReaderTensor(ctx, dtype, reader, rt, ApertusTensorNames.ROPE_FREQS)
+                trackQuantInfo(ApertusTensorNames.ROPE_FREQS, rt, quantTypes, logicalShapes)
+            }
         }
 
         // Extract xIELU params: try metadata fields first, then per-layer tensors
@@ -135,7 +153,15 @@ public class ApertusWeightLoader private constructor(
             extractXIELUParamsFromReader(reader, tensorByName, metadata.blockCount, xieluParams)
         }
 
-        return ApertusWeights(metadata, byName, xieluParams, preTransposed)
+        return ApertusWeights(
+            metadata = metadata,
+            tensors = byName,
+            xieluParams = xieluParams,
+            preTransposed = preTransposed,
+            quantTypes = quantTypes,
+            logicalShapes = logicalShapes,
+            quantBytes = quantBytes
+        )
     }
 
     // ============== Streaming loading ==============
@@ -159,17 +185,37 @@ public class ApertusWeightLoader private constructor(
             val tensorByName = reader.tensors.associateBy { it.name }
             val byName = linkedMapOf<String, Tensor<T, V>>()
             val xieluParams = mutableMapOf<Int, ApertusXIELUParams>()
+            val quantTypes = linkedMapOf<String, GGMLQuantizationType>()
+            val logicalShapes = linkedMapOf<String, Shape>()
+            val quantBytes = linkedMapOf<String, ByteArray>()
+            val nativeOptimized = quantPolicy == QuantPolicy.NATIVE_OPTIMIZED
 
             requiredTensorNames(metadata).forEach { name ->
                 val st = tensorByName[name]
                     ?: error("Missing required tensor in GGUF payload: $name")
-                byName[name] = loadStreamingTensor(ctx, dtype, reader, st, name)
+                if (nativeOptimized && shouldDeferToConverter(name, st)) {
+                    // The JVM `ApertusMemSegConverter` will wrap these bytes in
+                    // the right block-major TensorData. Skip the intermediate
+                    // byte-shape `Int8` tensor — it'd just double the heap
+                    // footprint and gets immediately discarded by the converter.
+                    quantBytes[name] = reader.loadTensorData(st)
+                    trackQuantInfo(name, st, quantTypes, logicalShapes)
+                } else {
+                    byName[name] = loadStreamingTensor(ctx, dtype, reader, st, name)
+                    trackQuantInfo(name, st, quantTypes, logicalShapes)
+                }
             }
 
             // Load optional rope_freqs tensor
             tensorByName[ApertusTensorNames.ROPE_FREQS]?.let { st ->
-                byName[ApertusTensorNames.ROPE_FREQS] =
-                    loadStreamingTensor(ctx, dtype, reader, st, ApertusTensorNames.ROPE_FREQS)
+                if (nativeOptimized && shouldDeferToConverter(ApertusTensorNames.ROPE_FREQS, st)) {
+                    quantBytes[ApertusTensorNames.ROPE_FREQS] = reader.loadTensorData(st)
+                    trackQuantInfo(ApertusTensorNames.ROPE_FREQS, st, quantTypes, logicalShapes)
+                } else {
+                    byName[ApertusTensorNames.ROPE_FREQS] =
+                        loadStreamingTensor(ctx, dtype, reader, st, ApertusTensorNames.ROPE_FREQS)
+                    trackQuantInfo(ApertusTensorNames.ROPE_FREQS, st, quantTypes, logicalShapes)
+                }
             }
 
             // Extract xIELU params: try metadata fields first, then per-layer tensors
@@ -178,8 +224,94 @@ public class ApertusWeightLoader private constructor(
                 extractXIELUParamsFromStreaming(reader, tensorByName, metadata.blockCount, xieluParams)
             }
 
-            ApertusWeights(metadata, byName, xieluParams, preTransposed)
+            ApertusWeights(
+                metadata = metadata,
+                tensors = byName,
+                xieluParams = xieluParams,
+                preTransposed = preTransposed,
+                quantTypes = quantTypes,
+                logicalShapes = logicalShapes,
+                quantBytes = quantBytes
+            )
         }
+    }
+
+    /**
+     * Records the original GGUF tensor type and logical `[out, in]` shape so
+     * the JVM-side `ApertusMemSegConverter` can wrap each tensor in the right
+     * block-major TensorData. We only track tensors that are actually
+     * quantized — F32 / F16 / BF16 don't need converter dispatch.
+     *
+     * The token embedding is always force-dequant'd to FP32 in
+     * [loadStreamingTensor] / [loadReaderTensor] (for the gather lookup), so
+     * we deliberately skip it here even though the GGUF tensor type is Q4_K /
+     * Q6_K. This keeps the converter from re-wrapping a tensor that's
+     * already in the right form.
+     */
+    /**
+     * Convert a GGUF-stored shape `[in, out]` to the logical PyTorch
+     * `[out, in]` shape every downstream API in this codebase assumes
+     * (`Linear.init`, `Embedding`, `Gemma4WeightMapper`, `WeightMapper`,
+     * etc.). GGUF lists dimensions fastest-varying-first; PyTorch lists them
+     * fastest-varying-last. Reversing the dim list flips between the two
+     * conventions. Norm-style rank-1 tensors are unaffected.
+     */
+    private fun logicalShape(ggufDims: List<UInt>): Shape =
+        Shape(*ggufDims.map { it.toInt() }.reversed().toIntArray())
+
+    /**
+     * Whether the JVM-side `ApertusMemSegConverter` will replace the tensor's
+     * stored value, in which case the loader skips the intermediate
+     * byte-shape `Int8` wrapping to avoid double-buffering 5 GB of bytes on
+     * Apertus-8B-class models. The converter handles every quantized type
+     * except `TOKEN_EMBEDDINGS` (already force-dequant'd by the loader).
+     */
+    private fun shouldDeferToConverter(name: String, st: StreamingTensorInfo): Boolean {
+        if (name == ApertusTensorNames.TOKEN_EMBEDDINGS) return false
+        return when (st.tensorType) {
+            GGMLQuantizationType.F32,
+            GGMLQuantizationType.F16,
+            GGMLQuantizationType.BF16 -> false
+            else -> true
+        }
+    }
+
+    private fun shouldDeferToConverterReader(name: String, rt: ReaderTensor): Boolean {
+        if (name == ApertusTensorNames.TOKEN_EMBEDDINGS) return false
+        return when (rt.tensorType) {
+            GGMLQuantizationType.F32,
+            GGMLQuantizationType.F16,
+            GGMLQuantizationType.BF16 -> false
+            else -> true
+        }
+    }
+
+    private fun trackQuantInfo(
+        name: String,
+        st: StreamingTensorInfo,
+        quantTypes: MutableMap<String, GGMLQuantizationType>,
+        logicalShapes: MutableMap<String, Shape>
+    ) {
+        if (name == ApertusTensorNames.TOKEN_EMBEDDINGS) return
+        if (st.tensorType == GGMLQuantizationType.F32) return
+        if (st.tensorType == GGMLQuantizationType.F16) return
+        if (st.tensorType == GGMLQuantizationType.BF16) return
+        quantTypes[name] = st.tensorType
+        logicalShapes[name] = logicalShape(st.shape)
+    }
+
+    private fun trackQuantInfo(
+        name: String,
+        rt: ReaderTensor,
+        quantTypes: MutableMap<String, GGMLQuantizationType>,
+        logicalShapes: MutableMap<String, Shape>
+    ) {
+        if (name == ApertusTensorNames.TOKEN_EMBEDDINGS) return
+        if (rt.tensorType == GGMLQuantizationType.F32) return
+        if (rt.tensorType == GGMLQuantizationType.F16) return
+        if (rt.tensorType == GGMLQuantizationType.BF16) return
+        quantTypes[name] = rt.tensorType
+        logicalShapes[name] = logicalShape(rt.shape)
     }
 
     // ============== Quantized (lazy-dequant) loading ==============
@@ -273,7 +405,7 @@ public class ApertusWeightLoader private constructor(
         reader: GGUFReader,
         rt: ReaderTensor
     ): Tensor<FP32, Float> {
-        val shape = Shape(*rt.shape.map { it.toInt() }.toIntArray())
+        val shape = logicalShape(rt.shape)
         val raw = if (rt.data.isEmpty()) reader.materialize(rt) else rt.data
         val floats = when (rt.tensorType) {
             GGMLQuantizationType.F32 -> (raw as List<Float>).toFloatArray()
@@ -289,7 +421,7 @@ public class ApertusWeightLoader private constructor(
 
     /** Keep a tensor as raw quantized bytes for lazy dequantization. */
     private fun readerTensorToQuantized(reader: GGUFReader, rt: ReaderTensor): QuantizedTensor {
-        val shape = Shape(*rt.shape.map { it.toInt() }.toIntArray())
+        val shape = logicalShape(rt.shape)
         val raw = if (rt.data.isEmpty()) reader.materialize(rt) else rt.data
         val bytes = DequantOps.toByteArray(raw, rt.name)
         return QuantizedTensor(bytes, rt.tensorType, shape, rt.nElements)
@@ -301,7 +433,7 @@ public class ApertusWeightLoader private constructor(
         reader: StreamingGGUFReader,
         st: StreamingTensorInfo
     ): Tensor<FP32, Float> {
-        val shape = Shape(*st.shape.map { it.toInt() }.toIntArray())
+        val shape = logicalShape(st.shape)
         val bytes = reader.loadTensorData(st)
         val floats = when (st.tensorType) {
             GGMLQuantizationType.F32 -> DequantOps.bytesToFloatArray(bytes)
@@ -317,7 +449,7 @@ public class ApertusWeightLoader private constructor(
         reader: StreamingGGUFReader,
         st: StreamingTensorInfo
     ): QuantizedTensor {
-        val shape = Shape(*st.shape.map { it.toInt() }.toIntArray())
+        val shape = logicalShape(st.shape)
         val bytes = reader.loadTensorData(st)
         return QuantizedTensor(bytes, st.tensorType, shape, st.nElements.toInt())
     }
@@ -584,7 +716,7 @@ public class ApertusWeightLoader private constructor(
             st.tensorType != GGMLQuantizationType.F16 &&
             st.tensorType != GGMLQuantizationType.BF16
         ) {
-            val shape = Shape(*st.shape.map { it.toInt() }.toIntArray())
+            val shape = logicalShape(st.shape)
             val bytes = reader.loadTensorData(st)
             val floats = DequantOps.dequantFromBytes(bytes, st.tensorType, st.nElements.toInt())
             return createTensor(ctx, dtype, shape, floats)
@@ -605,7 +737,7 @@ public class ApertusWeightLoader private constructor(
             rt.tensorType != GGMLQuantizationType.F16 &&
             rt.tensorType != GGMLQuantizationType.BF16
         ) {
-            val shape = Shape(*rt.shape.map { it.toInt() }.toIntArray())
+            val shape = logicalShape(rt.shape)
             val raw = if (rt.data.isEmpty()) reader.materialize(rt) else rt.data
             val bytes: ByteArray = DequantOps.toByteArray(raw, rt.name)
             val floats = DequantOps.dequantFromBytes(bytes, rt.tensorType, rt.nElements)
@@ -621,7 +753,7 @@ public class ApertusWeightLoader private constructor(
         reader: GGUFReader,
         rt: ReaderTensor
     ): Tensor<T, V> {
-        val shape = Shape(*rt.shape.map { it.toInt() }.toIntArray())
+        val shape = logicalShape(rt.shape)
         return when (rt.tensorType) {
             GGMLQuantizationType.F32 -> {
                 val floats = (if (rt.data.isEmpty()) reader.materialize(rt) else rt.data) as List<Float>
@@ -691,7 +823,7 @@ public class ApertusWeightLoader private constructor(
         reader: StreamingGGUFReader,
         st: StreamingTensorInfo
     ): Tensor<T, V> {
-        val shape = Shape(*st.shape.map { it.toInt() }.toIntArray())
+        val shape = logicalShape(st.shape)
         val bytes = reader.loadTensorData(st)
 
         return when (st.tensorType) {
@@ -760,36 +892,26 @@ public class ApertusWeightLoader private constructor(
     /**
      * Create a tensor from dequantized float data.
      *
-     * For 2D tensors from GGUF (stored column-major with shape [out, in]):
-     * - Normal mode: transposes to row-major [in, out] (requires `.t()` in runtime)
-     * - Pre-transposed mode: interprets column-major as row-major [in, out] directly,
-     *   skipping the data transpose. The weights can then be used directly in matmul
-     *   without `.t()`, saving ~50% memory.
+     * Builds a `Tensor<T, V>` from the dequantized FP32 floats. The caller is
+     * expected to have already converted the GGUF dim list to the logical
+     * PyTorch `[out, in]` shape via [logicalShape] — no transpose happens here.
+     *
+     * Earlier revisions of this method transposed the 2D data on the
+     * assumption that the loader passed it the raw GGUF `[in, out]` shape
+     * (treated as column-major). That pre-dated the fix to reverse shapes in
+     * the loader; the transpose here was actively scrambling tensor data on
+     * top of an already-reversed layout, but unit tests never caught it
+     * because they construct weights via [ApertusNetworkLoader.fromWeights]
+     * with synthetic FP32 tensors, bypassing this path entirely.
      */
     @Suppress("UNCHECKED_CAST")
     private fun <T : DType, V> createTensor(
         ctx: ExecutionContext,
         dtype: KClass<T>,
-        originalShape: Shape,
+        logicalShape: Shape,
         data: FloatArray
-    ): Tensor<T, V> {
-        return if (originalShape.rank == 2) {
-            val rows = originalShape[0]
-            val cols = originalShape[1]
-            if (preTransposed) {
-                // Column-major [out, in] is equivalent to row-major [in, out]
-                // Skip data transpose — weights are already in matmul-ready layout
-                val newShape = Shape(cols, rows)
-                ctx.fromFloatArray<T, Float>(newShape, dtype, data) as Tensor<T, V>
-            } else {
-                val transposed = DequantOps.transposeColumnMajorToRowMajor(data, rows, cols)
-                val newShape = Shape(cols, rows)
-                ctx.fromFloatArray<T, Float>(newShape, dtype, transposed) as Tensor<T, V>
-            }
-        } else {
-            ctx.fromFloatArray<T, Float>(originalShape, dtype, data) as Tensor<T, V>
-        }
-    }
+    ): Tensor<T, V> = ctx.fromFloatArray<T, Float>(logicalShape, dtype, data) as Tensor<T, V>
+
 
     // ============== Field helpers ==============
 
