@@ -54,14 +54,26 @@ public object UnifiedModelLoader {
                 GGUFModelInfo(
                     architecture = arch,
                     family = family,
-                    contextLength = (fields["${arch}.context_length"] as? Number)?.toInt() ?: 4096,
-                    vocabSize = (fields["${arch}.vocab_size"] as? Number)?.toInt()
+                    contextLength = fields["${arch}.context_length"].toIntValue() ?: 4096,
+                    vocabSize = fields["${arch}.vocab_size"].toIntValue()
                         ?: ((fields["tokenizer.ggml.tokens"] as? List<*>)?.size ?: 0),
-                    blockCount = (fields["${arch}.block_count"] as? Number)?.toInt() ?: 0,
-                    embeddingLength = (fields["${arch}.embedding_length"] as? Number)?.toInt() ?: 0,
+                    blockCount = fields["${arch}.block_count"].toIntValue() ?: 0,
+                    embeddingLength = fields["${arch}.embedding_length"].toIntValue() ?: 0,
                     fields = fields
                 )
             }
         }
+    }
+
+    private fun Any?.toIntValue(): Int? = when (this) {
+        is Int -> this
+        is UInt -> this.toInt()
+        is Long -> this.toInt()
+        is ULong -> this.toInt()
+        is Short -> this.toInt()
+        is UShort -> this.toInt()
+        is Byte -> this.toInt()
+        is UByte -> this.toInt()
+        else -> null
     }
 }

@@ -676,8 +676,18 @@ public class ApertusWeightLoader private constructor(
             GGMLQuantizationType.IQ4_NL, GGMLQuantizationType.IQ4_XS,
             GGMLQuantizationType.TQ1_0, GGMLQuantizationType.TQ2_0 -> {
                 when (quantPolicy) {
-                    QuantPolicy.RAW_BYTES, QuantPolicy.NATIVE_OPTIMIZED -> {
+                    QuantPolicy.RAW_BYTES -> {
+                        require(dtype == Int8::class) {
+                            "Quantized tensor ${st.name} requires dtype Int8 with quantPolicy=RAW_BYTES"
+                        }
                         ctx.fromByteArray<Int8, Byte>(shape, Int8::class, bytes) as Tensor<T, V>
+                    }
+                    QuantPolicy.NATIVE_OPTIMIZED -> {
+                        // Store raw quantized bytes; dtype can be FP32 (mixed mode).
+                        // Streaming reader preserves logical shape, so use byte-level shape.
+                        val byteShape = Shape(bytes.size)
+                        @Suppress("UNCHECKED_CAST")
+                        ctx.fromByteArray<Int8, Byte>(byteShape, Int8::class, bytes) as Tensor<T, V>
                     }
                     QuantPolicy.DEQUANTIZE_TO_FP32 -> {
                         val floats = DequantOps.dequantFromBytes(bytes, st.tensorType, st.nElements.toInt())
