@@ -146,22 +146,39 @@ class ApertusRealGgufLoadingTest {
         println("[real-load loadQuantized] fp32=${weights.fp32Tensors.size} quant=${weights.quantizedTensors.size} xielu-layers=${weights.xieluParams.size}")
     }
 
-    /**
-     * End-to-end network construction is intentionally NOT exercised here.
-     *
-     * `apertusNetwork(metadata)` (DSL inside skainet-lang-core) pre-allocates FP32
-     * zero-tensors for every Linear layer at construction time — independent of the
-     * `quantPolicy` chosen in the loader. For Apertus-8B (32 layers, 4096 hidden,
-     * ~14k FFN, 131k vocab) that's ~27 GB of FP32 zeros before WeightMapper has a
-     * chance to substitute in the loaded tensors, which OOMs anything under 32 GB
-     * of heap. The cleanup PR (commit 8a7e0ff) also removed `ApertusQuantizedRuntime`,
-     * which was the only memory-efficient runtime path for quantized Apertus models.
-     *
-     * Tracking issue: see follow-up to be filed; the fix is in the DSL builder
-     * (NetworkBuilder.kt:652 in skainet-lang-core) which calls `zeros(shape)` to
-     * initialize Linear weights eagerly. Loader-level correctness up to
-     * [ApertusWeightLoader.loadQuantized] is verified by the tests above.
-     */
+    @Test
+    fun `ApertusNetworkLoader fromGguf builds module from real Q4_K_S GGUF`() = runBlocking {
+        val file = modelFile ?: run {
+            println("[skip] Apertus GGUF not found.")
+            return@runBlocking
+        }
+        // Network construction allocates raw quant bytes (~5 GB) plus the placeholder
+        // metadata for ~27 GB of unrealized FP32 zero tensors. With upstream
+        // SKaiNET#587 (lazy zero-init in NetworkBuilder), the placeholders never
+        // materialize because WeightMapper substitutes them before any read.
+        val maxHeapGb = Runtime.getRuntime().maxMemory() / (1024L * 1024L * 1024L)
+        if (maxHeapGb < 8) {
+            println("[skip] heap=$maxHeapGb GB < 8 GB; rerun with -PapertusTestMaxHeap=12g")
+            return@runBlocking
+        }
+
+        val ctx = sk.ainet.context.DirectCpuExecutionContext.create()
+        val loader = ApertusNetworkLoader.fromGguf(
+            randomAccessProvider = { JvmRandomAccessSource.open(file) },
+            quantPolicy = QuantPolicy.NATIVE_OPTIMIZED
+        )
+
+        val model = loader.load<sk.ainet.lang.types.FP32, Float>(ctx)
+        assertNotNull(model, "ApertusNetworkLoader.load must return a Module")
+        assertTrue(model.modules.isNotEmpty(), "loaded module must have submodules")
+
+        val topNames = model.modules.map { it.name }.toSet()
+        assertTrue("token_embd" in topNames, "module tree missing token_embd: $topNames")
+        assertTrue("output_norm" in topNames, "module tree missing output_norm: $topNames")
+        assertTrue("output" in topNames, "module tree missing output: $topNames")
+
+        println("[real-load fromGguf NATIVE_OPTIMIZED] top-modules=${topNames.size}")
+    }
 
     private fun locateModel(): File? {
         System.getenv("APERTUS_GGUF_PATH")?.let { p ->
