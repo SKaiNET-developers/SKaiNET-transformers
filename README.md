@@ -4,60 +4,108 @@
 [![Maven Central](https://img.shields.io/maven-central/v/sk.ainet.transformers/skainet-transformers-agent.svg)](https://central.sonatype.com/artifact/sk.ainet.transformers/skainet-transformers-agent)
 [![DeepWiki](https://img.shields.io/badge/DeepWiki-View%20Docs-blue?logo=readthedocs&logoColor=white)](https://deepwiki.com/SKaiNET-developers/SKaiNET-transformers)
 
+Group: `sk.ainet.transformers`
 
-sk.ainet.transformers
+High-performance LLM application layer on top of the [SKaiNET](https://github.com/SKaiNET-developers/SKaiNET) engine. Provides model-specific inference, agentic chat with tool calling, and a unified CLI for transformer-based models, all in Kotlin Multiplatform.
 
-SKaiNET-transformers is a high-performance LLM (Large Language Model) application layer built on top of the [SKaiNET](https://github.com/SKaiNET-developers/SKaiNET.git) engine. It provides a set of runtimes and CLI tools for various transformer-based models, optimized for Kotlin Multiplatform.
+## Key features
 
-## Key Features
+- **Multi-model support.** Llama 3 / 3.1 / 3.2, Gemma 2 / 3 / 4, Qwen 2 / 3, Apertus (Swiss AI), Mistral, BERT.
+- **Native CPU performance.** Auto-discovers SKaiNET's priority-100 FFM (Foreign Function & Memory) native kernel provider when present (4–6× faster Q4_K matmul, 1.5–1.8× faster FP32 SGEMM vs the priority-50 Panama Vector path; Linux x86_64 / macOS ARM64 / Windows x86_64 in the published JAR — no manual setup).
+- **Native tool calling.** Family-specific chat templates and tool-call parsers for Llama 3, Gemma 4, Qwen, Apertus, and ChatML/Hermes. Includes a Java surface (`KLlamaJava`, `JavaTools.definition`, `JavaAgentLoop`) for plain-Java consumers.
+- **GGUF + SafeTensors loading.** Streaming reader for any model size; `NATIVE_OPTIMIZED` quant policy keeps weights in their packed SIMD-friendly form.
+- **Kotlin Multiplatform.** JVM, Android, Kotlin/Native (Linux x64/ARM64, macOS ARM64, iOS arm64/sim arm64), JS, Wasm targets where applicable.
 
-- **Multi-Model Support**: Implementations for popular architectures including Llama, Gemma, Qwen, and BERT.
-- **Engineered for Performance**: Uses the SKaiNET library as its core inference engine, leveraging hardware acceleration where available.
-- **Kotlin Multiplatform**: Designed to run across different platforms (JVM, Native, Android, etc.).
-- **Efficient Weights Loading**: Support for `safetensors` format for fast and safe model loading.
+## Current release
 
-## Project Structure
-
-- `llm-core`: Core abstractions and base classes for LLM components.
-- `llm-inference`: Model-specific inference logic (Llama, BERT, Gemma, Qwen).
-- `llm-runtime`: Platform-specific runtime implementations.
-- `llm-apps`: Ready-to-use CLI applications for model interaction and testing.
-- `llm-agent`: High-level agentic capabilities (in development).
-
-## Current Release
-
-The current release is **0.18.0**. To use SKaiNET-transformers in your project, add the following dependency:
+The current release is **0.21.1**. Coordinates:
 
 ```kotlin
 dependencies {
-    implementation("sk.ainet.transformers:llm-core:0.18.0")
+    implementation("sk.ainet.transformers:llm-core:0.21.1")
+    implementation("sk.ainet.transformers:llm-runtime-kllama:0.21.1") // or kgemma, etc.
+    implementation("sk.ainet.transformers:llm-agent:0.21.1")          // chat templates + tool calling
 }
 ```
 
-Make sure to use a matching version of the SKaiNET engine (`sk.ainet.core:skainet-lang-core:0.18.0`).
+The matching SKaiNET engine is **0.22.1**. To opt in to the native FFM CPU provider (recommended for JVM consumers):
 
-## Getting Started
+```kotlin
+dependencies {
+    implementation("sk.ainet.core:skainet-backend-cpu:0.22.1")        // priority-50 Panama Vector
+    implementation("sk.ainet.core:skainet-backend-native-cpu:0.22.1") // priority-100 FFM (auto-discovered)
+}
+```
+
+`KernelRegistry` picks the highest-priority available provider; on hosts where the native lib doesn't load (sandboxed JDKs, unsupported arches), it cleanly falls back to Panama with no functional regression.
+
+## Project structure
+
+| Module               | Purpose                                                                 |
+| -------------------- | ----------------------------------------------------------------------- |
+| `llm-api`            | Framework-neutral interfaces (`ChatModel`, `EmbeddingModel`, `ToolDefinition`) — Spring AI-shaped. |
+| `llm-core`           | `OptimizedLLMRuntime`, `ModelRegistry`, `UnifiedModelLoader`, shared abstractions. |
+| `llm-inference/<arch>` | Per-architecture network DSLs and weight loaders (`llama`, `gemma`, `qwen`, `apertus`, `bert`). |
+| `llm-runtime/<arch>` | Per-architecture runtime facades (`kllama`, `kgemma`, `kqwen`, `kapertus`). |
+| `llm-agent`          | Chat templates, tool-call parsers, agent loops; Java surface.           |
+| `llm-apps`           | CLIs: `skainet-cli` (unified), `kllama-cli`, `kbert-cli`, plus `kllama-java-sample`. |
+| `llm-test/llm-test-java` | JUnit 5 end-to-end tests for the Java surface (gated on `TINYLLAMA_MODEL_PATH`). |
+
+## Getting started
 
 ### Prerequisites
 
-- JDK 17 or higher
-- Gradle
+- JDK 21 or higher
+- Gradle 8.10+
 
-### Running the CLI Tools
-
-You can run the provided CLI tools using Gradle. For example, to run the BERT CLI:
+### CLI: unified `skainet-cli`
 
 ```bash
-./gradlew :llm-apps:kbert-cli:run --args="/path/to/model-dir 'query text'"
+# Plain generation
+./gradlew :llm-apps:skainet-cli:shadowJar
+java -jar llm-apps/skainet-cli/build/libs/skainet-all.jar \
+  -m /path/to/model.gguf "The capital of France is"
+
+# Tool-calling demo (calculator + file-listing tools auto-registered)
+java -jar skainet-all.jar -m model.gguf --demo --template=llama3 "What is 17 * 23?"
+
+# Interactive agent
+java -jar skainet-all.jar -m model.gguf --agent --template=apertus
 ```
 
-Replace `/path/to/model-dir` with a directory containing `model.safetensors`, `vocab.txt`, and `config.json`.
+`--template` accepts `llama3`, `chatml`, `qwen`, `gemma`, `apertus` (auto-detected from GGUF metadata if omitted).
+
+### Java consumers
+
+```java
+try (KLlamaSession session = KLlamaJava.loadGGUF(modelPath, /* systemPrompt */ null)) {
+    JavaTool calc = new JavaTool() {
+        @Override public ToolDefinition getDefinition() {
+            return JavaTools.definition(
+                "calculator", "Evaluate an arithmetic expression.",
+                "{\"type\":\"object\",\"properties\":{\"expression\":{\"type\":\"string\"}},\"required\":[\"expression\"]}"
+            );
+        }
+        @Override public String execute(Map<String, ?> args) { /* ... */ }
+    };
+    JavaAgentLoop agent = JavaAgentLoop.builder()
+        .session(session).tool(calc).template("llama3").build();
+    String response = agent.chat("What is 17 * 23?");
+}
+```
+
+See `llm-test/llm-test-java/src/test/java/.../KLlamaJavaToolCallingTest.java` for a runnable reference.
+
+## In develop, not in 0.21.1 yet
+
+- **Apertus support.** Routing fix, chat template, tool calling all merged on `develop`. See [`APERTUS_ROLLOUT.md`](APERTUS_ROLLOUT.md). Real-checkpoint loading has known gaps tracked separately.
+- **Gemma 4 chat-model JVM facade** (`Gemma4ChatModel`) for embedded text-only deployments.
+- **Sharded SafeTensors `loadTensorStorageMapped`** for >2 GB models (consumed by Gemma 4 PLE mmap path).
 
 ## Engine
 
-This project uses **SKaiNET** as its underlying execution engine. 
-GitHub: [https://github.com/SKaiNET-developers/SKaiNET](https://github.com/SKaiNET-developers/SKaiNET.git)
+This project uses [**SKaiNET**](https://github.com/SKaiNET-developers/SKaiNET) as its underlying execution engine — tensor ops, neural-network DSL, kernel SPI, GGUF / SafeTensors I/O.
 
 ## License
 
-[Add License Information Here]
+MIT — see [LICENCE](LICENCE).
