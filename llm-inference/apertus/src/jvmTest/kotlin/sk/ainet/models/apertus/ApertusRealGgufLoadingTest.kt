@@ -180,6 +180,34 @@ class ApertusRealGgufLoadingTest {
         println("[real-load fromGguf NATIVE_OPTIMIZED] top-modules=${topNames.size}")
     }
 
+    /**
+     * End-to-end inference (forward / generate / tool calling) is intentionally
+     * NOT covered here.
+     *
+     * `ApertusNetworkLoader.fromGguf().load()` succeeds end-to-end (verified by
+     * the test above), and the embedding lookup works after the
+     * `loadStreamingTensor` token-embd dequant special case. But the rest of
+     * the forward pass — Q/K/V/O projections, FFN matmuls — relies on the
+     * standard `linearProject(ops, input, weight) = ops.matmul(input, ops.transpose(weight))`
+     * helper, which assumes a logical rank-2 weight. Under
+     * `QuantPolicy.NATIVE_OPTIMIZED` the loader stores quantized weights as
+     * raw byte-level rank-1 `Int8` tensors so the native FFM kernels can
+     * address the block layout directly — but `ops.transpose(byteShape)` then
+     * fails.
+     *
+     * Gemma's Q4_K end-to-end test works because Gemma's loader uses
+     * `Q4_KBlockTensorData(logicalShape, blockMajorBytes)` with a lazy
+     * `transpose` override and a quant-aware `matmul` dispatch (see
+     * `GemmaDslQ4KTest`, `relayoutQ4_KRowMajorToBlockMajor`). Apertus's
+     * loader stores raw Int8 bytes instead, so `linearProject` blows up at
+     * the first attention projection.
+     *
+     * Tracking issue: see the upstream / transformers follow-up — the
+     * Apertus loader needs per-quant-type tensor-data wrappers
+     * (`Q4_KBlockTensorData` / `Q5_KBlockTensorData` / `Q6_KBlockTensorData`)
+     * with row-major → block-major relayout, mirroring Gemma's path.
+     */
+
     private fun locateModel(): File? {
         System.getenv("APERTUS_GGUF_PATH")?.let { p ->
             val f = File(p)
