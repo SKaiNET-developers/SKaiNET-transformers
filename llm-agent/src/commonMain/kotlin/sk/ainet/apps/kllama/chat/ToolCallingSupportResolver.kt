@@ -21,6 +21,7 @@ public object ToolCallingSupportResolver {
         // and hand out the Gemma 2/3 template.
         Gemma4ToolCallingSupport(),
         GemmaToolCallingSupport(),
+        ApertusToolCallingSupport(),
         Llama3ToolCallingSupport(),
         ChatMLToolCallingSupport()
     )
