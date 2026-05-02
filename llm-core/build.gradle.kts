@@ -58,6 +58,15 @@ kotlin {
 
         val jvmMain by getting
 
+        val jvmTest by getting {
+            dependencies {
+                implementation(libs.kotlin.test)
+                implementation(libs.junit)
+                implementation(libs.skainet.io.gguf)
+                implementation(libs.skainet.io.core)
+            }
+        }
+
         // Shared source set for all non-JVM targets (manual BackendRegistry)
         val registryBasedMain by creating {
             dependsOn(commonMain.get())

@@ -120,12 +120,13 @@ public class ApertusWeightLoader private constructor(
         requiredTensorNames(metadata).forEach { name ->
             val rt = tensorByName[name]
                 ?: error("Missing required tensor in GGUF payload: $name")
-            byName[name] = readerTensorToTensor(ctx, dtype, reader, rt)
+            byName[name] = loadReaderTensor(ctx, dtype, reader, rt, name)
         }
 
         // Load optional rope_freqs tensor
         tensorByName[ApertusTensorNames.ROPE_FREQS]?.let { rt ->
-            byName[ApertusTensorNames.ROPE_FREQS] = readerTensorToTensor(ctx, dtype, reader, rt)
+            byName[ApertusTensorNames.ROPE_FREQS] =
+                loadReaderTensor(ctx, dtype, reader, rt, ApertusTensorNames.ROPE_FREQS)
         }
 
         // Extract xIELU params: try metadata fields first, then per-layer tensors
@@ -162,12 +163,13 @@ public class ApertusWeightLoader private constructor(
             requiredTensorNames(metadata).forEach { name ->
                 val st = tensorByName[name]
                     ?: error("Missing required tensor in GGUF payload: $name")
-                byName[name] = streamingTensorToTensor(ctx, dtype, reader, st)
+                byName[name] = loadStreamingTensor(ctx, dtype, reader, st, name)
             }
 
             // Load optional rope_freqs tensor
             tensorByName[ApertusTensorNames.ROPE_FREQS]?.let { st ->
-                byName[ApertusTensorNames.ROPE_FREQS] = streamingTensorToTensor(ctx, dtype, reader, st)
+                byName[ApertusTensorNames.ROPE_FREQS] =
+                    loadStreamingTensor(ctx, dtype, reader, st, ApertusTensorNames.ROPE_FREQS)
             }
 
             // Extract xIELU params: try metadata fields first, then per-layer tensors
@@ -560,6 +562,58 @@ public class ApertusWeightLoader private constructor(
 
     // ============== Tensor conversion ==============
 
+    /**
+     * NATIVE_OPTIMIZED stores quantized tensors as byte-level rank-1 buffers so the
+     * native FFM kernels can address the raw block layout directly. That works for
+     * matmul (the kernel knows the logical shape from metadata) but breaks the
+     * token embedding, where `Embedding.gather()` requires the logical rank-2
+     * `[vocab, dim]` shape. Force `token_embd.weight` through the dequant path so
+     * the embedding lookup gets a real `[vocab, dim]` FP32/FP16 tensor regardless
+     * of the policy chosen for the rest of the model.
+     */
+    private fun <T : DType, V> loadStreamingTensor(
+        ctx: ExecutionContext,
+        dtype: KClass<T>,
+        reader: StreamingGGUFReader,
+        st: StreamingTensorInfo,
+        name: String
+    ): Tensor<T, V> {
+        if (name == ApertusTensorNames.TOKEN_EMBEDDINGS &&
+            quantPolicy == QuantPolicy.NATIVE_OPTIMIZED &&
+            st.tensorType != GGMLQuantizationType.F32 &&
+            st.tensorType != GGMLQuantizationType.F16 &&
+            st.tensorType != GGMLQuantizationType.BF16
+        ) {
+            val shape = Shape(*st.shape.map { it.toInt() }.toIntArray())
+            val bytes = reader.loadTensorData(st)
+            val floats = DequantOps.dequantFromBytes(bytes, st.tensorType, st.nElements.toInt())
+            return createTensor(ctx, dtype, shape, floats)
+        }
+        return streamingTensorToTensor(ctx, dtype, reader, st)
+    }
+
+    private fun <T : DType, V> loadReaderTensor(
+        ctx: ExecutionContext,
+        dtype: KClass<T>,
+        reader: GGUFReader,
+        rt: ReaderTensor,
+        name: String
+    ): Tensor<T, V> {
+        if (name == ApertusTensorNames.TOKEN_EMBEDDINGS &&
+            quantPolicy == QuantPolicy.NATIVE_OPTIMIZED &&
+            rt.tensorType != GGMLQuantizationType.F32 &&
+            rt.tensorType != GGMLQuantizationType.F16 &&
+            rt.tensorType != GGMLQuantizationType.BF16
+        ) {
+            val shape = Shape(*rt.shape.map { it.toInt() }.toIntArray())
+            val raw = if (rt.data.isEmpty()) reader.materialize(rt) else rt.data
+            val bytes: ByteArray = DequantOps.toByteArray(raw, rt.name)
+            val floats = DequantOps.dequantFromBytes(bytes, rt.tensorType, rt.nElements)
+            return createTensor(ctx, dtype, shape, floats)
+        }
+        return readerTensorToTensor(ctx, dtype, reader, rt)
+    }
+
     @Suppress("UNCHECKED_CAST")
     private fun <T : DType, V> readerTensorToTensor(
         ctx: ExecutionContext,
@@ -631,7 +685,7 @@ public class ApertusWeightLoader private constructor(
     }
 
     @Suppress("UNCHECKED_CAST")
-    private fun <T : DType, V> streamingTensorToTensor(
+    internal fun <T : DType, V> streamingTensorToTensor(
         ctx: ExecutionContext,
         dtype: KClass<T>,
         reader: StreamingGGUFReader,
@@ -676,8 +730,18 @@ public class ApertusWeightLoader private constructor(
             GGMLQuantizationType.IQ4_NL, GGMLQuantizationType.IQ4_XS,
             GGMLQuantizationType.TQ1_0, GGMLQuantizationType.TQ2_0 -> {
                 when (quantPolicy) {
-                    QuantPolicy.RAW_BYTES, QuantPolicy.NATIVE_OPTIMIZED -> {
+                    QuantPolicy.RAW_BYTES -> {
+                        require(dtype == Int8::class) {
+                            "Quantized tensor ${st.name} requires dtype Int8 with quantPolicy=RAW_BYTES"
+                        }
                         ctx.fromByteArray<Int8, Byte>(shape, Int8::class, bytes) as Tensor<T, V>
+                    }
+                    QuantPolicy.NATIVE_OPTIMIZED -> {
+                        // Store raw quantized bytes; dtype can be FP32 (mixed mode).
+                        // Streaming reader preserves logical shape, so use byte-level shape.
+                        val byteShape = Shape(bytes.size)
+                        @Suppress("UNCHECKED_CAST")
+                        ctx.fromByteArray<Int8, Byte>(byteShape, Int8::class, bytes) as Tensor<T, V>
                     }
                     QuantPolicy.DEQUANTIZE_TO_FP32 -> {
                         val floats = DequantOps.dequantFromBytes(bytes, st.tensorType, st.nElements.toInt())

@@ -14,10 +14,13 @@ dependencyResolutionManagement {
     }
 }
 
-// Temporary composite build for validating local SKaiNET fixes
-// (executor liveness freeing + ofAuto leak fix). Remove once shipped.
+// Composite build for validating local SKaiNET fixes against this repo. Auto-enables
+// when ../SKaiNET is a sibling checkout. Pass -PuseLocalSkaiNet=false to opt out and
+// resolve `sk.ainet.core:*` from mavenLocal / mavenCentral instead — useful for
+// testing a published-to-mavenLocal version end-to-end.
+val localSkaiNetEnabled = (settings.providers.gradleProperty("useLocalSkaiNet").orNull ?: "true").toBoolean()
 val localSkaiNet = file("../SKaiNET")
-if (localSkaiNet.isDirectory) {
+if (localSkaiNetEnabled && localSkaiNet.isDirectory) {
     includeBuild(localSkaiNet)
 }
 
