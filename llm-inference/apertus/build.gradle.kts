@@ -71,5 +71,5 @@ kotlin {
 
 tasks.withType<Test>().configureEach {
     jvmArgs("--enable-preview", "--add-modules", "jdk.incubator.vector", "-XX:MaxDirectMemorySize=12g")
-    maxHeapSize = "6g"
+    maxHeapSize = (findProperty("apertusTestMaxHeap") as? String) ?: "6g"
 }
