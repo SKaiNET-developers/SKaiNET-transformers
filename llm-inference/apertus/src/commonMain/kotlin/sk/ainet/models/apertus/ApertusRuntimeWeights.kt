@@ -136,12 +136,32 @@ public data class ApertusQuantizedRuntimeWeights(
 
 /**
  * Intermediate weight container used during loading.
+ *
+ * @property quantTypes For each tensor that was quantized in the source GGUF,
+ *   the original [sk.ainet.io.gguf.GGMLQuantizationType]. Empty when the
+ *   loader fully dequantized everything (e.g. `QuantPolicy.DEQUANTIZE_TO_FP32`).
+ *   Populated under `NATIVE_OPTIMIZED` so the JVM-side
+ *   `ApertusMemSegConverter` can wrap each tensor in the right
+ *   block-major TensorData (Q4_KBlockTensorData / Q6_KBlockTensorData / …)
+ *   before the model runs.
+ * @property logicalShapes Logical `[out, in]` shapes of every tensor, indexed
+ *   by tensor name. Under `NATIVE_OPTIMIZED` the actual stored
+ *   `tensors[name].shape` is byte-level rank-1, so the converter needs the
+ *   logical shape from this side-map to compute the relayout target shape.
+ * @property quantBytes Raw quantized payload bytes keyed by tensor name.
+ *   The loader stashes these alongside the byte-shape tensors in `tensors`
+ *   so the converter can re-wrap them in the right `Q*_KBlockTensorData`
+ *   without having to dig the bytes back out of the loader's intermediate
+ *   `Int8 [byteCount]` tensor.
  */
 public data class ApertusWeights<T : DType, V>(
     val metadata: ApertusModelMetadata,
     val tensors: Map<String, Tensor<T, V>>,
     val xieluParams: Map<Int, ApertusXIELUParams> = emptyMap(),
-    val preTransposed: Boolean = false
+    val preTransposed: Boolean = false,
+    val quantTypes: Map<String, sk.ainet.io.gguf.GGMLQuantizationType> = emptyMap(),
+    val logicalShapes: Map<String, sk.ainet.lang.tensor.Shape> = emptyMap(),
+    val quantBytes: Map<String, ByteArray> = emptyMap()
 )
 
 /**
