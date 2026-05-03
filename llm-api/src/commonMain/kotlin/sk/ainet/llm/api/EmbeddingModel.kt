@@ -1,5 +1,7 @@
 package sk.ainet.llm.api
 
+import kotlin.AutoCloseable
+
 /**
  * Provider-neutral text-embedding SPI.
  *

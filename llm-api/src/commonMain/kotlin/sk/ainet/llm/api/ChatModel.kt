@@ -1,5 +1,6 @@
 package sk.ainet.llm.api
 
+import kotlin.AutoCloseable
 import kotlinx.coroutines.flow.Flow
 
 /**
