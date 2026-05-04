@@ -51,10 +51,6 @@ kotlin {
     }
 
     sourceSets {
-        commonMain.dependencies {
-            api(kotlin("stdlib-common"))
-        }
-
         commonTest.dependencies {
             implementation(libs.kotlin.test)
         }

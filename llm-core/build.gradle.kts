@@ -43,7 +43,6 @@ kotlin {
 
     sourceSets {
         commonMain.dependencies {
-            api(kotlin("stdlib-common"))
             implementation(libs.skainet.lang.core)
             implementation(libs.skainet.compile.dag)
             implementation(libs.skainet.compile.opt)
