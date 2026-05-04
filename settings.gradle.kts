@@ -29,7 +29,10 @@ include("llm-inference:bert")
 include("llm-inference:voxtral")
 include("llm-runtime:kllama")
 include("llm-runtime:kgemma")
-include("llm-runtime:kqwen")
+// :llm-runtime:kqwen — removed; Qwen runs through the DSL Qwen path
+// (`QwenNetworkLoader` + `OptimizedLLMRuntime`) since #121 (kllama CLI
+// swap). The legacy `QwenIngestion` facade had no remaining consumers
+// after the architectural refactor — see PR closing this module.
 include("llm-runtime:kapertus")
 include("llm-performance")
 include("llm-apps:skainet-cli")
