@@ -149,12 +149,19 @@ public class QwenNetworkLoader @PublishedApi internal constructor(
 
     /**
      * Build the DSL network from metadata and map all weights.
+     *
+     * QK-Norm is enabled iff any `*.attn_q_norm.weight` tensor is present in
+     * the loaded weights. Real Qwen3 GGUFs always carry these (it's a
+     * defining feature of Qwen3). Synthetic test fixtures that omit them
+     * get a Llama-shape network so weight mapping doesn't reject unmapped
+     * `q_norm`/`k_norm` parameters.
      */
     @PublishedApi
     internal inline fun <reified T : DType, V> applyWeightsToNetwork(
         weights: LlamaWeights<T, V>
     ): Module<T, V> {
-        val model = qwenNetwork<T, V>(weights.metadata)
+        val hasQkNorm = weights.tensors.keys.any { it.endsWith(".attn_q_norm.weight") }
+        val model = qwenNetwork<T, V>(weights.metadata, qkNorm = hasQkNorm)
 
         val weightTensors = weights.tensors.map { (name, tensor) ->
             WeightTensor(
