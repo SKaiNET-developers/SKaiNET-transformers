@@ -5,7 +5,7 @@ import sk.ainet.io.RandomAccessSource
 import sk.ainet.models.llama.LlamaModelMetadata
 import sk.ainet.models.llama.LlamaRuntimeWeights
 import sk.ainet.models.llama.LlamaWeightMapper
-import sk.ainet.models.llama.LlamaWeights
+import sk.ainet.models.llama.DecoderGgufWeights
 import sk.ainet.models.llama.LlamaTensorNames
 import sk.ainet.io.model.DataType
 import sk.ainet.io.safetensors.StreamingSafeTensorsReader
@@ -28,7 +28,7 @@ import kotlin.reflect.KClass
  * - Shape normalization ([1, dim] norms → [dim])
  * - Tied word embeddings (output.weight = token_embd.weight)
  */
-public class LlamaSafeTensorsLoader<T : DType>(
+public class DecoderSafeTensorsLoader<T : DType>(
     private val ctx: ExecutionContext,
     private val dtype: KClass<T>,
     private val metadata: LlamaModelMetadata,
@@ -39,7 +39,7 @@ public class LlamaSafeTensorsLoader<T : DType>(
      * Load weights from SafeTensors file into a flat tensor map with GGUF-canonical names.
      * Useful for feeding into [WeightMapper] with a [WeightNameResolver].
      */
-    public fun loadToMap(randomAccessProvider: () -> RandomAccessSource): LlamaWeights<T, Float> {
+    public fun loadToMap(randomAccessProvider: () -> RandomAccessSource): DecoderGgufWeights<T, Float> {
         val tensors = mutableMapOf<String, Tensor<T, Float>>()
 
         StreamingSafeTensorsReader.open(randomAccessProvider()).use { reader ->
@@ -104,7 +104,7 @@ public class LlamaSafeTensorsLoader<T : DType>(
             println("  Tied: ${LlamaTensorNames.OUTPUT_WEIGHT} → ${LlamaTensorNames.TOKEN_EMBEDDINGS}")
         }
 
-        return LlamaWeights<T, Float>(
+        return DecoderGgufWeights<T, Float>(
             metadata = metadata,
             tensors = tensors
         )

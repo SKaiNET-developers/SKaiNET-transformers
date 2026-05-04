@@ -7,7 +7,7 @@ import sk.ainet.models.llama.LlamaModelMetadata
 import sk.ainet.models.llama.LlamaRuntimeWeights
 import sk.ainet.io.model.QuantPolicy
 import sk.ainet.models.llama.loadLlamaRuntimeWeights
-import sk.ainet.models.llama.LlamaSafeTensorsLoader
+import sk.ainet.models.llama.DecoderSafeTensorsLoader
 import sk.ainet.models.llama.loadLlamaRuntimeWeightsStreaming
 import sk.ainet.lang.types.DType
 import kotlin.reflect.KClass
@@ -79,7 +79,7 @@ public class LlamaIngestion<T : DType>(
         metadata: LlamaModelMetadata,
         tiedEmbeddings: Boolean = false
     ): LlamaRuntimeWeights<T> {
-        val loader = LlamaSafeTensorsLoader(
+        val loader = DecoderSafeTensorsLoader(
             ctx = ctx,
             dtype = dtype,
             metadata = metadata,

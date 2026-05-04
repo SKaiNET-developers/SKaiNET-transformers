@@ -12,9 +12,9 @@ import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.types.DType
 import sk.ainet.models.llama.LlamaModelMetadata
-import sk.ainet.models.llama.LlamaSafeTensorsLoader
-import sk.ainet.models.llama.LlamaWeightLoader
-import sk.ainet.models.llama.LlamaWeights
+import sk.ainet.models.llama.DecoderSafeTensorsLoader
+import sk.ainet.models.llama.DecoderGgufWeightLoader
+import sk.ainet.models.llama.DecoderGgufWeights
 import kotlin.jvm.JvmName
 import kotlin.reflect.KClass
 
@@ -23,8 +23,8 @@ import kotlin.reflect.KClass
  * with weights from GGUF or SafeTensors files.
  *
  * Voxtral's text backbone uses the same LLaMA architecture and GGUF tensor naming
- * as Mistral/LLaMA, so weight loading delegates to [LlamaWeightLoader] for GGUF
- * and [LlamaSafeTensorsLoader] for SafeTensors. Tensor names are mapped via
+ * as Mistral/LLaMA, so weight loading delegates to [DecoderGgufWeightLoader] for GGUF
+ * and [DecoderSafeTensorsLoader] for SafeTensors. Tensor names are mapped via
  * [VoxtralHfTensorNameMapper] for SafeTensors and [VoxtralGGUFNameResolver] for
  * DSL weight mapping.
  *
@@ -68,7 +68,7 @@ public class VoxtralNetworkLoader @PublishedApi internal constructor(
         ) : WeightsProvider
 
         data class Preloaded<T : DType, V>(
-            val weights: LlamaWeights<T, V>
+            val weights: DecoderGgufWeights<T, V>
         ) : WeightsProvider
     }
 
@@ -102,9 +102,9 @@ public class VoxtralNetworkLoader @PublishedApi internal constructor(
             WeightsProvider.SafeTensors(randomAccessProvider, metadata, tiedEmbeddings), debug
         )
 
-        /** Build backbone from already-loaded [LlamaWeights] (GGUF-canonical tensor names). */
+        /** Build backbone from already-loaded [DecoderGgufWeights] (GGUF-canonical tensor names). */
         public inline fun <reified T : DType, V> backboneFromWeights(
-            weights: LlamaWeights<T, V>,
+            weights: DecoderGgufWeights<T, V>,
             debug: Boolean = false
         ): Module<T, V> = VoxtralNetworkLoader(
             WeightsProvider.Preloaded(weights), debug
@@ -112,7 +112,7 @@ public class VoxtralNetworkLoader @PublishedApi internal constructor(
 
         /** Build acoustic runtime from already-loaded weights. */
         public inline fun <reified T : DType> acousticFromWeights(
-            weights: LlamaWeights<T, Float>,
+            weights: DecoderGgufWeights<T, Float>,
             acousticMetadata: LlamaModelMetadata,
             ctx: ExecutionContext,
             nCodebooks: Int = 36,
@@ -135,7 +135,7 @@ public class VoxtralNetworkLoader @PublishedApi internal constructor(
     public suspend inline fun <reified T : DType, V> loadBackbone(
         ctx: ExecutionContext
     ): Module<T, V> {
-        val weights: LlamaWeights<T, V> = loadWeights(ctx)
+        val weights: DecoderGgufWeights<T, V> = loadWeights(ctx)
         return applyWeightsToBackbone(weights)
     }
 
@@ -145,24 +145,24 @@ public class VoxtralNetworkLoader @PublishedApi internal constructor(
     @PublishedApi
     internal suspend inline fun <reified T : DType, V> loadWeights(
         ctx: ExecutionContext
-    ): LlamaWeights<T, V> {
+    ): DecoderGgufWeights<T, V> {
         return when (val wp = weightsProvider) {
             is WeightsProvider.GgufSource -> {
-                val loader = LlamaWeightLoader(wp.sourceProvider, quantPolicy = wp.quantPolicy)
+                val loader = DecoderGgufWeightLoader(wp.sourceProvider, quantPolicy = wp.quantPolicy)
                 loader.loadToMap<T, V>(ctx)
             }
             is WeightsProvider.GgufRandomAccess -> {
-                val loader = LlamaWeightLoader(wp.randomAccessProvider, quantPolicy = wp.quantPolicy)
+                val loader = DecoderGgufWeightLoader(wp.randomAccessProvider, quantPolicy = wp.quantPolicy)
                 loader.loadToMapStreaming<T, V>(ctx)
             }
             is WeightsProvider.SafeTensors -> {
-                val loader = LlamaSafeTensorsLoader<T>(ctx, T::class, wp.metadata, wp.tiedEmbeddings)
+                val loader = DecoderSafeTensorsLoader<T>(ctx, T::class, wp.metadata, wp.tiedEmbeddings)
                 @Suppress("UNCHECKED_CAST")
-                loader.loadToMap(wp.randomAccessProvider) as LlamaWeights<T, V>
+                loader.loadToMap(wp.randomAccessProvider) as DecoderGgufWeights<T, V>
             }
             is WeightsProvider.Preloaded<*, *> -> {
                 @Suppress("UNCHECKED_CAST")
-                wp.weights as LlamaWeights<T, V>
+                wp.weights as DecoderGgufWeights<T, V>
             }
         }
     }
@@ -172,7 +172,7 @@ public class VoxtralNetworkLoader @PublishedApi internal constructor(
      */
     @PublishedApi
     internal inline fun <reified T : DType, V> applyWeightsToBackbone(
-        weights: LlamaWeights<T, V>
+        weights: DecoderGgufWeights<T, V>
     ): Module<T, V> {
         val model = voxtralBackboneNetwork<T, V>(weights.metadata)
 
@@ -225,7 +225,7 @@ public class VoxtralNetworkLoader @PublishedApi internal constructor(
         nCodebooks: Int = 36,
         codebookLevels: Int = 21
     ): VoxtralAcousticRuntime<T> {
-        val weights: LlamaWeights<T, Float> = loadWeights(ctx)
+        val weights: DecoderGgufWeights<T, Float> = loadWeights(ctx)
         val acousticModel = voxtralAcousticNetwork<T, Float>(acousticMetadata)
         return buildAcousticRuntime(weights, acousticModel, acousticMetadata, ctx, T::class, nCodebooks, codebookLevels)
     }
@@ -239,7 +239,7 @@ public class VoxtralNetworkLoader @PublishedApi internal constructor(
      */
     @PublishedApi
     internal fun <T : DType> buildAcousticRuntime(
-        weights: LlamaWeights<T, Float>,
+        weights: DecoderGgufWeights<T, Float>,
         @Suppress("UNUSED_PARAMETER") acousticModel: Module<T, Float>,
         acousticMetadata: LlamaModelMetadata,
         ctx: ExecutionContext,

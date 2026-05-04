@@ -66,12 +66,12 @@ public class MmapLlamaLoader(
      * @param T the data type (must be FP32 for mmap loading)
      * @param V the value type (Float for FP32)
      * @param ctx execution context (used to wrap TensorData with ops)
-     * @return LlamaWeights containing mmap-backed tensors
+     * @return DecoderGgufWeights containing mmap-backed tensors
      */
     public fun <T : DType, V> loadToMap(
         ctx: ExecutionContext,
         dtype: KClass<T>
-    ): LlamaWeights<T, V> {
+    ): DecoderGgufWeights<T, V> {
         require(dtype == FP32::class) {
             "MmapLlamaLoader currently supports FP32 tensors only (got ${dtype.simpleName})"
         }
@@ -102,12 +102,12 @@ public class MmapLlamaLoader(
             }
         }
 
-        return LlamaWeights(metadata, tensors)
+        return DecoderGgufWeights(metadata, tensors)
     }
 
     public inline fun <reified T : DType, V> loadToMap(
         ctx: ExecutionContext
-    ): LlamaWeights<T, V> = loadToMap(ctx, T::class)
+    ): DecoderGgufWeights<T, V> = loadToMap(ctx, T::class)
 
     @Suppress("UNCHECKED_CAST")
     private fun <T : DType, V> createMmapTensor(
@@ -134,7 +134,7 @@ public class MmapLlamaLoader(
                 error(
                     "MmapLlamaLoader only supports F32 tensors directly. " +
                     "Tensor ${rt.name} has type ${rt.tensorType}. " +
-                    "Use the streaming LlamaWeightLoader with DEQUANTIZE_TO_FP32 policy for quantized models."
+                    "Use the streaming DecoderGgufWeightLoader with DEQUANTIZE_TO_FP32 policy for quantized models."
                 )
             }
         }
@@ -145,7 +145,7 @@ public class MmapLlamaLoader(
         fileChannel.close()
     }
 
-    // Reuse validation logic from LlamaWeightLoader
+    // Reuse validation logic from DecoderGgufWeightLoader
     private fun metadataFromGguf(
         fields: Map<String, sk.ainet.io.gguf.ReaderField>,
         tensors: List<ReaderTensor>

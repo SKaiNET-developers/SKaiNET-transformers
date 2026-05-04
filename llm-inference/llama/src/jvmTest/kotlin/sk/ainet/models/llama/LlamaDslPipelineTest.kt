@@ -83,7 +83,7 @@ class LlamaDslPipelineTest {
     @Test
     fun `weight loading maps all parameters`() {
         val tensors = buildWeightTensors()
-        val weights = LlamaWeights<FP32, Float>(metadata, tensors)
+        val weights = DecoderGgufWeights<FP32, Float>(metadata, tensors)
 
         // Should not throw — all required weights mapped
         val model = LlamaNetworkLoader.fromWeights(weights)
@@ -95,7 +95,7 @@ class LlamaDslPipelineTest {
     @Test
     fun `DIRECT mode forward produces finite logits with correct shape`() {
         val tensors = buildWeightTensors()
-        val weights = LlamaWeights<FP32, Float>(metadata, tensors)
+        val weights = DecoderGgufWeights<FP32, Float>(metadata, tensors)
         val model = LlamaNetworkLoader.fromWeights(weights)
 
         val runtime = OptimizedLLMRuntime(
@@ -122,7 +122,7 @@ class LlamaDslPipelineTest {
     @Test
     fun `DIRECT mode forward is deterministic`() {
         val tensors = buildWeightTensors()
-        val weights = LlamaWeights<FP32, Float>(metadata, tensors)
+        val weights = DecoderGgufWeights<FP32, Float>(metadata, tensors)
 
         // Build two independent runtimes from the same weights
         val model1 = LlamaNetworkLoader.fromWeights(weights)
@@ -144,7 +144,7 @@ class LlamaDslPipelineTest {
     @Test
     fun `generate produces valid token sequence`() {
         val tensors = buildWeightTensors()
-        val weights = LlamaWeights<FP32, Float>(metadata, tensors)
+        val weights = DecoderGgufWeights<FP32, Float>(metadata, tensors)
         val model = LlamaNetworkLoader.fromWeights(weights)
 
         val runtime = OptimizedLLMRuntime(
@@ -173,7 +173,7 @@ class LlamaDslPipelineTest {
     @Test
     fun `logits change with different input tokens`() {
         val tensors = buildWeightTensors()
-        val weights = LlamaWeights<FP32, Float>(metadata, tensors)
+        val weights = DecoderGgufWeights<FP32, Float>(metadata, tensors)
         val model = LlamaNetworkLoader.fromWeights(weights)
 
         val runtime = OptimizedLLMRuntime(model, ctx, OptimizedLLMMode.DIRECT, FP32::class)

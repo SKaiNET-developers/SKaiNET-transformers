@@ -54,7 +54,7 @@ class LlamaWeightMapperTest {
             LlamaTensorNames.ffnUp(0) to tensor(Shape(8, 4), 32, 90f)            // [ff_dim, dim]
         )
 
-        val runtime = LlamaWeightMapper.map(LlamaWeights(metadata, tensors))
+        val runtime = LlamaWeightMapper.map(DecoderGgufWeights(metadata, tensors))
         assertEquals(metadata, runtime.metadata)
         assertEquals(1, runtime.layers.size)
 
@@ -103,7 +103,7 @@ class LlamaWeightMapperTest {
             LlamaTensorNames.ffnUp(0) to tensor(Shape(8, 4), 32, 90f)
         )
 
-        val runtime: LlamaRuntimeWeights<FP16> = LlamaWeightMapper.map(LlamaWeights(metadata, tensors))
+        val runtime: LlamaRuntimeWeights<FP16> = LlamaWeightMapper.map(DecoderGgufWeights(metadata, tensors))
         assertEquals(metadata, runtime.metadata)
         assertEquals(1, runtime.layers.size)
 

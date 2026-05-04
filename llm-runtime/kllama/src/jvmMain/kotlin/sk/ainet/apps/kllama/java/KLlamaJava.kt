@@ -7,7 +7,7 @@ import sk.ainet.apps.kllama.*
 import sk.ainet.models.llama.LlamaConfigParser
 import sk.ainet.models.llama.LlamaRuntime
 import sk.ainet.models.llama.LlamaRuntimeWeights
-import sk.ainet.models.llama.LlamaSafeTensorsLoader
+import sk.ainet.models.llama.DecoderSafeTensorsLoader
 import sk.ainet.models.llama.MemSegWeightConverter
 import sk.ainet.models.llama.loadLlamaRuntimeWeightsStreaming
 import sk.ainet.context.DirectCpuExecutionContext

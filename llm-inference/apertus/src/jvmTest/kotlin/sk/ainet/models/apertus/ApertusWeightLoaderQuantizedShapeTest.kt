@@ -26,7 +26,7 @@ import kotlin.test.assertEquals
  * `ctx.fromByteArray` would size-mismatch.
  *
  * The fix makes NATIVE_OPTIMIZED wrap the bytes with `Shape(bytes.size)`
- * (mirroring the LlamaWeightLoader pattern). This test pins that contract.
+ * (mirroring the DecoderGgufWeightLoader pattern). This test pins that contract.
  */
 class ApertusWeightLoaderQuantizedShapeTest {
 

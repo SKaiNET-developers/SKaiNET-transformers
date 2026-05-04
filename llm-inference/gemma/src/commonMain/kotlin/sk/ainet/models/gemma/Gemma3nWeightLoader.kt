@@ -24,7 +24,7 @@ import kotlin.reflect.KClass
 /**
  * Adapter that loads Gemma 3n weights from GGUF files.
  *
- * Key differences from LlamaWeightLoader:
+ * Key differences from DecoderGgufWeightLoader:
  * - Architecture validation: accepts "gemma3n", "gemma3", "gemma" prefixes
  * - Variable intermediate (FFN) sizes per layer
  * - Per-layer embedding support
@@ -703,7 +703,7 @@ public class Gemma3nWeightLoader private constructor(
         }
     }
 
-    // ============== Tensor conversion using LlamaWeightLoader.Dequant ==============
+    // ============== Tensor conversion using DecoderGgufWeightLoader.Dequant ==============
 
     @Suppress("UNCHECKED_CAST")
     private fun <T : DType, V> readerTensorToTensor(

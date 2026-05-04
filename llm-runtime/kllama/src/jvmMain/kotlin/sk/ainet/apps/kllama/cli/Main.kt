@@ -36,7 +36,7 @@ import sk.ainet.apps.kllama.chat.ModelMetadata
 import sk.ainet.apps.llm.InferenceRuntime
 import sk.ainet.apps.llm.generate
 import sk.ainet.io.gguf.StreamingGGUFReader
-import sk.ainet.models.llama.LlamaWeightLoader
+import sk.ainet.models.llama.DecoderGgufWeightLoader
 import sk.ainet.models.llama.LlamaWeightMapper
 
 private enum class ModelFormat { GGUF, SAFETENSORS, BIN }
@@ -361,10 +361,10 @@ fun main(args: Array<String>) {
         var binVocabSize: Int = 0
 
         if (format == ModelFormat.GGUF && isQwen) {
-            // --- Qwen: LlamaWeightLoader with Qwen architectures → LlamaRuntime ---
+            // --- Qwen: DecoderGgufWeightLoader with Qwen architectures → LlamaRuntime ---
             // Same path as kqwen CLI — uses off-heap MemSeg for quantized tensors.
             val qwenArchitectures = setOf("qwen2", "qwen3", "qwen35")
-            val loader = LlamaWeightLoader(
+            val loader = DecoderGgufWeightLoader(
                 randomAccessProvider = { JvmRandomAccessSource.open(modelPath.toString()) },
                 quantPolicy = QuantPolicy.NATIVE_OPTIMIZED,
                 acceptedArchitectures = qwenArchitectures

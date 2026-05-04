@@ -90,17 +90,17 @@ class StateManagementTest {
     )
 
     private fun createDirectRuntime(): OptimizedLLMRuntime<FP32> {
-        val model = LlamaNetworkLoader.fromWeights(LlamaWeights(metadata, buildWeights()))
+        val model = LlamaNetworkLoader.fromWeights(DecoderGgufWeights(metadata, buildWeights()))
         return OptimizedLLMRuntime(model, ctx, OptimizedLLMMode.DIRECT, FP32::class)
     }
 
     private fun createOptimizedRuntime(): OptimizedLLMRuntime<FP32> {
-        val model = LlamaNetworkLoader.fromWeights(LlamaWeights(metadata, buildWeights()))
+        val model = LlamaNetworkLoader.fromWeights(DecoderGgufWeights(metadata, buildWeights()))
         return OptimizedLLMRuntime(model, ctx, OptimizedLLMMode.OPTIMIZED, FP32::class)
     }
 
     private fun createHybridRuntime(): OptimizedLLMRuntime<FP32> {
-        val model = LlamaNetworkLoader.fromWeights(LlamaWeights(metadata, buildWeights()))
+        val model = LlamaNetworkLoader.fromWeights(DecoderGgufWeights(metadata, buildWeights()))
         return OptimizedLLMRuntime(model, ctx, OptimizedLLMMode.HYBRID, FP32::class)
     }
 

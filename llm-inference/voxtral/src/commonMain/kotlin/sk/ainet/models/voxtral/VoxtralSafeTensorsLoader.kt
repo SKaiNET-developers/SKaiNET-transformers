@@ -9,7 +9,7 @@ import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.types.DType
 import sk.ainet.models.llama.LlamaModelMetadata
 import sk.ainet.models.llama.LlamaTensorNames
-import sk.ainet.models.llama.LlamaWeights
+import sk.ainet.models.llama.DecoderGgufWeights
 import kotlin.math.pow
 import kotlin.reflect.KClass
 
@@ -17,11 +17,11 @@ import kotlin.reflect.KClass
  * Loads Voxtral weights from SafeTensors format, capturing ALL tensor types:
  * backbone, acoustic model, and codec.
  *
- * Unlike [LlamaSafeTensorsLoader] which only maps backbone tensors,
+ * Unlike [DecoderSafeTensorsLoader] which only maps backbone tensors,
  * this loader uses [VoxtralHfTensorNameMapper] to capture the full model
  * including acoustic model and codec weights.
  *
- * Backbone + acoustic tensors are stored in [LlamaWeights.tensors] with
+ * Backbone + acoustic tensors are stored in [DecoderGgufWeights.tensors] with
  * canonical names. Codec tensors are returned separately via [loadAll].
  */
 public class VoxtralSafeTensorsLoader<T : DType>(
@@ -36,7 +36,7 @@ public class VoxtralSafeTensorsLoader<T : DType>(
      */
     public data class VoxtralWeights<T : DType>(
         /** Backbone weights (LLaMA-compatible, for DSL weight mapping). */
-        val backbone: LlamaWeights<T, Float>,
+        val backbone: DecoderGgufWeights<T, Float>,
         /** All tensors by canonical name (backbone + acoustic + codec). */
         val allTensors: Map<String, Tensor<T, Float>>
     )
@@ -111,7 +111,7 @@ public class VoxtralSafeTensorsLoader<T : DType>(
             }
         }
 
-        // Split into backbone weights (for LlamaWeights compat) and full map.
+        // Split into backbone weights (for DecoderGgufWeights compat) and full map.
         // Exclude non-backbone tensors: acoustic, codec, and audio codebook embeddings.
         val backboneTensors = allTensors.filterKeys { name ->
             !name.startsWith("acoustic.") &&
@@ -119,7 +119,7 @@ public class VoxtralSafeTensorsLoader<T : DType>(
                 !name.startsWith("audio_codebook_embeddings.")
         }
 
-        val backbone = LlamaWeights<T, Float>(
+        val backbone = DecoderGgufWeights<T, Float>(
             metadata = metadata,
             tensors = backboneTensors
         )
@@ -127,7 +127,7 @@ public class VoxtralSafeTensorsLoader<T : DType>(
         return VoxtralWeights(backbone = backbone, allTensors = allTensors)
     }
 
-    // ========== Dequantization helpers (same as LlamaSafeTensorsLoader) ==========
+    // ========== Dequantization helpers (same as DecoderSafeTensorsLoader) ==========
 
     private fun normalizeNormShape(shape: List<Long>): Shape {
         return if (shape.size == 2 && shape[0] == 1L) {
