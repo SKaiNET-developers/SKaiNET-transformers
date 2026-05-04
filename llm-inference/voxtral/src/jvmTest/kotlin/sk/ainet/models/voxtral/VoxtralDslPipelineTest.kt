@@ -12,7 +12,7 @@ import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.types.FP32
 import sk.ainet.models.llama.LlamaModelMetadata
 import sk.ainet.models.llama.LlamaTensorNames
-import sk.ainet.models.llama.LlamaWeights
+import sk.ainet.models.llama.DecoderGgufWeights
 
 /**
  * Self-contained end-to-end test for the Voxtral backbone DSL pipeline:
@@ -89,7 +89,7 @@ class VoxtralDslPipelineTest {
     @Test
     fun `backbone weight loading maps all parameters`() {
         val tensors = buildWeightTensors()
-        val weights = LlamaWeights<FP32, Float>(metadata, tensors)
+        val weights = DecoderGgufWeights<FP32, Float>(metadata, tensors)
 
         val model = VoxtralNetworkLoader.backboneFromWeights(weights)
 
@@ -99,7 +99,7 @@ class VoxtralDslPipelineTest {
     @Test
     fun `backbone DIRECT mode forward produces finite logits with correct shape`() {
         val tensors = buildWeightTensors()
-        val weights = LlamaWeights<FP32, Float>(metadata, tensors)
+        val weights = DecoderGgufWeights<FP32, Float>(metadata, tensors)
         val model = VoxtralNetworkLoader.backboneFromWeights(weights)
 
         val runtime = OptimizedLLMRuntime(
@@ -126,7 +126,7 @@ class VoxtralDslPipelineTest {
     @Test
     fun `backbone DIRECT mode forward is deterministic`() {
         val tensors = buildWeightTensors()
-        val weights = LlamaWeights<FP32, Float>(metadata, tensors)
+        val weights = DecoderGgufWeights<FP32, Float>(metadata, tensors)
 
         val model1 = VoxtralNetworkLoader.backboneFromWeights(weights)
         val runtime1 = OptimizedLLMRuntime(model1, ctx, OptimizedLLMMode.DIRECT, FP32::class)
@@ -146,7 +146,7 @@ class VoxtralDslPipelineTest {
     @Test
     fun `backbone generate produces valid token sequence`() {
         val tensors = buildWeightTensors()
-        val weights = LlamaWeights<FP32, Float>(metadata, tensors)
+        val weights = DecoderGgufWeights<FP32, Float>(metadata, tensors)
         val model = VoxtralNetworkLoader.backboneFromWeights(weights)
 
         val runtime = OptimizedLLMRuntime(
@@ -175,7 +175,7 @@ class VoxtralDslPipelineTest {
     @Test
     fun `backbone logits change with different input tokens`() {
         val tensors = buildWeightTensors()
-        val weights = LlamaWeights<FP32, Float>(metadata, tensors)
+        val weights = DecoderGgufWeights<FP32, Float>(metadata, tensors)
         val model = VoxtralNetworkLoader.backboneFromWeights(weights)
 
         val runtime = OptimizedLLMRuntime(model, ctx, OptimizedLLMMode.DIRECT, FP32::class)

@@ -25,7 +25,7 @@ import sk.ainet.io.model.QuantPolicy
 import sk.ainet.lang.tensor.data.MemorySegmentTensorDataFactory
 import sk.ainet.lang.types.FP32
 import sk.ainet.models.llama.LlamaRuntime
-import sk.ainet.models.llama.LlamaWeightLoader
+import sk.ainet.models.llama.DecoderGgufWeightLoader
 import sk.ainet.models.llama.LlamaWeightMapper
 import sk.ainet.models.llama.MemSegWeightConverter
 import java.lang.foreign.Arena
@@ -198,7 +198,7 @@ fun main(args: Array<String>) {
             OptimizedLLMRuntime(model, ctx, OptimizedLLMMode.DIRECT, FP32::class)
         } else {
             val acceptedArchitectures = modelInfo.family.architectures + setOf(modelInfo.architecture)
-            val loader = LlamaWeightLoader(
+            val loader = DecoderGgufWeightLoader(
                 randomAccessProvider = { JvmRandomAccessSource.open(modelPath.toString()) },
                 quantPolicy = QuantPolicy.NATIVE_OPTIMIZED,
                 acceptedArchitectures = acceptedArchitectures

@@ -879,7 +879,7 @@ public class Gemma4WeightLoader private constructor(
                     }
                     QuantPolicy.NATIVE_OPTIMIZED -> {
                         // Store raw quantized bytes with a 1-D byte shape (matches
-                        // LlamaWeightLoader). The factory would otherwise reject the
+                        // DecoderGgufWeightLoader). The factory would otherwise reject the
                         // 2-D logical shape because `byte count != elements`. Downstream
                         // converters (MemSegWeightConverter for Llama, GemmaMemSegConverter
                         // for Gemma) recover the logical shape from the metadata.

@@ -12,7 +12,7 @@ import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.types.FP32
 import sk.ainet.models.llama.LlamaModelMetadata
 import sk.ainet.models.llama.LlamaTensorNames
-import sk.ainet.models.llama.LlamaWeights
+import sk.ainet.models.llama.DecoderGgufWeights
 
 /**
  * Self-contained end-to-end test for the Qwen DSL pipeline:
@@ -85,7 +85,7 @@ class QwenDslPipelineTest {
     @Test
     fun `weight loading maps all parameters`() {
         val tensors = buildWeightTensors()
-        val weights = LlamaWeights<FP32, Float>(metadata, tensors)
+        val weights = DecoderGgufWeights<FP32, Float>(metadata, tensors)
 
         val model = QwenNetworkLoader.fromWeights(weights)
 
@@ -95,7 +95,7 @@ class QwenDslPipelineTest {
     @Test
     fun `DIRECT mode forward produces finite logits with correct shape`() {
         val tensors = buildWeightTensors()
-        val weights = LlamaWeights<FP32, Float>(metadata, tensors)
+        val weights = DecoderGgufWeights<FP32, Float>(metadata, tensors)
         val model = QwenNetworkLoader.fromWeights(weights)
 
         val runtime = OptimizedLLMRuntime(
@@ -122,7 +122,7 @@ class QwenDslPipelineTest {
     @Test
     fun `DIRECT mode forward is deterministic`() {
         val tensors = buildWeightTensors()
-        val weights = LlamaWeights<FP32, Float>(metadata, tensors)
+        val weights = DecoderGgufWeights<FP32, Float>(metadata, tensors)
 
         val model1 = QwenNetworkLoader.fromWeights(weights)
         val runtime1 = OptimizedLLMRuntime(model1, ctx, OptimizedLLMMode.DIRECT, FP32::class)
@@ -142,7 +142,7 @@ class QwenDslPipelineTest {
     @Test
     fun `generate produces valid token sequence`() {
         val tensors = buildWeightTensors()
-        val weights = LlamaWeights<FP32, Float>(metadata, tensors)
+        val weights = DecoderGgufWeights<FP32, Float>(metadata, tensors)
         val model = QwenNetworkLoader.fromWeights(weights)
 
         val runtime = OptimizedLLMRuntime(
@@ -171,7 +171,7 @@ class QwenDslPipelineTest {
     @Test
     fun `logits change with different input tokens`() {
         val tensors = buildWeightTensors()
-        val weights = LlamaWeights<FP32, Float>(metadata, tensors)
+        val weights = DecoderGgufWeights<FP32, Float>(metadata, tensors)
         val model = QwenNetworkLoader.fromWeights(weights)
 
         val runtime = OptimizedLLMRuntime(model, ctx, OptimizedLLMMode.DIRECT, FP32::class)

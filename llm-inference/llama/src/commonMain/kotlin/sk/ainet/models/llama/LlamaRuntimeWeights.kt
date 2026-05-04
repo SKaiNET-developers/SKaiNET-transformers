@@ -42,7 +42,7 @@ public data class LlamaRuntimeWeights<T : DType>(
  */
 public object LlamaWeightMapper {
 
-    public fun <T : DType> map(weights: LlamaWeights<T, Float>): LlamaRuntimeWeights<T> {
+    public fun <T : DType> map(weights: DecoderGgufWeights<T, Float>): LlamaRuntimeWeights<T> {
         val metadata = weights.metadata
         val headSize = metadata.embeddingLength / metadata.headCount
         require(headSize * metadata.headCount == metadata.embeddingLength) {
@@ -163,7 +163,7 @@ public suspend fun <T : DType> loadLlamaRuntimeWeights(
     quantPolicy: QuantPolicy = QuantPolicy.RAW_BYTES,
     allowQuantized: Boolean = false
 ): LlamaRuntimeWeights<T> {
-    val loader = LlamaWeightLoader(
+    val loader = DecoderGgufWeightLoader(
         sourceProvider = sourceProvider,
         quantPolicy = quantPolicy
     )
@@ -190,7 +190,7 @@ public suspend fun <T : DType> loadLlamaRuntimeWeightsDequantized(
     sourceProvider: () -> Source,
     dtype: KClass<T>
 ): LlamaRuntimeWeights<T> {
-    val loader = LlamaWeightLoader(
+    val loader = DecoderGgufWeightLoader(
         sourceProvider = sourceProvider,
         quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32
     )
@@ -227,7 +227,7 @@ public suspend fun <T : DType> loadLlamaRuntimeWeightsStreaming(
     allowQuantized: Boolean = false,
     acceptedArchitectures: Set<String> = setOf("llama")
 ): LlamaRuntimeWeights<T> {
-    val loader = LlamaWeightLoader(
+    val loader = DecoderGgufWeightLoader(
         randomAccessProvider = randomAccessProvider,
         quantPolicy = quantPolicy,
         acceptedArchitectures = acceptedArchitectures
@@ -256,7 +256,7 @@ public suspend fun <T : DType> loadLlamaRuntimeWeightsDequantizedStreaming(
     randomAccessProvider: () -> RandomAccessSource,
     dtype: KClass<T>
 ): LlamaRuntimeWeights<T> {
-    val loader = LlamaWeightLoader(
+    val loader = DecoderGgufWeightLoader(
         randomAccessProvider = randomAccessProvider,
         quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32
     )

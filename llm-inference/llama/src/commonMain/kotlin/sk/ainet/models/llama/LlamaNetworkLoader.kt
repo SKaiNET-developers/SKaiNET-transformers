@@ -60,7 +60,7 @@ public class LlamaNetworkLoader @PublishedApi internal constructor(
         ) : WeightsProvider
 
         data class Preloaded<T : DType, V>(
-            val weights: LlamaWeights<T, V>
+            val weights: DecoderGgufWeights<T, V>
         ) : WeightsProvider
     }
 
@@ -94,9 +94,9 @@ public class LlamaNetworkLoader @PublishedApi internal constructor(
             WeightsProvider.SafeTensors(randomAccessProvider, metadata, tiedEmbeddings), debug
         )
 
-        /** Build from already-loaded [LlamaWeights] (GGUF-canonical tensor names). */
+        /** Build from already-loaded [DecoderGgufWeights] (GGUF-canonical tensor names). */
         public inline fun <reified T : DType, V> fromWeights(
-            weights: LlamaWeights<T, V>,
+            weights: DecoderGgufWeights<T, V>,
             debug: Boolean = false
         ): Module<T, V> = LlamaNetworkLoader(
             WeightsProvider.Preloaded(weights), debug
@@ -112,23 +112,23 @@ public class LlamaNetworkLoader @PublishedApi internal constructor(
     public suspend inline fun <reified T : DType, V> load(
         ctx: ExecutionContext
     ): Module<T, V> {
-        val weights: LlamaWeights<T, V> = when (val wp = weightsProvider) {
+        val weights: DecoderGgufWeights<T, V> = when (val wp = weightsProvider) {
             is WeightsProvider.GgufSource -> {
-                val loader = LlamaWeightLoader(wp.sourceProvider, quantPolicy = wp.quantPolicy)
+                val loader = DecoderGgufWeightLoader(wp.sourceProvider, quantPolicy = wp.quantPolicy)
                 loader.loadToMap<T, V>(ctx)
             }
             is WeightsProvider.GgufRandomAccess -> {
-                val loader = LlamaWeightLoader(wp.randomAccessProvider, quantPolicy = wp.quantPolicy)
+                val loader = DecoderGgufWeightLoader(wp.randomAccessProvider, quantPolicy = wp.quantPolicy)
                 loader.loadToMapStreaming<T, V>(ctx)
             }
             is WeightsProvider.SafeTensors -> {
-                val loader = LlamaSafeTensorsLoader<T>(ctx, T::class, wp.metadata, wp.tiedEmbeddings)
+                val loader = DecoderSafeTensorsLoader<T>(ctx, T::class, wp.metadata, wp.tiedEmbeddings)
                 @Suppress("UNCHECKED_CAST")
-                loader.loadToMap(wp.randomAccessProvider) as LlamaWeights<T, V>
+                loader.loadToMap(wp.randomAccessProvider) as DecoderGgufWeights<T, V>
             }
             is WeightsProvider.Preloaded<*, *> -> {
                 @Suppress("UNCHECKED_CAST")
-                wp.weights as LlamaWeights<T, V>
+                wp.weights as DecoderGgufWeights<T, V>
             }
         }
 
@@ -140,7 +140,7 @@ public class LlamaNetworkLoader @PublishedApi internal constructor(
      */
     @PublishedApi
     internal inline fun <reified T : DType, V> applyWeightsToNetwork(
-        weights: LlamaWeights<T, V>
+        weights: DecoderGgufWeights<T, V>
     ): Module<T, V> {
         val model = llamaNetwork<T, V>(weights.metadata)
 

@@ -40,7 +40,7 @@ public data class LlamaModelMetadata(
     override val eosTokenId: Int = 2,
 ) : sk.ainet.lang.nn.dsl.decoder.DecoderModelMetadata
 
-public data class LlamaWeights<T : DType, V>(
+public data class DecoderGgufWeights<T : DType, V>(
     val metadata: LlamaModelMetadata,
     val tensors: Map<String, Tensor<T, V>>,
     val quantTypes: Map<String, GGMLQuantizationType> = emptyMap()
@@ -71,7 +71,7 @@ public object LlamaTensorNames {
  * naming scheme. Validation covers metadata presence and basic shape consistency for the tensors
  * we materialize.
  */
-public class LlamaWeightLoader private constructor(
+public class DecoderGgufWeightLoader private constructor(
     private val sourceProvider: (() -> Source)?,
     private val randomAccessProvider: (() -> RandomAccessSource)?,
     private val loadTensorData: Boolean = true,
@@ -122,7 +122,7 @@ public class LlamaWeightLoader private constructor(
 
     /**
      * Backward-compatible companion delegating to shared [DequantOps].
-     * Existing callers (e.g. `LlamaWeightLoader.dequantF16(raw)`) continue to work.
+     * Existing callers (e.g. `DecoderGgufWeightLoader.dequantF16(raw)`) continue to work.
      */
     public companion object Dequant {
         internal fun transposeColumnMajorToRowMajor(data: FloatArray, rows: Int, cols: Int): FloatArray =
@@ -168,18 +168,18 @@ public class LlamaWeightLoader private constructor(
     public suspend fun <T : DType, V> loadToMap(
         ctx: ExecutionContext,
         dtype: KClass<T>
-    ): LlamaWeights<T, V> {
+    ): DecoderGgufWeights<T, V> {
         val byName = linkedMapOf<String, Tensor<T, V>>()
         val quantTypes = linkedMapOf<String, GGMLQuantizationType>()
         val meta = loadFromGguf(ctx, dtype, { name, tensor -> byName[name] = tensor }) { name, qt ->
             quantTypes[name] = qt
         }
-        return LlamaWeights(meta, byName, quantTypes)
+        return DecoderGgufWeights(meta, byName, quantTypes)
     }
 
     public suspend inline fun <reified T : DType, V> loadToMap(
         ctx: ExecutionContext
-    ): LlamaWeights<T, V> = loadToMap(ctx, T::class)
+    ): DecoderGgufWeights<T, V> = loadToMap(ctx, T::class)
 
     // ============== Streaming API (for large files >2GB) ==============
 
@@ -207,18 +207,18 @@ public class LlamaWeightLoader private constructor(
     public suspend fun <T : DType, V> loadToMapStreaming(
         ctx: ExecutionContext,
         dtype: KClass<T>
-    ): LlamaWeights<T, V> {
+    ): DecoderGgufWeights<T, V> {
         val byName = linkedMapOf<String, Tensor<T, V>>()
         val quantTypes = linkedMapOf<String, GGMLQuantizationType>()
         val meta = loadFromStreamingGguf(ctx, dtype, { name, tensor -> byName[name] = tensor }) { name, qt ->
             quantTypes[name] = qt
         }
-        return LlamaWeights(meta, byName, quantTypes)
+        return DecoderGgufWeights(meta, byName, quantTypes)
     }
 
     public suspend inline fun <reified T : DType, V> loadToMapStreaming(
         ctx: ExecutionContext
-    ): LlamaWeights<T, V> = loadToMapStreaming(ctx, T::class)
+    ): DecoderGgufWeights<T, V> = loadToMapStreaming(ctx, T::class)
 
     private fun <T : DType, V> loadFromGguf(
         ctx: ExecutionContext,

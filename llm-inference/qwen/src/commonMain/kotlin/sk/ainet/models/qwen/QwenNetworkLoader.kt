@@ -11,9 +11,9 @@ import sk.ainet.io.weights.WeightTensor
 import sk.ainet.lang.nn.Module
 import sk.ainet.lang.types.DType
 import sk.ainet.models.llama.LlamaModelMetadata
-import sk.ainet.models.llama.LlamaSafeTensorsLoader
-import sk.ainet.models.llama.LlamaWeightLoader
-import sk.ainet.models.llama.LlamaWeights
+import sk.ainet.models.llama.DecoderSafeTensorsLoader
+import sk.ainet.models.llama.DecoderGgufWeightLoader
+import sk.ainet.models.llama.DecoderGgufWeights
 import kotlin.jvm.JvmName
 
 /**
@@ -21,7 +21,7 @@ import kotlin.jvm.JvmName
  * with weights from GGUF or SafeTensors files via [WeightMapper] + [LlamaGGUFNameResolver].
  *
  * Qwen3 uses the same GGUF tensor naming (`blk.N.*`) and weight structure as LLaMA,
- * so loading delegates to [LlamaWeightLoader] for GGUF and [LlamaSafeTensorsLoader]
+ * so loading delegates to [DecoderGgufWeightLoader] for GGUF and [DecoderSafeTensorsLoader]
  * for SafeTensors. The network is built via [qwenNetwork] which delegates to [llamaNetwork].
  *
  * Usage:
@@ -64,7 +64,7 @@ public class QwenNetworkLoader @PublishedApi internal constructor(
         ) : WeightsProvider
 
         data class Preloaded<T : DType, V>(
-            val weights: LlamaWeights<T, V>
+            val weights: DecoderGgufWeights<T, V>
         ) : WeightsProvider
     }
 
@@ -98,9 +98,9 @@ public class QwenNetworkLoader @PublishedApi internal constructor(
             WeightsProvider.SafeTensors(randomAccessProvider, metadata, tiedEmbeddings), debug
         )
 
-        /** Build from already-loaded [LlamaWeights] (GGUF-canonical tensor names). */
+        /** Build from already-loaded [DecoderGgufWeights] (GGUF-canonical tensor names). */
         public inline fun <reified T : DType, V> fromWeights(
-            weights: LlamaWeights<T, V>,
+            weights: DecoderGgufWeights<T, V>,
             debug: Boolean = false
         ): Module<T, V> = QwenNetworkLoader(
             WeightsProvider.Preloaded(weights), debug
@@ -116,9 +116,9 @@ public class QwenNetworkLoader @PublishedApi internal constructor(
     public suspend inline fun <reified T : DType, V> load(
         ctx: ExecutionContext
     ): Module<T, V> {
-        val weights: LlamaWeights<T, V> = when (val wp = weightsProvider) {
+        val weights: DecoderGgufWeights<T, V> = when (val wp = weightsProvider) {
             is WeightsProvider.GgufSource -> {
-                val loader = LlamaWeightLoader(
+                val loader = DecoderGgufWeightLoader(
                     wp.sourceProvider,
                     quantPolicy = wp.quantPolicy,
                     acceptedArchitectures = QWEN_ARCHITECTURES
@@ -126,7 +126,7 @@ public class QwenNetworkLoader @PublishedApi internal constructor(
                 loader.loadToMap<T, V>(ctx)
             }
             is WeightsProvider.GgufRandomAccess -> {
-                val loader = LlamaWeightLoader(
+                val loader = DecoderGgufWeightLoader(
                     wp.randomAccessProvider,
                     quantPolicy = wp.quantPolicy,
                     acceptedArchitectures = QWEN_ARCHITECTURES
@@ -134,13 +134,13 @@ public class QwenNetworkLoader @PublishedApi internal constructor(
                 loader.loadToMapStreaming<T, V>(ctx)
             }
             is WeightsProvider.SafeTensors -> {
-                val loader = LlamaSafeTensorsLoader<T>(ctx, T::class, wp.metadata, wp.tiedEmbeddings)
+                val loader = DecoderSafeTensorsLoader<T>(ctx, T::class, wp.metadata, wp.tiedEmbeddings)
                 @Suppress("UNCHECKED_CAST")
-                loader.loadToMap(wp.randomAccessProvider) as LlamaWeights<T, V>
+                loader.loadToMap(wp.randomAccessProvider) as DecoderGgufWeights<T, V>
             }
             is WeightsProvider.Preloaded<*, *> -> {
                 @Suppress("UNCHECKED_CAST")
-                wp.weights as LlamaWeights<T, V>
+                wp.weights as DecoderGgufWeights<T, V>
             }
         }
 
@@ -158,7 +158,7 @@ public class QwenNetworkLoader @PublishedApi internal constructor(
      */
     @PublishedApi
     internal inline fun <reified T : DType, V> applyWeightsToNetwork(
-        weights: LlamaWeights<T, V>
+        weights: DecoderGgufWeights<T, V>
     ): Module<T, V> {
         val hasQkNorm = weights.tensors.keys.any { it.endsWith(".attn_q_norm.weight") }
         val model = qwenNetwork<T, V>(weights.metadata, qkNorm = hasQkNorm)
