@@ -1,0 +1,6 @@
+# uv-managed virtual env
+.venv/
+# Generated reference fixtures — too large + model-version-dependent to
+# check in. Regenerate via generate_reference.py per the README.
+results/*.json
+!results/.gitkeep

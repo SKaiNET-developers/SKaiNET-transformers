@@ -1,0 +1,16 @@
+[project]
+name = "qwen3-reference"
+version = "0.1.0"
+description = "Generate ground-truth Qwen3 logits via llama.cpp for SKaiNET-transformers DSL parity validation (#118)."
+requires-python = ">=3.11"
+dependencies = [
+    # llama.cpp is THE reference implementation for GGUF models. We compare
+    # SKaiNET-transformers' DSL Qwen output against llama.cpp on the same GGUF
+    # — apples-to-apples, no weight-conversion variable.
+    "llama-cpp-python>=0.3.0",
+    "numpy>=1.26",
+]
+
+[tool.uv]
+# Pinned to make the reference reproducible. Bump deliberately.
+package = false

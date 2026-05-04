@@ -1,0 +1,25 @@
+{
+  "_meta": {
+    "purpose": "Fixed prompts for the Qwen3 DSL parity smoke against llama.cpp. Keep the set small — the gate is correctness, not coverage.",
+    "temperature": 0.0,
+    "topK": 5,
+    "steps": 8
+  },
+  "prompts": [
+    {
+      "id": "capital-france",
+      "text": "The capital of France is",
+      "purpose": "Plain completion. Greedy top-1 should agree with llama.cpp at every step."
+    },
+    {
+      "id": "arithmetic",
+      "text": "What is 2 + 2?",
+      "purpose": "Tool-calling demo prompt. Tests instruct-tuned coherence."
+    },
+    {
+      "id": "code-snippet",
+      "text": "fun fibonacci(n: Int): Int {",
+      "purpose": "Code-completion path. Catches token-boundary bugs in byte-level BPE."
+    }
+  ]
+}

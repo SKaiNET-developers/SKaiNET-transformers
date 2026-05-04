@@ -89,6 +89,12 @@ kotlin {
                 implementation(libs.kotlin.test)
                 implementation(libs.kotlinx.coroutines.test)
                 implementation(libs.skainet.backend.cpu)
+                // Test-scope only: QwenHfReferenceParityTest loads a real
+                // Qwen3 GGUF via QwenNetworkLoader.fromGgufNative and
+                // compares against a llama.cpp reference fixture
+                // (tests/ground-truth/qwen3). Production code in this
+                // module does NOT depend on :llm-inference:qwen.
+                implementation(project(":llm-inference:qwen"))
             }
         }
         // val androidMain by getting
