@@ -18,22 +18,22 @@ High-performance LLM application layer on top of the [SKaiNET](https://github.co
 
 ## Current release
 
-The current release is **0.21.1**. Coordinates:
+The current release is **0.23.1**, version-aligned with the matching SKaiNET engine release. Coordinates:
 
 ```kotlin
 dependencies {
-    implementation("sk.ainet.transformers:llm-core:0.21.1")
-    implementation("sk.ainet.transformers:llm-runtime-kllama:0.21.1") // or kgemma, etc.
-    implementation("sk.ainet.transformers:llm-agent:0.21.1")          // chat templates + tool calling
+    implementation("sk.ainet.transformers:llm-core:0.23.1")
+    implementation("sk.ainet.transformers:llm-runtime-kllama:0.23.1") // or kgemma, kqwen, kapertus
+    implementation("sk.ainet.transformers:llm-agent:0.23.1")          // chat templates + tool calling
 }
 ```
 
-The matching SKaiNET engine is **0.22.1**. To opt in to the native FFM CPU provider (recommended for JVM consumers):
+To opt in to the native FFM CPU provider (recommended for JVM consumers):
 
 ```kotlin
 dependencies {
-    implementation("sk.ainet.core:skainet-backend-cpu:0.22.1")        // priority-50 Panama Vector
-    implementation("sk.ainet.core:skainet-backend-native-cpu:0.22.1") // priority-100 FFM (auto-discovered)
+    implementation("sk.ainet.core:skainet-backend-cpu:0.23.1")        // priority-50 Panama Vector
+    implementation("sk.ainet.core:skainet-backend-native-cpu:0.23.1") // priority-100 FFM (auto-discovered)
 }
 ```
 
@@ -96,11 +96,16 @@ try (KLlamaSession session = KLlamaJava.loadGGUF(modelPath, /* systemPrompt */ n
 
 See `llm-test/llm-test-java/src/test/java/.../KLlamaJavaToolCallingTest.java` for a runnable reference.
 
-## In develop, not in 0.21.1 yet
+## What's new in 0.23.1
 
-- **Apertus support.** Routing fix, chat template, tool calling all merged on `develop`. See [`APERTUS_ROLLOUT.md`](APERTUS_ROLLOUT.md). Real-checkpoint loading has known gaps tracked separately.
-- **Gemma 4 chat-model JVM facade** (`Gemma4ChatModel`) for embedded text-only deployments.
-- **Sharded SafeTensors `loadTensorStorageMapped`** for >2 GB models (consumed by Gemma 4 PLE mmap path).
+- **Apertus end-to-end.** Routing fix (now goes through `OptimizedLLMRuntime` + `apertusNetwork()`), chat template + tool calling, and real-GGUF loading on top of skainet 0.23.1's block-major Q4_K `TensorData` wiring. See [`APERTUS_ROLLOUT.md`](APERTUS_ROLLOUT.md).
+- **Gemma 4 chat-model JVM facade** (`Gemma4ChatModel`) for embedded text-only deployments, with `close()` propagating to the mmap arena and the PLE mmap path consuming upstream `loadTensorStorageMapped`.
+- **Multi-id EOS / stop-token support** in the chat layer — required for templates that emit several end markers.
+- **Tokenizer auto-detect for SentencePiece** in `fromTokenizerJson`, fixing decoding for models that omit the explicit marker.
+- **End-to-end smoke test** in `llm-test/llm-test-java` that wires LEAF (`KBertJava`) and Llama 3 (`KLlamaJava`) in one JVM.
+- **`skainet-cli` and `kllama-cli` shadow-jar `ServiceLoader` fix-up** so the priority-100 native-cpu provider is picked up post-merge.
+
+See [`CHANGELOG.md`](CHANGELOG.md) for the full set of changes.
 
 ## Engine
 
