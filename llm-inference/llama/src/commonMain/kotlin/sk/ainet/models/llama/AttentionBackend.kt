@@ -8,8 +8,7 @@ import sk.ainet.lang.types.DType
  *
  * Encapsulates the divergent part of transformer layer execution:
  * RoPE encoding, KV cache management, and attention scoring.
- * Two implementations exist: CPU-based (CpuAttentionBackend) and
- * GPU-native (GpuAttentionBackend).
+ * The current production implementation is CPU-based (CpuAttentionBackend).
  *
  * Contract:
  * - Input: q [1, dim], k [1, kvDim], v [1, kvDim], layerIdx, position
