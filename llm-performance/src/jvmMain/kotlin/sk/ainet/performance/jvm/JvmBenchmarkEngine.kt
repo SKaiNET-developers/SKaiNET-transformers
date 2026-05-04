@@ -7,10 +7,7 @@ import kotlin.io.path.absolutePathString
 import kotlin.system.measureNanoTime
 import kotlin.time.measureTime
 import kotlinx.coroutines.delay
-import sk.ainet.apps.kllama.CpuAttentionBackend
 import sk.ainet.apps.kllama.GGUFTokenizer
-import sk.ainet.apps.kllama.LlamaIngestion
-import sk.ainet.apps.kllama.LlamaLoadConfig
 import sk.ainet.apps.llm.OptimizedLLMMode
 import sk.ainet.apps.llm.OptimizedLLMRuntime
 import sk.ainet.context.DirectCpuExecutionContext
@@ -18,7 +15,6 @@ import sk.ainet.io.JvmRandomAccessSource
 import sk.ainet.io.model.QuantPolicy
 import sk.ainet.lang.types.FP32
 import sk.ainet.models.llama.LlamaNetworkLoader
-import sk.ainet.models.llama.LlamaRuntime
 import sk.ainet.performance.BenchmarkCaseResult
 import sk.ainet.performance.BenchmarkCaseStatus
 import sk.ainet.performance.BenchmarkMetric
@@ -130,7 +126,7 @@ private class JvmSmokeBenchmarkScenario : JvmBenchmarkScenario {
 
 private class LlamaRuntimeThroughputScenario : JvmBenchmarkScenario {
     override val id: String = "llama-runtime-throughput"
-    override val description: String = "Compare old LlamaRuntime vs DIRECT DSL vs OPTIMIZED runtime throughput."
+    override val description: String = "Compare DIRECT DSL vs OPTIMIZED DSL runtime throughput."
 
     private val prompts: List<NamedPrompt> = listOf(
         NamedPrompt("short", "Hello"),
@@ -153,7 +149,6 @@ private class LlamaRuntimeThroughputScenario : JvmBenchmarkScenario {
         log("Prompts tokenized: ${promptPlans.joinToString { "${it.prompt.label}(${it.promptTokens.size} tokens)" }}")
 
         val adapters: List<LlamaRuntimeAdapter> = listOf(
-            LegacyLlamaAdapter(resolvedModel.path),
             DirectDslLlamaAdapter(resolvedModel.path),
             OptimizedLlamaAdapter(resolvedModel.path),
         )
@@ -209,94 +204,6 @@ private interface LlamaRuntimeAdapter {
         warmupRuns: Int,
         measuredRuns: Int,
     ): List<BenchmarkCaseResult>
-}
-
-private class LegacyLlamaAdapter(
-    private val modelPath: Path,
-) : LlamaRuntimeAdapter {
-    override val runtimeName: String = "LlamaRuntime"
-
-    override suspend fun runAllCases(
-        promptPlans: List<PromptPlan>,
-        stepCounts: List<Int>,
-        warmupRuns: Int,
-        measuredRuns: Int,
-    ): List<BenchmarkCaseResult> {
-        val ctx = DirectCpuExecutionContext()
-        val ingestion = LlamaIngestion<FP32>(
-            ctx = ctx,
-            dtype = FP32::class,
-            config = LlamaLoadConfig(
-                quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
-                allowQuantized = true,
-            ),
-        )
-        val oldWeights = ingestion.loadStreaming {
-            JvmRandomAccessSource.open(modelPath.toString())
-        }
-        val backend = CpuAttentionBackend<FP32>(ctx, oldWeights, FP32::class)
-        @Suppress("DEPRECATION")
-        val runtime = LlamaRuntime<FP32>(ctx, oldWeights, backend, FP32::class)
-
-        return benchmarkCases(promptPlans, stepCounts, warmupRuns, measuredRuns) { tokens, steps ->
-            runtime.reset()
-            runtime.generate(tokens, steps, 0.0f) { _ -> }
-        }
-    }
-
-    private fun benchmarkCases(
-        promptPlans: List<PromptPlan>,
-        stepCounts: List<Int>,
-        warmupRuns: Int,
-        measuredRuns: Int,
-        run: (IntArray, Int) -> Unit,
-    ): List<BenchmarkCaseResult> {
-        val results = mutableListOf<BenchmarkCaseResult>()
-        for (steps in stepCounts) {
-            for ((prompt, promptTokens) in promptPlans) {
-                results += benchmarkSingleCase(prompt, promptTokens, steps, warmupRuns, measuredRuns, run)
-            }
-        }
-        return results
-    }
-
-    private fun benchmarkSingleCase(
-        prompt: NamedPrompt,
-        promptTokens: IntArray,
-        steps: Int,
-        warmupRuns: Int,
-        measuredRuns: Int,
-        run: (IntArray, Int) -> Unit,
-    ): BenchmarkCaseResult {
-        log("  $runtimeName | prompt=${prompt.label} steps=$steps | warming up ($warmupRuns runs)...")
-        repeat(warmupRuns) { i ->
-            run(promptTokens, steps)
-            log("    warmup ${i + 1}/$warmupRuns done")
-        }
-        log("  $runtimeName | prompt=${prompt.label} steps=$steps | measuring ($measuredRuns runs)...")
-        val measurements = (1..measuredRuns)
-            .map { i ->
-                val ms = measureTime { run(promptTokens, steps) }.inWholeMilliseconds
-                log("    measured ${i}/$measuredRuns: ${ms}ms")
-                ms
-            }
-            .sorted()
-        val medianMillis = measurements[measuredRuns / 2].coerceAtLeast(1)
-        val throughput = steps.toDouble() / medianMillis * 1000.0
-        log("  $runtimeName | prompt=${prompt.label} steps=$steps | median=${medianMillis}ms throughput=${"%.2f".format(throughput)} tok/s")
-        return BenchmarkCaseResult(
-            caseId = "$runtimeName:${prompt.label}:$steps",
-            status = BenchmarkCaseStatus.SUCCESS,
-            runtime = runtimeName,
-            promptLabel = prompt.label,
-            promptTokenCount = promptTokens.size,
-            steps = steps,
-            metrics = listOf(
-                BenchmarkMetric("throughput", throughput, "tok/s"),
-                BenchmarkMetric("median_duration", medianMillis.toDouble(), "ms"),
-            ),
-        )
-    }
 }
 
 private class DirectDslLlamaAdapter(
@@ -482,7 +389,7 @@ object JvmConsoleReporter {
         println("[BENCH] ========== SUMMARY ==========")
         println("[BENCH] | Runtime      | Steps | Short  | Medium | Long   |")
         println("[BENCH] |--------------|-------|--------|--------|--------|")
-        for (runtime in listOf("LlamaRuntime", "DIRECT", "OPTIMIZED")) {
+        for (runtime in listOf("DIRECT", "OPTIMIZED")) {
             for (steps in result.cases.mapNotNull { it.steps }.distinct().sorted()) {
                 val columns = listOf("short", "medium", "long").map { prompt ->
                     val case = result.cases.find { it.runtime == runtime && it.promptLabel == prompt && it.steps == steps }
