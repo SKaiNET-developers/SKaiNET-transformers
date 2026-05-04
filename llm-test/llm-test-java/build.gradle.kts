@@ -17,6 +17,7 @@ dependencies {
     testImplementation(project(":llm-runtime:kllama"))
     testImplementation(project(":llm-agent"))
     testImplementation(project(":llm-inference:llama"))
+    testImplementation(project(":llm-inference:bert"))
 
     // SKaiNET runtime needed by KLlamaJava (JVM target)
     testImplementation(libs.skainet.lang.core)
@@ -31,5 +32,5 @@ tasks.test {
         "--add-modules", "jdk.incubator.vector",
     )
     minHeapSize = "2g"
-    maxHeapSize = "8g"
+    maxHeapSize = "16g"
 }
