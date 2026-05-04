@@ -240,11 +240,12 @@ fun main(args: Array<String>) {
             )
         }
 
-        // Load tokenizer from GGUF
+        // Load tokenizer from already-parsed GGUF metadata. Routes to the
+        // upstream sk.ainet.io.tokenizer impl (correct byte-level BPE for
+        // Qwen/GPT-2 — see issue #52). The legacy fromGGUF(source) path
+        // uses the local forked impl with broken byte-BPE.
         println("Loading embedded GGUF tokenizer...")
-        val tokenizer: Tokenizer = JvmRandomAccessSource.open(modelPath.toString()).use { source ->
-            TokenizerFactory.fromGGUF(source)
-        }
+        val tokenizer: Tokenizer = TokenizerFactory.fromGgufFields(modelInfo.fields)
 
         // Build model metadata for chat template auto-detection
         val metadata = ModelMetadata(

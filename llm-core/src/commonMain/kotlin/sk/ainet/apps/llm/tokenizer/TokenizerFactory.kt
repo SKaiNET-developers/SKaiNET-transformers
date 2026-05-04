@@ -7,17 +7,40 @@ import sk.ainet.io.gguf.StreamingGGUFReader
 /**
  * Unified factory for creating tokenizers from various sources.
  *
- * Per-architecture dispatch: a Qwen / GPT-2 / Mistral-Nemo model needs
- * byte-level BPE (correctly implemented in upstream
- * [sk.ainet.io.tokenizer.QwenByteLevelBpeTokenizer]); a Llama / Gemma /
- * TinyLlama model uses SentencePiece via the local [GGUFTokenizer].
+ * Per-architecture dispatch routes Qwen / GPT-2 / Mistral-Nemo (byte-level
+ * BPE) to upstream [sk.ainet.io.tokenizer.QwenByteLevelBpeTokenizer] —
+ * the local [GGUFTokenizer]'s `encodeBPE` is the greedy-by-score
+ * SentencePiece algorithm, wrong for byte-level BPE which needs
+ * `bytes_to_unicode` mapping + GPT-2 pretokenization regex +
+ * merge-rank-based merging. See #52.
  *
- * The split is because the local [GGUFTokenizer]'s `encodeBPE` is the
- * greedy-by-score SentencePiece algorithm — wrong for byte-level BPE,
- * which needs `bytes_to_unicode` mapping + GPT-2 pretokenization regex
- * + merge-rank-based merging. See #52.
+ * Three entry points:
+ *
+ * - [fromGgufFields] — preferred when GGUF metadata has already been
+ *   parsed (e.g. via `UnifiedModelLoader.peek`); always routes through
+ *   the upstream `sk.ainet.io.tokenizer.TokenizerFactory`.
+ * - [fromGGUF] — convenience for a raw GGUF [RandomAccessSource]. Reads
+ *   metadata once and dispatches gpt2/bpe → upstream byte-BPE; else →
+ *   local SentencePiece path.
+ * - [fromTokenizerJson] / [fromHuggingFace] — HuggingFace `tokenizer.json`.
  */
 public object TokenizerFactory {
+
+    /**
+     * Create a tokenizer from a pre-parsed GGUF metadata field map.
+     *
+     * Delegates to upstream `sk.ainet.io.tokenizer.TokenizerFactory.fromGguf`,
+     * which has the correct byte-level BPE for Qwen/GPT-2 (issue #52). The
+     * result is wrapped in an adapter so callers continue to see the local
+     * [Tokenizer] interface (with `decode(Int)` and non-null bos/eos).
+     *
+     * @param fields The GGUF metadata map, e.g. `GGUFModelInfo.fields` from
+     *   `UnifiedModelLoader.peek`.
+     */
+    public fun fromGgufFields(fields: Map<String, Any?>): Tokenizer {
+        val upstream = sk.ainet.io.tokenizer.TokenizerFactory.fromGguf(fields)
+        return UpstreamTokenizerAdapter(upstream)
+    }
 
     /**
      * Create a tokenizer from GGUF file metadata (streaming, memory-efficient).
@@ -26,6 +49,9 @@ public object TokenizerFactory {
      * - `gpt2` / `bpe` → upstream [sk.ainet.io.tokenizer.QwenByteLevelBpeTokenizer]
      *   (correct byte-level BPE, matches HuggingFace transformers / llama.cpp)
      * - everything else → local [GGUFTokenizer] (SentencePiece path)
+     *
+     * Prefer [fromGgufFields] when metadata is already in hand — avoids
+     * re-reading the source.
      *
      * @param source Random access source to the GGUF file.
      * @param debug Print debug information during loading.
@@ -69,3 +95,4 @@ public object TokenizerFactory {
         return createHuggingFaceBPETokenizerFromJson(tokenizerJson, tokenizerConfigJson)
     }
 }
+
