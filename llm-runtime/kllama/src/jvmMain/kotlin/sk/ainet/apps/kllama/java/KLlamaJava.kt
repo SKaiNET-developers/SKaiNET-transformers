@@ -4,20 +4,20 @@ package sk.ainet.apps.kllama.java
 
 import kotlinx.coroutines.runBlocking
 import sk.ainet.apps.kllama.*
+import sk.ainet.apps.llm.OptimizedLLMMode
+import sk.ainet.apps.llm.OptimizedLLMRuntime
 import sk.ainet.apps.llm.tokenizer.TokenizerFactory
-import sk.ainet.models.llama.LlamaConfigParser
-import sk.ainet.models.llama.LlamaRuntime
-import sk.ainet.models.llama.LlamaRuntimeWeights
-import sk.ainet.models.llama.DecoderSafeTensorsLoader
-import sk.ainet.models.llama.MemSegWeightConverter
-import sk.ainet.models.llama.loadLlamaRuntimeWeightsStreaming
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
 import sk.ainet.io.model.QuantPolicy
 import sk.ainet.lang.tensor.data.MemorySegmentTensorDataFactory
 import sk.ainet.lang.types.FP32
+import sk.ainet.models.llama.DecoderGgufMemSegConverter
+import sk.ainet.models.llama.DecoderGgufWeightLoader
+import sk.ainet.models.llama.DecoderSafeTensorsLoader
+import sk.ainet.models.llama.LlamaConfigParser
+import sk.ainet.models.llama.LlamaNetworkLoader
 import java.lang.foreign.Arena
-import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.exists
 import kotlin.io.path.readText
@@ -26,7 +26,12 @@ import kotlin.io.path.readText
  * Java-friendly facade for loading and running LLaMA models.
  *
  * Handles all the internal orchestration (Arena, MemorySegment, context,
- * ingestion, runtime, tokenizer) behind a simple API.
+ * loader, runtime, tokenizer) behind a simple API.
+ *
+ * Both `loadGGUF` and `loadSafeTensors` build a `llamaNetwork()` DSL
+ * module + `OptimizedLLMRuntime` DIRECT mode — same path the kllama CLI
+ * uses (PR #122). Numerical equivalence with the legacy `LlamaRuntime`
+ * is pinned by `QwenDslLegacyParityTest` (#120).
  *
  * Example usage from Java:
  * ```java
@@ -39,8 +44,14 @@ import kotlin.io.path.readText
  */
 public object KLlamaJava {
 
+    private val LLAMA_FAMILY: Set<String> = setOf("llama", "mistral")
+
     /**
      * Load a GGUF model and return a ready-to-use session.
+     *
+     * Accepts Llama / Mistral architectures. Qwen-family GGUFs are not
+     * accepted here — use the kllama CLI (`kllama-cli`) which has Qwen
+     * dispatch, or extend this facade.
      *
      * @param modelPath Path to the .gguf model file.
      * @param systemPrompt Optional system prompt to prepend to all user inputs.
@@ -53,32 +64,30 @@ public object KLlamaJava {
         val memSegFactory = MemorySegmentTensorDataFactory()
         val ctx = DirectCpuExecutionContext(tensorDataFactory = memSegFactory)
 
-        val ingestion = LlamaIngestion<FP32>(
-            ctx = ctx,
-            dtype = FP32::class,
-            config = LlamaLoadConfig(
-                quantPolicy = QuantPolicy.NATIVE_OPTIMIZED,
-                allowQuantized = true
-            )
+        val loader = DecoderGgufWeightLoader(
+            randomAccessProvider = { JvmRandomAccessSource.open(modelPath.toString()) },
+            quantPolicy = QuantPolicy.NATIVE_OPTIMIZED,
+            acceptedArchitectures = LLAMA_FAMILY,
         )
-
-        val rawWeights = runBlocking {
-            ingestion.loadStreaming {
-                JvmRandomAccessSource.open(modelPath.toString())
-            }
-        }
+        val rawWeights = runBlocking { loader.loadToMapStreaming<FP32, Float>(ctx) }
 
         // Convert quantized weights for SIMD dispatch if needed
         val weights = if (rawWeights.quantTypes.isNotEmpty()) {
-            MemSegWeightConverter.convert(rawWeights, ctx, quantArena)
+            DecoderGgufMemSegConverter.convert(rawWeights, ctx, quantArena)
         } else {
             rawWeights
         }
 
-        val backend = CpuAttentionBackend<FP32>(ctx, weights, FP32::class)
-        val runtime = LlamaRuntime<FP32>(ctx, weights, backend, FP32::class)
+        val model = LlamaNetworkLoader.fromWeights(weights)
+        val runtime = OptimizedLLMRuntime(
+            model = model,
+            ctx = ctx,
+            mode = OptimizedLLMMode.DIRECT,
+            dtype = FP32::class,
+            bos = weights.metadata.bosTokenId,
+        )
 
-        // Load embedded GGUF tokenizer (auto-dispatches Qwen / GPT-2 BPE → upstream)
+        // Embedded GGUF tokenizer (auto-dispatches Qwen / GPT-2 BPE → upstream)
         val tokenizer = JvmRandomAccessSource.open(modelPath.toString()).use { source ->
             TokenizerFactory.fromGGUF(source)
         }
@@ -121,17 +130,21 @@ public object KLlamaJava {
         val safetensorsPath = modelDir.resolve("model.safetensors")
         require(safetensorsPath.exists()) { "model.safetensors not found in $modelDir" }
 
-        val ingestion = LlamaIngestion<FP32>(ctx = ctx, dtype = FP32::class)
-        val weights = ingestion.loadSafeTensors(
-            randomAccessProvider = { JvmRandomAccessSource.open(safetensorsPath.toString()) },
-            metadata = metadata,
-            tiedEmbeddings = tiedEmbeddings
+        val safeLoader = DecoderSafeTensorsLoader<FP32>(ctx, FP32::class, metadata, tiedEmbeddings)
+        val weights = safeLoader.loadToMap {
+            JvmRandomAccessSource.open(safetensorsPath.toString())
+        }
+
+        val model = LlamaNetworkLoader.fromWeights(weights)
+        val runtime = OptimizedLLMRuntime(
+            model = model,
+            ctx = ctx,
+            mode = OptimizedLLMMode.DIRECT,
+            dtype = FP32::class,
+            bos = weights.metadata.bosTokenId,
         )
 
-        val backend = CpuAttentionBackend<FP32>(ctx, weights, FP32::class)
-        val runtime = LlamaRuntime<FP32>(ctx, weights, backend, FP32::class)
-
-        // Load tokenizer from tokenizer.json
+        // Tokenizer from tokenizer.json
         val tokenizerPath = modelDir.resolve("tokenizer.json")
         require(tokenizerPath.exists()) { "tokenizer.json not found in $modelDir" }
         val tokenizer = GGUFTokenizer.fromTokenizerJson(tokenizerPath.readText())
@@ -139,7 +152,7 @@ public object KLlamaJava {
         return KLlamaSession(
             runtime = runtime,
             tokenizer = tokenizer,
-            eosTokenId = tokenizer.eosId,
+            eosTokenId = tokenizer.eosTokenId,
             systemPrompt = systemPrompt,
             closeAction = Runnable {
                 quantArena.close()

@@ -1,9 +1,9 @@
 package sk.ainet.apps.kllama.java
 
-import sk.ainet.models.llama.LlamaRuntime
 import sk.ainet.apps.kllama.agent.generateUntilStop
-import sk.ainet.lang.types.FP32
+import sk.ainet.apps.llm.InferenceRuntime
 import sk.ainet.apps.llm.Tokenizer
+import sk.ainet.lang.types.FP32
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.Executors
 import java.util.function.Consumer
@@ -28,7 +28,7 @@ import java.util.function.Consumer
  * ```
  */
 public class KLlamaSession(
-    internal val runtime: LlamaRuntime<FP32>,
+    internal val runtime: InferenceRuntime<FP32>,
     internal val tokenizer: Tokenizer,
     private val eosTokenId: Int,
     public val systemPrompt: String? = null,
