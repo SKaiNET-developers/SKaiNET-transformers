@@ -26,19 +26,19 @@ import kotlin.reflect.KClass
 
 public data class LlamaModelMetadata(
     val architecture: String,
-    val embeddingLength: Int,
-    val contextLength: Int,
-    val blockCount: Int,
-    val headCount: Int,
-    val kvHeadCount: Int,
-    val feedForwardLength: Int,
-    val ropeDimensionCount: Int?,
-    val vocabSize: Int,
-    val ropeFreqBase: Float = 10_000f,
-    val rmsNormEps: Float = 1e-5f,
-    val bosTokenId: Int = 1,
-    val eosTokenId: Int = 2
-)
+    override val embeddingLength: Int,
+    override val contextLength: Int,
+    override val blockCount: Int,
+    override val headCount: Int,
+    override val kvHeadCount: Int,
+    override val feedForwardLength: Int,
+    override val ropeDimensionCount: Int?,
+    override val vocabSize: Int,
+    override val ropeFreqBase: Float = 10_000f,
+    override val rmsNormEps: Float = 1e-5f,
+    override val bosTokenId: Int = 1,
+    override val eosTokenId: Int = 2,
+) : sk.ainet.lang.nn.dsl.decoder.DecoderModelMetadata
 
 public data class LlamaWeights<T : DType, V>(
     val metadata: LlamaModelMetadata,

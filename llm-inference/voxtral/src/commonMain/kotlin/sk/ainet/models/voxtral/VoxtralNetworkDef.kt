@@ -10,10 +10,10 @@ import sk.ainet.lang.nn.dsl.multiHeadAttention
 import sk.ainet.lang.nn.dsl.residual
 import sk.ainet.lang.nn.dsl.rmsNorm
 import sk.ainet.lang.nn.dsl.sequential
+import sk.ainet.lang.nn.dsl.decoder.decoderTransformerNetwork
 import sk.ainet.lang.nn.dsl.swiGluFFN
 import sk.ainet.lang.types.DType
 import sk.ainet.models.llama.LlamaModelMetadata
-import sk.ainet.models.llama.llamaNetwork
 
 /**
  * Voxtral TTS text backbone defined via the network DSL.
@@ -22,19 +22,18 @@ import sk.ainet.models.llama.llamaNetwork
  * GQA + SwiGLU FFN + RoPE + RMSNorm, no attention biases, tied embeddings).
  * It generates semantic audio tokens autoregressively from text input.
  *
- * Since the architecture is identical to LLaMA, this delegates to [llamaNetwork].
- * The function exists as a stable entry point for Voxtral consumers and a future
- * extension point if the architecture diverges.
- *
- * Architecture: Embedding → 26 × (RMSNorm → MHA(RoPE, KVCache) → Residual →
- *               RMSNorm → SwiGLU FFN → Residual) → RMSNorm → Dense
+ * Architecture: `Embedding → 26 × (RMSNorm → MHA(RoPE, KVCache) → Residual →
+ * RMSNorm → SwiGLU FFN → Residual) → RMSNorm → Dense`.
  *
  * Default config: dim=3072, heads=32, kv_heads=8, ffn=9216, vocab=131072,
- *                 rope_theta=1M, head_dim=128
+ *                 rope_theta=1M, head_dim=128.
  */
 public inline fun <reified T : DType, V> voxtralBackboneNetwork(
-    metadata: LlamaModelMetadata
-): Module<T, V> = llamaNetwork<T, V>(metadata)
+    metadata: LlamaModelMetadata,
+): Module<T, V> = decoderTransformerNetwork<T, V>(
+    metadata = metadata,
+    qkNorm = false,
+)
 
 /**
  * Voxtral acoustic transformer defined via the network DSL.
