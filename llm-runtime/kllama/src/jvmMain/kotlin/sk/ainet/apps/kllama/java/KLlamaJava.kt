@@ -89,7 +89,7 @@ public object KLlamaJava {
 
         // Embedded GGUF tokenizer (auto-dispatches Qwen / GPT-2 BPE → upstream)
         val tokenizer = JvmRandomAccessSource.open(modelPath.toString()).use { source ->
-            TokenizerFactory.fromGGUF(source)
+            TokenizerFactory.fromGgufSource(source)
         }
 
         return KLlamaSession(
