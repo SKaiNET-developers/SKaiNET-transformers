@@ -5,6 +5,7 @@ import sk.ainet.models.llama.LlamaConfigParser
 import sk.ainet.apps.kllama.LlamaIngestion
 import sk.ainet.apps.kllama.LlamaLoadConfig
 import sk.ainet.apps.llm.Tokenizer
+import sk.ainet.apps.llm.tokenizer.TokenizerFactory
 import sk.ainet.models.llama.LlamaRuntime
 import sk.ainet.apps.kllama.CpuAttentionBackend
 import sk.ainet.apps.kllama.Llama2DotCWeightLoader
@@ -477,7 +478,7 @@ fun main(args: Array<String>) {
             format == ModelFormat.GGUF && tokenizerPath == null -> {
                 println("Loading embedded GGUF tokenizer...")
                 JvmRandomAccessSource.open(modelPath.toString()).use { source ->
-                    GGUFTokenizer.fromRandomAccessSource(source)
+                    TokenizerFactory.fromGGUF(source)
                 }
             }
             else -> {

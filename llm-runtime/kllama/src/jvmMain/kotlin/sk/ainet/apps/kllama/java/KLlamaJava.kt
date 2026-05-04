@@ -4,6 +4,7 @@ package sk.ainet.apps.kllama.java
 
 import kotlinx.coroutines.runBlocking
 import sk.ainet.apps.kllama.*
+import sk.ainet.apps.llm.tokenizer.TokenizerFactory
 import sk.ainet.models.llama.LlamaConfigParser
 import sk.ainet.models.llama.LlamaRuntime
 import sk.ainet.models.llama.LlamaRuntimeWeights
@@ -77,15 +78,15 @@ public object KLlamaJava {
         val backend = CpuAttentionBackend<FP32>(ctx, weights, FP32::class)
         val runtime = LlamaRuntime<FP32>(ctx, weights, backend, FP32::class)
 
-        // Load embedded GGUF tokenizer
+        // Load embedded GGUF tokenizer (auto-dispatches Qwen / GPT-2 BPE → upstream)
         val tokenizer = JvmRandomAccessSource.open(modelPath.toString()).use { source ->
-            GGUFTokenizer.fromRandomAccessSource(source)
+            TokenizerFactory.fromGGUF(source)
         }
 
         return KLlamaSession(
             runtime = runtime,
             tokenizer = tokenizer,
-            eosTokenId = tokenizer.eosId,
+            eosTokenId = tokenizer.eosTokenId,
             systemPrompt = systemPrompt,
             closeAction = Runnable {
                 quantArena.close()
