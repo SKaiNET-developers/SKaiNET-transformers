@@ -1,8 +1,10 @@
 package sk.ainet.models.llama
 
 import sk.ainet.context.ExecutionContext
+import sk.ainet.io.RandomAccessSource
 import sk.ainet.io.gguf.GGMLQuantizationType
 import sk.ainet.io.gguf.dequant.DequantOps
+import sk.ainet.io.model.QuantPolicy
 import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.tensor.data.IntArrayTensorData
 import sk.ainet.lang.tensor.data.Q4MemorySegmentTensorData
@@ -123,4 +125,29 @@ public object DecoderGgufMemSegConverter {
             ((data as TensorData<*, Int>)[it]).toByte()
         }
     }
+}
+
+/**
+ * Convenience wrapper for the DSL inference path: stream a GGUF file with
+ * `NATIVE_OPTIMIZED` quant policy, then run [DecoderGgufMemSegConverter] so
+ * Q4_0 / Q8_0 tensors are wrapped as `MemorySegment`-backed packed data
+ * before binding into a DSL network. Per-architecture loaders compose this
+ * with their own `acceptedArchitectures` set and pass the result to
+ * `xNetworkLoader.fromWeights(...)`.
+ *
+ * Caller manages the [arena] lifecycle.
+ */
+public suspend fun loadDecoderGgufWeightsNative(
+    randomAccessProvider: () -> RandomAccessSource,
+    acceptedArchitectures: Set<String>,
+    ctx: ExecutionContext,
+    arena: Arena,
+): DecoderGgufWeights<FP32, Float> {
+    val loader = DecoderGgufWeightLoader(
+        randomAccessProvider = randomAccessProvider,
+        quantPolicy = QuantPolicy.NATIVE_OPTIMIZED,
+        acceptedArchitectures = acceptedArchitectures,
+    )
+    val raw = loader.loadToMapStreaming<FP32, Float>(ctx)
+    return DecoderGgufMemSegConverter.convert(raw, ctx, arena)
 }
