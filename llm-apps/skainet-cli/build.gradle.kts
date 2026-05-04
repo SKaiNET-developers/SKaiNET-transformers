@@ -20,6 +20,7 @@ dependencies {
 
     // Inference modules (for network loaders)
     implementation(project(":llm-inference:llama"))
+    implementation(project(":llm-inference:qwen"))
     implementation(project(":llm-inference:gemma"))
     implementation(project(":llm-inference:apertus"))
 

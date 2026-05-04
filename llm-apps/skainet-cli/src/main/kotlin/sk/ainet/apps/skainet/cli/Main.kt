@@ -1,6 +1,5 @@
 package sk.ainet.apps.skainet.cli
 
-import sk.ainet.apps.kllama.CpuAttentionBackend
 import sk.ainet.apps.kllama.cli.AgentCli
 import sk.ainet.apps.kllama.cli.ToolCallingDemo
 import sk.ainet.apps.llm.InferenceRuntime
@@ -24,10 +23,10 @@ import sk.ainet.io.JvmRandomAccessSource
 import sk.ainet.io.model.QuantPolicy
 import sk.ainet.lang.tensor.data.MemorySegmentTensorDataFactory
 import sk.ainet.lang.types.FP32
-import sk.ainet.models.llama.LlamaRuntime
+import sk.ainet.models.llama.DecoderGgufMemSegConverter
 import sk.ainet.models.llama.DecoderGgufWeightLoader
-import sk.ainet.models.llama.LlamaWeightMapper
-import sk.ainet.models.llama.MemSegWeightConverter
+import sk.ainet.models.llama.LlamaNetworkLoader
+import sk.ainet.models.qwen.QwenNetworkLoader
 import java.lang.foreign.Arena
 import java.nio.file.Path
 import kotlin.io.path.exists
@@ -164,15 +163,18 @@ fun main(args: Array<String>) {
             memSegFactory.close()
         })
 
-        // Load model based on detected family. Gemma and Apertus route
-        // through the DSL pipeline (their respective network() builder +
-        // OptimizedLLMRuntime); everything else (LLaMA, Qwen, ...) takes
-        // the LlamaRuntime path which supports NATIVE_OPTIMIZED quant
-        // tensors for low-RAM loads. Apertus had previously fallen
-        // through to the LlamaRuntime branch — that runtime doesn't
-        // implement Apertus's xIELU activation, QK-Norm, or ungated FFN,
-        // so logits silently diverged from the checkpoint's intent. See
-        // APERTUS_ROLLOUT.md (PR 1) for the rollout context.
+        // Load model based on detected family. All families route through
+        // the DSL pipeline (per-family network() builder +
+        // OptimizedLLMRuntime). The legacy LlamaRuntime path was retired
+        // for the kllama CLI in #121 / #122; this CLI follows in this PR.
+        // Numerical equivalence with the legacy path on identical weights
+        // is pinned by `QwenDslLegacyParityTest` (#120).
+        //
+        // Apertus had previously fallen through to the LlamaRuntime
+        // branch — that runtime doesn't implement Apertus's xIELU
+        // activation, QK-Norm, or ungated FFN, so logits silently
+        // diverged from the checkpoint's intent. The DSL path is correct
+        // for Apertus too. See APERTUS_ROLLOUT.md (PR 1).
         val runtime: InferenceRuntime<FP32> = if (modelInfo.family == ModelFamily.GEMMA) {
             println("Loading Gemma GGUF model from $modelPath via gemmaNetwork() + OptimizedLLMRuntime (NATIVE_OPTIMIZED)...")
             if (cliArgs.contextLength != null) {
@@ -197,38 +199,44 @@ fun main(args: Array<String>) {
             ).load<FP32, Float>(ctx)
             OptimizedLLMRuntime(model, ctx, OptimizedLLMMode.DIRECT, FP32::class)
         } else {
+            // LLaMA / Qwen / Mistral DSL path. DecoderGgufWeightLoader
+            // streams the GGUF, DecoderGgufMemSegConverter wraps Q4_0/Q8_0
+            // tensors as packed MemorySegment data, then the per-family
+            // network loader builds the right module:
+            //   - Qwen → qwenNetwork() (QK-norm + NEOX RoPE)
+            //   - else → llamaNetwork() (LLaMA / Mistral default)
             val acceptedArchitectures = modelInfo.family.architectures + setOf(modelInfo.architecture)
             val loader = DecoderGgufWeightLoader(
                 randomAccessProvider = { JvmRandomAccessSource.open(modelPath.toString()) },
                 quantPolicy = QuantPolicy.NATIVE_OPTIMIZED,
-                acceptedArchitectures = acceptedArchitectures
+                acceptedArchitectures = acceptedArchitectures,
             )
 
-            println("Loading GGUF model from $modelPath (${modelInfo.family.displayName}, streaming)...")
-            val loaded = loader.loadToMapStreaming<FP32, Float>(ctx, FP32::class)
-            val rawWeights = LlamaWeightMapper.map(loaded)
+            println("Loading GGUF model from $modelPath (${modelInfo.family.displayName}, DSL streaming)...")
+            val rawWeights = loader.loadToMapStreaming<FP32, Float>(ctx)
 
-            val runtimeWeights = if (rawWeights.quantTypes.isNotEmpty()) {
+            val convertedWeights = if (rawWeights.quantTypes.isNotEmpty()) {
                 println("Converting ${rawWeights.quantTypes.size} quantized tensors to SIMD format...")
-                MemSegWeightConverter.convert(rawWeights, ctx, quantArena)
+                DecoderGgufMemSegConverter.convert(rawWeights, ctx, quantArena)
             } else {
                 rawWeights
             }
 
             if (cliArgs.contextLength != null) {
-                println("Context length capped to ${cliArgs.contextLength} (model default: ${runtimeWeights.metadata.contextLength})")
+                println("Context length capped to ${cliArgs.contextLength} (model default: ${convertedWeights.metadata.contextLength})")
             }
 
-            val backend = CpuAttentionBackend<FP32>(
-                ctx, runtimeWeights, FP32::class,
-                ropeFreqBase = runtimeWeights.metadata.ropeFreqBase,
-                maxContextLength = cliArgs.contextLength
-            )
-
-            @Suppress("DEPRECATION")
-            LlamaRuntime<FP32>(
-                ctx, runtimeWeights, backend, FP32::class,
-                eps = runtimeWeights.metadata.rmsNormEps
+            val model = if (modelInfo.family == ModelFamily.QWEN) {
+                QwenNetworkLoader.fromWeights(convertedWeights)
+            } else {
+                LlamaNetworkLoader.fromWeights(convertedWeights)
+            }
+            OptimizedLLMRuntime(
+                model = model,
+                ctx = ctx,
+                mode = OptimizedLLMMode.DIRECT,
+                dtype = FP32::class,
+                bos = convertedWeights.metadata.bosTokenId,
             )
         }
 
