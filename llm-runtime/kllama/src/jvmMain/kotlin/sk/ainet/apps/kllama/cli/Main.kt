@@ -4,12 +4,16 @@ import sk.ainet.apps.kllama.GGUFTokenizer
 import sk.ainet.models.llama.LlamaConfigParser
 import sk.ainet.apps.kllama.LlamaIngestion
 import sk.ainet.apps.kllama.LlamaLoadConfig
+import sk.ainet.apps.llm.OptimizedLLMMode
+import sk.ainet.apps.llm.OptimizedLLMRuntime
 import sk.ainet.apps.llm.Tokenizer
 import sk.ainet.apps.llm.tokenizer.TokenizerFactory
+import sk.ainet.models.llama.DecoderGgufMemSegConverter
 import sk.ainet.models.llama.LlamaRuntime
 import sk.ainet.apps.kllama.CpuAttentionBackend
 import sk.ainet.apps.kllama.Llama2DotCWeightLoader
 import sk.ainet.models.llama.MemSegWeightConverter
+import sk.ainet.models.qwen.QwenNetworkLoader
 import sk.ainet.apps.kllama.TokenizerUtils
 import sk.ainet.apps.llm.backend.BackendRegistry
 import sk.ainet.apps.llm.backend.availableNames
@@ -362,38 +366,44 @@ fun main(args: Array<String>) {
         var binVocabSize: Int = 0
 
         if (format == ModelFormat.GGUF && isQwen) {
-            // --- Qwen: DecoderGgufWeightLoader with Qwen architectures → LlamaRuntime ---
-            // Same path as kqwen CLI — uses off-heap MemSeg for quantized tensors.
+            // --- Qwen: DSL path. QwenNetworkLoader builds a `qwenNetwork()`
+            // module (RoPE NEOX, QK-norm, metadata-driven eps) populated
+            // from the GGUF; DecoderGgufMemSegConverter wraps Q4_0/Q8_0
+            // tensors as packed MemorySegment data for the SIMD quant
+            // matmul kernels. OptimizedLLMRuntime DIRECT mode runs the
+            // module tree forward.
+            //
+            // Bit-for-bit parity with the legacy LlamaRuntime path on
+            // identical weights is pinned by QwenDslLegacyParityTest
+            // (#120, closes #114).
             val qwenArchitectures = setOf("qwen2", "qwen3", "qwen35")
             val loader = DecoderGgufWeightLoader(
                 randomAccessProvider = { JvmRandomAccessSource.open(modelPath.toString()) },
                 quantPolicy = QuantPolicy.NATIVE_OPTIMIZED,
-                acceptedArchitectures = qwenArchitectures
+                acceptedArchitectures = qwenArchitectures,
             )
-            println("Loading GGUF model from $modelPath (Qwen, streaming mode)...")
-            val loaded = loader.loadToMapStreaming<FP32, Float>(ctx, FP32::class)
-            val rawWeights = LlamaWeightMapper.map(loaded)
+            println("Loading GGUF model from $modelPath (Qwen, DSL streaming mode)...")
+            val rawWeights = loader.loadToMapStreaming<FP32, Float>(ctx)
 
-            val runtimeWeights = if (rawWeights.quantTypes.isNotEmpty()) {
+            val convertedWeights = if (rawWeights.quantTypes.isNotEmpty()) {
                 println("Converting ${rawWeights.quantTypes.size} quantized tensors to MemorySegment-backed SIMD format...")
-                MemSegWeightConverter.convert(rawWeights, ctx, quantArena)
+                DecoderGgufMemSegConverter.convert(rawWeights, ctx, quantArena)
             } else {
                 rawWeights
             }
 
             if (cliArgs.contextLength != null) {
-                println("Context length capped to ${cliArgs.contextLength} (model default: ${runtimeWeights.metadata.contextLength})")
+                println("Context length capped to ${cliArgs.contextLength} (model default: ${convertedWeights.metadata.contextLength})")
             }
-            val qwenBackend = CpuAttentionBackend<FP32>(
-                ctx, runtimeWeights, FP32::class,
-                ropeFreqBase = runtimeWeights.metadata.ropeFreqBase,
-                maxContextLength = cliArgs.contextLength
+            val qwenModel = QwenNetworkLoader.fromWeights(convertedWeights)
+            runtime = OptimizedLLMRuntime(
+                model = qwenModel,
+                ctx = ctx,
+                mode = OptimizedLLMMode.DIRECT,
+                dtype = FP32::class,
+                bos = convertedWeights.metadata.bosTokenId,
             )
-            runtime = LlamaRuntime<FP32>(
-                ctx, runtimeWeights, qwenBackend, FP32::class,
-                eps = runtimeWeights.metadata.rmsNormEps
-            )
-            eosTokenId = runtimeWeights.metadata.eosTokenId
+            eosTokenId = convertedWeights.metadata.eosTokenId
         } else {
             // --- Llama / SafeTensors / BIN: legacy LlamaRuntime path ---
             val runtimeWeights = when (format) {
