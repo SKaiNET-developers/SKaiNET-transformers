@@ -4,19 +4,15 @@ import kotlinx.io.buffered
 import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
 import kotlin.time.measureTime
-import sk.ainet.apps.kllama.CpuAttentionBackend
 import sk.ainet.apps.kllama.GGUFTokenizer
-import sk.ainet.apps.kllama.GpuAttentionBackend
-import sk.ainet.apps.kllama.GpuTensorBridge
-import sk.ainet.apps.kllama.LlamaIngestion
-import sk.ainet.apps.kllama.LlamaLoadConfig
+import sk.ainet.apps.llm.OptimizedLLMMode
+import sk.ainet.apps.llm.OptimizedLLMRuntime
+import sk.ainet.apps.llm.generate
 import sk.ainet.context.DirectCpuExecutionContext
-import sk.ainet.context.ExecutionContext
 import sk.ainet.io.model.QuantPolicy
-import sk.ainet.lang.types.DType
 import sk.ainet.lang.types.FP32
-import sk.ainet.models.llama.LlamaRuntime
-import sk.ainet.models.llama.LlamaRuntimeWeights
+import sk.ainet.models.llama.DecoderGgufWeightLoader
+import sk.ainet.models.llama.LlamaNetworkLoader
 import sk.ainet.performance.BenchmarkCaseResult
 import sk.ainet.performance.BenchmarkCaseStatus
 import sk.ainet.performance.BenchmarkMetric
@@ -49,14 +45,7 @@ private fun formatDouble1(value: Double): String {
     return "$intPart.$fracPart"
 }
 
-// ── Expect declarations for macOS-specific backend creation ──
-
-internal expect fun createMetalContext(): ExecutionContext?
-internal expect fun createMlxContext(): ExecutionContext?
-internal expect fun <T : DType> createGpuBridge(ctx: ExecutionContext): GpuTensorBridge<T>?
 internal expect fun availableNativeBackends(): List<String>
-
-// ── Data structures ──
 
 internal data class NamedPrompt(
     val label: String,
@@ -68,188 +57,78 @@ internal data class PromptPlan(
     val promptTokens: IntArray,
 )
 
-// ── Adapter interface ──
-
-internal interface NativeLlamaAdapter {
-    val runtimeName: String
+internal class CpuNativeDslAdapter(
+    private val modelPathStr: String,
+) {
+    val runtimeName: String = "CPU"
 
     suspend fun runAllCases(
         promptPlans: List<PromptPlan>,
         stepCounts: List<Int>,
         warmupRuns: Int,
         measuredRuns: Int,
-    ): List<BenchmarkCaseResult>
-}
-
-// ── CPU adapter ──
-
-internal class CpuNativeLlamaAdapter(
-    private val modelPathStr: String,
-) : NativeLlamaAdapter {
-    override val runtimeName: String = "CPU"
-
-    override suspend fun runAllCases(
-        promptPlans: List<PromptPlan>,
-        stepCounts: List<Int>,
-        warmupRuns: Int,
-        measuredRuns: Int,
     ): List<BenchmarkCaseResult> {
         val ctx = DirectCpuExecutionContext()
+        val modelPath = Path(modelPathStr)
         log("  $runtimeName | loading model...")
-        val weights = loadWeights<FP32>(ctx, FP32::class, modelPathStr)
-        val backend = CpuAttentionBackend<FP32>(ctx, weights, FP32::class)
-        @Suppress("DEPRECATION")
-        val runtime = LlamaRuntime<FP32>(ctx, weights, backend, FP32::class)
-        log("  $runtimeName | model loaded")
-
-        return benchmarkCases(runtimeName, runtime, promptPlans, stepCounts, warmupRuns, measuredRuns)
-    }
-}
-
-// ── GPU adapter (Metal or MLX) ──
-
-internal class GpuNativeLlamaAdapter(
-    private val modelPathStr: String,
-    override val runtimeName: String,
-    private val contextFactory: () -> ExecutionContext?,
-) : NativeLlamaAdapter {
-
-    override suspend fun runAllCases(
-        promptPlans: List<PromptPlan>,
-        stepCounts: List<Int>,
-        warmupRuns: Int,
-        measuredRuns: Int,
-    ): List<BenchmarkCaseResult> {
-        val ctx = try {
-            contextFactory()
-        } catch (e: Exception) {
-            log("  $runtimeName | failed to create context: ${e.message}")
-            null
-        }
-
-        if (ctx == null) {
-            log("  $runtimeName | backend unavailable — skipping")
-            return skipAll(promptPlans, stepCounts)
-        }
-
-        log("  $runtimeName | loading model...")
-        val weights = try {
-            loadWeights<FP32>(ctx, FP32::class, modelPathStr)
-        } catch (e: Exception) {
-            log("  $runtimeName | model load failed: ${e.message}")
-            return skipAll(promptPlans, stepCounts, "Model load failed: ${e.message}")
-        }
-
-        val bridge = createGpuBridge<FP32>(ctx)
-        val backend = if (bridge != null) {
-            log("  $runtimeName | using GPU attention backend")
-            GpuAttentionBackend<FP32>(ctx, bridge, weights, FP32::class)
-        } else {
-            log("  $runtimeName | GPU bridge unavailable, falling back to CPU attention")
-            CpuAttentionBackend<FP32>(ctx, weights, FP32::class)
-        }
-
-        @Suppress("DEPRECATION")
-        val runtime = LlamaRuntime<FP32>(ctx, weights, backend, FP32::class)
-        log("  $runtimeName | model loaded")
-
-        return benchmarkCases(runtimeName, runtime, promptPlans, stepCounts, warmupRuns, measuredRuns)
-    }
-
-    private fun skipAll(
-        promptPlans: List<PromptPlan>,
-        stepCounts: List<Int>,
-        reason: String = "$runtimeName backend unavailable.",
-    ): List<BenchmarkCaseResult> = stepCounts.flatMap { steps ->
-        promptPlans.map { (prompt, promptTokens) ->
-            BenchmarkCaseResult(
-                caseId = "$runtimeName:${prompt.label}:$steps",
-                status = BenchmarkCaseStatus.SKIPPED,
-                runtime = runtimeName,
-                promptLabel = prompt.label,
-                promptTokenCount = promptTokens.size,
-                steps = steps,
-                metrics = emptyList(),
-                notes = listOf(reason),
-            )
-        }
-    }
-}
-
-// ── Shared helpers ──
-
-internal suspend fun <T : DType> loadWeights(
-    ctx: ExecutionContext,
-    dtype: kotlin.reflect.KClass<T>,
-    modelPathStr: String,
-): LlamaRuntimeWeights<T> {
-    val modelPath = Path(modelPathStr)
-    val ingestion = LlamaIngestion<T>(
-        ctx = ctx,
-        dtype = dtype,
-        config = LlamaLoadConfig(
+        val weights = DecoderGgufWeightLoader(
+            sourceProvider = { SystemFileSystem.source(modelPath).buffered() },
             quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
-            allowQuantized = false,
-        ),
-    )
-    return ingestion.load {
-        SystemFileSystem.source(modelPath).buffered()
-    }
-}
+        ).loadToMap<FP32, Float>(ctx)
+        val model = LlamaNetworkLoader.fromWeights(weights)
+        val runtime = OptimizedLLMRuntime(
+            model = model,
+            ctx = ctx,
+            mode = OptimizedLLMMode.DIRECT,
+            dtype = FP32::class,
+            bos = weights.metadata.bosTokenId,
+        )
+        log("  $runtimeName | model loaded")
 
-internal fun benchmarkCases(
-    runtimeName: String,
-    runtime: LlamaRuntime<FP32>,
-    promptPlans: List<PromptPlan>,
-    stepCounts: List<Int>,
-    warmupRuns: Int,
-    measuredRuns: Int,
-): List<BenchmarkCaseResult> {
-    val results = mutableListOf<BenchmarkCaseResult>()
-    for (steps in stepCounts) {
-        for ((prompt, promptTokens) in promptPlans) {
-            log("  $runtimeName | prompt=${prompt.label} steps=$steps | warming up ($warmupRuns runs)...")
-            repeat(warmupRuns) { i ->
-                runtime.reset()
-                runtime.generate(promptTokens, steps, 0.0f) { _ -> }
-                log("    warmup ${i + 1}/$warmupRuns done")
-            }
-            log("  $runtimeName | prompt=${prompt.label} steps=$steps | measuring ($measuredRuns runs)...")
-            val measurements = (1..measuredRuns).map { i ->
-                val ms = measureTime {
+        val results = mutableListOf<BenchmarkCaseResult>()
+        for (steps in stepCounts) {
+            for ((prompt, promptTokens) in promptPlans) {
+                log("  $runtimeName | prompt=${prompt.label} steps=$steps | warming up ($warmupRuns runs)...")
+                repeat(warmupRuns) { i ->
                     runtime.reset()
                     runtime.generate(promptTokens, steps, 0.0f) { _ -> }
-                }.inWholeMilliseconds
-                log("    measured $i/$measuredRuns: ${ms}ms")
-                ms
-            }.sorted()
+                    log("    warmup ${i + 1}/$warmupRuns done")
+                }
+                log("  $runtimeName | prompt=${prompt.label} steps=$steps | measuring ($measuredRuns runs)...")
+                val measurements = (1..measuredRuns).map { i ->
+                    val ms = measureTime {
+                        runtime.reset()
+                        runtime.generate(promptTokens, steps, 0.0f) { _ -> }
+                    }.inWholeMilliseconds
+                    log("    measured $i/$measuredRuns: ${ms}ms")
+                    ms
+                }.sorted()
 
-            val medianMillis = measurements[measuredRuns / 2].coerceAtLeast(1)
-            val throughput = steps.toDouble() / medianMillis * 1000.0
-            log("  $runtimeName | prompt=${prompt.label} steps=$steps | median=${medianMillis}ms throughput=${formatDouble2(throughput)} tok/s")
+                val medianMillis = measurements[measuredRuns / 2].coerceAtLeast(1)
+                val throughput = steps.toDouble() / medianMillis * 1000.0
+                log("  $runtimeName | prompt=${prompt.label} steps=$steps | median=${medianMillis}ms throughput=${formatDouble2(throughput)} tok/s")
 
-            results += BenchmarkCaseResult(
-                caseId = "$runtimeName:${prompt.label}:$steps",
-                status = BenchmarkCaseStatus.SUCCESS,
-                runtime = runtimeName,
-                promptLabel = prompt.label,
-                promptTokenCount = promptTokens.size,
-                steps = steps,
-                metrics = listOf(
-                    BenchmarkMetric("throughput", throughput, "tok/s"),
-                    BenchmarkMetric("median_duration", medianMillis.toDouble(), "ms"),
-                ),
-            )
+                results += BenchmarkCaseResult(
+                    caseId = "$runtimeName:${prompt.label}:$steps",
+                    status = BenchmarkCaseStatus.SUCCESS,
+                    runtime = runtimeName,
+                    promptLabel = prompt.label,
+                    promptTokenCount = promptTokens.size,
+                    steps = steps,
+                    metrics = listOf(
+                        BenchmarkMetric("throughput", throughput, "tok/s"),
+                        BenchmarkMetric("median_duration", medianMillis.toDouble(), "ms"),
+                    ),
+                )
+            }
         }
+        return results
     }
-    return results
 }
 
-// ── Scenario ──
-
-internal class NativeBackendThroughputScenario : BenchmarkScenario {
-    override val id: String = "native-backend-throughput"
-    override val description: String = "Compare CPU vs Metal vs MLX backend throughput on native macOS."
+internal class NativeCpuThroughputScenario : BenchmarkScenario {
+    override val id: String = "native-cpu-throughput"
+    override val description: String = "DSL CPU throughput on native (macOS)."
 
     private val prompts: List<NamedPrompt> = listOf(
         NamedPrompt("short", "Hello"),
@@ -275,29 +154,20 @@ internal class NativeBackendThroughputScenario : BenchmarkScenario {
         }
         log("Prompts tokenized: ${promptPlans.joinToString { "${it.prompt.label}(${it.promptTokens.size} tokens)" }}")
 
-        val adapters: List<NativeLlamaAdapter> = buildList {
-            add(CpuNativeLlamaAdapter(modelPathStr))
-            add(GpuNativeLlamaAdapter(modelPathStr, "Metal", ::createMetalContext))
-            add(GpuNativeLlamaAdapter(modelPathStr, "MLX", ::createMlxContext))
-        }
-
-        val results = mutableListOf<BenchmarkCaseResult>()
-        for ((index, adapter) in adapters.withIndex()) {
-            log("=== Backend ${index + 1}/${adapters.size}: ${adapter.runtimeName} ===")
-            val adapterResults = adapter.runAllCases(
-                promptPlans = promptPlans,
-                stepCounts = request.steps,
-                warmupRuns = request.warmupRuns,
-                measuredRuns = request.measuredRuns,
-            )
-            results += adapterResults
-            val successCount = adapterResults.count { it.status == BenchmarkCaseStatus.SUCCESS }
-            log("${adapter.runtimeName} finished: $successCount/${adapterResults.size} cases succeeded")
-        }
+        val adapter = CpuNativeDslAdapter(modelPathStr)
+        log("=== Backend: ${adapter.runtimeName} ===")
+        val results = adapter.runAllCases(
+            promptPlans = promptPlans,
+            stepCounts = request.steps,
+            warmupRuns = request.warmupRuns,
+            measuredRuns = request.measuredRuns,
+        )
+        val successCount = results.count { it.status == BenchmarkCaseStatus.SUCCESS }
+        log("${adapter.runtimeName} finished: $successCount/${results.size} cases succeeded")
 
         val finishedAt = epochMillis()
         val elapsedSec = (finishedAt - startedAt) / 1000.0
-        log("All backends complete. Total elapsed: ${formatDouble1(elapsedSec)}s")
+        log("Backend complete. Total elapsed: ${formatDouble1(elapsedSec)}s")
 
         return BenchmarkRunResult(
             scenarioId = id,
@@ -312,10 +182,8 @@ internal class NativeBackendThroughputScenario : BenchmarkScenario {
     }
 }
 
-// ── Orchestrator ──
-
 class NativeBenchmarkOrchestrator : BenchmarkRunner<BenchmarkRunRequest, BenchmarkRunResult> {
-    private val scenario = NativeBackendThroughputScenario()
+    private val scenario = NativeCpuThroughputScenario()
 
     override suspend fun run(config: BenchmarkRunRequest): BenchmarkRunResult {
         return scenario.execute(config)
@@ -325,8 +193,6 @@ class NativeBenchmarkOrchestrator : BenchmarkRunner<BenchmarkRunRequest, Benchma
         ResolvedBenchmarkScenario(scenario = scenario, supportedTargets = setOf("macos")),
     )
 }
-
-// ── Console reporter (matches JVM format) ──
 
 object NativeConsoleReporter {
     fun render(result: BenchmarkRunResult) {
