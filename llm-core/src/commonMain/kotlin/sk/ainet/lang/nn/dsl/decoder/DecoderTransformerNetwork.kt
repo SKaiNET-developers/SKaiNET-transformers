@@ -11,6 +11,7 @@ import sk.ainet.lang.nn.dsl.residual
 import sk.ainet.lang.nn.dsl.rmsNorm
 import sk.ainet.lang.nn.dsl.sequential
 import sk.ainet.lang.nn.dsl.swiGluFFN
+import sk.ainet.lang.nn.transformer.RoPEMode
 import sk.ainet.lang.nn.transformer.VoidDense
 import sk.ainet.lang.types.DType
 
@@ -35,6 +36,14 @@ import sk.ainet.lang.types.DType
  *   Qwen3: true. Llama / Mistral: false.
  * @param qkNormUnitOffset whether the QK-norm uses unit-offset weights
  *   (Gemma-style). Defaults to false.
+ * @param ropeMode pairing convention for RoPE rotation. [RoPEMode.INTERLEAVED]
+ *   (`(buf[2i], buf[2i+1])`, llama.cpp NORM mode 0) is the LLaMA / Mistral /
+ *   Gemma default. [RoPEMode.SPLIT_HALF] (`(buf[i], buf[i+ropeDim/2])`,
+ *   llama.cpp NEOX mode 2) is what Qwen 2/3, Phi, Falcon, StableLM,
+ *   Starcoder2 store in GGUF. Mirrors `RopeType.forArchitecture()` in
+ *   [sk.ainet.apps.llm.RopeUtils] — picking the wrong mode produces
+ *   subtly-wrong logits per token (correct-by-accident at very small
+ *   contexts; compounds across positions).
  * @param maxInferenceLen sequence length used to size the KV cache and RoPE
  *   tables. Capped at min(metadata.contextLength, 4096) by default.
  */
@@ -44,6 +53,7 @@ public inline fun <reified T : DType, V> decoderTransformerNetwork(
     eps: Float = metadata.rmsNormEps,
     qkNorm: Boolean = false,
     qkNormUnitOffset: Boolean = false,
+    ropeMode: RoPEMode = RoPEMode.INTERLEAVED,
     maxInferenceLen: Int = minOf(metadata.contextLength, 4096),
 ): Module<T, V> {
     val dim = metadata.embeddingLength
@@ -72,7 +82,7 @@ public inline fun <reified T : DType, V> decoderTransformerNetwork(
                 qkNormUnitOffset = qkNormUnitOffset,
                 id = "attn",
             ) {
-                rope(headDim, seqLen, base = ropeBase)
+                rope(headDim, seqLen, mode = ropeMode, base = ropeBase)
                 kvCache(seqLen, nKVHeads, headDim)
             }
             stage.residual()
