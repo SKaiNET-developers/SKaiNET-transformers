@@ -511,7 +511,7 @@ fun main(args: Array<String>) {
             format == ModelFormat.GGUF && tokenizerPath == null -> {
                 println("Loading embedded GGUF tokenizer...")
                 JvmRandomAccessSource.open(modelPath.toString()).use { source ->
-                    TokenizerFactory.fromGGUF(source)
+                    TokenizerFactory.fromGgufSource(source)
                 }
             }
             else -> {

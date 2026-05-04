@@ -5,67 +5,94 @@ import sk.ainet.io.RandomAccessSource
 import sk.ainet.io.gguf.StreamingGGUFReader
 
 /**
- * Unified factory for creating tokenizers from various sources.
+ * Unified factory for creating tokenizers from various sources. Delegates
+ * the byte-level BPE (Qwen/GPT-2) and SentencePiece (LLaMA/Gemma) algorithms
+ * to upstream `sk.ainet.io.tokenizer.*` and layers the
+ * [SentencePieceSpecialTokens] decorator on top of SP-family results so
+ * chat-template markers (`<bos>`, `<|turn>`, etc.) encode atomically.
  *
- * Per-architecture dispatch: a Qwen / GPT-2 / Mistral-Nemo model needs
- * byte-level BPE (correctly implemented in upstream
- * [sk.ainet.io.tokenizer.QwenByteLevelBpeTokenizer]); a Llama / Gemma /
- * TinyLlama model uses SentencePiece via the local [GGUFTokenizer].
+ * Usage:
+ * ```kotlin
+ * // From an already-parsed GGUF metadata map (cheapest — no extra file open):
+ * val info = UnifiedModelLoader.peek { sourceProvider() }
+ * val tokenizer = TokenizerFactory.fromGgufFields(info.fields)
  *
- * The split is because the local [GGUFTokenizer]'s `encodeBPE` is the
- * greedy-by-score SentencePiece algorithm — wrong for byte-level BPE,
- * which needs `bytes_to_unicode` mapping + GPT-2 pretokenization regex
- * + merge-rank-based merging. See #52.
+ * // From a GGUF RandomAccessSource (parses metadata via StreamingGGUFReader):
+ * val tokenizer = TokenizerFactory.fromGgufSource(source)
+ *
+ * // From a HuggingFace tokenizer.json string (+ optional tokenizer_config.json):
+ * val tokenizer = TokenizerFactory.fromTokenizerJsonString(json, configJson)
+ * ```
  */
 public object TokenizerFactory {
 
     /**
-     * Create a tokenizer from GGUF file metadata (streaming, memory-efficient).
+     * Create a tokenizer from a pre-parsed GGUF metadata field map.
      *
-     * Dispatches on `tokenizer.ggml.model`:
-     * - `gpt2` / `bpe` → upstream [sk.ainet.io.tokenizer.QwenByteLevelBpeTokenizer]
-     *   (correct byte-level BPE, matches HuggingFace transformers / llama.cpp)
-     * - everything else → local [GGUFTokenizer] (SentencePiece path)
+     * Routes byte-level BPE through upstream directly; routes SentencePiece
+     * through [SentencePieceSpecialTokens] so chat-template control / user-
+     * defined tokens encode atomically (Gemma 4, etc.).
      *
-     * @param source Random access source to the GGUF file.
-     * @param debug Print debug information during loading.
+     * @param fields The GGUF metadata map, e.g. `GGUFModelInfo.fields` from
+     *   `UnifiedModelLoader.peek`.
      */
-    public fun fromGGUF(source: RandomAccessSource, debug: Boolean = false): Tokenizer {
-        return StreamingGGUFReader.open(source).use { reader ->
-            val fields = reader.fields
-            val model = (fields["tokenizer.ggml.model"] as? String)?.lowercase()
-            when (model) {
-                "gpt2", "bpe" -> {
-                    if (debug) println("TokenizerFactory: model=$model → upstream QwenByteLevelBpeTokenizer")
-                    val upstream = sk.ainet.io.tokenizer.TokenizerFactory.fromGguf(fields)
-                    UpstreamTokenizerAdapter(upstream)
-                }
-                else -> {
-                    if (debug) println("TokenizerFactory: model=$model → local GGUFTokenizer")
-                    GGUFTokenizer.fromStreamingFields(fields, debug)
-                }
+    public fun fromGgufFields(fields: Map<String, Any?>): Tokenizer {
+        val model = (fields["tokenizer.ggml.model"] as? String)?.lowercase()
+        return when (model) {
+            "llama", "sentencepiece" -> SentencePieceSpecialTokens.fromGgufFields(fields)
+            else -> {
+                val upstream = sk.ainet.io.tokenizer.TokenizerFactory.fromGguf(fields)
+                UpstreamTokenizerAdapter(upstream)
             }
         }
     }
 
     /**
-     * Create a tokenizer from a HuggingFace `tokenizer.json` string.
-     * Parses vocab and BPE merges from the JSON.
-     *
-     * @param json The tokenizer.json content.
-     * @param debug Print debug information during loading.
+     * Convenience: open a [StreamingGGUFReader] over [source], parse metadata,
+     * and build a tokenizer via [fromGgufFields]. The reader is closed before
+     * returning. Use this when you only have the source handle and don't need
+     * the rest of the GGUF metadata.
      */
-    public fun fromTokenizerJson(json: String, debug: Boolean = false): GGUFTokenizer {
-        return GGUFTokenizer.fromTokenizerJson(json, debug)
+    public fun fromGgufSource(source: RandomAccessSource): Tokenizer {
+        return StreamingGGUFReader.open(source).use { reader ->
+            fromGgufFields(reader.fields)
+        }
     }
 
     /**
-     * Create a HuggingFace BPE tokenizer from `tokenizer.json` + optional config.
+     * Create a tokenizer from a HuggingFace `tokenizer.json` string (+ optional
+     * `tokenizer_config.json`).
      *
-     * @param tokenizerJson Content of `tokenizer.json`.
-     * @param tokenizerConfigJson Optional content of `tokenizer_config.json`.
+     * Routes BPE through upstream directly; routes Unigram / SentencePiece
+     * through [SentencePieceSpecialTokens] so the `added_tokens` registry
+     * (including bos/eos resolution) and `add_space_prefix` detection are
+     * applied — both are upstream gaps that affect Gemma 4 SafeTensors.
      */
-    public fun fromHuggingFace(tokenizerJson: String, tokenizerConfigJson: String? = null): Tokenizer {
-        return createHuggingFaceBPETokenizerFromJson(tokenizerJson, tokenizerConfigJson)
+    public fun fromTokenizerJsonString(json: String, configJson: String? = null): Tokenizer {
+        // Detect model.type with a minimal substring scan so we don't have to
+        // round-trip through kotlinx.serialization twice (once here, once in
+        // the dispatched factory).
+        val modelType = detectModelType(json)
+        return when (modelType) {
+            "Unigram" -> SentencePieceSpecialTokens.fromTokenizerJson(json, configJson)
+            else -> {
+                val upstream = sk.ainet.io.tokenizer.TokenizerFactory.fromTokenizerJson(json)
+                UpstreamTokenizerAdapter(upstream)
+            }
+        }
+    }
+
+    private fun detectModelType(json: String): String? {
+        val modelIdx = json.indexOf("\"model\"")
+        if (modelIdx < 0) return null
+        val typeIdx = json.indexOf("\"type\"", modelIdx)
+        if (typeIdx < 0) return null
+        val colonIdx = json.indexOf(':', typeIdx)
+        if (colonIdx < 0) return null
+        val openQuote = json.indexOf('"', colonIdx)
+        if (openQuote < 0) return null
+        val closeQuote = json.indexOf('"', openQuote + 1)
+        if (closeQuote < 0) return null
+        return json.substring(openQuote + 1, closeQuote)
     }
 }

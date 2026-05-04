@@ -58,7 +58,7 @@ class UpstreamTokenizerAdapterTest {
     }
 
     @Test
-    fun `null bos and eos fall back to defaults`() {
+    fun `null bos and eos report -1 to surface absence`() {
         val stub = StubUpstreamTokenizer(
             vocabSize = 10,
             bosTokenId = null,
@@ -66,23 +66,8 @@ class UpstreamTokenizerAdapterTest {
             encodeFn = { intArrayOf() },
             decodeFn = { "" },
         )
-        // Defaults: bos = 1, eos = 2.
         val adapter = UpstreamTokenizerAdapter(stub)
-        assertEquals(1, adapter.bosTokenId)
-        assertEquals(2, adapter.eosTokenId)
-    }
-
-    @Test
-    fun `null bos and eos honour custom fallbacks`() {
-        val stub = StubUpstreamTokenizer(
-            vocabSize = 10,
-            bosTokenId = null,
-            eosTokenId = null,
-            encodeFn = { intArrayOf() },
-            decodeFn = { "" },
-        )
-        val adapter = UpstreamTokenizerAdapter(stub, bosTokenIdFallback = 7, eosTokenIdFallback = 13)
-        assertEquals(7, adapter.bosTokenId)
-        assertEquals(13, adapter.eosTokenId)
+        assertEquals(-1, adapter.bosTokenId)
+        assertEquals(-1, adapter.eosTokenId)
     }
 }
