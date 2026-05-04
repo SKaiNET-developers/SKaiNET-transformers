@@ -80,6 +80,7 @@ public inline fun <reified T : DType, V> decoderTransformerNetwork(
                 causal = true,
                 qkNorm = qkNorm,
                 qkNormUnitOffset = qkNormUnitOffset,
+                qkNormEps = eps,
                 id = "attn",
             ) {
                 rope(headDim, seqLen, mode = ropeMode, base = ropeBase)

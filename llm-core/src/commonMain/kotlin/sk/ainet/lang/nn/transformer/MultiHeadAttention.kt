@@ -46,6 +46,14 @@ public class MultiHeadAttention<T : DType, V>(
      */
     public val qkNormUnitOffset: Boolean = false,
     /**
+     * Epsilon used by the per-head Q / K RMSNorm when [qkNorm] is `true`.
+     * Defaults to `1e-5` (the LLaMA convention). Qwen3 metadata says `1e-6`;
+     * passing the model's `metadata.rmsNormEps` here matches the legacy
+     * `LlamaRuntime.applyPerHeadRMSNorm` and prevents a small but real
+     * numerical divergence between paths. See #114.
+     */
+    public val qkNormEps: Double = 1e-5,
+    /**
      * Explicit scale applied to the attention scores `Q @ K^T`. When `null`
      * (default), uses the standard `1 / sqrt(head_dim)`. Gemma 4 sets this
      * to `1.0f` because q_norm/k_norm have already normalized Q and K to
@@ -144,11 +152,11 @@ public class MultiHeadAttention<T : DType, V>(
 
     // Optional QK-Norm layers
     public val qNorm: RMSNormalization<T, V>? = if (qkNorm) {
-        RMSNormalization(intArrayOf(headDim), name = "$name.q_norm", unitOffset = qkNormUnitOffset)
+        RMSNormalization(intArrayOf(headDim), eps = qkNormEps, name = "$name.q_norm", unitOffset = qkNormUnitOffset)
     } else null
 
     public val kNorm: RMSNormalization<T, V>? = if (qkNorm) {
-        RMSNormalization(intArrayOf(headDim), name = "$name.k_norm", unitOffset = qkNormUnitOffset)
+        RMSNormalization(intArrayOf(headDim), eps = qkNormEps, name = "$name.k_norm", unitOffset = qkNormUnitOffset)
     } else null
 
     @Suppress("UNCHECKED_CAST")
