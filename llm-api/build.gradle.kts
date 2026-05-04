@@ -50,7 +50,6 @@ kotlin {
 
     sourceSets {
         commonMain.dependencies {
-            api(kotlin("stdlib-common"))
             api(libs.kotlinx.coroutines)
         }
 
