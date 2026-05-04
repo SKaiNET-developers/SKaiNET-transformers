@@ -89,6 +89,7 @@ kotlin {
                 implementation(libs.kotlin.test)
                 implementation(libs.kotlinx.coroutines.test)
                 implementation(libs.skainet.backend.cpu)
+                implementation(project(":llm-inference:qwen"))
             }
         }
         // val androidMain by getting
