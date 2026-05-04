@@ -5,21 +5,25 @@ import kotlinx.browser.window
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.await
 import kotlinx.coroutines.launch
-import kotlinx.io.Source
-import kotlinx.io.buffered
 import kotlinx.io.Buffer
 import kotlinx.io.RawSource
+import kotlinx.io.Source
+import kotlinx.io.buffered
 import org.khronos.webgl.ArrayBuffer
 import org.khronos.webgl.DataView
 import org.w3c.fetch.Response
 import kotlin.js.Promise
-import sk.ainet.models.llama.LlamaRuntime
-import sk.ainet.models.llama.LlamaRuntimeInterface
 import sk.ainet.apps.kllama.GGUFTokenizer
+import sk.ainet.apps.llm.InferenceRuntime
+import sk.ainet.apps.llm.OptimizedLLMMode
+import sk.ainet.apps.llm.OptimizedLLMRuntime
+import sk.ainet.apps.llm.Tokenizer
+import sk.ainet.apps.llm.generate
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.model.QuantPolicy
-import sk.ainet.models.llama.loadLlamaRuntimeWeights
-import sk.ainet.apps.llm.Tokenizer
+import sk.ainet.lang.types.FP32
+import sk.ainet.models.llama.DecoderGgufWeightLoader
+import sk.ainet.models.llama.LlamaNetworkLoader
 
 private val scope = MainScope()
 
@@ -47,18 +51,18 @@ fun main() {
             }
         }
 
-        // Run once on load
         runDemo()
-        // Allow reruns
         runButton?.addEventListener("click", { scope.launch { runDemo() } })
     }
 }
 
 @Suppress("UNCHECKED_CAST")
-private suspend fun loadRuntimeAndTokenizer(path: String): Pair<LlamaRuntimeInterface<*>, Tokenizer> {
+private suspend fun loadRuntimeAndTokenizer(path: String): Pair<InferenceRuntime<FP32>, Tokenizer> {
     val resp: Response = (window.fetch(path) as Promise<Response>).await()
     if (!resp.ok) error("Failed to fetch model: ${resp.statusText}")
-    // On Wasm, use arrayBuffer() and feed bytes into a kotlinx-io Buffer as Source
+    // On Wasm: arrayBuffer() → kotlinx-io Buffer → Source. Two sources are
+    // built from the same bytes (one for weights, one for the tokenizer)
+    // because each consumer drains its source.
     val buf: ArrayBuffer = (resp.arrayBuffer() as Promise<ArrayBuffer>).await()
     val view = DataView(buf)
     val length = view.byteLength
@@ -67,21 +71,28 @@ private suspend fun loadRuntimeAndTokenizer(path: String): Pair<LlamaRuntimeInte
         bytes[i] = view.getUint8(i).toByte()
     }
 
-    // Create source for loading weights
-    val buffer1 = Buffer().apply { write(bytes) }
-    val source1: Source = (buffer1 as RawSource).buffered()
     val ctx = DirectCpuExecutionContext()
-    val weights = loadLlamaRuntimeWeights(
+
+    // Weights via the DSL path. Wasm has no MemorySegment, so we use
+    // QuantPolicy.DEQUANTIZE_TO_FP32 — packed Q4/Q8 don't have a
+    // wasm-side fast path anyway.
+    val weightSource = (Buffer().apply { write(bytes) } as RawSource).buffered()
+    val weights = DecoderGgufWeightLoader(
+        sourceProvider = { weightSource },
+        quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
+    ).loadToMap<FP32, Float>(ctx)
+
+    val model = LlamaNetworkLoader.fromWeights(weights)
+    val runtime = OptimizedLLMRuntime(
+        model = model,
         ctx = ctx,
-        sourceProvider = { source1 },
-        quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32
+        mode = OptimizedLLMMode.DIRECT,
+        dtype = FP32::class,
+        bos = weights.metadata.bosTokenId,
     )
 
-    // Create source for loading tokenizer (need fresh buffer as source is consumed)
-    val buffer2 = Buffer().apply { write(bytes) }
-    val source2: Source = (buffer2 as RawSource).buffered()
-    val tokenizer = GGUFTokenizer.fromSource(source2)
+    val tokenizerSource: Source = (Buffer().apply { write(bytes) } as RawSource).buffered()
+    val tokenizer = GGUFTokenizer.fromSource(tokenizerSource)
 
-    val backend = sk.ainet.apps.kllama.CpuAttentionBackend(ctx, weights, sk.ainet.lang.types.FP32::class)
-    return LlamaRuntime(ctx, weights, backend, sk.ainet.lang.types.FP32::class) to tokenizer
+    return runtime to tokenizer
 }
