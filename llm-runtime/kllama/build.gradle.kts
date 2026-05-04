@@ -62,6 +62,7 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             implementation(project(":llm-inference:llama"))
+            implementation(project(":llm-inference:qwen"))
             implementation(project(":llm-agent"))
             implementation(project(":llm-core"))
             implementation(libs.skainet.lang.core)
@@ -89,7 +90,8 @@ kotlin {
                 implementation(libs.kotlin.test)
                 implementation(libs.kotlinx.coroutines.test)
                 implementation(libs.skainet.backend.cpu)
-                implementation(project(":llm-inference:qwen"))
+                // :llm-inference:qwen now in production deps for the CLI
+                // swap; no separate test-scope entry needed.
             }
         }
         // val androidMain by getting
