@@ -49,6 +49,7 @@ kotlin {
             implementation(libs.skainet.io.core)
             implementation(libs.skainet.io.gguf)
             implementation(libs.kotlinx.io.core)
+            implementation(libs.kotlinx.serialization.json)
         }
 
         commonTest.dependencies {
