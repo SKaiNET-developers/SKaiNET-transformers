@@ -371,8 +371,13 @@ class GGUFTokenizer private constructor(
          * Create a tokenizer from StreamingGGUFReader fields.
          * StreamingGGUFReader.fields returns direct values (Map<String, Any?>),
          * not ReaderField objects.
+         *
+         * Internal-but-public so [TokenizerFactory.fromGGUF] can hand off
+         * already-parsed fields without re-opening the source. External
+         * callers should use [fromRandomAccessSource] or
+         * [TokenizerFactory.fromGGUF].
          */
-        private fun fromStreamingFields(fields: Map<String, Any?>, debug: Boolean = false): GGUFTokenizer {
+        public fun fromStreamingFields(fields: Map<String, Any?>, debug: Boolean = false): GGUFTokenizer {
             // Extract vocabulary tokens (stored as List<String> in streaming reader)
             val tokensValue = fields["tokenizer.ggml.tokens"]
                 ?: error("GGUF file missing tokenizer.ggml.tokens field")
