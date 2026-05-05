@@ -12,6 +12,18 @@
       "format": "gguf"
     },
     {
+      "name": "Llama-3.2-1B-Instruct-Q8",
+      "runner": "kllama",
+      "model": "~/.cache/standapp/models/Llama-3.2-1B-Instruct-Q8_0.gguf",
+      "format": "gguf",
+      "instruct": true,
+      "prompt": "What is the capital of France?",
+      "toolCalling": {
+        "prompt": "What is 2 + 2?",
+        "steps": 256
+      }
+    },
+    {
       "name": "Qwen3-1.7B-Q8",
       "runner": "kllama",
       "model": "Qwen3-1.7B-Q8_0.gguf",
