@@ -5,6 +5,7 @@ import sk.ainet.io.RandomAccessSource
 import sk.ainet.io.gguf.GGMLQuantizationType
 import sk.ainet.io.gguf.dequant.DequantOps
 import sk.ainet.io.model.QuantPolicy
+import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.tensor.data.IntArrayTensorData
 import sk.ainet.lang.tensor.data.Q4MemorySegmentTensorData
@@ -23,15 +24,29 @@ import java.lang.foreign.Arena
  *
  * Behavior per quant type:
  * - **Q4_0 / Q8_0** → wrapped as [Q4MemorySegmentTensorData] /
- *   [Q8MemorySegmentTensorData]. Upstream `DefaultCpuOpsJvm.matmul` detects
- *   their markers and dispatches SIMD quant kernels at forward time.
+ *   [Q8MemorySegmentTensorData] with the **logical** matrix shape derived
+ *   from metadata. Upstream `DefaultCpuOpsJvm.matmul` and `transpose`
+ *   detect the markers and dispatch quant-aware kernels at forward time.
  * - **Q4_K / Q5_K / Q6_K** → dequantized to FP32. The packed K-quant kernels
  *   are MemSeg-only on a hot path the DSL doesn't yet route through, so this
  *   trades memory for correctness. Same trade-off the legacy converter
  *   makes for K-quants.
+ * - **token_embd.weight** → always dequantized to FP32 regardless of quant
+ *   type. The Embedding layer consumes this via `gather`, not matmul, so it
+ *   needs real floats with the logical 2D shape — packed quant bytes would
+ *   be misread as FP32 values, and the loader's intermediate Int8 wrapper
+ *   stores a 1D byte-count shape that `gather` rejects.
  * - **FP32 (no entry in `quantTypes`)** → passed through unchanged.
  * - **Other quant types** → warning logged, passed through (will fail later
  *   if the model actually hits them via matmul).
+ *
+ * Why logical shape matters here: the loader stores raw quant bytes via
+ * `ctx.fromByteArray(Shape(bytes.size), Int8, bytes)` — a 1D byte-count
+ * shape, because the Int8 factory requires `shape.volume == bytes.size`
+ * and packed Q4/Q8 have more bytes than logical floats. The Q4/Q8 MemSeg
+ * tensor data classes, in contrast, hold the logical shape independently
+ * from the byte buffer, which is what `gather` / `transpose` / `matmul`
+ * need.
  *
  * Unlike the legacy [MemSegWeightConverter], this one does NOT pre-transpose
  * weights to `[in, out]`. The DSL's [sk.ainet.lang.nn.transformer.linearProject]
@@ -48,7 +63,8 @@ public object DecoderGgufMemSegConverter {
 
     /**
      * Return a copy of [weights] with Q4_0/Q8_0 tensors wrapped as MemSeg
-     * variants and K-quants dequantized to FP32. No-op if [weights] has no
+     * variants with logical shapes, K-quants dequantized to FP32, and the
+     * token embedding always dequantized. No-op if [weights] has no
      * quantized tensors.
      */
     public fun convert(
@@ -58,6 +74,13 @@ public object DecoderGgufMemSegConverter {
     ): DecoderGgufWeights<FP32, Float> {
         if (weights.quantTypes.isEmpty()) return weights
 
+        val meta = weights.metadata
+        val dim = meta.embeddingLength
+        val headSize = dim / meta.headCount
+        val kvDim = meta.kvHeadCount * headSize
+        val ffnDim = meta.feedForwardLength
+        val vocab = meta.vocabSize
+
         val newTensors = LinkedHashMap<String, Tensor<FP32, Float>>(weights.tensors.size)
         for ((name, tensor) in weights.tensors) {
             val quantType = weights.quantTypes[name]
@@ -65,7 +88,16 @@ public object DecoderGgufMemSegConverter {
                 newTensors[name] = tensor
                 continue
             }
-            newTensors[name] = convertOne(name, tensor, quantType, ctx, arena)
+            val logicalShape = logicalShapeFor(name, dim, kvDim, ffnDim, vocab)
+            if (logicalShape == null) {
+                println(
+                    "WARNING: DecoderGgufMemSegConverter: no logical shape for '$name'; " +
+                        "passing through quantized — forward pass may fail.",
+                )
+                newTensors[name] = tensor
+                continue
+            }
+            newTensors[name] = convertOne(name, tensor, quantType, logicalShape, ctx, arena)
         }
 
         // Drop quantTypes from the result — tensors are now either packed
@@ -75,37 +107,64 @@ public object DecoderGgufMemSegConverter {
         return weights.copy(tensors = newTensors, quantTypes = emptyMap())
     }
 
+    private fun logicalShapeFor(
+        name: String,
+        dim: Int,
+        kvDim: Int,
+        ffnDim: Int,
+        vocab: Int,
+    ): Shape? = when {
+        name == LlamaTensorNames.TOKEN_EMBEDDINGS -> Shape(vocab, dim)
+        name == LlamaTensorNames.OUTPUT_WEIGHT -> Shape(vocab, dim)
+        name.endsWith(".attn_q.weight") -> Shape(dim, dim)
+        name.endsWith(".attn_k.weight") -> Shape(kvDim, dim)
+        name.endsWith(".attn_v.weight") -> Shape(kvDim, dim)
+        name.endsWith(".attn_output.weight") -> Shape(dim, dim)
+        name.endsWith(".ffn_gate.weight") -> Shape(ffnDim, dim)
+        name.endsWith(".ffn_up.weight") -> Shape(ffnDim, dim)
+        name.endsWith(".ffn_down.weight") -> Shape(dim, ffnDim)
+        else -> null
+    }
+
     private fun convertOne(
         name: String,
         tensor: Tensor<FP32, Float>,
         quantType: GGMLQuantizationType,
+        logicalShape: Shape,
         ctx: ExecutionContext,
         arena: Arena,
     ): Tensor<FP32, Float> {
         val bytes = extractBytes(tensor.data)
-        val shape = tensor.shape
+
+        // token_embd.weight (and tied output.weight, which holds the same
+        // bytes) is consumed by Embedding.gather, not matmul. Packed quant
+        // bytes can't be read by gather as floats, so dequantize.
+        if (name == LlamaTensorNames.TOKEN_EMBEDDINGS) {
+            val floats = DequantOps.dequantFromBytes(bytes, quantType, logicalShape.volume)
+            return ctx.fromFloatArray(logicalShape, FP32::class, floats)
+        }
 
         return when (quantType) {
             GGMLQuantizationType.Q4_0 -> {
-                val newData = Q4MemorySegmentTensorData.fromRawBytes(shape, bytes, arena)
+                val newData = Q4MemorySegmentTensorData.fromRawBytes(logicalShape, bytes, arena)
                 @Suppress("UNCHECKED_CAST")
                 ctx.fromData(newData as TensorData<FP32, Float>, FP32::class)
             }
             GGMLQuantizationType.Q8_0 -> {
-                val newData = Q8MemorySegmentTensorData.fromRawBytes(shape, bytes, arena)
+                val newData = Q8MemorySegmentTensorData.fromRawBytes(logicalShape, bytes, arena)
                 @Suppress("UNCHECKED_CAST")
                 ctx.fromData(newData as TensorData<FP32, Float>, FP32::class)
             }
             GGMLQuantizationType.Q4_K,
             GGMLQuantizationType.Q5_K,
             GGMLQuantizationType.Q6_K -> {
-                val floats = DequantOps.dequantFromBytes(bytes, quantType, shape.volume)
-                ctx.fromFloatArray(shape, FP32::class, floats)
+                val floats = DequantOps.dequantFromBytes(bytes, quantType, logicalShape.volume)
+                ctx.fromFloatArray(logicalShape, FP32::class, floats)
             }
             else -> {
                 println(
                     "WARNING: DecoderGgufMemSegConverter: unsupported quant type $quantType for '$name'; " +
-                        "passing through unchanged. Forward pass may fail at matmul."
+                        "passing through unchanged. Forward pass may fail at matmul.",
                 )
                 tensor
             }
