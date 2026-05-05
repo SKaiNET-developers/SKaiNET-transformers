@@ -132,7 +132,7 @@ internal class Llama31ToolCallParserStrategy : ToolCallParserStrategy {
     override val formatName: String = "llama3-json"
 
     override fun parse(text: String): List<ToolCall> {
-        val candidate = stripPythonTag(text).trim()
+        val candidate = stripCodeFence(stripPythonTag(text)).trim()
         if (!candidate.startsWith("{") || !candidate.contains("\"name\"")) return emptyList()
         val firstObject = extractFirstJsonObject(candidate) ?: return emptyList()
         val parsed = ToolCallParser.parseJsonToolCall(firstObject) ?: return emptyList()
@@ -140,7 +140,7 @@ internal class Llama31ToolCallParserStrategy : ToolCallParserStrategy {
     }
 
     override fun containsToolCall(text: String): Boolean {
-        val candidate = stripPythonTag(text).trim()
+        val candidate = stripCodeFence(stripPythonTag(text)).trim()
         return candidate.startsWith("{") &&
             candidate.contains("\"name\"") &&
             (candidate.contains("\"arguments\"") || candidate.contains("\"parameters\""))
@@ -149,6 +149,19 @@ internal class Llama31ToolCallParserStrategy : ToolCallParserStrategy {
     private fun stripPythonTag(text: String): String {
         val trimmed = text.trimStart()
         return if (trimmed.startsWith("<|python_tag|>")) trimmed.removePrefix("<|python_tag|>") else text
+    }
+
+    // Llama-3 instruct models sometimes wrap their tool-call JSON in a markdown
+    // code fence (```...``` or ```json...```), even though the prompt asks for
+    // bare JSON. Peel one layer of fencing so the parser still sees the object.
+    private fun stripCodeFence(text: String): String {
+        val trimmed = text.trim()
+        if (!trimmed.startsWith("```")) return text
+        val firstNewline = trimmed.indexOf('\n')
+        if (firstNewline == -1) return text
+        val withoutOpening = trimmed.substring(firstNewline + 1)
+        val closingIdx = withoutOpening.lastIndexOf("```")
+        return if (closingIdx >= 0) withoutOpening.substring(0, closingIdx) else withoutOpening
     }
 
     /** Find the first `{...}` block at the start of [text], respecting brace nesting and string literals. */
