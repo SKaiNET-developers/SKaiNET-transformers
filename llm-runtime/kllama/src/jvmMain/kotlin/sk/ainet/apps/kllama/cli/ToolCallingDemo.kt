@@ -67,6 +67,13 @@ public class ToolCallingDemo<T : DType>(
         println("Prompt: \"$prompt\"")
         println("---")
 
+        println("[Tools] (${registry.definitions().size})")
+        for (def in registry.definitions()) {
+            println("  - ${def.name}: ${def.description}")
+            println("    schema: ${def.parameters}")
+        }
+        println("---")
+
         val agentLoop = session.createAgentLoop(registry, maxTokens, temperature)
 
         val systemPrompt = """You are a helpful assistant with access to tools.
@@ -79,12 +86,32 @@ Always use a tool when one is relevant — do not guess file listings."""
             ChatMessage(role = ChatRole.USER, content = prompt)
         )
 
+        // Render and dump the exact prompt the model will see on round 1, so the
+        // smoke-test log shows the formatted system+tools+user payload.
+        val renderedPrompt = session.chatTemplate.apply(
+            messages = messages,
+            tools = registry.definitions(),
+            addGenerationPrompt = true
+        )
+        println("[Prompt → Round 1] (${renderedPrompt.length} chars)")
+        println("┌──────────────────────────────────────────────────────────────────────┐")
+        renderedPrompt.lineSequence().forEach { println("│ $it") }
+        println("└──────────────────────────────────────────────────────────────────────┘")
+
+        var roundIdx = 0
         val listener = object : AgentListener {
             override fun onToken(token: String) {
                 print(token)
                 System.out.flush()
             }
-            override fun onAssistantMessage(text: String) { println() }
+            override fun onAssistantMessage(text: String) {
+                println()
+                roundIdx += 1
+                println("[Raw Assistant → Round $roundIdx] (${text.length} chars)")
+                println("┌──────────────────────────────────────────────────────────────────────┐")
+                text.lineSequence().forEach { println("│ $it") }
+                println("└──────────────────────────────────────────────────────────────────────┘")
+            }
             override fun onToolCalls(calls: List<ToolCall>) {
                 for (call in calls) println("[Tool Call] ${call.name}(${call.arguments})")
             }
@@ -92,6 +119,9 @@ Always use a tool when one is relevant — do not guess file listings."""
                 println("[Tool Result] ${call.name} -> $result")
                 print("Assistant: ")
                 System.out.flush()
+            }
+            override fun onToolCallValidationFailed(call: ToolCall, reason: String) {
+                println("[Tool Call Invalid] ${call.name}(${call.arguments}) -> $reason")
             }
             override fun onComplete(finalResponse: String) {}
         }
@@ -105,6 +135,20 @@ Always use a tool when one is relevant — do not guess file listings."""
             listener = listener
         )
         println()
+
+        // Dump the final conversation — exposes the prompts for any
+        // post-round-1 generation by showing how the message list grew.
+        println("[Final Conversation] (${messages.size} messages)")
+        for ((i, msg) in messages.withIndex()) {
+            val tag = msg.role.name.lowercase()
+            val calls = msg.toolCalls
+            val toolSuffix = if (!calls.isNullOrEmpty()) {
+                " toolCalls=${calls.joinToString { "${it.name}(${it.arguments})" }}"
+            } else ""
+            val toolIdSuffix = msg.toolCallId?.let { " toolCallId=$it" } ?: ""
+            val body = msg.content.replace("\n", "\\n").take(400)
+            println("  [$i] $tag$toolIdSuffix$toolSuffix: $body")
+        }
     }
 
     /**
