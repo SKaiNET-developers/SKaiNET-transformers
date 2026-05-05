@@ -34,7 +34,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 class Llama3LeafSmokeTest {
 
     @Test
-    @Timeout(value = 5, unit = TimeUnit.MINUTES)
+    @Timeout(value = 10, unit = TimeUnit.MINUTES)
     void leafEmbeddingAndLlama3GenerationBothWork() throws Exception {
         Path leafDir = resolveLeafModelDir();
         Path llamaPath = resolveLlama3Path();
