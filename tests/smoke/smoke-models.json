@@ -61,6 +61,14 @@
       "format": "gguf",
       "prompt": "The quick brown fox jumps over the lazy dog",
       "doc": "A pangram is a sentence that contains every letter of the alphabet."
+    },
+    {
+      "name": "MongoDB-mdbr-leaf-ir",
+      "runner": "kbert",
+      "model": "~/.cache/huggingface/hub/models--MongoDB--mdbr-leaf-ir/snapshots/1bb4fc387c49dee1c10c2b22f59db758be87dcaa",
+      "format": "safetensors",
+      "prompt": "MongoDB is a NoSQL database",
+      "doc": "MongoDB stores data in BSON documents"
     }
   ]
 }
