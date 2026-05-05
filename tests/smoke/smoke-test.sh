@@ -238,10 +238,13 @@ print(f'M_INSTRUCT={repr(m.get(\"instruct\", False))}')
       fail=$((fail + 1))
       results+=("FAIL|$M_NAME|$M_RUNNER|$model_size|-|${wall_sec}s")
     else
-      tps=$(grep -oE 'tok/s: [0-9.]+' "$output_file" | grep -oE '[0-9.]+' | tail -1)
+      # `set -euo pipefail` makes a no-match grep fatal; embedding models
+      # (kbert) don't print tok/s, so allow the substitution to come back
+      # empty and fall through to "?".
+      tps=$(grep -oE 'tok/s: [0-9.]+' "$output_file" 2>/dev/null | grep -oE '[0-9.]+' | tail -1 || true)
       tps=${tps:-"?"}
       echo -e "  ${GREEN}OK${RESET}   tok/s: ${CYAN}${tps}${RESET}  wall: ${wall_sec}s"
-      sed -n '/^---$/,/^---$/p' "$output_file" | grep -v '^---$' | head -3 | sed 's/^/  │ /'
+      sed -n '/^---$/,/^---$/p' "$output_file" | grep -v '^---$' | head -3 | sed 's/^/  │ /' || true
       pass=$((pass + 1))
       results+=("OK|$M_NAME|$M_RUNNER|$model_size|$tps|${wall_sec}s")
     fi

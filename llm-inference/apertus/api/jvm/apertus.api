@@ -1,27 +1,7 @@
-public abstract interface class sk/ainet/models/apertus/ApertusAttentionBackend {
-	public abstract fun attention (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;II)Lsk/ainet/lang/tensor/Tensor;
-	public fun batchAttention (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;II)Lsk/ainet/lang/tensor/Tensor;
-	public abstract fun reset ()V
-}
-
-public final class sk/ainet/models/apertus/ApertusAttentionBackend$DefaultImpls {
-	public static fun batchAttention (Lsk/ainet/models/apertus/ApertusAttentionBackend;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;II)Lsk/ainet/lang/tensor/Tensor;
-}
-
 public final class sk/ainet/models/apertus/ApertusConfigParser {
 	public static final field INSTANCE Lsk/ainet/models/apertus/ApertusConfigParser;
 	public final fun isTiedEmbeddings (Ljava/lang/String;)Z
 	public final fun parse (Ljava/lang/String;)Lsk/ainet/models/apertus/ApertusModelMetadata;
-}
-
-public final class sk/ainet/models/apertus/ApertusCpuAttentionBackend : sk/ainet/models/apertus/ApertusAttentionBackend {
-	public fun <init> (Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/apertus/ApertusModelMetadata;Lkotlin/reflect/KClass;[FLsk/ainet/apps/llm/KvCache;F)V
-	public synthetic fun <init> (Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/apertus/ApertusModelMetadata;Lkotlin/reflect/KClass;[FLsk/ainet/apps/llm/KvCache;FILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public fun <init> (Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/apertus/ApertusRuntimeWeights;Lkotlin/reflect/KClass;Lsk/ainet/apps/llm/KvCache;F)V
-	public synthetic fun <init> (Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/apertus/ApertusRuntimeWeights;Lkotlin/reflect/KClass;Lsk/ainet/apps/llm/KvCache;FILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public fun attention (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;II)Lsk/ainet/lang/tensor/Tensor;
-	public fun batchAttention (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;II)Lsk/ainet/lang/tensor/Tensor;
-	public fun reset ()V
 }
 
 public final class sk/ainet/models/apertus/ApertusHfTensorNameMapper {
@@ -58,6 +38,10 @@ public final class sk/ainet/models/apertus/ApertusLayerWeights {
 	public final fun getXieluParams ()Lsk/ainet/models/apertus/ApertusXIELUParams;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/models/apertus/ApertusMemSegConverterKt {
+	public static final fun convertApertusWeightsToMemSeg (Lsk/ainet/models/apertus/ApertusWeights;Lsk/ainet/context/ExecutionContext;Ljava/lang/foreign/Arena;)Lsk/ainet/models/apertus/ApertusWeights;
 }
 
 public final class sk/ainet/models/apertus/ApertusModelMetadata {
@@ -203,12 +187,6 @@ public final class sk/ainet/models/apertus/ApertusQuantizedLayerWeights {
 	public fun toString ()Ljava/lang/String;
 }
 
-public final class sk/ainet/models/apertus/ApertusQuantizedRuntime : sk/ainet/apps/llm/DecoderRuntime {
-	public fun <init> (Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/apertus/ApertusQuantizedRuntimeWeights;Lsk/ainet/models/apertus/ApertusAttentionBackend;FLkotlin/random/Random;)V
-	public synthetic fun <init> (Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/apertus/ApertusQuantizedRuntimeWeights;Lsk/ainet/models/apertus/ApertusAttentionBackend;FLkotlin/random/Random;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public final fun getWeights ()Lsk/ainet/models/apertus/ApertusQuantizedRuntimeWeights;
-}
-
 public final class sk/ainet/models/apertus/ApertusQuantizedRuntimeWeights {
 	public fun <init> (Lsk/ainet/models/apertus/ApertusModelMetadata;Lsk/ainet/lang/tensor/Tensor;Ljava/util/List;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/models/apertus/QuantizedTensor;Lsk/ainet/lang/tensor/Tensor;)V
 	public synthetic fun <init> (Lsk/ainet/models/apertus/ApertusModelMetadata;Lsk/ainet/lang/tensor/Tensor;Ljava/util/List;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/models/apertus/QuantizedTensor;Lsk/ainet/lang/tensor/Tensor;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
@@ -252,17 +230,6 @@ public final class sk/ainet/models/apertus/ApertusQuantizedWeights {
 	public final fun getXieluParams ()Ljava/util/Map;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
-}
-
-public final class sk/ainet/models/apertus/ApertusRuntime : sk/ainet/apps/llm/DecoderRuntime {
-	public fun <init> (Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/apertus/ApertusRuntimeWeights;Lsk/ainet/models/apertus/ApertusAttentionBackend;Lkotlin/reflect/KClass;FLkotlin/random/Random;)V
-	public synthetic fun <init> (Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/apertus/ApertusRuntimeWeights;Lsk/ainet/models/apertus/ApertusAttentionBackend;Lkotlin/reflect/KClass;FLkotlin/random/Random;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public final fun getWeights ()Lsk/ainet/models/apertus/ApertusRuntimeWeights;
-}
-
-public final class sk/ainet/models/apertus/ApertusRuntimeKt {
-	public static final fun softplus (F)F
-	public static final fun xielu ([FLsk/ainet/models/apertus/ApertusXIELUParams;)V
 }
 
 public final class sk/ainet/models/apertus/ApertusRuntimeWeights {
@@ -359,21 +326,32 @@ public final class sk/ainet/models/apertus/ApertusWeightMapper {
 }
 
 public final class sk/ainet/models/apertus/ApertusWeights {
-	public fun <init> (Lsk/ainet/models/apertus/ApertusModelMetadata;Ljava/util/Map;Ljava/util/Map;Z)V
-	public synthetic fun <init> (Lsk/ainet/models/apertus/ApertusModelMetadata;Ljava/util/Map;Ljava/util/Map;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lsk/ainet/models/apertus/ApertusModelMetadata;Ljava/util/Map;Ljava/util/Map;ZLjava/util/Map;Ljava/util/Map;Ljava/util/Map;)V
+	public synthetic fun <init> (Lsk/ainet/models/apertus/ApertusModelMetadata;Ljava/util/Map;Ljava/util/Map;ZLjava/util/Map;Ljava/util/Map;Ljava/util/Map;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()Lsk/ainet/models/apertus/ApertusModelMetadata;
 	public final fun component2 ()Ljava/util/Map;
 	public final fun component3 ()Ljava/util/Map;
 	public final fun component4 ()Z
-	public final fun copy (Lsk/ainet/models/apertus/ApertusModelMetadata;Ljava/util/Map;Ljava/util/Map;Z)Lsk/ainet/models/apertus/ApertusWeights;
-	public static synthetic fun copy$default (Lsk/ainet/models/apertus/ApertusWeights;Lsk/ainet/models/apertus/ApertusModelMetadata;Ljava/util/Map;Ljava/util/Map;ZILjava/lang/Object;)Lsk/ainet/models/apertus/ApertusWeights;
+	public final fun component5 ()Ljava/util/Map;
+	public final fun component6 ()Ljava/util/Map;
+	public final fun component7 ()Ljava/util/Map;
+	public final fun copy (Lsk/ainet/models/apertus/ApertusModelMetadata;Ljava/util/Map;Ljava/util/Map;ZLjava/util/Map;Ljava/util/Map;Ljava/util/Map;)Lsk/ainet/models/apertus/ApertusWeights;
+	public static synthetic fun copy$default (Lsk/ainet/models/apertus/ApertusWeights;Lsk/ainet/models/apertus/ApertusModelMetadata;Ljava/util/Map;Ljava/util/Map;ZLjava/util/Map;Ljava/util/Map;Ljava/util/Map;ILjava/lang/Object;)Lsk/ainet/models/apertus/ApertusWeights;
 	public fun equals (Ljava/lang/Object;)Z
+	public final fun getLogicalShapes ()Ljava/util/Map;
 	public final fun getMetadata ()Lsk/ainet/models/apertus/ApertusModelMetadata;
 	public final fun getPreTransposed ()Z
+	public final fun getQuantBytes ()Ljava/util/Map;
+	public final fun getQuantTypes ()Ljava/util/Map;
 	public final fun getTensors ()Ljava/util/Map;
 	public final fun getXieluParams ()Ljava/util/Map;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/models/apertus/ApertusXIELUKt {
+	public static final fun softplus (F)F
+	public static final fun xielu ([FLsk/ainet/models/apertus/ApertusXIELUParams;)V
 }
 
 public final class sk/ainet/models/apertus/ApertusXIELUParams {

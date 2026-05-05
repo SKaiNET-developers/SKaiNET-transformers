@@ -45,7 +45,9 @@ public final class sk/ainet/apps/kllama/chat/AgentConfig {
 public abstract interface class sk/ainet/apps/kllama/chat/AgentListener {
 	public fun onAssistantMessage (Ljava/lang/String;)V
 	public fun onComplete (Ljava/lang/String;)V
+	public fun onThinking (Ljava/lang/String;)V
 	public fun onToken (Ljava/lang/String;)V
+	public fun onToolCallValidationFailed (Lsk/ainet/apps/kllama/chat/ToolCall;Ljava/lang/String;)V
 	public fun onToolCalls (Ljava/util/List;)V
 	public fun onToolResult (Lsk/ainet/apps/kllama/chat/ToolCall;Ljava/lang/String;)V
 }
@@ -53,7 +55,9 @@ public abstract interface class sk/ainet/apps/kllama/chat/AgentListener {
 public final class sk/ainet/apps/kllama/chat/AgentListener$DefaultImpls {
 	public static fun onAssistantMessage (Lsk/ainet/apps/kllama/chat/AgentListener;Ljava/lang/String;)V
 	public static fun onComplete (Lsk/ainet/apps/kllama/chat/AgentListener;Ljava/lang/String;)V
+	public static fun onThinking (Lsk/ainet/apps/kllama/chat/AgentListener;Ljava/lang/String;)V
 	public static fun onToken (Lsk/ainet/apps/kllama/chat/AgentListener;Ljava/lang/String;)V
+	public static fun onToolCallValidationFailed (Lsk/ainet/apps/kllama/chat/AgentListener;Lsk/ainet/apps/kllama/chat/ToolCall;Ljava/lang/String;)V
 	public static fun onToolCalls (Lsk/ainet/apps/kllama/chat/AgentListener;Ljava/util/List;)V
 	public static fun onToolResult (Lsk/ainet/apps/kllama/chat/AgentListener;Lsk/ainet/apps/kllama/chat/ToolCall;Ljava/lang/String;)V
 }
@@ -67,11 +71,57 @@ public final class sk/ainet/apps/kllama/chat/AgentLoop {
 	public static synthetic fun runWithEncoder$default (Lsk/ainet/apps/kllama/chat/AgentLoop;Ljava/util/List;Lkotlin/jvm/functions/Function1;Lsk/ainet/apps/kllama/chat/AgentListener;ILjava/lang/Object;)Ljava/lang/String;
 }
 
+public final class sk/ainet/apps/kllama/chat/ApertusChatTemplate : sk/ainet/apps/kllama/chat/ChatTemplate {
+	public static final field ASSISTANT_END Ljava/lang/String;
+	public static final field ASSISTANT_START Ljava/lang/String;
+	public static final field Companion Lsk/ainet/apps/kllama/chat/ApertusChatTemplate$Companion;
+	public static final field DEVELOPER_END Ljava/lang/String;
+	public static final field DEVELOPER_START Ljava/lang/String;
+	public static final field INNER_PREFIX Ljava/lang/String;
+	public static final field INNER_SUFFIX Ljava/lang/String;
+	public static final field SYSTEM_END Ljava/lang/String;
+	public static final field SYSTEM_START Ljava/lang/String;
+	public static final field TOOLS_PREFIX Ljava/lang/String;
+	public static final field TOOLS_SUFFIX Ljava/lang/String;
+	public static final field USER_END Ljava/lang/String;
+	public static final field USER_START Ljava/lang/String;
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Z)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun apply (Ljava/util/List;Ljava/util/List;Z)Ljava/lang/String;
+	public fun containsToolCall (Ljava/lang/String;)Z
+	public fun parseThinkingBlocks (Ljava/lang/String;)Ljava/util/List;
+	public fun parseToolCalls (Ljava/lang/String;)Ljava/util/List;
+	public fun stripThinking (Ljava/lang/String;)Ljava/lang/String;
+	public final fun withCurrentDate (Ljava/lang/String;)Lsk/ainet/apps/kllama/chat/ApertusChatTemplate;
+}
+
+public final class sk/ainet/apps/kllama/chat/ApertusChatTemplate$Companion {
+}
+
+public final class sk/ainet/apps/kllama/chat/ApertusToolCallParserStrategy : sk/ainet/apps/kllama/chat/ToolCallParserStrategy {
+	public static final field INSTANCE Lsk/ainet/apps/kllama/chat/ApertusToolCallParserStrategy;
+	public fun containsToolCall (Ljava/lang/String;)Z
+	public fun getFormatName ()Ljava/lang/String;
+	public fun parse (Ljava/lang/String;)Ljava/util/List;
+}
+
+public final class sk/ainet/apps/kllama/chat/ApertusToolCallingSupport : sk/ainet/apps/kllama/chat/ToolCallingSupport {
+	public fun <init> ()V
+	public fun createChatTemplate ()Lsk/ainet/apps/kllama/chat/ChatTemplate;
+	public fun getFamily ()Ljava/lang/String;
+	public fun parseToolCalls (Ljava/lang/String;)Ljava/util/List;
+	public fun supports (Lsk/ainet/apps/kllama/chat/ModelMetadata;)Z
+	public fun toolCallingMode (Lsk/ainet/apps/kllama/chat/ModelMetadata;)Lsk/ainet/apps/kllama/chat/ToolCallingMode;
+}
+
 public final class sk/ainet/apps/kllama/chat/ChatMLTemplate : sk/ainet/apps/kllama/chat/ChatTemplate {
 	public fun <init> ()V
 	public fun apply (Ljava/util/List;Ljava/util/List;Z)Ljava/lang/String;
 	public fun containsToolCall (Ljava/lang/String;)Z
+	public fun parseThinkingBlocks (Ljava/lang/String;)Ljava/util/List;
 	public fun parseToolCalls (Ljava/lang/String;)Ljava/util/List;
+	public fun stripThinking (Ljava/lang/String;)Ljava/lang/String;
 }
 
 public final class sk/ainet/apps/kllama/chat/ChatMLToolCallingSupport : sk/ainet/apps/kllama/chat/ToolCallingSupport {
@@ -112,24 +162,83 @@ public final class sk/ainet/apps/kllama/chat/ChatRole : java/lang/Enum {
 	public static fun values ()[Lsk/ainet/apps/kllama/chat/ChatRole;
 }
 
+public final class sk/ainet/apps/kllama/chat/ChatSession {
+	public static final field Companion Lsk/ainet/apps/kllama/chat/ChatSession$Companion;
+	public static final field DEFAULT_SYSTEM_PROMPT Ljava/lang/String;
+	public fun <init> (Lsk/ainet/apps/llm/InferenceRuntime;Lsk/ainet/apps/llm/Tokenizer;Lsk/ainet/apps/kllama/chat/ModelMetadata;Ljava/lang/String;Ljava/lang/String;)V
+	public synthetic fun <init> (Lsk/ainet/apps/llm/InferenceRuntime;Lsk/ainet/apps/llm/Tokenizer;Lsk/ainet/apps/kllama/chat/ModelMetadata;Ljava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun createAgentLoop (Lsk/ainet/apps/kllama/chat/ToolRegistry;IF)Lsk/ainet/apps/kllama/chat/AgentLoop;
+	public static synthetic fun createAgentLoop$default (Lsk/ainet/apps/kllama/chat/ChatSession;Lsk/ainet/apps/kllama/chat/ToolRegistry;IFILjava/lang/Object;)Lsk/ainet/apps/kllama/chat/AgentLoop;
+	public final fun decode (I)Ljava/lang/String;
+	public final fun encode (Ljava/lang/String;)[I
+	public final fun getChatTemplate ()Lsk/ainet/apps/kllama/chat/ChatTemplate;
+	public final fun getDefaultSystemPrompt ()Ljava/lang/String;
+	public final fun getMetadata ()Lsk/ainet/apps/kllama/chat/ModelMetadata;
+	public final fun getProviderFamily ()Ljava/lang/String;
+	public final fun getRuntime ()Lsk/ainet/apps/llm/InferenceRuntime;
+	public final fun getTokenizer ()Lsk/ainet/apps/llm/Tokenizer;
+	public final fun runSingleTurn (Ljava/lang/String;Ljava/util/List;IFLjava/lang/String;Lsk/ainet/apps/kllama/chat/AgentListener;)Ljava/lang/String;
+	public static synthetic fun runSingleTurn$default (Lsk/ainet/apps/kllama/chat/ChatSession;Ljava/lang/String;Ljava/util/List;IFLjava/lang/String;Lsk/ainet/apps/kllama/chat/AgentListener;ILjava/lang/Object;)Ljava/lang/String;
+}
+
+public final class sk/ainet/apps/kllama/chat/ChatSession$Companion {
+}
+
 public abstract interface class sk/ainet/apps/kllama/chat/ChatTemplate {
 	public abstract fun apply (Ljava/util/List;Ljava/util/List;Z)Ljava/lang/String;
 	public static synthetic fun apply$default (Lsk/ainet/apps/kllama/chat/ChatTemplate;Ljava/util/List;Ljava/util/List;ZILjava/lang/Object;)Ljava/lang/String;
 	public fun containsToolCall (Ljava/lang/String;)Z
+	public fun parseThinkingBlocks (Ljava/lang/String;)Ljava/util/List;
 	public fun parseToolCalls (Ljava/lang/String;)Ljava/util/List;
+	public fun stripThinking (Ljava/lang/String;)Ljava/lang/String;
 }
 
 public final class sk/ainet/apps/kllama/chat/ChatTemplate$DefaultImpls {
 	public static synthetic fun apply$default (Lsk/ainet/apps/kllama/chat/ChatTemplate;Ljava/util/List;Ljava/util/List;ZILjava/lang/Object;)Ljava/lang/String;
 	public static fun containsToolCall (Lsk/ainet/apps/kllama/chat/ChatTemplate;Ljava/lang/String;)Z
+	public static fun parseThinkingBlocks (Lsk/ainet/apps/kllama/chat/ChatTemplate;Ljava/lang/String;)Ljava/util/List;
 	public static fun parseToolCalls (Lsk/ainet/apps/kllama/chat/ChatTemplate;Ljava/lang/String;)Ljava/util/List;
+	public static fun stripThinking (Lsk/ainet/apps/kllama/chat/ChatTemplate;Ljava/lang/String;)Ljava/lang/String;
+}
+
+public final class sk/ainet/apps/kllama/chat/Gemma4ChatTemplate : sk/ainet/apps/kllama/chat/ChatTemplate {
+	public static final field BOS Ljava/lang/String;
+	public static final field CHANNEL_CLOSE Ljava/lang/String;
+	public static final field CHANNEL_OPEN Ljava/lang/String;
+	public static final field QUOTE Ljava/lang/String;
+	public static final field TOOL_CALL_CLOSE Ljava/lang/String;
+	public static final field TOOL_CALL_OPEN Ljava/lang/String;
+	public static final field TOOL_CLOSE Ljava/lang/String;
+	public static final field TOOL_OPEN Ljava/lang/String;
+	public static final field TOOL_RESPONSE_CLOSE Ljava/lang/String;
+	public static final field TOOL_RESPONSE_OPEN Ljava/lang/String;
+	public static final field TURN_CLOSE Ljava/lang/String;
+	public fun <init> ()V
+	public fun <init> (Z)V
+	public synthetic fun <init> (ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun apply (Ljava/util/List;Ljava/util/List;Z)Ljava/lang/String;
+	public fun containsToolCall (Ljava/lang/String;)Z
+	public fun parseThinkingBlocks (Ljava/lang/String;)Ljava/util/List;
+	public fun parseToolCalls (Ljava/lang/String;)Ljava/util/List;
+	public fun stripThinking (Ljava/lang/String;)Ljava/lang/String;
+}
+
+public final class sk/ainet/apps/kllama/chat/Gemma4ToolCallingSupport : sk/ainet/apps/kllama/chat/ToolCallingSupport {
+	public fun <init> ()V
+	public fun createChatTemplate ()Lsk/ainet/apps/kllama/chat/ChatTemplate;
+	public fun getFamily ()Ljava/lang/String;
+	public fun parseToolCalls (Ljava/lang/String;)Ljava/util/List;
+	public fun supports (Lsk/ainet/apps/kllama/chat/ModelMetadata;)Z
+	public fun toolCallingMode (Lsk/ainet/apps/kllama/chat/ModelMetadata;)Lsk/ainet/apps/kllama/chat/ToolCallingMode;
 }
 
 public final class sk/ainet/apps/kllama/chat/GemmaChatTemplate : sk/ainet/apps/kllama/chat/ChatTemplate {
 	public fun <init> ()V
 	public fun apply (Ljava/util/List;Ljava/util/List;Z)Ljava/lang/String;
 	public fun containsToolCall (Ljava/lang/String;)Z
+	public fun parseThinkingBlocks (Ljava/lang/String;)Ljava/util/List;
 	public fun parseToolCalls (Ljava/lang/String;)Ljava/util/List;
+	public fun stripThinking (Ljava/lang/String;)Ljava/lang/String;
 }
 
 public final class sk/ainet/apps/kllama/chat/GemmaToolCallParserStrategy : sk/ainet/apps/kllama/chat/ToolCallParserStrategy {
@@ -159,18 +268,32 @@ public final class sk/ainet/apps/kllama/chat/GenericToolCallingSupport : sk/aine
 
 public final class sk/ainet/apps/kllama/chat/Llama3ChatTemplate : sk/ainet/apps/kllama/chat/ChatTemplate {
 	public fun <init> ()V
+	public fun <init> (Lsk/ainet/apps/kllama/chat/Llama3ToolFormat;)V
+	public synthetic fun <init> (Lsk/ainet/apps/kllama/chat/Llama3ToolFormat;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun apply (Ljava/util/List;Ljava/util/List;Z)Ljava/lang/String;
 	public fun containsToolCall (Ljava/lang/String;)Z
+	public fun parseThinkingBlocks (Ljava/lang/String;)Ljava/util/List;
 	public fun parseToolCalls (Ljava/lang/String;)Ljava/util/List;
+	public fun stripThinking (Ljava/lang/String;)Ljava/lang/String;
 }
 
 public final class sk/ainet/apps/kllama/chat/Llama3ToolCallingSupport : sk/ainet/apps/kllama/chat/ToolCallingSupport {
 	public fun <init> ()V
+	public fun <init> (Lsk/ainet/apps/kllama/chat/Llama3ToolFormat;)V
+	public synthetic fun <init> (Lsk/ainet/apps/kllama/chat/Llama3ToolFormat;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun createChatTemplate ()Lsk/ainet/apps/kllama/chat/ChatTemplate;
 	public fun getFamily ()Ljava/lang/String;
 	public fun parseToolCalls (Ljava/lang/String;)Ljava/util/List;
 	public fun supports (Lsk/ainet/apps/kllama/chat/ModelMetadata;)Z
 	public fun toolCallingMode (Lsk/ainet/apps/kllama/chat/ModelMetadata;)Lsk/ainet/apps/kllama/chat/ToolCallingMode;
+}
+
+public final class sk/ainet/apps/kllama/chat/Llama3ToolFormat : java/lang/Enum {
+	public static final field FUNCTION_TAG Lsk/ainet/apps/kllama/chat/Llama3ToolFormat;
+	public static final field JSON Lsk/ainet/apps/kllama/chat/Llama3ToolFormat;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lsk/ainet/apps/kllama/chat/Llama3ToolFormat;
+	public static fun values ()[Lsk/ainet/apps/kllama/chat/Llama3ToolFormat;
 }
 
 public final class sk/ainet/apps/kllama/chat/ModelMetadata {
@@ -198,7 +321,9 @@ public final class sk/ainet/apps/kllama/chat/QwenChatTemplate : sk/ainet/apps/kl
 	public fun <init> ()V
 	public fun apply (Ljava/util/List;Ljava/util/List;Z)Ljava/lang/String;
 	public fun containsToolCall (Ljava/lang/String;)Z
+	public fun parseThinkingBlocks (Ljava/lang/String;)Ljava/util/List;
 	public fun parseToolCalls (Ljava/lang/String;)Ljava/util/List;
+	public fun stripThinking (Ljava/lang/String;)Ljava/lang/String;
 }
 
 public final class sk/ainet/apps/kllama/chat/QwenToolCallingSupport : sk/ainet/apps/kllama/chat/ToolCallingSupport {
@@ -258,6 +383,29 @@ public abstract interface class sk/ainet/apps/kllama/chat/ToolCallParserStrategy
 	public abstract fun containsToolCall (Ljava/lang/String;)Z
 	public abstract fun getFormatName ()Ljava/lang/String;
 	public abstract fun parse (Ljava/lang/String;)Ljava/util/List;
+}
+
+public abstract class sk/ainet/apps/kllama/chat/ToolCallValidationResult {
+}
+
+public final class sk/ainet/apps/kllama/chat/ToolCallValidationResult$Invalid : sk/ainet/apps/kllama/chat/ToolCallValidationResult {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Lsk/ainet/apps/kllama/chat/ToolCallValidationResult$Invalid;
+	public static synthetic fun copy$default (Lsk/ainet/apps/kllama/chat/ToolCallValidationResult$Invalid;Ljava/lang/String;ILjava/lang/Object;)Lsk/ainet/apps/kllama/chat/ToolCallValidationResult$Invalid;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getReason ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/apps/kllama/chat/ToolCallValidationResult$Valid : sk/ainet/apps/kllama/chat/ToolCallValidationResult {
+	public static final field INSTANCE Lsk/ainet/apps/kllama/chat/ToolCallValidationResult$Valid;
+}
+
+public final class sk/ainet/apps/kllama/chat/ToolCallValidator {
+	public static final field INSTANCE Lsk/ainet/apps/kllama/chat/ToolCallValidator;
+	public final fun validate (Lsk/ainet/apps/kllama/chat/ToolCall;Lsk/ainet/apps/kllama/chat/ToolDefinition;)Lsk/ainet/apps/kllama/chat/ToolCallValidationResult;
 }
 
 public final class sk/ainet/apps/kllama/chat/ToolCallingMode : java/lang/Enum {

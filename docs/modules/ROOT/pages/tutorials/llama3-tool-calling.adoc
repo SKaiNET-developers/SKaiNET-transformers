@@ -1,30 +1,219 @@
 = Llama 3 / 3.1 / 3.2 Tool Calling
-:description: How kllama formats tool-calling prompts for the Llama 3 family and how it parses the model's responses, including which of Meta's two response formats to pick.
+:description: End-to-end guide for adding Llama 3 tool calling to your own application — register tools, run the agent loop, and observe each round's prompt and assistant response.
 
-This page describes how `kllama` formats tool-calling prompts for the Llama 3 family and how it parses the model's responses. It also explains the two response formats Meta has documented and which one to pick for which model.
+This page is a getting-started guide for wiring Llama 3 / 3.1 / 3.2 tool calling into your own application. It covers the full path: load a GGUF, register custom tools, run the agent loop, and observe what the model sees and emits each round. The latter half explains the two prompt/response formats Meta documents and why the default works for Llama 3.2.
 
 [TIP]
 ====
 For Llama 3.2 1B / 3B (and any Llama 3.x in 2025) leave the defaults alone. The default format is `Llama3ToolFormat.JSON`, which is what Llama 3.2 was fine-tuned on for custom tools. Switch to `Llama3ToolFormat.FUNCTION_TAG` only if you are running an older Llama 3.1 prompt that expects the tag-wrapped form.
 ====
 
-== Quick start
+== Quick start: try it from the CLI
+
+Run the bundled demo against a Llama 3.x GGUF — useful as a sanity check before embedding the same code in your app.
 
 [source,bash]
 ----
-# Build
-./gradlew :llm-apps:kllama-cli:shadowJar
-
-# Run the demo against a Llama 3.x GGUF (auto-detects the family)
-java --enable-preview --add-modules jdk.incubator.vector \
-     -jar llm-apps/kllama-cli/build/libs/kllama-all.jar \
-     -m models/Llama-3.2-1B-Instruct-Q8_0.gguf \
-     --demo --template=llama3 \
-     -s 256 -k 0.0 \
-     "What files are in /tmp?"
+./gradlew :llm-apps:kllama-cli:run --quiet \
+  --args='-m /path/to/Llama-3.2-1B-Instruct-Q8_0.gguf --demo -s 256 -k 0.7 \
+          "What files are in /tmp?"'
 ----
 
-The demo registers two tools (`list_files`, `calculator`) and runs the agent loop until the model produces a final assistant message.
+The demo registers two tools (`list_files`, `calculator`), prints the rendered prompt and tool schemas, and runs the agent loop until the model produces a final assistant message. Expect output like:
+
+----
+[Tools] (2)
+  - list_files: List files and directories in a local folder. ...
+  - calculator: Evaluate a mathematical expression. ...
+[Prompt → Round 1] (1553 chars)
+┌──────────────────────────────────────────────────────────────────────┐
+│ <|begin_of_text|><|start_header_id|>system<|end_header_id|>
+│ ...full Llama 3 tool-calling system prompt with both function schemas...
+│ <|eot_id|><|start_header_id|>user<|end_header_id|>
+│ What files are in /tmp?<|eot_id|>...
+└──────────────────────────────────────────────────────────────────────┘
+[Raw Assistant → Round 1] {"name": "list_files", "parameters": {"path": "/tmp"}}
+[Tool Call] list_files({"path":"/tmp"})
+[Tool Result] list_files -> [dir] .ICE-unix ... and 4647 more entries
+----
+
+The agent loop then runs round 2, feeding the tool result back so the model can summarise.
+
+== Use it from your own Kotlin app
+
+The pieces you need live in three modules:
+
+* `llm-runtime-kllama` — `KLlamaJava.loadGGUF(path)` builds the runtime + tokenizer in one call (Java-friendly facade; works fine from Kotlin too).
+* `llm-agent` — `ChatSession`, `AgentLoop`, `Tool`, `ToolRegistry`, `AgentListener`.
+* `llm-core` — pulled in transitively.
+
+=== Step 1 — Add the dependency
+
+[source,kotlin]
+----
+dependencies {
+    implementation("sk.ainet.transformers:llm-runtime-kllama:0.23.2")
+    implementation("sk.ainet.transformers:llm-agent:0.23.2")
+}
+----
+
+The runtime needs the Java Vector API at launch:
+
+[source]
+----
+--enable-preview --add-modules jdk.incubator.vector
+----
+
+=== Step 2 — Load the model
+
+[source,kotlin]
+----
+import sk.ainet.apps.kllama.java.KLlamaJava
+import java.nio.file.Path
+
+val session = KLlamaJava.loadGGUF(Path.of("models/Llama-3.2-1B-Instruct-Q8_0.gguf"))
+// session.runtime  : InferenceRuntime<FP32>
+// session.tokenizer: Tokenizer
+// session is AutoCloseable — close it to release the Arena.
+----
+
+`KLlamaJava.loadGGUF` accepts Llama / Mistral GGUFs and bundles the loader, tokenizer, and runtime construction. For SafeTensors checkpoints use `loadSafeTensors(modelDir)`.
+
+=== Step 3 — Define your tool
+
+A tool is a `ToolDefinition` (name + JSON-Schema `parameters`) plus an `execute` function.
+
+[source,kotlin]
+----
+import kotlinx.serialization.json.*
+import sk.ainet.apps.kllama.chat.Tool
+import sk.ainet.apps.kllama.chat.ToolDefinition
+
+class WeatherTool : Tool {
+    override val definition = ToolDefinition(
+        name = "get_weather",
+        description = "Get the current weather for a city.",
+        parameters = buildJsonObject {
+            put("type", "object")
+            putJsonObject("properties") {
+                putJsonObject("city") {
+                    put("type", "string")
+                    put("description", "City name, e.g. 'Bratislava'.")
+                }
+            }
+            putJsonArray("required") { add(JsonPrimitive("city")) }
+        }
+    )
+
+    override fun execute(arguments: JsonObject): String {
+        val city = arguments["city"]?.jsonPrimitive?.content
+            ?: return "Error: missing 'city'"
+        // Real call to your weather backend goes here.
+        return """{"city":"$city","tempC":22,"condition":"sunny"}"""
+    }
+}
+----
+
+The schema is the contract the model sees in the system prompt — keep it tight, mark required fields, and make `description` something the model can actually act on.
+
+=== Step 4 — Wire `ChatSession` + `AgentLoop`
+
+[source,kotlin]
+----
+import sk.ainet.apps.kllama.chat.*
+
+val chat = ChatSession(
+    runtime = session.runtime,
+    tokenizer = session.tokenizer,
+    // family="llama" auto-resolves to Llama3ToolCallingSupport with the
+    // bare-JSON format Llama 3.2 was fine-tuned on. Override only if you
+    // know you need FUNCTION_TAG (see "The two formats" below).
+    metadata = ModelMetadata(family = "llama", architecture = "llama"),
+)
+
+val tools = ToolRegistry().apply {
+    register(WeatherTool())
+}
+
+val loop = chat.createAgentLoop(
+    toolRegistry = tools,
+    maxTokens    = 256,
+    temperature  = 0.7f,
+)
+
+val messages = mutableListOf(
+    ChatMessage(
+        role = ChatRole.SYSTEM,
+        content = "You are a helpful assistant with access to tools. " +
+            "Always call get_weather when asked about weather — never guess."
+    ),
+    ChatMessage(role = ChatRole.USER, content = "What's the weather in Bratislava?"),
+)
+
+val finalAnswer = loop.runWithEncoder(
+    messages = messages,
+    encode   = { chat.encode(it) },
+)
+println(finalAnswer)
+----
+
+The loop renders the chat template with your tools embedded, generates until EOS, parses the assistant's reply for a tool call, executes the tool, appends the result to `messages`, and re-runs — up to `AgentConfig.maxToolRounds` (default 5).
+
+=== Step 5 — Observe what the model sees and emits
+
+Pass an `AgentListener` to log prompts, raw responses, tool invocations, and results. This is the same listener `ToolCallingDemo` uses for the CLI output above.
+
+[source,kotlin]
+----
+val listener = object : AgentListener {
+    override fun onToken(token: String) { print(token) }
+    override fun onAssistantMessage(text: String) {
+        println("\n[raw assistant] $text")
+    }
+    override fun onToolCalls(calls: List<ToolCall>) {
+        for (c in calls) println("[tool call] ${c.name}(${c.arguments})")
+    }
+    override fun onToolResult(call: ToolCall, result: String) {
+        println("[tool result] ${call.name} -> $result")
+    }
+    override fun onToolCallValidationFailed(call: ToolCall, reason: String) {
+        println("[tool call invalid] ${call.name}: $reason")
+    }
+    override fun onComplete(finalResponse: String) {}
+}
+
+loop.runWithEncoder(messages, encode = { chat.encode(it) }, listener = listener)
+----
+
+To see the *prompt* the model receives at the start of each round (not just the response), render the template yourself before calling the loop:
+
+[source,kotlin]
+----
+val rendered = chat.chatTemplate.apply(
+    messages = messages,
+    tools = tools.definitions(),
+    addGenerationPrompt = true,
+)
+println("[prompt] (${rendered.length} chars)\n$rendered")
+----
+
+[NOTE]
+====
+Llama 3.2 1B sometimes wraps its tool-call JSON in a markdown code fence (```` ``` ````) even though the system prompt asks for bare JSON. `Llama31ToolCallParserStrategy` peels one layer of fencing automatically, so both `{"name":"x", ...}` and ` ```{"name":"x", ...}``` ` parse the same way.
+====
+
+=== Verify it's working
+
+You should see exactly this sequence in your listener output for the weather example:
+
+. `onToken` fires repeatedly as the model generates `{"name": "get_weather", "parameters": {"city": "Bratislava"}}`.
+. `onAssistantMessage` fires once with that full text.
+. `onToolCalls` fires with `[ToolCall(name="get_weather", arguments={"city":"Bratislava"})]`.
+. `onToolResult` fires with your stub's JSON response.
+. The loop spins again — the model now sees the tool result in its context and produces a natural-language answer.
+. `onComplete` fires with the final user-facing answer.
+
+If `onToolCalls` *never* fires and `onComplete` returns the raw JSON instead, the model emitted a call but the parser missed it — file an issue with the `[raw assistant]` text. The bare-JSON parser handles `<|python_tag|>` prefixes, code fences, and trailing prose, but novel surface forms slip through.
 
 == The two formats
 
@@ -66,6 +255,7 @@ Parser (`Llama31ToolCallParserStrategy`) accepts:
 
 * The Meta-documented `"parameters"` key, or `"arguments"` (Hermes-style alias).
 * A leading `<|python_tag|>` marker (used by Llama 3.2's built-in tools; tolerated here too).
+* A surrounding markdown code fence (```` ```json ```` / ```` ``` ````) — Llama 3.2 1B occasionally fences its JSON despite the system-prompt instruction.
 * Trailing prose after the JSON object (small models often append "I hope that helps!").
 
 === `Llama3ToolFormat.FUNCTION_TAG` (Llama 3.1 legacy)

@@ -191,4 +191,39 @@ class ToolCallParserTest {
     fun containsToolCallDetectsParametersKey() {
         assertTrue(ToolCallParser.containsToolCall("""{"name": "x", "parameters": {}}"""))
     }
+
+    // --- Llama 3.2 sometimes wraps its JSON in a markdown code fence ---
+
+    @Test
+    fun parseLlama32JsonInsideTripleBacktickFence() {
+        val text = """
+            ```
+            {"name": "list_files", "parameters": {"path": "/tmp"}}
+            ```
+        """.trimIndent()
+        val calls = ToolCallParser.parse(text)
+        assertEquals(1, calls.size)
+        assertEquals("list_files", calls[0].name)
+        assertEquals("/tmp", calls[0].arguments["path"]?.toString()?.trim('"'))
+    }
+
+    @Test
+    fun parseLlama32JsonInsideJsonTaggedFence() {
+        val text = """
+            ```json
+            {"name": "calc", "parameters": {"x": 1}}
+            ```
+        """.trimIndent()
+        val calls = ToolCallParser.parse(text)
+        assertEquals(1, calls.size)
+        assertEquals("calc", calls[0].name)
+    }
+
+    @Test
+    fun containsToolCallDetectsFencedJson() {
+        val text = """```
+{"name": "x", "parameters": {}}
+```"""
+        assertTrue(ToolCallParser.containsToolCall(text))
+    }
 }
