@@ -1,6 +1,6 @@
 public final class sk/ainet/llm/providers/SkaiNetChatModel : sk/ainet/llm/api/StreamingChatModel {
-	public fun <init> (Lsk/ainet/apps/llm/InferenceRuntime;Lsk/ainet/apps/llm/Tokenizer;Lsk/ainet/apps/kllama/chat/ChatTemplate;Lsk/ainet/llm/api/ChatOptions;IILkotlin/random/Random;Ljava/lang/String;)V
-	public synthetic fun <init> (Lsk/ainet/apps/llm/InferenceRuntime;Lsk/ainet/apps/llm/Tokenizer;Lsk/ainet/apps/kllama/chat/ChatTemplate;Lsk/ainet/llm/api/ChatOptions;IILkotlin/random/Random;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lsk/ainet/apps/llm/InferenceRuntime;Lsk/ainet/apps/llm/Tokenizer;Lsk/ainet/apps/kllama/chat/ChatTemplate;Lsk/ainet/llm/api/ChatOptions;ILjava/util/Set;Lkotlin/random/Random;Ljava/lang/String;)V
+	public synthetic fun <init> (Lsk/ainet/apps/llm/InferenceRuntime;Lsk/ainet/apps/llm/Tokenizer;Lsk/ainet/apps/kllama/chat/ChatTemplate;Lsk/ainet/llm/api/ChatOptions;ILjava/util/Set;Lkotlin/random/Random;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun call (Lsk/ainet/llm/api/ChatRequest;)Lsk/ainet/llm/api/ChatResponse;
 	public fun close ()V
 	public fun getDefaultOptions ()Lsk/ainet/llm/api/ChatOptions;

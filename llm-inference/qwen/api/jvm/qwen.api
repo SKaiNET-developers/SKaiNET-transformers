@@ -25,3 +25,83 @@ public final class sk/ainet/models/qwen/QwenHfTensorNameMapper {
 	public final fun toCanonical (Ljava/lang/String;)Ljava/lang/String;
 }
 
+public final class sk/ainet/models/qwen/QwenNetworkLoader {
+	public static final field Companion Lsk/ainet/models/qwen/QwenNetworkLoader$Companion;
+	public fun <init> (Lsk/ainet/models/qwen/QwenNetworkLoader$WeightsProvider;Z)V
+	public synthetic fun <init> (Lsk/ainet/models/qwen/QwenNetworkLoader$WeightsProvider;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getDebug ()Z
+	public final fun getWeightsProvider ()Lsk/ainet/models/qwen/QwenNetworkLoader$WeightsProvider;
+}
+
+public final class sk/ainet/models/qwen/QwenNetworkLoader$Companion {
+	public final fun fromGguf (Lkotlin/jvm/functions/Function0;Lsk/ainet/io/model/QuantPolicy;Z)Lsk/ainet/models/qwen/QwenNetworkLoader;
+	public static synthetic fun fromGguf$default (Lsk/ainet/models/qwen/QwenNetworkLoader$Companion;Lkotlin/jvm/functions/Function0;Lsk/ainet/io/model/QuantPolicy;ZILjava/lang/Object;)Lsk/ainet/models/qwen/QwenNetworkLoader;
+	public final fun fromGgufRandomAccess (Lkotlin/jvm/functions/Function0;Lsk/ainet/io/model/QuantPolicy;Z)Lsk/ainet/models/qwen/QwenNetworkLoader;
+	public static synthetic fun fromGgufRandomAccess$default (Lsk/ainet/models/qwen/QwenNetworkLoader$Companion;Lkotlin/jvm/functions/Function0;Lsk/ainet/io/model/QuantPolicy;ZILjava/lang/Object;)Lsk/ainet/models/qwen/QwenNetworkLoader;
+	public final fun fromSafeTensors (Lsk/ainet/models/llama/LlamaModelMetadata;Lkotlin/jvm/functions/Function0;ZZ)Lsk/ainet/models/qwen/QwenNetworkLoader;
+	public static synthetic fun fromSafeTensors$default (Lsk/ainet/models/qwen/QwenNetworkLoader$Companion;Lsk/ainet/models/llama/LlamaModelMetadata;Lkotlin/jvm/functions/Function0;ZZILjava/lang/Object;)Lsk/ainet/models/qwen/QwenNetworkLoader;
+}
+
+public abstract interface class sk/ainet/models/qwen/QwenNetworkLoader$WeightsProvider {
+}
+
+public final class sk/ainet/models/qwen/QwenNetworkLoader$WeightsProvider$GgufRandomAccess : sk/ainet/models/qwen/QwenNetworkLoader$WeightsProvider {
+	public fun <init> (Lkotlin/jvm/functions/Function0;Lsk/ainet/io/model/QuantPolicy;)V
+	public final fun component1 ()Lkotlin/jvm/functions/Function0;
+	public final fun component2 ()Lsk/ainet/io/model/QuantPolicy;
+	public final fun copy (Lkotlin/jvm/functions/Function0;Lsk/ainet/io/model/QuantPolicy;)Lsk/ainet/models/qwen/QwenNetworkLoader$WeightsProvider$GgufRandomAccess;
+	public static synthetic fun copy$default (Lsk/ainet/models/qwen/QwenNetworkLoader$WeightsProvider$GgufRandomAccess;Lkotlin/jvm/functions/Function0;Lsk/ainet/io/model/QuantPolicy;ILjava/lang/Object;)Lsk/ainet/models/qwen/QwenNetworkLoader$WeightsProvider$GgufRandomAccess;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getQuantPolicy ()Lsk/ainet/io/model/QuantPolicy;
+	public final fun getRandomAccessProvider ()Lkotlin/jvm/functions/Function0;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/models/qwen/QwenNetworkLoader$WeightsProvider$GgufSource : sk/ainet/models/qwen/QwenNetworkLoader$WeightsProvider {
+	public fun <init> (Lkotlin/jvm/functions/Function0;Lsk/ainet/io/model/QuantPolicy;)V
+	public final fun component1 ()Lkotlin/jvm/functions/Function0;
+	public final fun component2 ()Lsk/ainet/io/model/QuantPolicy;
+	public final fun copy (Lkotlin/jvm/functions/Function0;Lsk/ainet/io/model/QuantPolicy;)Lsk/ainet/models/qwen/QwenNetworkLoader$WeightsProvider$GgufSource;
+	public static synthetic fun copy$default (Lsk/ainet/models/qwen/QwenNetworkLoader$WeightsProvider$GgufSource;Lkotlin/jvm/functions/Function0;Lsk/ainet/io/model/QuantPolicy;ILjava/lang/Object;)Lsk/ainet/models/qwen/QwenNetworkLoader$WeightsProvider$GgufSource;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getQuantPolicy ()Lsk/ainet/io/model/QuantPolicy;
+	public final fun getSourceProvider ()Lkotlin/jvm/functions/Function0;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/models/qwen/QwenNetworkLoader$WeightsProvider$Preloaded : sk/ainet/models/qwen/QwenNetworkLoader$WeightsProvider {
+	public fun <init> (Lsk/ainet/models/llama/DecoderGgufWeights;)V
+	public final fun component1 ()Lsk/ainet/models/llama/DecoderGgufWeights;
+	public final fun copy (Lsk/ainet/models/llama/DecoderGgufWeights;)Lsk/ainet/models/qwen/QwenNetworkLoader$WeightsProvider$Preloaded;
+	public static synthetic fun copy$default (Lsk/ainet/models/qwen/QwenNetworkLoader$WeightsProvider$Preloaded;Lsk/ainet/models/llama/DecoderGgufWeights;ILjava/lang/Object;)Lsk/ainet/models/qwen/QwenNetworkLoader$WeightsProvider$Preloaded;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getWeights ()Lsk/ainet/models/llama/DecoderGgufWeights;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/models/qwen/QwenNetworkLoader$WeightsProvider$SafeTensors : sk/ainet/models/qwen/QwenNetworkLoader$WeightsProvider {
+	public fun <init> (Lkotlin/jvm/functions/Function0;Lsk/ainet/models/llama/LlamaModelMetadata;Z)V
+	public final fun component1 ()Lkotlin/jvm/functions/Function0;
+	public final fun component2 ()Lsk/ainet/models/llama/LlamaModelMetadata;
+	public final fun component3 ()Z
+	public final fun copy (Lkotlin/jvm/functions/Function0;Lsk/ainet/models/llama/LlamaModelMetadata;Z)Lsk/ainet/models/qwen/QwenNetworkLoader$WeightsProvider$SafeTensors;
+	public static synthetic fun copy$default (Lsk/ainet/models/qwen/QwenNetworkLoader$WeightsProvider$SafeTensors;Lkotlin/jvm/functions/Function0;Lsk/ainet/models/llama/LlamaModelMetadata;ZILjava/lang/Object;)Lsk/ainet/models/qwen/QwenNetworkLoader$WeightsProvider$SafeTensors;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getMetadata ()Lsk/ainet/models/llama/LlamaModelMetadata;
+	public final fun getRandomAccessProvider ()Lkotlin/jvm/functions/Function0;
+	public final fun getTiedEmbeddings ()Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/models/qwen/QwenNetworkLoaderJvmKt {
+	public static final fun fromGgufNative (Lsk/ainet/models/qwen/QwenNetworkLoader$Companion;Lkotlin/jvm/functions/Function0;Lsk/ainet/context/ExecutionContext;Ljava/lang/foreign/Arena;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class sk/ainet/models/qwen/QwenNetworkLoaderKt {
+	public static final fun getQWEN_ARCHITECTURES ()Ljava/util/Set;
+}
+
