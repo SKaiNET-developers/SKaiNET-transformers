@@ -18,13 +18,13 @@ High-performance LLM application layer on top of the [SKaiNET](https://github.co
 
 ## Current release
 
-The current release is **0.23.1**, version-aligned with the matching SKaiNET engine release. Coordinates:
+The current release is **0.23.3**, version-aligned with the matching SKaiNET engine release. Coordinates:
 
 ```kotlin
 dependencies {
-    implementation("sk.ainet.transformers:llm-core:0.23.1")
-    implementation("sk.ainet.transformers:llm-runtime-kllama:0.23.1") // or kgemma, kqwen, kapertus
-    implementation("sk.ainet.transformers:llm-agent:0.23.1")          // chat templates + tool calling
+    implementation("sk.ainet.transformers:llm-core:0.23.3")
+    implementation("sk.ainet.transformers:llm-runtime-kllama:0.23.3") // or kgemma, kqwen, kapertus
+    implementation("sk.ainet.transformers:llm-agent:0.23.3")          // chat templates + tool calling
 }
 ```
 
@@ -32,8 +32,8 @@ To opt in to the native FFM CPU provider (recommended for JVM consumers):
 
 ```kotlin
 dependencies {
-    implementation("sk.ainet.core:skainet-backend-cpu:0.23.1")        // priority-50 Panama Vector
-    implementation("sk.ainet.core:skainet-backend-native-cpu:0.23.1") // priority-100 FFM (auto-discovered)
+    implementation("sk.ainet.core:skainet-backend-cpu:0.23.3")        // priority-50 Panama Vector
+    implementation("sk.ainet.core:skainet-backend-native-cpu:0.23.3") // priority-100 FFM (auto-discovered)
 }
 ```
 
@@ -96,14 +96,32 @@ try (KLlamaSession session = KLlamaJava.loadGGUF(modelPath, /* systemPrompt */ n
 
 See `llm-test/llm-test-java/src/test/java/.../KLlamaJavaToolCallingTest.java` for a runnable reference.
 
-## What's new in 0.23.1
+## What's new in 0.23.3
 
-- **Apertus end-to-end.** Routing fix (now goes through `OptimizedLLMRuntime` + `apertusNetwork()`), chat template + tool calling, and real-GGUF loading on top of skainet 0.23.1's block-major Q4_K `TensorData` wiring. See [`APERTUS_ROLLOUT.md`](APERTUS_ROLLOUT.md).
-- **Gemma 4 chat-model JVM facade** (`Gemma4ChatModel`) for embedded text-only deployments, with `close()` propagating to the mmap arena and the PLE mmap path consuming upstream `loadTensorStorageMapped`.
-- **Multi-id EOS / stop-token support** in the chat layer — required for templates that emit several end markers.
-- **Tokenizer auto-detect for SentencePiece** in `fromTokenizerJson`, fixing decoding for models that omit the explicit marker.
-- **End-to-end smoke test** in `llm-test/llm-test-java` that wires LEAF (`KBertJava`) and Llama 3 (`KLlamaJava`) in one JVM.
-- **`skainet-cli` and `kllama-cli` shadow-jar `ServiceLoader` fix-up** so the priority-100 native-cpu provider is picked up post-merge.
+- **Prefill progress callback.** `generateUntilStop` and `AgentLoop`
+  now expose `(done, total)` progress during the autoregressive prefill
+  loop via a new default-no-op `AgentListener.onPrefillProgress` method.
+  On a CPU-only runtime with a 300-token prompt the first generated
+  token lands tens of seconds to minutes after the agent loop starts;
+  UIs can now show that work is happening (e.g. `prefill: 32/282 (11%)`)
+  instead of looking hung. Backwards compatible.
+
+### Earlier in the 0.23.x line
+
+**0.23.2** — `kllama-cli`, `kllama-native`, `kllama-wasm`, and
+`KLlamaJava` swapped to the DSL path (`OptimizedLLMRuntime` +
+`llamaNetwork()`); GPU stubs deleted; SentencePiece + GGUF tokenizers
+unified through upstream `sk.ainet.io.tokenizer`; markdown-fenced Llama 3
+JSON tool calls now parse correctly; Qwen3 NEOX RoPE pairing fix; QK-norm
+RMSNorm-eps wiring fix.
+
+**0.23.1** — Apertus end-to-end (routing through `OptimizedLLMRuntime` +
+`apertusNetwork()`, chat template + tool calling, real-GGUF Q4_K
+loading); Gemma 4 chat-model JVM facade with mmap-arena cleanup; multi-id
+EOS / stop-token support in the chat layer; SentencePiece auto-detect in
+`fromTokenizerJson`; LEAF + Llama 3 single-JVM smoke test;
+`ServiceLoader` shadow-jar fix-up so the priority-100 native-cpu provider
+is picked up post-merge.
 
 See [`CHANGELOG.md`](CHANGELOG.md) for the full set of changes.
 
