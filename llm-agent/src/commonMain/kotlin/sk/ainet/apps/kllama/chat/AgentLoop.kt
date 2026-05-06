@@ -28,6 +28,15 @@ public interface AgentListener {
     /** Called when the model produces text (may be called multiple times per round). */
     public fun onToken(token: String) {}
 
+    /**
+     * Called after each prompt token is fed through the model during prefill,
+     * with `(done, total)` where `done` is 1-based and `total` is the prompt
+     * length in tokens. Prefill is autoregressive (one `forward` per token),
+     * so on a CPU-only runtime there is a long silence between the start of
+     * a round and the first [onToken]; this callback lets a UI surface that.
+     */
+    public fun onPrefillProgress(done: Int, total: Int) {}
+
     /** Called when the model's full response for a round is available. */
     public fun onAssistantMessage(text: String) {}
 
@@ -115,7 +124,8 @@ public class AgentLoop<T : DType>(
                 temperature = config.temperature,
                 random = config.random,
                 onToken = { tokenId -> listener?.onToken(decode(tokenId)) },
-                decode = decode
+                decode = decode,
+                onPrefill = { done, total -> listener?.onPrefillProgress(done, total) }
             )
 
             lastResponse = result.text
@@ -236,7 +246,8 @@ public class AgentLoop<T : DType>(
                 temperature = config.temperature,
                 random = config.random,
                 onToken = { tokenId -> listener?.onToken(decode(tokenId)) },
-                decode = decode
+                decode = decode,
+                onPrefill = { done, total -> listener?.onPrefillProgress(done, total) }
             )
 
             lastResponse = result.text

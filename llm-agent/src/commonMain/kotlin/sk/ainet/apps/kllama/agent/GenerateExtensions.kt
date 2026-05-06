@@ -22,6 +22,12 @@ import sk.ainet.lang.types.DType
  * @param random Random generator for sampling.
  * @param onToken Optional callback invoked for each generated token.
  * @param decode Optional function to decode a token ID to a string.
+ * @param onPrefill Optional callback invoked after each prompt token is fed
+ *   through `forward`, with `(done, total)` where `done` counts the tokens
+ *   already processed (1-based) and `total` is `prompt.size`. Useful for
+ *   showing progress: prefill is autoregressive (one `forward` per prompt
+ *   token) and on a CPU-only runtime can dominate wall time before the first
+ *   generated token appears.
  */
 public fun <T : DType> InferenceRuntime<T>.generateUntilStop(
     prompt: IntArray,
@@ -30,7 +36,8 @@ public fun <T : DType> InferenceRuntime<T>.generateUntilStop(
     temperature: Float = 0.8f,
     random: Random = Random.Default,
     onToken: ((Int) -> Unit)? = null,
-    decode: ((Int) -> String)? = null
+    decode: ((Int) -> String)? = null,
+    onPrefill: ((Int, Int) -> Unit)? = null
 ): GenerateResult {
     // Feed prompt tokens through the model. NOTE: previously this used
     // `forwardBatched(prompt)` for ~5–10× faster prefill, but
@@ -44,9 +51,11 @@ public fun <T : DType> InferenceRuntime<T>.generateUntilStop(
     if (prompt.isEmpty()) {
         return GenerateResult(emptyList(), "", false)
     }
+    val total = prompt.size
     var lastLogits: Tensor<T, Float>? = null
-    for (tokenId in prompt) {
+    for ((i, tokenId) in prompt.withIndex()) {
         lastLogits = forward(tokenId)
+        onPrefill?.invoke(i + 1, total)
     }
     lastLogits ?: return GenerateResult(emptyList(), "", false)
 
