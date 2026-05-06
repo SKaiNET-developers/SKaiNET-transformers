@@ -7,6 +7,88 @@ version line is kept in lock-step with the underlying SKaiNET engine
 The format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.3] — 2026-05-06
+
+Version-aligned with **SKaiNET 0.23.3**.
+
+### Added
+
+- **Prefill progress callback.** `generateUntilStop` gains an optional
+  `onPrefill: ((Int, Int) -> Unit)?` parameter that fires once per prompt
+  token during the autoregressive prefill loop, with `(done, total)` —
+  `done` is 1-based, `total` is `prompt.size`. Plumbed through both
+  `AgentLoop.run` and `AgentLoop.runWithEncoder` as a new
+  default-no-op `AgentListener.onPrefillProgress(done, total)` method.
+
+  Why this matters: prefill is autoregressive in 0.23.x (the comment on
+  `generateUntilStop` documents the `forwardBatched` correctness
+  regression we reverted), so on a CPU-only runtime with a 300-token
+  prompt the first `onToken` lands tens of seconds to minutes after the
+  agent loop starts — UIs previously had no way to show the loop was
+  alive. The new callback closes that gap (e.g. `prefill: 32/282 (11%)`).
+
+  Backwards compatible — the new parameter and interface method default
+  to null/no-op, so existing `AgentListener` implementations and callers
+  compile and behave unchanged.
+
+### Tests
+
+- New tests for the prefill callback in `GenerateExtensionsTest`:
+  - `generateUntilStopReportsPrefillProgressForEachPromptToken` —
+    one `(done, total)` pair per prompt token, in order, with `done`
+    1-based and `total = prompt.size`.
+  - `generateUntilStopWithEmptyPromptDoesNotInvokePrefillCallback` —
+    callback never fires for an empty prompt.
+
+## [0.23.2] — 2026-05-05
+
+Version-aligned with **SKaiNET 0.23.2**.
+
+### Added
+
+- **Llama 3 tool-calling walkthrough** — end-to-end docs for app integrators,
+  covering chat template, JSON tool-call format, and `JavaAgentLoop` wiring.
+- **Llama-3.2-1B-Instruct smoke test** with a tool-calling assertion.
+- **MongoDB / mdbr-leaf-ir embedding entry** in the smoke runner catalogue.
+- **`kllama-cli`**: prompts, raw responses, and tools list now logged by
+  `ToolCallingDemo`.
+
+### Changed
+
+- **`kllama-cli`, `kllama-native`, and `kllama-wasm` swapped to the DSL
+  path** (`OptimizedLLMRuntime` + `llamaNetwork()`); placeholder GPU
+  attention/tensor stubs deleted; native benchmark scenario renamed to
+  `native-cpu-throughput`.
+- **`KLlamaJava` facade swapped to the DSL path.**
+- **`llm-core`**: SentencePiece decorator + GGUF tokenizer now route
+  through upstream `sk.ainet.io.tokenizer` instead of a local fork; fixes
+  Qwen / GPT-2 BPE GGUF tokenization.
+
+### Fixed
+
+- `fix(tool-calling): tolerate markdown code fences around Llama 3 JSON
+  tool calls` — the parser previously skipped fenced JSON, causing the
+  agent loop to keep generating until `maxTokensPerRound` instead of
+  executing the call.
+- `fix(qwen): NEOX (SPLIT_HALF) RoPE pairing for Qwen3 GGUFs.`
+- `fix(transformer): thread metadata RMSNorm eps through QK-norm.`
+- `fix(llama): inject logical 2D shape and dequant token_embd in DSL
+  converter.`
+- `fix(kllama-cli): route Llama GGUF/SafeTensors back to eager
+  `LlamaRuntime`` — the DSL Q4/Q8 path is functionally correct but needs
+  first-class Q4/Q8 DTypes to match the SIMD perf of the legacy path.
+  Tracked as a followup.
+- `fix(kllama-cli): apply application plugin so :run task is wired.`
+- `fix(smoke): tolerate runners that don't emit tok/s (embedding models).`
+
+### Removed
+
+- `:llm-runtime:kqwen` module and `LlamaIngestionBlocking.kt` deleted.
+
+### Docs
+
+- API dumps refreshed for 0.23.2 (`api/` directory).
+
 ## [0.23.1] — 2026-05-04
 
 Version-aligned with **SKaiNET 0.23.1**.

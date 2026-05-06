@@ -89,6 +89,55 @@ class GenerateExtensionsTest {
     }
 
     @Test
+    fun generateUntilStopReportsPrefillProgressForEachPromptToken() {
+        // Returns EOS immediately so the prompt loop is the only thing exercised.
+        val eosTokenId = 2
+        val fakeRuntime = object : InferenceRuntime<FP32> {
+            override fun reset() {}
+            override fun forward(tokenId: Int): Tensor<FP32, Float> {
+                return createFP32Tensor(FloatArray(10) { if (it == eosTokenId) 10.0f else 0.0f })
+            }
+        }
+
+        val progress = mutableListOf<Pair<Int, Int>>()
+        val prompt = intArrayOf(7, 8, 9, 10)
+        fakeRuntime.generateUntilStop(
+            prompt = prompt,
+            maxTokens = 1,
+            eosTokenId = eosTokenId,
+            temperature = 0.0f,
+            onPrefill = { done, total -> progress.add(done to total) }
+        )
+
+        assertEquals(
+            listOf(1 to 4, 2 to 4, 3 to 4, 4 to 4),
+            progress,
+            "Expected one (done, total) pair per prompt token, in order"
+        )
+    }
+
+    @Test
+    fun generateUntilStopWithEmptyPromptDoesNotInvokePrefillCallback() {
+        val fakeRuntime = object : InferenceRuntime<FP32> {
+            override fun reset() {}
+            override fun forward(tokenId: Int): Tensor<FP32, Float> =
+                error("forward must not be called for an empty prompt")
+        }
+
+        var calls = 0
+        val result = fakeRuntime.generateUntilStop(
+            prompt = intArrayOf(),
+            maxTokens = 5,
+            eosTokenId = 2,
+            temperature = 0.0f,
+            onPrefill = { _, _ -> calls++ }
+        )
+
+        assertEquals(0, calls, "onPrefill must not fire for an empty prompt")
+        assertTrue(result.tokens.isEmpty(), "Empty prompt yields no tokens")
+    }
+
+    @Test
     fun generateUntilStopRespectsMaxTokens() {
         val fakeRuntime = object : InferenceRuntime<FP32> {
             override fun reset() {}
