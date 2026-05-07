@@ -19,10 +19,12 @@ dependencies {
     testImplementation(project(":llm-inference:llama"))
     testImplementation(project(":llm-inference:bert"))
 
-    // SKaiNET runtime needed by KLlamaJava (JVM target)
-    testImplementation(libs.skainet.lang.core)
-    testImplementation(libs.skainet.backend.cpu)
-    testImplementation(libs.skainet.io.gguf)
+    // Use the BOM to pin SKaiNET versions. Coords intentionally version-less so
+    // a broken BOM fails the build here instead of going unnoticed.
+    testImplementation(platform(project(":llm-bom")))
+    testImplementation("sk.ainet.core:skainet-lang-core")
+    testImplementation("sk.ainet.core:skainet-backend-cpu")
+    testImplementation("sk.ainet.core:skainet-io-gguf")
 }
 
 tasks.test {
