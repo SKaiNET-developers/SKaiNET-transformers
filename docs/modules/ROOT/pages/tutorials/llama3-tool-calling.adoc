@@ -52,8 +52,10 @@ The pieces you need live in three modules:
 [source,kotlin]
 ----
 dependencies {
-    implementation("sk.ainet.transformers:llm-runtime-kllama:0.23.2")
-    implementation("sk.ainet.transformers:llm-agent:0.23.2")
+    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.23.3"))
+
+    implementation("sk.ainet.transformers:skainet-transformers-runtime-kllama")
+    implementation("sk.ainet.transformers:skainet-transformers-agent")
 }
 ----
 

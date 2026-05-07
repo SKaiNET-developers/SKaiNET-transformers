@@ -18,13 +18,18 @@ High-performance LLM application layer on top of the [SKaiNET](https://github.co
 
 ## Current release
 
-The current release is **0.23.3**, version-aligned with the matching SKaiNET engine release. Coordinates:
+The current release is **0.23.3**, version-aligned with the matching SKaiNET engine release.
+
+The recommended way to consume is via the BOM. It pins every published `skainet-transformers-*` artifact and re-exports the upstream `sk.ainet:skainet-bom`, so the engine-side `sk.ainet.core:skainet-*` artifacts get the matching version too — you only need to declare the BOM version in one place.
 
 ```kotlin
 dependencies {
-    implementation("sk.ainet.transformers:llm-core:0.23.3")
-    implementation("sk.ainet.transformers:llm-runtime-kllama:0.23.3") // or kgemma, kqwen, kapertus
-    implementation("sk.ainet.transformers:llm-agent:0.23.3")          // chat templates + tool calling
+    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.23.3"))
+
+    // Versions resolved from the BOM:
+    implementation("sk.ainet.transformers:skainet-transformers-core")
+    implementation("sk.ainet.transformers:skainet-transformers-runtime-kllama") // or runtime-kgemma, inference-qwen, inference-apertus
+    implementation("sk.ainet.transformers:skainet-transformers-agent")          // chat templates + tool calling
 }
 ```
 
@@ -32,8 +37,8 @@ To opt in to the native FFM CPU provider (recommended for JVM consumers):
 
 ```kotlin
 dependencies {
-    implementation("sk.ainet.core:skainet-backend-cpu:0.23.3")        // priority-50 Panama Vector
-    implementation("sk.ainet.core:skainet-backend-native-cpu:0.23.3") // priority-100 FFM (auto-discovered)
+    implementation("sk.ainet.core:skainet-backend-cpu")        // priority-50 Panama Vector
+    implementation("sk.ainet.core:skainet-backend-native-cpu") // priority-100 FFM (auto-discovered)
 }
 ```
 

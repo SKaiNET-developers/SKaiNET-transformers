@@ -15,20 +15,34 @@ In your `build.gradle.kts`:
 [source,kotlin]
 ----
 dependencies {
-    implementation("sk.ainet.transformers:llm-runtime-kllama:0.21.0")
-    implementation("sk.ainet.transformers:llm-agent:0.21.0")
+    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.23.3"))
+
+    implementation("sk.ainet.transformers:skainet-transformers-runtime-kllama")
+    implementation("sk.ainet.transformers:skainet-transformers-agent")
 }
 ----
 
-Or in Maven:
+Or in Maven (Maven needs the `-jvm` classifier suffix on platform artifacts):
 
 [source,xml]
 ----
-<dependency>
-  <groupId>sk.ainet.transformers</groupId>
-  <artifactId>llm-runtime-kllama</artifactId>
-  <version>0.21.0</version>
-</dependency>
+<dependencyManagement>
+  <dependencies>
+    <dependency>
+      <groupId>sk.ainet.transformers</groupId>
+      <artifactId>skainet-transformers-bom</artifactId>
+      <version>0.23.3</version>
+      <type>pom</type>
+      <scope>import</scope>
+    </dependency>
+  </dependencies>
+</dependencyManagement>
+<dependencies>
+  <dependency>
+    <groupId>sk.ainet.transformers</groupId>
+    <artifactId>skainet-transformers-runtime-kllama-jvm</artifactId>
+  </dependency>
+</dependencies>
 ----
 
 You also need the JVM args for the Vector API at runtime:
