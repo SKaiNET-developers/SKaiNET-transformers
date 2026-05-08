@@ -151,7 +151,6 @@ fun main(args: Array<String>) {
 
         // Select backend
         val provider = BackendRegistry.bestAvailable()
-        println("Backend: ${provider.displayName}")
 
         // Set up execution context
         val quantArena = Arena.ofShared()
@@ -174,6 +173,15 @@ fun main(args: Array<String>) {
         // projection. Dequantize at load time on those runtimes; weights
         // become plain FP32 and every op route works.
         val simdAvailable = ctx.ops::class.simpleName == "DefaultCpuOpsJvm"
+
+        // Print the resolved backend label only after the SIMD probe — the
+        // kernel provider's own `displayName` reflects what was registered,
+        // not whether the Vector API actually loaded. Reporting "CPU (SIMD)"
+        // while the scalar fallback is running misled users into thinking
+        // the slow path was expected.
+        val simdSuffix = if (simdAvailable) "Vector API SIMD" else "scalar fallback (Vector API not loaded)"
+        println("Backend: ${provider.displayName} — $simdSuffix")
+
         val quantPolicy = if (simdAvailable) {
             QuantPolicy.NATIVE_OPTIMIZED
         } else {
