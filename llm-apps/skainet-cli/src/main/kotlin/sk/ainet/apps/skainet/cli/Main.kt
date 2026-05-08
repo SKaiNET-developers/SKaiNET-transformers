@@ -163,6 +163,29 @@ fun main(args: Array<String>) {
             memSegFactory.close()
         })
 
+        // Q4_0 / Q8_0 packed-MemSeg dispatch (DecoderGgufMemSegConverter +
+        // chooseQuantizedMatmul / lazy-transpose) lives entirely in
+        // DefaultCpuOpsJvm — JDK 21+ with `jdk.incubator.vector` resolved.
+        // When upstream `PlatformCpuOpsFactory` falls back to DefaultCpuOpsBase
+        // (older JDK, missing `--add-modules`, or platforms where the Vector
+        // API intrinsic isn't backed — notably some macOS JDK builds), the
+        // base class's `transpose` slow path runs `factory.init(...)` over a
+        // Q8 byte-store and ClassCasts Byte→Float at the first attention
+        // projection. Dequantize at load time on those runtimes; weights
+        // become plain FP32 and every op route works.
+        val simdAvailable = ctx.ops::class.simpleName == "DefaultCpuOpsJvm"
+        val quantPolicy = if (simdAvailable) {
+            QuantPolicy.NATIVE_OPTIMIZED
+        } else {
+            println(
+                "WARNING: Vector API SIMD unavailable; loading quantized weights as FP32 " +
+                    "(roughly 4x memory vs Q8_0, 8x vs Q4_0). To re-enable the packed path, " +
+                    "run on JDK 21+ with `--add-modules jdk.incubator.vector` on a Vector-API " +
+                    "supported build."
+            )
+            QuantPolicy.DEQUANTIZE_TO_FP32
+        }
+
         // Load model based on detected family. All families route through
         // the DSL pipeline (per-family network() builder +
         // OptimizedLLMRuntime). The legacy LlamaRuntime path was retired
@@ -176,26 +199,26 @@ fun main(args: Array<String>) {
         // diverged from the checkpoint's intent. The DSL path is correct
         // for Apertus too. See APERTUS_ROLLOUT.md (PR 1).
         val runtime: InferenceRuntime<FP32> = if (modelInfo.family == ModelFamily.GEMMA) {
-            println("Loading Gemma GGUF model from $modelPath via gemmaNetwork() + OptimizedLLMRuntime (NATIVE_OPTIMIZED)...")
+            println("Loading Gemma GGUF model from $modelPath via gemmaNetwork() + OptimizedLLMRuntime ($quantPolicy)...")
             if (cliArgs.contextLength != null) {
                 println("  --context flag currently ignored on the Gemma path; uses model default capped to 4096.")
             }
             val rawWeights = Gemma4WeightLoader(
                 randomAccessProvider = { JvmRandomAccessSource.open(modelPath.toString()) },
-                quantPolicy = QuantPolicy.NATIVE_OPTIMIZED
+                quantPolicy = quantPolicy
             ).loadToMapStreaming<FP32, Float>(ctx, FP32::class)
             @Suppress("UNCHECKED_CAST")
             val converted = convertGemmaWeightsToMemSeg(rawWeights, ctx, quantArena) as Gemma4Weights<FP32, Float>
             val model = GemmaNetworkLoader.fromWeights(ctx, converted, FP32::class)
             OptimizedLLMRuntime(model, ctx, OptimizedLLMMode.DIRECT, FP32::class)
         } else if (modelInfo.family == ModelFamily.APERTUS) {
-            println("Loading Apertus GGUF model from $modelPath via apertusNetwork() + OptimizedLLMRuntime (NATIVE_OPTIMIZED)...")
+            println("Loading Apertus GGUF model from $modelPath via apertusNetwork() + OptimizedLLMRuntime ($quantPolicy)...")
             if (cliArgs.contextLength != null) {
                 println("  --context flag currently ignored on the Apertus path; uses model default.")
             }
             val model = ApertusNetworkLoader.fromGguf(
                 randomAccessProvider = { JvmRandomAccessSource.open(modelPath.toString()) },
-                quantPolicy = QuantPolicy.NATIVE_OPTIMIZED
+                quantPolicy = quantPolicy
             ).load<FP32, Float>(ctx)
             OptimizedLLMRuntime(model, ctx, OptimizedLLMMode.DIRECT, FP32::class)
         } else {
@@ -208,11 +231,11 @@ fun main(args: Array<String>) {
             val acceptedArchitectures = modelInfo.family.architectures + setOf(modelInfo.architecture)
             val loader = DecoderGgufWeightLoader(
                 randomAccessProvider = { JvmRandomAccessSource.open(modelPath.toString()) },
-                quantPolicy = QuantPolicy.NATIVE_OPTIMIZED,
+                quantPolicy = quantPolicy,
                 acceptedArchitectures = acceptedArchitectures,
             )
 
-            println("Loading GGUF model from $modelPath (${modelInfo.family.displayName}, DSL streaming)...")
+            println("Loading GGUF model from $modelPath (${modelInfo.family.displayName}, DSL streaming, $quantPolicy)...")
             val rawWeights = loader.loadToMapStreaming<FP32, Float>(ctx)
 
             val convertedWeights = if (rawWeights.quantTypes.isNotEmpty()) {
