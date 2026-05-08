@@ -8,6 +8,15 @@ plugins {
 
 application {
     mainClass.set("sk.ainet.apps.skainet.cli.MainKt")
+    // Propagate to the generated bin/skainet-cli launcher (and the shadow
+    // variant). Without `jdk.incubator.vector`, PlatformCpuOpsFactory falls
+    // back to DefaultCpuOpsBase whose `transpose` has no Q4/Q8 MemSeg
+    // fast path — Q8-weighted matmul then ClassCasts Byte→Float at the
+    // first attention projection.
+    applicationDefaultJvmArgs = listOf(
+        "--enable-preview",
+        "--add-modules", "jdk.incubator.vector",
+    )
 }
 
 dependencies {
