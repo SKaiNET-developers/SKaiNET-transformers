@@ -4,21 +4,16 @@
 [![Maven Central](https://img.shields.io/maven-central/v/sk.ainet.transformers/skainet-transformers-agent.svg)](https://central.sonatype.com/artifact/sk.ainet.transformers/skainet-transformers-agent)
 [![DeepWiki](https://img.shields.io/badge/DeepWiki-View%20Docs-blue?logo=readthedocs&logoColor=white)](https://deepwiki.com/SKaiNET-developers/SKaiNET-transformers)
 
-Group: `sk.ainet.transformers`
-
 High-performance LLM application layer on top of the [SKaiNET](https://github.com/SKaiNET-developers/SKaiNET) engine. Provides model-specific inference, agentic chat with tool calling, and a unified CLI for transformer-based models, all in Kotlin Multiplatform.
 
 ## Key features
 
-- **Multi-model support.** Llama 3 / 3.1 / 3.2, Gemma 2 / 3 / 4, Qwen 2 / 3, Apertus (Swiss AI), Mistral, BERT.
-- **Native CPU performance.** Auto-discovers SKaiNET's priority-100 FFM (Foreign Function & Memory) native kernel provider when present (4–6× faster Q4_K matmul, 1.5–1.8× faster FP32 SGEMM vs the priority-50 Panama Vector path; Linux x86_64 / macOS ARM64 / Windows x86_64 in the published JAR — no manual setup).
+- **Multi-model support.** Llama, BERT.
+- **Native CPU performance in JVM.** Auto-discovers SKaiNET's priority-100 FFM (Foreign Function & Memory) native kernel provider when present (4–6× faster Q4_K matmul, 1.5–1.8× faster FP32 SGEMM vs the priority-50 Panama Vector path.
 - **Native tool calling.** Family-specific chat templates and tool-call parsers for Llama 3, Gemma 4, Qwen, Apertus, and ChatML/Hermes. Includes a Java surface (`KLlamaJava`, `JavaTools.definition`, `JavaAgentLoop`) for plain-Java consumers.
-- **GGUF + SafeTensors loading.** Streaming reader for any model size; `NATIVE_OPTIMIZED` quant policy keeps weights in their packed SIMD-friendly form.
 - **Kotlin Multiplatform.** JVM, Android, Kotlin/Native (Linux x64/ARM64, macOS ARM64, iOS arm64/sim arm64), JS, Wasm targets where applicable.
 
 ## Current release
-
-The current release is **0.23.4** — a transformers-only release on the **0.23.x** line (no SKaiNET engine bump from 0.23.3).
 
 The recommended way to consume is via the BOM. It pins every published `skainet-transformers-*` artifact and re-exports the upstream `sk.ainet:skainet-bom`, so the engine-side `sk.ainet.core:skainet-*` artifacts get the matching version too — you only need to declare the BOM version in one place.
 
@@ -68,17 +63,19 @@ dependencies {
 ```bash
 # Plain generation
 ./gradlew :llm-apps:skainet-cli:shadowJar
-java -jar llm-apps/skainet-cli/build/libs/skainet-all.jar \
+java  --add-modules jdk.incubator.vector  -jar llm-apps/skainet-cli/build/libs/skainet-all.jar \
   -m /path/to/model.gguf "The capital of France is"
+```  
 
+```bash
 # Tool-calling demo (calculator + file-listing tools auto-registered)
 java -jar skainet-all.jar -m model.gguf --demo --template=llama3 "What is 17 * 23?"
+```  
 
+```bash
 # Interactive agent
-java -jar skainet-all.jar -m model.gguf --agent --template=apertus
+java  --add-modules jdk.incubator.vector  -jar skainet-all.jar -m model.gguf --agent --template=llama3 
 ```
-
-`--template` accepts `llama3`, `chatml`, `qwen`, `gemma`, `apertus` (auto-detected from GGUF metadata if omitted).
 
 ### Java consumers
 
@@ -140,10 +137,6 @@ EOS / stop-token support in the chat layer; SentencePiece auto-detect in
 is picked up post-merge.
 
 See [`CHANGELOG.md`](CHANGELOG.md) for the full set of changes.
-
-## Engine
-
-This project uses [**SKaiNET**](https://github.com/SKaiNET-developers/SKaiNET) as its underlying execution engine — tensor ops, neural-network DSL, kernel SPI, GGUF / SafeTensors I/O.
 
 ## License
 

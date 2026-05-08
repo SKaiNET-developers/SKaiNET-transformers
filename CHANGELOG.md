@@ -47,7 +47,7 @@ focus is the BOM and the consumer-facing docs.
   from `gradle.properties`); the override was being overridden in turn
   by vanniktech at publish time. The in-memory project group now matches
   the published group, which removes a footgun for anyone trying to
-  resolve internal modules by GAV.
+  resolve internal modules.
 
 ## [0.23.3] — 2026-05-06
 
