@@ -7,6 +7,48 @@ version line is kept in lock-step with the underlying SKaiNET engine
 The format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.5] — 2026-05-08
+
+Transformers-only release; no SKaiNET engine bump in this version. The
+focus is `skainet-cli` reliability on JDKs where the
+`jdk.incubator.vector` module is unavailable or not loaded — the three
+fixes below stack to make Q4/Q8 GGUF inference work end-to-end on those
+runtimes instead of `ClassCastException`-ing at the first attention
+projection.
+
+### Fixed
+
+- **Vector API flags missing from the launcher scripts.**
+  `--enable-preview --add-modules jdk.incubator.vector` was set on
+  `tasks.withType<JavaExec>`, which only affected `gradle :run` —
+  the generated `bin/skainet-cli` and shadow launcher both shipped
+  without them. Direct `java -jar` invocations therefore landed on
+  `DefaultCpuOpsBase` whose `transpose` lacks the Q4/Q8 packed-MemSeg
+  lazy-swap path, and Q8-weighted matmul `ClassCastException`-ed
+  Byte→Float at the first attention projection. Moved into
+  `application { applicationDefaultJvmArgs }` so both launchers
+  inherit them.
+- **Hard crash on runtimes without the Vector API.** When
+  `PlatformCpuOpsFactory` falls back to `DefaultCpuOpsBase` (older
+  JDK, missing `--add-modules jdk.incubator.vector`, or platforms
+  where the Vector API intrinsic isn't backed — notably some macOS
+  JDK builds), the base class's slow-path `transpose` ran
+  `factory.init(...)` over a Q8 byte-store and `ClassCast`-ed the
+  first projection. `skainet-cli` now introspects `ctx.ops::class` at
+  startup, prints a warning about the ~4× memory hit, and passes
+  `QuantPolicy.DEQUANTIZE_TO_FP32` to the loader so weights land as
+  plain FP32 — every op route then works regardless of which CPU ops
+  backend is active.
+- **Backend label disagreed with the actual code path.** The
+  "Backend: …" startup line was printed from the kernel registry's
+  static `displayName`, so a user running `java -jar` without
+  `--add-modules jdk.incubator.vector` would still see "CPU (SIMD)"
+  while the scalar fallback (and the `DEQUANTIZE_TO_FP32` weights
+  above) was actually doing the work. The label is now printed after
+  the `DefaultCpuOpsJvm` probe and appends either "Vector API SIMD" or
+  "scalar fallback (Vector API not loaded)" so it can no longer
+  disagree with the warning that follows it.
+
 ## [0.23.4] — 2026-05-08
 
 Transformers-only release; no SKaiNET engine bump in this version. The

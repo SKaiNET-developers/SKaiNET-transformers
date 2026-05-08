@@ -19,7 +19,7 @@ The recommended way to consume is via the BOM. It pins every published `skainet-
 
 ```kotlin
 dependencies {
-    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.23.4"))
+    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.23.5"))
 
     // Versions resolved from the BOM:
     implementation("sk.ainet.transformers:skainet-transformers-core")
@@ -98,22 +98,44 @@ try (KLlamaSession session = KLlamaJava.loadGGUF(modelPath, /* systemPrompt */ n
 
 See `llm-test/llm-test-java/src/test/java/.../KLlamaJavaToolCallingTest.java` for a runnable reference.
 
-## What's new in 0.23.4
+## What's new in 0.23.5
 
-- **BOM is now correct and self-maintaining.** `:llm-inference:apertus`
-  and `:llm-inference:voxtral` are no longer missing from the BOM's
-  constraints — consumers using these modules through the BOM now get
-  proper version alignment. Going forward the constraint list is
-  populated by a `buildSrc/` convention plugin that auto-discovers every
-  published sibling, so future modules can't be forgotten.
-- **README and tutorial dependency snippets fixed.** The published
-  artifact IDs are `skainet-transformers-core` /
-  `skainet-transformers-runtime-kllama` / `skainet-transformers-agent`,
-  not the project paths (`llm-core` etc.) that were previously shown.
-  Snippets now use the BOM pattern so the version pin only lives in one
-  place.
+Transformers-only release; no SKaiNET engine bump. Three `skainet-cli`
+fixes that together make Q4/Q8 GGUF inference work reliably on JDKs
+where the Vector API incubator module is unavailable or not loaded.
+
+- **Vector API flags now bake into the launcher scripts.**
+  `--enable-preview --add-modules jdk.incubator.vector` moved from
+  `tasks.withType<JavaExec>` (which only affected `gradle :run`) into
+  `application { applicationDefaultJvmArgs }`, so the generated
+  `bin/skainet-cli` and shadow launcher both inherit them. Previously
+  these were missing on direct `java -jar` invocations and the runtime
+  silently fell back to `DefaultCpuOpsBase`, where Q8-weighted matmul
+  ClassCasted Byte→Float at the first attention projection.
+- **Graceful dequantize-at-load fallback.** When `PlatformCpuOpsFactory`
+  resolves to `DefaultCpuOpsBase` (older JDK, missing
+  `--add-modules jdk.incubator.vector`, or platforms where the Vector
+  API intrinsic isn't backed — notably some macOS JDK builds),
+  `skainet-cli` now detects this at startup and passes
+  `QuantPolicy.DEQUANTIZE_TO_FP32` to the loader. Weights land as
+  plain FP32 and every op route works regardless of which CPU ops
+  backend is active. A startup warning calls out the ~4× memory hit.
+- **Backend label reflects the actual Vector API path.** The
+  "Backend: …" startup line was printed from the kernel registry's
+  static `displayName`, so users running without the incubator module
+  still saw "CPU (SIMD)" while the scalar fallback was doing the work.
+  The label is now printed after the `DefaultCpuOpsJvm` probe and
+  appends either "Vector API SIMD" or "scalar fallback (Vector API not
+  loaded)" — it can no longer disagree with the warning that follows.
 
 ### Earlier in the 0.23.x line
+
+**0.23.4** — BOM coverage fix (`:llm-inference:apertus` and
+`:llm-inference:voxtral` added; constraint list now auto-discovered by
+a `buildSrc/` convention plugin); README and tutorial dependency
+snippets use real published artifact IDs (`skainet-transformers-core`
+etc.) and the BOM pattern.
+
 
 **0.23.3** — Prefill progress callback: `generateUntilStop` and
 `AgentLoop` expose `(done, total)` progress during the autoregressive
