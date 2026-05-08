@@ -7,6 +7,48 @@ version line is kept in lock-step with the underlying SKaiNET engine
 The format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.4] — 2026-05-08
+
+Transformers-only release; no SKaiNET engine bump in this version. The
+focus is the BOM and the consumer-facing docs.
+
+### Fixed
+
+- **BOM coverage gap.** `:llm-inference:apertus` and `:llm-inference:voxtral`
+  ship to Maven Central but were missing from `skainet-transformers-bom`'s
+  constraints. Consumers who imported the BOM and pulled either of these
+  artifacts got no version alignment for them.
+- **Wrong artifact IDs in the README and tutorials.** The "Current release"
+  snippet in `README.md` and the two tutorial pages
+  (`getting-started-java.adoc`, `llama3-tool-calling.adoc`) showed
+  `sk.ainet.transformers:llm-core` / `llm-runtime-kllama` / `llm-agent` —
+  those are project paths, not published artifact IDs. The real
+  coordinates are `skainet-transformers-core`,
+  `skainet-transformers-runtime-kllama`, `skainet-transformers-agent`;
+  anyone copy-pasting hit a "module not found" error. Fixed and switched
+  the snippets to the BOM pattern so future version bumps only need to
+  touch one line.
+
+### Changed
+
+- **BOM internals: auto-discovery.** The constraint list in
+  `llm-bom/build.gradle.kts` is no longer hand-maintained. A new
+  convention plugin in `buildSrc/` (`sk.ainet.transformers.bom-coverage`)
+  auto-discovers every sibling subproject that applies
+  `com.vanniktech.maven.publish` and adds it as an `api` constraint on
+  the BOM. The only manual input left is the exclusion list (currently
+  just `:llm-performance`); the BOM is coherent by construction —
+  missing or drifting modules can no longer happen.
+- **`llm-test-java` consumes SKaiNET through the BOM** so the BOM is
+  exercised during the build itself; a regression in BOM constraints
+  fails locally instead of leaking into a published artifact.
+- **Removed dead `group = "sk.ainet.llm"` override** from the root build.
+  The published group has always been `sk.ainet.transformers` (sourced
+  from `gradle.properties`); the override was being overridden in turn
+  by vanniktech at publish time. The in-memory project group now matches
+  the published group, which removes a footgun for anyone trying to
+  resolve internal modules by GAV.
+
 ## [0.23.3] — 2026-05-06
 
 Version-aligned with **SKaiNET 0.23.3**.

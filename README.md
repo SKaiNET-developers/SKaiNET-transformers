@@ -18,13 +18,13 @@ High-performance LLM application layer on top of the [SKaiNET](https://github.co
 
 ## Current release
 
-The current release is **0.23.3**, version-aligned with the matching SKaiNET engine release.
+The current release is **0.23.4** — a transformers-only release on the **0.23.x** line (no SKaiNET engine bump from 0.23.3).
 
 The recommended way to consume is via the BOM. It pins every published `skainet-transformers-*` artifact and re-exports the upstream `sk.ainet:skainet-bom`, so the engine-side `sk.ainet.core:skainet-*` artifacts get the matching version too — you only need to declare the BOM version in one place.
 
 ```kotlin
 dependencies {
-    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.23.3"))
+    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.23.4"))
 
     // Versions resolved from the BOM:
     implementation("sk.ainet.transformers:skainet-transformers-core")
@@ -101,17 +101,28 @@ try (KLlamaSession session = KLlamaJava.loadGGUF(modelPath, /* systemPrompt */ n
 
 See `llm-test/llm-test-java/src/test/java/.../KLlamaJavaToolCallingTest.java` for a runnable reference.
 
-## What's new in 0.23.3
+## What's new in 0.23.4
 
-- **Prefill progress callback.** `generateUntilStop` and `AgentLoop`
-  now expose `(done, total)` progress during the autoregressive prefill
-  loop via a new default-no-op `AgentListener.onPrefillProgress` method.
-  On a CPU-only runtime with a 300-token prompt the first generated
-  token lands tens of seconds to minutes after the agent loop starts;
-  UIs can now show that work is happening (e.g. `prefill: 32/282 (11%)`)
-  instead of looking hung. Backwards compatible.
+- **BOM is now correct and self-maintaining.** `:llm-inference:apertus`
+  and `:llm-inference:voxtral` are no longer missing from the BOM's
+  constraints — consumers using these modules through the BOM now get
+  proper version alignment. Going forward the constraint list is
+  populated by a `buildSrc/` convention plugin that auto-discovers every
+  published sibling, so future modules can't be forgotten.
+- **README and tutorial dependency snippets fixed.** The published
+  artifact IDs are `skainet-transformers-core` /
+  `skainet-transformers-runtime-kllama` / `skainet-transformers-agent`,
+  not the project paths (`llm-core` etc.) that were previously shown.
+  Snippets now use the BOM pattern so the version pin only lives in one
+  place.
 
 ### Earlier in the 0.23.x line
+
+**0.23.3** — Prefill progress callback: `generateUntilStop` and
+`AgentLoop` expose `(done, total)` progress during the autoregressive
+prefill loop via a default-no-op `AgentListener.onPrefillProgress`
+method, so UIs on CPU-only runtimes can show that work is happening
+between round start and the first generated token.
 
 **0.23.2** — `kllama-cli`, `kllama-native`, `kllama-wasm`, and
 `KLlamaJava` swapped to the DSL path (`OptimizedLLMRuntime` +
