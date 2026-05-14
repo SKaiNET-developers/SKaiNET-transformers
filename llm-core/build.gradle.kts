@@ -64,6 +64,10 @@ kotlin {
                 implementation(libs.junit)
                 implementation(libs.skainet.io.gguf)
                 implementation(libs.skainet.io.core)
+                // CPU backend so jvmTest can actually run forward passes
+                // against a real ExecutionContext (otherwise tensor ops are
+                // VoidOps stubs). Mirrors the wiring in `llm-inference/*`.
+                implementation(libs.skainet.backend.cpu)
             }
         }
 

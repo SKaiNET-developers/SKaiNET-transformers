@@ -8,6 +8,7 @@ import sk.ainet.lang.nn.topology.ModuleParameters
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.tensor.VoidOpsTensor
+import sk.ainet.lang.tensor.operators.bind
 import sk.ainet.lang.types.DType
 import kotlin.math.sqrt
 import kotlin.reflect.KClass
@@ -21,6 +22,13 @@ import kotlin.reflect.KClass
  * - Optional RoPE (rotary position embeddings)
  * - Optional KV Cache (autoregressive decoding)
  * - Causal or bidirectional masking
+ * - Encoder-decoder cross-attention via the [forward] entry that takes a
+ *   second `encoderMemory` tensor. In cross-attention mode Q is projected
+ *   from the decoder hidden state, K and V from the encoder memory; RoPE
+ *   and the KV cache are bypassed; the causal mask is forced off. Cross-K/V
+ *   caching is a runtime concern — pass the raw memory tensor each step
+ *   (one extra matmul vs. cached projections; acceptable for the typical
+ *   ASR / NMT shapes).
  *
  * Weight parameters are exposed as ModuleParameters and loaded via WeightMapper.
  * This module does NOT use Linear submodules because LLM projections often omit bias.
@@ -168,7 +176,46 @@ public class MultiHeadAttention<T : DType, V>(
             if (kvCache != null) add(kvCache as Module<T, V>)
         }
 
-    override fun onForward(input: Tensor<T, V>, ctx: ExecutionContext): Tensor<T, V> {
+    override fun onForward(input: Tensor<T, V>, ctx: ExecutionContext): Tensor<T, V> =
+        attentionImpl(qInput = input, kvInput = input, isCrossAttention = false, ctx = ctx)
+
+    /**
+     * Forward entry that supports cross-attention. When [encoderMemory] is `null`
+     * this is equivalent to `forward(input, ctx)` (self-attention). When non-null,
+     * Q is projected from [input] and K, V are projected from [encoderMemory];
+     * RoPE and the KV cache are skipped and the causal mask is forced off.
+     *
+     * Cross-attention requires `kvCache == null` and `slidingWindow == null` —
+     * both are rejected with a clear error message.
+     */
+    public fun forward(
+        input: Tensor<T, V>,
+        encoderMemory: Tensor<T, V>?,
+        ctx: ExecutionContext,
+    ): Tensor<T, V> {
+        if (encoderMemory == null) {
+            return forward(input, ctx)
+        }
+        require(kvCache == null) {
+            "MultiHeadAttention: cross-attention (non-null encoderMemory) does not support kvCache. " +
+                "Cross-attention K/V should be cached at the runtime layer."
+        }
+        require(slidingWindow == null) {
+            "MultiHeadAttention: cross-attention is incompatible with slidingWindow."
+        }
+        val boundInput = input.bind(ctx)
+        val boundMemory = encoderMemory.bind(ctx)
+        return sk.ainet.lang.nn.hooks.withForwardHooks(ctx, this, boundInput) {
+            attentionImpl(qInput = boundInput, kvInput = boundMemory, isCrossAttention = true, ctx = ctx)
+        }
+    }
+
+    private fun attentionImpl(
+        qInput: Tensor<T, V>,
+        kvInput: Tensor<T, V>,
+        isCrossAttention: Boolean,
+        ctx: ExecutionContext,
+    ): Tensor<T, V> {
         val ops = ctx.ops
         val scale = attentionScale ?: (1.0f / sqrt(headDim.toFloat()))
 
@@ -188,11 +235,11 @@ public class MultiHeadAttention<T : DType, V>(
         val wO = params[oWIdx].value
 
         // Project Q, K, V: input @ W^T (+ bias if enabled).
-        // linearProject handles both the stock [out, in] layout and the
-        // [in, out] pre-transposed layout produced by MemSeg conversion.
-        var q = linearProject(ops, input, wQ)
-        var k = linearProject(ops, input, wK)
-        var v = linearProject(ops, input, wV)
+        // Q always comes from qInput; in self-attn kvInput === qInput,
+        // in cross-attn kvInput is the encoder memory (different seqLen).
+        var q = linearProject(ops, qInput, wQ)
+        var k = linearProject(ops, kvInput, wK)
+        var v = linearProject(ops, kvInput, wV)
         if (mhaDump) {
             mhaDumpStat("[blk.0.mha post-Q-proj      ]", q)
             mhaDumpStat("[blk.0.mha post-K-proj      ]", k)
@@ -224,10 +271,11 @@ public class MultiHeadAttention<T : DType, V>(
         // The correct transformation needs an explicit dim-0/dim-1 swap.
         // SKaiNET's `ops.transpose` only swaps the LAST two dims, so we
         // can't reuse it here; we materialise the permute via a copy.
-        val seqLen = if (input.rank >= 2) input.shape[input.rank - 2] else 1
-        q = swapSeqHeadDims(ops.reshape(q, Shape(seqLen, nHeads, headDim)), ctx)
-        k = swapSeqHeadDims(ops.reshape(k, Shape(seqLen, nKVHeads, headDim)), ctx)
-        var vReshaped = swapSeqHeadDims(ops.reshape(v, Shape(seqLen, nKVHeads, headDim)), ctx)
+        val qSeqLen = if (qInput.rank >= 2) qInput.shape[qInput.rank - 2] else 1
+        val kvSeqLen = if (kvInput.rank >= 2) kvInput.shape[kvInput.rank - 2] else 1
+        q = swapSeqHeadDims(ops.reshape(q, Shape(qSeqLen, nHeads, headDim)), ctx)
+        k = swapSeqHeadDims(ops.reshape(k, Shape(kvSeqLen, nKVHeads, headDim)), ctx)
+        var vReshaped = swapSeqHeadDims(ops.reshape(v, Shape(kvSeqLen, nKVHeads, headDim)), ctx)
 
         // Optional QK-Norm
         if (qNorm != null && kNorm != null) {
@@ -251,9 +299,12 @@ public class MultiHeadAttention<T : DType, V>(
             if (mhaDump) mhaDumpStat("[blk.0.mha post-V-norm      ]", vReshaped)
         }
 
-        // Optional RoPE
+        // Optional RoPE — skip in cross-attention. Cross-attn keys come from
+        // encoder memory that's already positioned (its RoPE was applied
+        // during encoder self-attention); rotating them again with the
+        // decoder's position would corrupt the alignment.
         val ropeModule = rope
-        if (ropeModule != null) {
+        if (ropeModule != null && !isCrossAttention) {
             val position = kvCache?.position ?: 0
             if (mhaDump) println("[blk.0.mha pos=$position]")
             q = ropeModule.forward(q, position, ctx)
@@ -264,8 +315,11 @@ public class MultiHeadAttention<T : DType, V>(
             }
         }
 
-        // Optional KV Cache update
-        val (fullK, fullV) = if (kvCache != null) {
+        // Optional KV Cache update — only self-attention. Cross-attention
+        // K/V cannot share a cache with self-attention (different shapes,
+        // different ownership). Caching is the runtime's responsibility
+        // for cross-attention and is rejected at the entry above.
+        val (fullK, fullV) = if (kvCache != null && !isCrossAttention) {
             kvCache!!.update(k, vReshaped, ctx)
         } else {
             k to vReshaped
@@ -287,9 +341,17 @@ public class MultiHeadAttention<T : DType, V>(
         // When sliding-window attention is active, we build a combined
         // causal+window mask ourselves and disable SDPA's built-in causal
         // path (which would otherwise re-mask the same positions).
+        // Sliding-window + cross-attention is rejected at the entry; in the
+        // cross-attn branch slidingWindow is guaranteed null, so this lambda
+        // is never invoked.
         val seqKV = kBatched.shape[2]
-        val slidingMask = slidingWindow?.let { buildSlidingCausalMask(seqLen, seqKV, it, ctx, qBatched.dtype) }
-        val useCausalPath = causal && slidingMask == null
+        val slidingMask = slidingWindow?.let {
+            require(!isCrossAttention) { "slidingWindow + cross-attention is not supported" }
+            buildSlidingCausalMask(qSeqLen, seqKV, it, ctx, qBatched.dtype)
+        }
+        // Cross-attention never applies a causal mask — there's no temporal
+        // ordering between decoder query positions and encoder memory frames.
+        val useCausalPath = !isCrossAttention && causal && slidingMask == null
 
         // Scaled dot-product attention
         val attnOut = ops.scaledDotProductAttention(
@@ -313,7 +375,9 @@ public class MultiHeadAttention<T : DType, V>(
         // matches the prior naked reshape for the autoregressive case.
         val squeezed = ops.squeeze(attnOut, 0)
         val swappedBack = swapSeqHeadDims(squeezed, ctx)
-        val merged = ops.reshape(swappedBack, Shape(seqLen, qDim))
+        // Output sequence length follows Q, not K/V — relevant for cross-attn
+        // where kvSeqLen and qSeqLen differ.
+        val merged = ops.reshape(swappedBack, Shape(qSeqLen, qDim))
 
         // Output projection: merged @ wO^T (+ bias if enabled)
         var output = linearProject(ops, merged, wO)
