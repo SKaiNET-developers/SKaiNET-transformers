@@ -6,7 +6,7 @@ This tutorial walks you through running text generation with a GGUF model using 
 [NOTE]
 ====
 This tutorial is part of the canonical SKaiNET Transformers *five-minute start
-path*. The quickest first run is the Java starter sample — see the
+path* — see the
 https://github.com/SKaiNET-developers/SKaiNET-transformers#start-in-5-minutes["Start in 5 minutes"]
 section of the repository README.
 ====

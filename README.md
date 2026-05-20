@@ -10,22 +10,26 @@ High-performance LLM application layer on top of the [SKaiNET](https://github.co
 
 ## Start in 5 minutes
 
-The fastest way to verify SKaiNET Transformers on your machine is the Java starter sample:
+SKaiNET Transformers is Kotlin Multiplatform. The fastest way to verify it on
+your machine is the unified `skainet-cli`:
 
 1. Get a local **GGUF** model file (e.g. a small quantized TinyLlama or Qwen).
-2. Run the starter sample, pointing it at the model with an **absolute path**.
+2. Run the CLI, pointing it at the model.
 3. Confirm the prompt returns a generated answer.
 
 ```bash
-./gradlew :llm-apps:kllama-java-sample:run \
-  --args="/absolute/path/to/model.gguf 'What is 17 * 23?'"
+./gradlew :llm-apps:skainet-cli:run \
+  --args="-m /absolute/path/to/model.gguf 'The capital of France is'"
 ```
 
-Expected result: the sample loads the model and streams a generated answer to the
-prompt. See [`llm-apps/kllama-java-sample/README.md`](llm-apps/kllama-java-sample/README.md)
-for prerequisites and troubleshooting, or the
+Expected result: the CLI auto-detects the model architecture, loads the model,
+and streams a generated answer. See the
 [getting-started tutorial](docs/modules/ROOT/pages/tutorials/getting-started.adoc)
 for model setup notes.
+
+Working in Java? SKaiNET Transformers ships first-class Java support — see the
+[`kllama-java-sample`](llm-apps/kllama-java-sample/README.md) starter and the
+[Java getting-started guide](docs/modules/ROOT/pages/tutorials/getting-started-java.adoc).
 
 Use the version shown in this README as the source of truth for first-run snippets.
 
