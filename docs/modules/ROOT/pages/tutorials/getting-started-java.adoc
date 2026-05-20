@@ -3,10 +3,20 @@
 
 This tutorial walks through running text generation and tool calling from a pure-Java application, using the kllama Java surface. No Kotlin, no `kotlinx.serialization` types, no suspend functions — every step is a normal Java call.
 
+[NOTE]
+====
+This tutorial is part of the canonical SKaiNET Transformers *five-minute start
+path*. For the quickest first run, see the
+https://github.com/SKaiNET-developers/SKaiNET-transformers#start-in-5-minutes["Start in 5 minutes"]
+section of the repository README. The version shown there is the source of truth
+for dependency snippets.
+====
+
 == Prerequisites
 
 * JDK 21+ (Java 25 preferred; the runtime uses the Vector API as an incubator module)
-* A Llama / TinyLlama / Qwen GGUF model on disk (e.g. `tinyllama-1.1b-chat-v1.0.Q8_0.gguf`)
+* A **GGUF model file** on disk (Llama / TinyLlama / Qwen, e.g.
+  `tinyllama-1.1b-chat-v1.0.Q8_0.gguf`) — this tutorial does not download one for you.
 
 == Add the Dependency
 
@@ -15,7 +25,7 @@ In your `build.gradle.kts`:
 [source,kotlin]
 ----
 dependencies {
-    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.23.4"))
+    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.23.5"))
 
     implementation("sk.ainet.transformers:skainet-transformers-runtime-kllama")
     implementation("sk.ainet.transformers:skainet-transformers-agent")
@@ -31,7 +41,7 @@ Or in Maven (Maven needs the `-jvm` classifier suffix on platform artifacts):
     <dependency>
       <groupId>sk.ainet.transformers</groupId>
       <artifactId>skainet-transformers-bom</artifactId>
-      <version>0.23.4</version>
+      <version>0.23.5</version>
       <type>pom</type>
       <scope>import</scope>
     </dependency>
@@ -237,6 +247,30 @@ export TINYLLAMA_MODEL_PATH=~/models/tinyllama-1.1b-chat-v1.0.Q8_0.gguf
 ----
 
 Without the env var the test reports as skipped, so CI without a checkpoint stays green.
+
+== Common First-Run Problems
+
+[cols="1,2"]
+|===
+| Problem | What to check
+
+| Model file not found
+| Pass an *absolute path* to the `.gguf` file for the first run.
+
+| `module jdk.incubator.vector not found` / `ClassCastException`
+| Add `--enable-preview --add-modules jdk.incubator.vector` to the JVM args.
+  Running through `./gradlew :llm-apps:kllama-java-sample:run` applies them for you.
+
+| Out of memory
+| Start with a smaller quantized model (a Q4/Q8 1B model) and close
+  memory-heavy applications.
+
+| Gradle cannot resolve artifacts
+| Check that the BOM version matches the one in the repository README.
+
+| Slow first run
+| The first run spends extra time resolving dependencies and loading the model.
+|===
 
 == What's Next
 

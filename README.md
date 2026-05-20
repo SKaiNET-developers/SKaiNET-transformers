@@ -8,6 +8,27 @@ Group: `sk.ainet.transformers`
 
 High-performance LLM application layer on top of the [SKaiNET](https://github.com/SKaiNET-developers/SKaiNET) engine. Provides model-specific inference, agentic chat with tool calling, and a unified CLI for transformer-based models, all in Kotlin Multiplatform.
 
+## Start in 5 minutes
+
+The fastest way to verify SKaiNET Transformers on your machine is the Java starter sample:
+
+1. Get a local **GGUF** model file (e.g. a small quantized TinyLlama or Qwen).
+2. Run the starter sample, pointing it at the model with an **absolute path**.
+3. Confirm the prompt returns a generated answer.
+
+```bash
+./gradlew :llm-apps:kllama-java-sample:run \
+  --args="/absolute/path/to/model.gguf 'What is 17 * 23?'"
+```
+
+Expected result: the sample loads the model and streams a generated answer to the
+prompt. See [`llm-apps/kllama-java-sample/README.md`](llm-apps/kllama-java-sample/README.md)
+for prerequisites and troubleshooting, or the
+[getting-started tutorial](docs/modules/ROOT/pages/tutorials/getting-started.adoc)
+for model setup notes.
+
+Use the version shown in this README as the source of truth for first-run snippets.
+
 ## Key features
 
 - **Multi-model support.** Llama 3 / 3.1 / 3.2, Gemma 2 / 3 / 4, Qwen 2 / 3, Apertus (Swiss AI), Mistral, BERT.
@@ -18,13 +39,13 @@ High-performance LLM application layer on top of the [SKaiNET](https://github.co
 
 ## Current release
 
-The current release is **0.23.4** — a transformers-only release on the **0.23.x** line (no SKaiNET engine bump from 0.23.3).
+The current release is **0.23.5** — a transformers-only release on the **0.23.x** line (no SKaiNET engine bump), focused on `skainet-cli` reliability on JDKs where the `jdk.incubator.vector` module is unavailable.
 
 The recommended way to consume is via the BOM. It pins every published `skainet-transformers-*` artifact and re-exports the upstream `sk.ainet:skainet-bom`, so the engine-side `sk.ainet.core:skainet-*` artifacts get the matching version too — you only need to declare the BOM version in one place.
 
 ```kotlin
 dependencies {
-    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.23.4"))
+    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.23.5"))
 
     // Versions resolved from the BOM:
     implementation("sk.ainet.transformers:skainet-transformers-core")
@@ -101,22 +122,31 @@ try (KLlamaSession session = KLlamaJava.loadGGUF(modelPath, /* systemPrompt */ n
 
 See `llm-test/llm-test-java/src/test/java/.../KLlamaJavaToolCallingTest.java` for a runnable reference.
 
-## What's new in 0.23.4
+## What's new in 0.23.5
 
-- **BOM is now correct and self-maintaining.** `:llm-inference:apertus`
-  and `:llm-inference:voxtral` are no longer missing from the BOM's
-  constraints — consumers using these modules through the BOM now get
-  proper version alignment. Going forward the constraint list is
-  populated by a `buildSrc/` convention plugin that auto-discovers every
-  published sibling, so future modules can't be forgotten.
-- **README and tutorial dependency snippets fixed.** The published
-  artifact IDs are `skainet-transformers-core` /
-  `skainet-transformers-runtime-kllama` / `skainet-transformers-agent`,
-  not the project paths (`llm-core` etc.) that were previously shown.
-  Snippets now use the BOM pattern so the version pin only lives in one
-  place.
+- **Vector API flags now reach the generated launchers.** `--enable-preview
+  --add-modules jdk.incubator.vector` was only applied to `gradle :run`; the
+  generated `bin/skainet-cli` and shadow launcher shipped without them, so a
+  direct `java -jar` invocation hit the scalar fallback and `ClassCastException`-ed
+  on the first Q8 attention projection. The flags moved into
+  `application { applicationDefaultJvmArgs }` so both launchers inherit them.
+- **No more hard crash on runtimes without the Vector API.** When the CPU ops
+  factory falls back to the scalar `DefaultCpuOpsBase` (older JDK, missing
+  `--add-modules`, or unsupported platforms), `skainet-cli` now detects this at
+  startup, warns about the ~4× memory hit, and loads weights with
+  `QuantPolicy.DEQUANTIZE_TO_FP32` so every op route works regardless of backend.
+- **Backend label now matches the real code path.** The "Backend: …" startup line
+  is printed after the actual ops probe and reports either "Vector API SIMD" or
+  "scalar fallback", so it can no longer disagree with the warning beside it.
 
 ### Earlier in the 0.23.x line
+
+**0.23.4** — BOM is now correct and self-maintaining: `:llm-inference:apertus`
+and `:llm-inference:voxtral` were missing from the BOM's constraints and are now
+covered, so consumers pulling them through the BOM get proper version alignment;
+the constraint list is auto-discovered by a `buildSrc/` convention plugin. The
+README and tutorial dependency snippets were also fixed to use the published
+artifact IDs (`skainet-transformers-core` etc.) via the BOM pattern.
 
 **0.23.3** — Prefill progress callback: `generateUntilStop` and
 `AgentLoop` expose `(done, total)` progress during the autoregressive

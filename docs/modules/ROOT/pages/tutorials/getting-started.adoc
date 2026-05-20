@@ -3,10 +3,19 @@
 
 This tutorial walks you through running text generation with a GGUF model using the unified `skainet` CLI.
 
+[NOTE]
+====
+This tutorial is part of the canonical SKaiNET Transformers *five-minute start
+path*. The quickest first run is the Java starter sample — see the
+https://github.com/SKaiNET-developers/SKaiNET-transformers#start-in-5-minutes["Start in 5 minutes"]
+section of the repository README.
+====
+
 == Prerequisites
 
 * JDK 21+ with preview features (Vector API)
-* A GGUF model file (e.g., `tinyllama-1.1b-chat-v1.0.Q8_0.gguf`)
+* A **GGUF model file** is required — this tutorial does not download one for you.
+  Use a small quantized model for the first run (e.g., `tinyllama-1.1b-chat-v1.0.Q8_0.gguf`).
 
 == Step 1: Build the Project
 
@@ -58,6 +67,30 @@ This starts a multi-turn conversation with the model using the auto-detected cha
 
 The demo provides `calculator` and `list_files` tools.
 Type a question like "What is 2 + 2?" and the model will call the calculator tool.
+
+== Common First-Run Problems
+
+[cols="1,2"]
+|===
+| Problem | What to check
+
+| Model file not found
+| Use an *absolute path* to the `.gguf` file for the first run.
+
+| `ClassCastException` / scalar fallback on `java -jar`
+| The Vector API needs `--enable-preview --add-modules jdk.incubator.vector`.
+  Running through `./gradlew :llm-apps:skainet-cli:run` applies them for you.
+
+| Out of memory
+| Start with a smaller quantized model (e.g. a Q4/Q8 1B model) and close
+  memory-heavy applications.
+
+| Gradle cannot resolve artifacts
+| Check that the version you use matches the one in the repository README.
+
+| Slow first run
+| The first run spends extra time resolving dependencies and loading the model.
+|===
 
 == What's Next
 
