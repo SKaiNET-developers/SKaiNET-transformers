@@ -6,6 +6,16 @@
 
 Tranformers based LLM application layer on top of the [SKaiNET](https://github.com/SKaiNET-developers/SKaiNET) engine. Provides model-specific inference, agentic chat with tool calling, and a unified CLI for transformer-based models, all in Kotlin Multiplatform.
 
+> [!WARNING]
+> **Project status — early / experimental.**
+> This repository is an **initial version**. Nothing here is stable, and there is
+> **no support or status guarantee for any feature, model, or API**. Model
+> coverage, tool calling, and the runtime APIs are all work in progress and may
+> not work for a given model or model version — for example, tool calling can
+> fail to trigger or parse even on a model that generates plain text correctly.
+> The capabilities described below are **goals, not promises**. Treat everything
+> as a preview and expect things to break.
+
 ## Start in 5 minutes
 
 SKaiNET Transformers is Kotlin Multiplatform. The fastest way to verify it on
@@ -33,11 +43,60 @@ Use the version shown in this README as the source of truth for first-run snippe
 
 ## Key features
 
-- **Multi-model support.** Llama 3 / 3.1 / 3.2, Gemma 2 / 3 / 4, Qwen 2 / 3, Apertus (Swiss AI), Mistral, BERT.
+> The list below describes the project's **intended** scope. Maturity varies
+> widely per item and many paths are unverified — see the project-status note above.
+
+- **Multi-model support (in progress).** Architecture code exists for Llama / Mistral, Qwen 2 / 3, Gemma 2 / 3 / 3n, Apertus (Swiss AI) and BERT. Llama is the most exercised path; the other families are at varying, often early, stages and are not all verified end-to-end.
 - **Native CPU performance.** Auto-discovers SKaiNET's priority-100 FFM (Foreign Function & Memory) native kernel provider when present (4–6× faster Q4_K matmul, 1.5–1.8× faster FP32 SGEMM vs the priority-50 Panama Vector path; Linux x86_64 / macOS ARM64 / Windows x86_64 in the published JAR — no manual setup).
-- **Native tool calling.** Family-specific chat templates and tool-call parsers for Llama 3, Gemma 4, Qwen, Apertus, and ChatML/Hermes. Includes a Java surface (`KLlamaJava`, `JavaTools.definition`, `JavaAgentLoop`) for plain-Java consumers.
+- **Tool calling (experimental).** Family-specific chat templates and tool-call parsers (Llama 3, Qwen, Gemma, Apertus, ChatML/Hermes) and a Java surface (`KLlamaJava`, `JavaTools.definition`, `JavaAgentLoop`) exist, but tool calling is **not reliable yet** — it may fail to trigger or parse even when plain generation works.
 - **GGUF + SafeTensors loading.** Streaming reader for any model size; `NATIVE_OPTIMIZED` quant policy keeps weights in their packed SIMD-friendly form.
 - **Kotlin Multiplatform.** JVM, Android, Kotlin/Native (Linux x64/ARM64, macOS ARM64, iOS arm64/sim arm64), JS, Wasm targets where applicable.
+
+## Roadmap
+
+### Architecture goal
+
+SKaiNET Transformers follows the SKaiNET engine's core path: **a transformer model
+is defined once in the Kotlin DSL, captured as a tape or DAG, and then either
+compiled to native code or executed eagerly — without rewriting it.**
+
+1. **Define** the model with the decoder DSL (`llamaNetwork()`, `apertusNetwork()`, …).
+2. **Capture** it as a *tape* (traced execution) or a *DAG* (explicit graph).
+3. **Run** it one of two ways:
+   - **Compile** — lower the graph to MLIR / StableHLO and compile to **native** code.
+   - **Eager** — execute directly on a backend. On the **JVM this is the primary, go-to path.**
+
+```mermaid
+flowchart LR
+    DSL["Transformer model — Kotlin DSL"] --> Graph["Tape / DAG"]
+    Graph --> HLO["MLIR / StableHLO"]
+    Graph --> Eager["Eager backend (JVM, …)"]
+    HLO --> Native["Native code"]
+```
+
+Today every model family runs through the **eager JVM path**. The StableHLO /
+native path is shared with the engine and not yet wired for full transformer
+models.
+
+### Where each architecture fits
+
+Honest status — see the project-status note at the top of this README.
+
+| Architecture | State |
+|---|---|
+| **Llama / Mistral** | Most exercised path — basic text generation works on the eager JVM path. |
+| **Qwen 2 / 3** | DSL + loaders present; runs through the shared decoder path. Early; Qwen3 RoPE / QK-norm fixes landed in 0.23.2. |
+| **Gemma 2 / 3 / 3n** | DSL + loaders present (Gemma 4 via the SafeTensors path); has the most test coverage, but not verified end-to-end. |
+| **Apertus** | DSL + loaders present; declared end-to-end in 0.23.1, still early. |
+| **BERT** | Encoder for embeddings only — no text generation, no tool calling. |
+| **Voxtral** | TTS / voice; architecture code only — no runtime facade or CLI yet. |
+
+### Near term
+
+- Make the **eager JVM path reliable per family** — including tool calling —
+  before extending scope.
+- Verify each generative architecture end-to-end with smoke tests.
+- Wire the **StableHLO / native compilation path** for full transformer models.
 
 ## Current release
 
