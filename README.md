@@ -52,6 +52,52 @@ Use the version shown in this README as the source of truth for first-run snippe
 - **GGUF + SafeTensors loading.** Streaming reader for any model size; `NATIVE_OPTIMIZED` quant policy keeps weights in their packed SIMD-friendly form.
 - **Kotlin Multiplatform.** JVM, Android, Kotlin/Native (Linux x64/ARM64, macOS ARM64, iOS arm64/sim arm64), JS, Wasm targets where applicable.
 
+## Roadmap
+
+### Architecture goal
+
+SKaiNET Transformers follows the SKaiNET engine's core path: **a transformer model
+is defined once in the Kotlin DSL, captured as a tape or DAG, and then either
+compiled to native code or executed eagerly — without rewriting it.**
+
+1. **Define** the model with the decoder DSL (`llamaNetwork()`, `apertusNetwork()`, …).
+2. **Capture** it as a *tape* (traced execution) or a *DAG* (explicit graph).
+3. **Run** it one of two ways:
+   - **Compile** — lower the graph to MLIR / StableHLO and compile to **native** code.
+   - **Eager** — execute directly on a backend. On the **JVM this is the primary, go-to path.**
+
+```mermaid
+flowchart LR
+    DSL["Transformer model — Kotlin DSL"] --> Graph["Tape / DAG"]
+    Graph --> HLO["MLIR / StableHLO"]
+    Graph --> Eager["Eager backend (JVM, …)"]
+    HLO --> Native["Native code"]
+```
+
+Today every model family runs through the **eager JVM path**. The StableHLO /
+native path is shared with the engine and not yet wired for full transformer
+models.
+
+### Where each architecture fits
+
+Honest status — see the project-status note at the top of this README.
+
+| Architecture | State |
+|---|---|
+| **Llama / Mistral** | Most exercised path — basic text generation works on the eager JVM path. |
+| **Qwen 2 / 3** | DSL + loaders present; runs through the shared decoder path. Early; Qwen3 RoPE / QK-norm fixes landed in 0.23.2. |
+| **Gemma 2 / 3 / 3n** | DSL + loaders present (Gemma 4 via the SafeTensors path); has the most test coverage, but not verified end-to-end. |
+| **Apertus** | DSL + loaders present; declared end-to-end in 0.23.1, still early. |
+| **BERT** | Encoder for embeddings only — no text generation, no tool calling. |
+| **Voxtral** | TTS / voice; architecture code only — no runtime facade or CLI yet. |
+
+### Near term
+
+- Make the **eager JVM path reliable per family** — including tool calling —
+  before extending scope.
+- Verify each generative architecture end-to-end with smoke tests.
+- Wire the **StableHLO / native compilation path** for full transformer models.
+
 ## Current release
 
 The current release is **0.23.5** — a transformers-only release on the **0.23.x** line (no SKaiNET engine bump), focused on `skainet-cli` reliability on JDKs where the `jdk.incubator.vector` module is unavailable.
