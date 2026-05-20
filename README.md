@@ -6,6 +6,16 @@
 
 Tranformers based LLM application layer on top of the [SKaiNET](https://github.com/SKaiNET-developers/SKaiNET) engine. Provides model-specific inference, agentic chat with tool calling, and a unified CLI for transformer-based models, all in Kotlin Multiplatform.
 
+> [!WARNING]
+> **Project status — early / experimental.**
+> This repository is an **initial version**. Nothing here is stable, and there is
+> **no support or status guarantee for any feature, model, or API**. Model
+> coverage, tool calling, and the runtime APIs are all work in progress and may
+> not work for a given model or model version — for example, tool calling can
+> fail to trigger or parse even on a model that generates plain text correctly.
+> The capabilities described below are **goals, not promises**. Treat everything
+> as a preview and expect things to break.
+
 ## Start in 5 minutes
 
 SKaiNET Transformers is Kotlin Multiplatform. The fastest way to verify it on
@@ -33,9 +43,12 @@ Use the version shown in this README as the source of truth for first-run snippe
 
 ## Key features
 
-- **Multi-model support.** Llama 3 / 3.1 / 3.2, Gemma 2 / 3 / 4, Qwen 2 / 3, Apertus (Swiss AI), Mistral, BERT.
+> The list below describes the project's **intended** scope. Maturity varies
+> widely per item and many paths are unverified — see the project-status note above.
+
+- **Multi-model support (in progress).** Architecture code exists for Llama / Mistral, Qwen 2 / 3, Gemma 2 / 3 / 3n, Apertus (Swiss AI) and BERT. Llama is the most exercised path; the other families are at varying, often early, stages and are not all verified end-to-end.
 - **Native CPU performance.** Auto-discovers SKaiNET's priority-100 FFM (Foreign Function & Memory) native kernel provider when present (4–6× faster Q4_K matmul, 1.5–1.8× faster FP32 SGEMM vs the priority-50 Panama Vector path; Linux x86_64 / macOS ARM64 / Windows x86_64 in the published JAR — no manual setup).
-- **Native tool calling.** Family-specific chat templates and tool-call parsers for Llama 3, Gemma 4, Qwen, Apertus, and ChatML/Hermes. Includes a Java surface (`KLlamaJava`, `JavaTools.definition`, `JavaAgentLoop`) for plain-Java consumers.
+- **Tool calling (experimental).** Family-specific chat templates and tool-call parsers (Llama 3, Qwen, Gemma, Apertus, ChatML/Hermes) and a Java surface (`KLlamaJava`, `JavaTools.definition`, `JavaAgentLoop`) exist, but tool calling is **not reliable yet** — it may fail to trigger or parse even when plain generation works.
 - **GGUF + SafeTensors loading.** Streaming reader for any model size; `NATIVE_OPTIMIZED` quant policy keeps weights in their packed SIMD-friendly form.
 - **Kotlin Multiplatform.** JVM, Android, Kotlin/Native (Linux x64/ARM64, macOS ARM64, iOS arm64/sim arm64), JS, Wasm targets where applicable.
 
