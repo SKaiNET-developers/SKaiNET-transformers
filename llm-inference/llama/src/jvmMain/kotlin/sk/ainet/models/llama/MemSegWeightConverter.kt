@@ -47,16 +47,22 @@ public object MemSegWeightConverter {
 
         val meta = weights.metadata
         val dim = meta.embeddingLength
-        val headSize = dim / meta.headCount
+        // Real attention head_dim. See note in DecoderGgufMemSegConverter —
+        // `dim / meta.headCount` is wrong for models like Qwen3-0.6B where
+        // `head_dim != hidden_size / n_heads`. `meta.ropeDimensionCount` is
+        // populated by `DecoderGgufWeightLoader.metadataFromGguf` either
+        // directly from GGUF or via Q-tensor-shape inference.
+        val headSize = meta.ropeDimensionCount ?: (dim / meta.headCount)
+        val qDim = meta.headCount * headSize
         val kvDim = meta.kvHeadCount * headSize
         val ffDim = meta.feedForwardLength
 
         val layers = weights.layers.mapIndexed { i, layer ->
             layer.copy(
-                wq = maybeConvert(layer.wq, LlamaTensorNames.attnQ(i), Shape(dim, dim), qt, ctx, arena),
+                wq = maybeConvert(layer.wq, LlamaTensorNames.attnQ(i), Shape(qDim, dim), qt, ctx, arena),
                 wk = maybeConvert(layer.wk, LlamaTensorNames.attnK(i), Shape(kvDim, dim), qt, ctx, arena),
                 wv = maybeConvert(layer.wv, LlamaTensorNames.attnV(i), Shape(kvDim, dim), qt, ctx, arena),
-                wo = maybeConvert(layer.wo, LlamaTensorNames.attnOut(i), Shape(dim, dim), qt, ctx, arena),
+                wo = maybeConvert(layer.wo, LlamaTensorNames.attnOut(i), Shape(dim, qDim), qt, ctx, arena),
                 ffnGate = maybeConvert(layer.ffnGate, LlamaTensorNames.ffnGate(i), Shape(ffDim, dim), qt, ctx, arena),
                 ffnDown = maybeConvert(layer.ffnDown, LlamaTensorNames.ffnDown(i), Shape(dim, ffDim), qt, ctx, arena),
                 ffnUp = maybeConvert(layer.ffnUp, LlamaTensorNames.ffnUp(i), Shape(ffDim, dim), qt, ctx, arena),
