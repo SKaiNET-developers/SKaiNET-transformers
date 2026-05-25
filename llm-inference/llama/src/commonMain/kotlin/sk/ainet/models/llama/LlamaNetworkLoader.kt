@@ -1,6 +1,7 @@
 package sk.ainet.models.llama
 
 import kotlinx.io.Source
+import sk.ainet.apps.llm.DTypePolicyValidation
 import sk.ainet.context.ExecutionContext
 import sk.ainet.io.RandomAccessSource
 import sk.ainet.io.model.QuantPolicy
@@ -10,6 +11,7 @@ import sk.ainet.io.weights.WeightMapper
 import sk.ainet.io.weights.WeightTensor
 import sk.ainet.lang.nn.Module
 import sk.ainet.lang.types.DType
+import sk.ainet.lang.types.DTypePolicy
 import kotlin.jvm.JvmName
 
 /**
@@ -62,6 +64,28 @@ public class LlamaNetworkLoader @PublishedApi internal constructor(
         data class Preloaded<T : DType, V>(
             val weights: DecoderGgufWeights<T, V>
         ) : WeightsProvider
+    }
+
+    /**
+     * Declarative dtype policy attached via [withDtypePolicy]. SKaiNET 0.25.0
+     * `DTypePolicy` is a forward-compat hook here — the value is validated
+     * eagerly but the underlying `DecoderGgufWeightLoader` /
+     * `DecoderSafeTensorsLoader` chain does not yet honor it per-tensor.
+     * Default [DTypePolicy.Any] preserves the adaptive behaviour.
+     */
+    public var dtypePolicy: DTypePolicy = DTypePolicy.Any
+        private set
+
+    /**
+     * Attach a [DTypePolicy] to this loader. Returns `this` for chaining.
+     * Validates eagerly so impossible requirements fail at the boundary,
+     * not deep inside the load loop.
+     */
+    public fun withDtypePolicy(policy: DTypePolicy): LlamaNetworkLoader {
+        val allowBf16 = weightsProvider is WeightsProvider.SafeTensors
+        DTypePolicyValidation.validate(policy, "LlamaNetworkLoader.withDtypePolicy", allowBf16Require = allowBf16)
+        this.dtypePolicy = policy
+        return this
     }
 
     public companion object {
@@ -122,7 +146,7 @@ public class LlamaNetworkLoader @PublishedApi internal constructor(
                 loader.loadToMapStreaming<T, V>(ctx)
             }
             is WeightsProvider.SafeTensors -> {
-                val loader = DecoderSafeTensorsLoader<T>(ctx, T::class, wp.metadata, wp.tiedEmbeddings)
+                val loader = DecoderSafeTensorsLoader<T>(ctx, T::class, wp.metadata, wp.tiedEmbeddings, dtypePolicy)
                 @Suppress("UNCHECKED_CAST")
                 loader.loadToMap(wp.randomAccessProvider) as DecoderGgufWeights<T, V>
             }

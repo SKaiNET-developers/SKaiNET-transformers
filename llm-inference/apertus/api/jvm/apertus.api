@@ -91,7 +91,9 @@ public final class sk/ainet/models/apertus/ApertusNetworkLoader {
 	public fun <init> (Lsk/ainet/models/apertus/ApertusNetworkLoader$WeightsProvider;Z)V
 	public synthetic fun <init> (Lsk/ainet/models/apertus/ApertusNetworkLoader$WeightsProvider;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun getDebug ()Z
+	public final fun getDtypePolicy ()Lsk/ainet/lang/types/DTypePolicy;
 	public final fun getWeightsProvider ()Lsk/ainet/models/apertus/ApertusNetworkLoader$WeightsProvider;
+	public final fun withDtypePolicy (Lsk/ainet/lang/types/DTypePolicy;)Lsk/ainet/models/apertus/ApertusNetworkLoader;
 }
 
 public final class sk/ainet/models/apertus/ApertusNetworkLoader$Companion {

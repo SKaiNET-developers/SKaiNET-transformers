@@ -1,6 +1,7 @@
 package sk.ainet.models.gemma
 
 import kotlinx.io.Source
+import sk.ainet.apps.llm.DTypePolicyValidation
 import sk.ainet.apps.llm.weights.LlamaGGUFNameResolver
 import sk.ainet.context.ExecutionContext
 import sk.ainet.io.RandomAccessSource
@@ -10,6 +11,7 @@ import sk.ainet.io.weights.WeightMapper
 import sk.ainet.io.weights.WeightTensor
 import sk.ainet.lang.nn.Module
 import sk.ainet.lang.types.DType
+import sk.ainet.lang.types.DTypePolicy
 
 /**
  * End-to-end loader that builds a [gemmaNetwork] module and populates it
@@ -33,6 +35,18 @@ public class GemmaNetworkLoader @PublishedApi internal constructor(
     @PublishedApi internal val weightsProvider: WeightsProvider,
     @PublishedApi internal val debug: Boolean = false
 ) {
+    /** See [sk.ainet.models.llama.LlamaNetworkLoader.dtypePolicy]. */
+    public var dtypePolicy: DTypePolicy = DTypePolicy.Any
+        private set
+
+    /** See [sk.ainet.models.llama.LlamaNetworkLoader.withDtypePolicy]. */
+    public fun withDtypePolicy(policy: DTypePolicy): GemmaNetworkLoader {
+        val allowBf16 = weightsProvider is WeightsProvider.SafeTensorsIndex
+        DTypePolicyValidation.validate(policy, "GemmaNetworkLoader.withDtypePolicy", allowBf16Require = allowBf16)
+        this.dtypePolicy = policy
+        return this
+    }
+
     @PublishedApi
     internal sealed interface WeightsProvider {
         data class GgufSource(

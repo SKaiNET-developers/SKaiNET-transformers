@@ -1,3 +1,8 @@
+public final class sk/ainet/apps/llm/DTypePolicyValidation {
+	public static final field INSTANCE Lsk/ainet/apps/llm/DTypePolicyValidation;
+	public final fun validate (Lsk/ainet/lang/types/DTypePolicy;Ljava/lang/String;Z)V
+}
+
 public abstract class sk/ainet/apps/llm/DecoderRuntime : sk/ainet/apps/llm/InferenceRuntime {
 	public fun <init> ()V
 	public fun <init> (Lkotlin/random/Random;)V
@@ -704,6 +709,7 @@ public final class sk/ainet/lang/nn/transformer/LinearProjectionKt {
 public final class sk/ainet/lang/nn/transformer/MultiHeadAttention : sk/ainet/lang/nn/Module, sk/ainet/lang/nn/topology/ModuleParameters {
 	public fun <init> (IIIZZZDLjava/lang/Float;ZZLjava/lang/String;Lsk/ainet/lang/nn/transformer/RoPE;Lsk/ainet/lang/nn/transformer/KVCache;Ljava/lang/Integer;Ljava/lang/Integer;)V
 	public synthetic fun <init> (IIIZZZDLjava/lang/Float;ZZLjava/lang/String;Lsk/ainet/lang/nn/transformer/RoPE;Lsk/ainet/lang/nn/transformer/KVCache;Ljava/lang/Integer;Ljava/lang/Integer;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun forward (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/context/ExecutionContext;)Lsk/ainet/lang/tensor/Tensor;
 	public final fun getAttentionScale ()Ljava/lang/Float;
 	public final fun getBias ()Z
 	public final fun getCausal ()Z
