@@ -1,6 +1,7 @@
 package sk.ainet.models.voxtral
 
 import kotlinx.io.Source
+import sk.ainet.apps.llm.DTypePolicyValidation
 import sk.ainet.context.ExecutionContext
 import sk.ainet.io.RandomAccessSource
 import sk.ainet.io.model.QuantPolicy
@@ -11,6 +12,7 @@ import sk.ainet.lang.nn.Module
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.types.DType
+import sk.ainet.lang.types.DTypePolicy
 import sk.ainet.models.llama.LlamaModelMetadata
 import sk.ainet.models.llama.DecoderSafeTensorsLoader
 import sk.ainet.models.llama.DecoderGgufWeightLoader
@@ -70,6 +72,18 @@ public class VoxtralNetworkLoader @PublishedApi internal constructor(
         data class Preloaded<T : DType, V>(
             val weights: DecoderGgufWeights<T, V>
         ) : WeightsProvider
+    }
+
+    /** See [sk.ainet.models.llama.LlamaNetworkLoader.dtypePolicy]. */
+    public var dtypePolicy: DTypePolicy = DTypePolicy.Any
+        private set
+
+    /** See [sk.ainet.models.llama.LlamaNetworkLoader.withDtypePolicy]. */
+    public fun withDtypePolicy(policy: DTypePolicy): VoxtralNetworkLoader {
+        val allowBf16 = weightsProvider is WeightsProvider.SafeTensors
+        DTypePolicyValidation.validate(policy, "VoxtralNetworkLoader.withDtypePolicy", allowBf16Require = allowBf16)
+        this.dtypePolicy = policy
+        return this
     }
 
     public companion object {

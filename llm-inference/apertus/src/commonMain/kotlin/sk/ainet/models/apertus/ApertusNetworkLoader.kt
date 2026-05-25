@@ -1,6 +1,7 @@
 package sk.ainet.models.apertus
 
 import kotlinx.io.Source
+import sk.ainet.apps.llm.DTypePolicyValidation
 import sk.ainet.context.ExecutionContext
 import sk.ainet.io.RandomAccessSource
 import sk.ainet.io.model.QuantPolicy
@@ -11,6 +12,7 @@ import sk.ainet.io.weights.WeightTensor
 import sk.ainet.lang.nn.Module
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.types.DType
+import sk.ainet.lang.types.DTypePolicy
 
 /**
  * End-to-end loader that builds an `apertusNetwork()` module and populates it
@@ -32,6 +34,18 @@ public class ApertusNetworkLoader @PublishedApi internal constructor(
     @PublishedApi internal val weightsProvider: WeightsProvider,
     @PublishedApi internal val debug: Boolean = false
 ) {
+    /** See [sk.ainet.models.llama.LlamaNetworkLoader.dtypePolicy]. */
+    public var dtypePolicy: DTypePolicy = DTypePolicy.Any
+        private set
+
+    /** See [sk.ainet.models.llama.LlamaNetworkLoader.withDtypePolicy]. */
+    public fun withDtypePolicy(policy: DTypePolicy): ApertusNetworkLoader {
+        val allowBf16 = weightsProvider is WeightsProvider.SafeTensorsSingle
+        DTypePolicyValidation.validate(policy, "ApertusNetworkLoader.withDtypePolicy", allowBf16Require = allowBf16)
+        this.dtypePolicy = policy
+        return this
+    }
+
     @PublishedApi
     internal sealed interface WeightsProvider {
         data class GgufSource(

@@ -22,6 +22,11 @@ public abstract class sk/ainet/apps/llm/DecoderRuntime : sk/ainet/apps/llm/Infer
 	protected final fun setPosition (I)V
 }
 
+public final class sk/ainet/apps/llm/DTypePolicyValidation {
+	public static final field INSTANCE Lsk/ainet/apps/llm/DTypePolicyValidation;
+	public final fun validate (Lsk/ainet/lang/types/DTypePolicy;Ljava/lang/String;Z)V
+}
+
 public final class sk/ainet/apps/llm/GenerateExtensionsKt {
 	public static final fun generate (Lsk/ainet/apps/llm/InferenceRuntime;[IIFILkotlin/random/Random;Lkotlin/jvm/functions/Function1;)V
 	public static synthetic fun generate$default (Lsk/ainet/apps/llm/InferenceRuntime;[IIFILkotlin/random/Random;Lkotlin/jvm/functions/Function1;ILjava/lang/Object;)V

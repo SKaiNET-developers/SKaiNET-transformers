@@ -14,6 +14,7 @@ import sk.ainet.lang.nn.dsl.swiGluFFN
 import sk.ainet.lang.nn.transformer.RoPEMode
 import sk.ainet.lang.nn.transformer.VoidDense
 import sk.ainet.lang.types.DType
+import sk.ainet.lang.types.DTypePolicy
 
 /**
  * Architecture-neutral decoder-only transformer body builder.
@@ -46,6 +47,13 @@ import sk.ainet.lang.types.DType
  *   contexts; compounds across positions).
  * @param maxInferenceLen sequence length used to size the KV cache and RoPE
  *   tables. Capped at min(metadata.contextLength, 4096) by default.
+ * @param dtypePolicy declarative dtype constraint for this block. Currently a
+ *   forward-compat parameter — the DSL accepts the value at this boundary but
+ *   does not yet propagate it into the underlying `DagBuilder.op(..., dtypePolicy = …)`
+ *   slot that SKaiNET 0.25.0 introduced. Set to a non-`Any` policy to express
+ *   intent now; full per-op resolution lands when [HybridTransformerBlock]'s
+ *   compile step is taught to consume per-module dtype metadata. Default
+ *   [DTypePolicy.Any] preserves the current adaptive behaviour.
  */
 public inline fun <reified T : DType, V> decoderTransformerNetwork(
     metadata: DecoderModelMetadata,
@@ -55,6 +63,7 @@ public inline fun <reified T : DType, V> decoderTransformerNetwork(
     qkNormUnitOffset: Boolean = false,
     ropeMode: RoPEMode = RoPEMode.INTERLEAVED,
     maxInferenceLen: Int = minOf(metadata.contextLength, 4096),
+    @Suppress("UNUSED_PARAMETER") dtypePolicy: DTypePolicy = DTypePolicy.Any,
 ): Module<T, V> {
     val dim = metadata.embeddingLength
     val nHeads = metadata.headCount

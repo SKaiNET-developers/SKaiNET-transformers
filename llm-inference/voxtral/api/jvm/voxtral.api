@@ -199,7 +199,9 @@ public final class sk/ainet/models/voxtral/VoxtralNetworkLoader {
 	public synthetic fun <init> (Lsk/ainet/models/voxtral/VoxtralNetworkLoader$WeightsProvider;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun buildAcousticRuntime (Lsk/ainet/models/llama/DecoderGgufWeights;Lsk/ainet/lang/nn/Module;Lsk/ainet/models/llama/LlamaModelMetadata;Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;II)Lsk/ainet/models/voxtral/VoxtralAcousticRuntime;
 	public final fun getDebug ()Z
+	public final fun getDtypePolicy ()Lsk/ainet/lang/types/DTypePolicy;
 	public final fun getWeightsProvider ()Lsk/ainet/models/voxtral/VoxtralNetworkLoader$WeightsProvider;
+	public final fun withDtypePolicy (Lsk/ainet/lang/types/DTypePolicy;)Lsk/ainet/models/voxtral/VoxtralNetworkLoader;
 }
 
 public final class sk/ainet/models/voxtral/VoxtralNetworkLoader$Companion {

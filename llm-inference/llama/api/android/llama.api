@@ -131,7 +131,9 @@ public final class sk/ainet/models/llama/LlamaNetworkLoader {
 	public fun <init> (Lsk/ainet/models/llama/LlamaNetworkLoader$WeightsProvider;Z)V
 	public synthetic fun <init> (Lsk/ainet/models/llama/LlamaNetworkLoader$WeightsProvider;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun getDebug ()Z
+	public final fun getDtypePolicy ()Lsk/ainet/lang/types/DTypePolicy;
 	public final fun getWeightsProvider ()Lsk/ainet/models/llama/LlamaNetworkLoader$WeightsProvider;
+	public final fun withDtypePolicy (Lsk/ainet/lang/types/DTypePolicy;)Lsk/ainet/models/llama/LlamaNetworkLoader;
 }
 
 public final class sk/ainet/models/llama/LlamaNetworkLoader$Companion {

@@ -1,6 +1,7 @@
 package sk.ainet.models.qwen
 
 import kotlinx.io.Source
+import sk.ainet.apps.llm.DTypePolicyValidation
 import sk.ainet.context.ExecutionContext
 import sk.ainet.io.RandomAccessSource
 import sk.ainet.io.model.QuantPolicy
@@ -10,6 +11,7 @@ import sk.ainet.io.weights.WeightMapper
 import sk.ainet.io.weights.WeightTensor
 import sk.ainet.lang.nn.Module
 import sk.ainet.lang.types.DType
+import sk.ainet.lang.types.DTypePolicy
 import sk.ainet.models.llama.LlamaModelMetadata
 import sk.ainet.models.llama.DecoderSafeTensorsLoader
 import sk.ainet.models.llama.DecoderGgufWeightLoader
@@ -45,6 +47,18 @@ public class QwenNetworkLoader @PublishedApi internal constructor(
     @PublishedApi internal val weightsProvider: WeightsProvider,
     @PublishedApi internal val debug: Boolean = false
 ) {
+    /** See [LlamaNetworkLoader.dtypePolicy]. */
+    public var dtypePolicy: DTypePolicy = DTypePolicy.Any
+        private set
+
+    /** See [LlamaNetworkLoader.withDtypePolicy]. */
+    public fun withDtypePolicy(policy: DTypePolicy): QwenNetworkLoader {
+        val allowBf16 = weightsProvider is WeightsProvider.SafeTensors
+        DTypePolicyValidation.validate(policy, "QwenNetworkLoader.withDtypePolicy", allowBf16Require = allowBf16)
+        this.dtypePolicy = policy
+        return this
+    }
+
     @PublishedApi
     internal sealed interface WeightsProvider {
         data class GgufSource(

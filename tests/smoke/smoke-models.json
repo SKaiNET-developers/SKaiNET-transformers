@@ -30,6 +30,7 @@
       "format": "gguf",
       "instruct": true,
       "prompt": "What is the capital of France?",
+      "reference": true,
       "toolCalling": {
         "prompt": "What is 2 + 2?",
         "steps": 256
@@ -52,7 +53,8 @@
       "runner": "kgemma",
       "model": "~/.lmstudio/models/lmstudio-community/gemma-4-E4B-it-GGUF/gemma-4-E4B-it-Q4_K_M.gguf",
       "format": "gguf",
-      "steps": 16
+      "steps": 16,
+      "reference": true
     },
     {
       "name": "all-MiniLM-L6-v2",
@@ -68,7 +70,8 @@
       "model": "~/.cache/huggingface/hub/models--MongoDB--mdbr-leaf-ir/snapshots/1bb4fc387c49dee1c10c2b22f59db758be87dcaa",
       "format": "safetensors",
       "prompt": "MongoDB is a NoSQL database",
-      "doc": "MongoDB stores data in BSON documents"
+      "doc": "MongoDB stores data in BSON documents",
+      "reference": true
     }
   ]
 }

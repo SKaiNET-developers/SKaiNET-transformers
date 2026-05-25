@@ -48,7 +48,12 @@ subprojects {
     tasks.withType<Test>().configureEach {
         maxHeapSize = "8192m"
         useJUnitPlatform {
-            if (!project.hasProperty("includeIntegration")) {
+            // -PsmokeReference: narrow to the 3 reference smoke tests
+            // (Qwen3 / Gemma-4 / BERT+LEAF). Implies @Tag("smoke-reference").
+            // Pair with -PincludeIntegration when the models are present.
+            if (project.hasProperty("smokeReference")) {
+                includeTags("smoke-reference")
+            } else if (!project.hasProperty("includeIntegration")) {
                 excludeTags("integration")
             }
         }

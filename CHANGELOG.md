@@ -7,6 +7,110 @@ version line is kept in lock-step with the underlying SKaiNET engine
 The format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.25.0] — 2026-05-25
+
+Version-aligned with **SKaiNET 0.25.0**. Skips 0.24.x — SKaiNET-transformers has
+been on 0.23.4 since 2026-05-08; the engine bumped 0.23.1 → 0.25.0 in the same
+window without a tagged 0.24.x release on either side.
+
+### Added
+
+- **`DTypePolicy` accepted on every `*NetworkLoader.fromGguf` / `.fromSafeTensors`
+  entrypoint.** SKaiNET 0.25.0 introduced the
+  [hybrid adaptive DSL with optional dtype constraints RFC](https://github.com/SKaiNET-developers/SKaiNET/pull/616)
+  — a sealed `DTypePolicy` type (`Any | Require | Prefer | OneOf`) carrying
+  execution-side dtype intent through the loader / DAG / resolution pipeline.
+  `LlamaNetworkLoader`, `QwenNetworkLoader`, `GemmaNetworkLoader`,
+  `ApertusNetworkLoader`, and `VoxtralNetworkLoader` now each accept
+  `dtypePolicy: DTypePolicy = DTypePolicy.Any` on every public companion
+  factory. The policy is eagerly validated against the loader's actual
+  output dtypes at construction time (via the new
+  `sk.ainet.apps.llm.DTypePolicyValidation` helper), matching the SKaiNET
+  0.25.0 `StreamingGgufParametersLoader.validatePolicy()` /
+  `SafeTensorsParametersLoader.mapPolicyToBf16()` semantics:
+  - GGUF entrypoints accept `Any` / `Prefer` / `OneOf` / `Require(FP32)` and
+    reject `Require(BF16)` / `Require(FP16)` / `Require(other)` with the same
+    error messages as SKaiNET's own GGUF loader.
+  - SafeTensors entrypoints additionally accept `Require(BF16)` (matching the
+    `KEEP_NATIVE` precedent that `Bf16LoadPolicy.toDTypePolicy()` is built on
+    upstream).
+  - All entrypoints fall through with no behavioural change on the default
+    `Any` value, so the bump is fully back-compat.
+- **`decoderTransformerNetwork(dtypePolicy = …)`** parameter on the shared
+  decoder-only builder in `llm-core` — declarative slot for the top-level
+  block policy. Forward-compat surface; not yet propagated into the underlying
+  `DagBuilder.op(..., dtypePolicy = …)` slot SKaiNET 0.25.0 introduced
+  (`HybridTransformerBlock.compile()` will read this in a follow-up). Setting
+  a non-`Any` value compiles today and starts taking effect when the
+  compile-step plumbing lands — no API change at consumers.
+- **Three reference smoke tests with `@Tag("smoke-reference")`.** The new
+  smoke tier exists alongside the existing `@Tag("integration")` filter and
+  pins the three architectures we always want to run end-to-end:
+  - `llm-runtime/kllama` — `Qwen3ReferenceSmokeTest` (Qwen3-1.7B Q8_0 GGUF;
+    exercises the new SKaiNET 0.25.0 `Q8_0MatmulKernel` end-to-end +
+    Qwen's `RoPEMode.SPLIT_HALF` + QK-Norm).
+  - `llm-runtime/kgemma` — `Gemma4ReferenceSmokeTest` (Gemma-4 E2B SafeTensors;
+    sliding-window attention + per-layer KV sharing).
+  - `llm-test/llm-test-java` — `BertLeafReferenceSmokeTest` (MongoDB
+    `mdbr-leaf-ir` SafeTensors via the Java `KBertJava` consumer surface,
+    with a cosine-similarity sanity check on paraphrase embeddings).
+  Run with `./gradlew test -PsmokeReference -PincludeIntegration`. Each test
+  self-skips via JUnit `Assumptions.assumeTrue` when the model artifact isn't
+  resolvable through the standard `~/.lmstudio/models/` /
+  `~/.cache/huggingface/hub/` / env-var fallback chain, so CI without model
+  files stays green.
+
+### Changed
+
+- **`gradle/libs.versions.toml` `skainet → 0.25.0`.** Downstream consumers
+  already get the upstream SKaiNET BOM transparently via `:llm-bom`
+  (`api(platform("sk.ainet:skainet-bom:${libs.versions.skainet.get()}"))`,
+  unchanged since 0.23.4 when the BOM auto-discovery convention plugin
+  landed) — no per-consumer migration needed.
+- **`gradle.properties` `VERSION_NAME=0.25.0`.** Lock-step with the engine.
+- **`tasks.withType<Test>().configureEach { ... }`** at the root build now
+  honors a `-PsmokeReference` project property — symmetric to the existing
+  `-PincludeIntegration`. When set, JUnit Platform is filtered to
+  `@Tag("smoke-reference")` so the smoke tier runs in isolation
+  (`./gradlew test -PsmokeReference -PincludeIntegration`).
+- **`tests/smoke/smoke-models.json`** gains a `"reference": true` flag on
+  the three reference entries (`Qwen3-1.7B-Q8`, `Gemma4-E4B-GGUF`,
+  `MongoDB-mdbr-leaf-ir`) so the shell smoke harness and the JVM smoke
+  tier point at the same artifacts. The `smoke-test.sh` script does not
+  yet consume the flag — follow-up.
+
+### Deferred
+
+These pieces of the dtype-policy RFC integration are intentionally not in
+this release. The threading surface accepts the API so consumers can
+compile against the eventual implementation; the actual behavioural
+changes land in follow-up PRs.
+
+- **Per-DSL-layer dtype-policy parameters** on `TransformerDsl.kt` factories
+  (`embedding` / `rmsNorm` / `multiHeadAttention` / `swiGluFFN` / `geGluFFN`
+  / `xielu`). The DSL is module-based and would need a `Module`-level
+  metadata side-map to carry the policy down to compile time; landing
+  that without a consumer that reads it would add maintenance surface
+  for no behavioural value today.
+- **`HybridTransformerBlock.compile()` honoring the policy on
+  `DagBuilder.op(..., dtypePolicy = …)` per the W6 SKaiNET PR.** Blocked
+  on the side-map above.
+- **`DecoderSafeTensorsLoader` / `DecoderGgufWeightLoader` actually
+  observing the policy at per-tensor load.** Both currently dequant
+  BF16 → FP32 unconditionally. The next step is to route them through
+  SKaiNET's `SafeTensorsParametersLoader.withPolicy(...)` /
+  `StreamingGgufParametersLoader.withPolicy(...)` so `Require(BF16)`
+  actually keeps native — a contained refactor with a clear contract.
+- **BOM-only versionless aliases in `libs.versions.toml`.** Currently
+  every `skainet-*` alias still uses `version.ref = "skainet"` because
+  the single-source bump is the lower-risk path during the 0.25.0
+  drop. Stripping `version.ref` and adding `platform(project(":llm-bom"))`
+  to each consumer's `commonMain.dependencies` is a separate
+  catalog-only PR.
+- **A `smoke-reference` GitHub Actions job.** The Gradle filter is in
+  place; the CI workflow that triggers it (with self-hosted model cache)
+  lands separately.
+
 ## [0.23.4] — 2026-05-08
 
 Transformers-only release; no SKaiNET engine bump in this version. The
