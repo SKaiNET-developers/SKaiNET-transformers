@@ -9,6 +9,8 @@ application {
 }
 
 dependencies {
+    implementation(platform(project(":llm-bom")))
+
     implementation(project(":llm-inference:bert"))
     implementation(libs.skainet.lang.core)
     implementation(libs.skainet.io.core)

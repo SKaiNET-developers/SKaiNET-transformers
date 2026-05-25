@@ -18,6 +18,8 @@ kotlin {
 }
 
 dependencies {
+    implementation(platform(project(":llm-bom")))
+
     api(project(":llm-api"))
     api(project(":llm-core"))
     api(project(":llm-agent"))

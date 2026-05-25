@@ -93,6 +93,18 @@ window without a tagged 0.24.x release on either side.
   `MongoDB-mdbr-leaf-ir`) so the shell smoke harness and the JVM smoke
   tier point at the same artifacts. The `smoke-test.sh` script does not
   yet consume the flag — follow-up.
+- **Catalog goes BOM-only.** Every `skainet-*` alias in
+  `gradle/libs.versions.toml` is now coordinate-only (no `version.ref`);
+  versions are supplied by the `sk.ainet:skainet-bom` platform
+  constraint re-exported by `:llm-bom`. Every consumer module gains
+  `implementation(project.dependencies.platform(project(":llm-bom")))`
+  in each source set that pulls a `skainet-*` artifact. Bumping the
+  engine is still a one-line change at the top of the catalog (the
+  `[versions] skainet = "X.Y.Z"` line drives the BOM platform
+  reference in `llm-bom/build.gradle.kts`), but every internal build
+  now exercises the BOM — so a BOM-coverage regression fails locally
+  instead of leaking into a published artifact. Mirrors the
+  `llm-test/llm-test-java` reference pattern that landed in 0.23.4.
 
 ### Deferred
 
@@ -116,12 +128,6 @@ changes land in follow-up PRs.
   `Require(BF16)` for GGUF today (no KEEP_NATIVE GGUF backing yet), so
   this is parked until the engine grows that path. *(SafeTensors BF16
   KEEP_NATIVE shipped in this release — see Added.)*
-- **BOM-only versionless aliases in `libs.versions.toml`.** Currently
-  every `skainet-*` alias still uses `version.ref = "skainet"` because
-  the single-source bump is the lower-risk path during the 0.25.0
-  drop. Stripping `version.ref` and adding `platform(project(":llm-bom"))`
-  to each consumer's `commonMain.dependencies` is a separate
-  catalog-only PR.
 - **A `smoke-reference` GitHub Actions job.** The Gradle filter is in
   place; the CI workflow that triggers it (with self-hosted model cache)
   lands separately.
