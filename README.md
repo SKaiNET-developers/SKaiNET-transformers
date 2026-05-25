@@ -100,13 +100,20 @@ Honest status — see the project-status note at the top of this README.
 
 ## Current release
 
-The current release is **0.23.5** — a transformers-only release on the **0.23.x** line (no SKaiNET engine bump), focused on `skainet-cli` reliability on JDKs where the `jdk.incubator.vector` module is unavailable.
+The current release is **0.25.0** — version-aligned with **SKaiNET 0.25.0**.
+Skips 0.24.x: the engine bumped 0.23.1 → 0.25.0 in the same release window
+without a tagged 0.24.x on either side. Brings the new
+[hybrid adaptive DSL with optional dtype constraints](https://github.com/SKaiNET-developers/SKaiNET/pull/616)
+(`DTypePolicy.Any | Require | Prefer | OneOf`) to every `*NetworkLoader`,
+turns the catalog BOM-only so every internal build now exercises
+`sk.ainet:skainet-bom` end-to-end, and locks three reference models
+(`@Tag("smoke-reference")`) for the smoke tier.
 
 The recommended way to consume is via the BOM. It pins every published `skainet-transformers-*` artifact and re-exports the upstream `sk.ainet:skainet-bom`, so the engine-side `sk.ainet.core:skainet-*` artifacts get the matching version too — you only need to declare the BOM version in one place.
 
 ```kotlin
 dependencies {
-    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.23.5"))
+    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.25.0"))
 
     // Versions resolved from the BOM:
     implementation("sk.ainet.transformers:skainet-transformers-core")
@@ -183,24 +190,55 @@ try (KLlamaSession session = KLlamaJava.loadGGUF(modelPath, /* systemPrompt */ n
 
 See `llm-test/llm-test-java/src/test/java/.../KLlamaJavaToolCallingTest.java` for a runnable reference.
 
-## What's new in 0.23.5
+## What's new in 0.25.0
 
-- **Vector API flags now reach the generated launchers.** `--enable-preview
-  --add-modules jdk.incubator.vector` was only applied to `gradle :run`; the
-  generated `bin/skainet-cli` and shadow launcher shipped without them, so a
-  direct `java -jar` invocation hit the scalar fallback and `ClassCastException`-ed
-  on the first Q8 attention projection. The flags moved into
-  `application { applicationDefaultJvmArgs }` so both launchers inherit them.
-- **No more hard crash on runtimes without the Vector API.** When the CPU ops
-  factory falls back to the scalar `DefaultCpuOpsBase` (older JDK, missing
-  `--add-modules`, or unsupported platforms), `skainet-cli` now detects this at
-  startup, warns about the ~4× memory hit, and loads weights with
-  `QuantPolicy.DEQUANTIZE_TO_FP32` so every op route works regardless of backend.
-- **Backend label now matches the real code path.** The "Backend: …" startup line
-  is printed after the actual ops probe and reports either "Vector API SIMD" or
-  "scalar fallback", so it can no longer disagree with the warning beside it.
+- **`DTypePolicy` on every `*NetworkLoader.fromGguf` / `.fromSafeTensors`
+  entry.** A sealed `DTypePolicy` type (`Any | Require | Prefer | OneOf`,
+  upstream of SKaiNET 0.25.0) is now accepted on every loader companion in
+  `LlamaNetworkLoader`, `QwenNetworkLoader`, `GemmaNetworkLoader`,
+  `ApertusNetworkLoader`, and `VoxtralNetworkLoader`. The policy is
+  validated eagerly via `sk.ainet.apps.llm.DTypePolicyValidation` —
+  `Require(BF16)` rejects on GGUF paths (no KEEP_NATIVE GGUF yet),
+  accepts on SafeTensors paths. Default `DTypePolicy.Any` keeps the
+  existing adaptive behaviour; every existing caller compiles
+  unchanged.
+- **SafeTensors BF16 KEEP_NATIVE** in `DecoderSafeTensorsLoader`. With
+  `Require(BF16)` (or `Prefer(BF16)` / `OneOf` containing BF16) the
+  loader stops dequanting BF16 SafeTensors weights and instead wraps
+  the packed 2-bytes-per-element buffer in `Bf16DenseTensorData`. The
+  matmul dispatch in `DefaultCpuOpsJvm` detects `Bf16TensorData` at
+  runtime and routes to the SIMD BF16 kernel — a BF16 checkpoint now
+  stays near its on-disk footprint in RAM instead of ~2× FP32 inflation.
+- **Catalog goes BOM-only.** Every `skainet-*` alias in
+  `gradle/libs.versions.toml` is now coordinate-only (no `version.ref`).
+  Versions come from the `sk.ainet:skainet-bom` platform constraint
+  re-exported by `:llm-bom`, and every consumer module pulls in
+  `implementation(project.dependencies.platform(project(":llm-bom")))`
+  in each affected source set. Engine bumps are still a one-line edit
+  at the top of the catalog, but every internal build now exercises
+  the BOM end-to-end — a missing-from-BOM regression fails locally
+  instead of leaking into a published artifact.
+- **Three reference smoke tests with `@Tag("smoke-reference")`** —
+  the smoke tier that pins the architectures we always want to run end-
+  to-end: `Qwen3ReferenceSmokeTest` (Qwen3-1.7B Q8 GGUF; exercises the
+  new 0.25.0 `Q8_0MatmulKernel` + Qwen's `RoPEMode.SPLIT_HALF` +
+  QK-Norm), `Gemma4ReferenceSmokeTest` (Gemma-4 E2B SafeTensors;
+  sliding-window attention + per-layer KV sharing), and
+  `BertLeafReferenceSmokeTest` (MongoDB `mdbr-leaf-ir` SafeTensors via
+  the Java `KBertJava` surface). Run with
+  `./gradlew test -PsmokeReference -PincludeIntegration`. Each test
+  self-skips via JUnit `Assumptions` when the model file isn't
+  reachable through the standard `~/.lmstudio/models/` /
+  `~/.cache/huggingface/hub/` / env-var fallback chain.
 
 ### Earlier in the 0.23.x line
+
+**0.23.5** — `skainet-cli` reliability on JDKs without the
+`jdk.incubator.vector` module: `--enable-preview --add-modules
+jdk.incubator.vector` flags reach the generated launchers (previously
+only `gradle :run`); detection of scalar-fallback CPU ops with auto
+weight dequant to FP32; backend label printed after the real ops
+probe so it can't disagree with the warning beside it.
 
 **0.23.4** — BOM is now correct and self-maintaining: `:llm-inference:apertus`
 and `:llm-inference:voxtral` were missing from the BOM's constraints and are now
