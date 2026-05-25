@@ -10,6 +10,7 @@ kotlin {
 
     sourceSets {
         commonMain.dependencies {
+            implementation(project.dependencies.platform(project(":llm-bom")))
             implementation(project(":llm-inference:apertus"))
             implementation(project(":llm-runtime:kllama"))
             implementation(project(":llm-core"))
@@ -24,12 +25,14 @@ kotlin {
         }
 
         commonTest.dependencies {
+            implementation(project.dependencies.platform(project(":llm-bom")))
             implementation(libs.kotlin.test)
         }
 
         val jvmMain by getting
         val jvmTest by getting {
             dependencies {
+                implementation(project.dependencies.platform(project(":llm-bom")))
                 implementation(libs.kotlin.test)
                 implementation(libs.kotlinx.coroutines.test)
                 implementation(libs.skainet.backend.cpu)

@@ -41,6 +41,7 @@ kotlin {
 
     sourceSets {
         commonMain.dependencies {
+            implementation(project.dependencies.platform(project(":llm-bom")))
             api(project(":llm-core"))
             implementation(libs.skainet.lang.core)
             implementation(libs.skainet.io.safetensors)
@@ -51,11 +52,13 @@ kotlin {
         }
 
         commonTest.dependencies {
+            implementation(project.dependencies.platform(project(":llm-bom")))
             implementation(libs.kotlin.test)
         }
 
         val jvmTest by getting {
             dependencies {
+                implementation(project.dependencies.platform(project(":llm-bom")))
                 implementation(libs.kotlin.test)
                 implementation(libs.kotlinx.coroutines.test)
                 implementation(libs.skainet.backend.cpu)

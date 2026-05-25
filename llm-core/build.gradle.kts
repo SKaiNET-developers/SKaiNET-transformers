@@ -43,6 +43,11 @@ kotlin {
 
     sourceSets {
         commonMain.dependencies {
+            // BOM-only: every skainet-* alias is versionless; this platform
+            // constraint (re-exporting sk.ainet:skainet-bom) supplies the
+            // versions. Bumping the engine is then a one-line change at the
+            // top of `gradle/libs.versions.toml`.
+            implementation(project.dependencies.platform(project(":llm-bom")))
             implementation(libs.skainet.lang.core)
             implementation(libs.skainet.compile.dag)
             implementation(libs.skainet.compile.opt)
@@ -60,6 +65,7 @@ kotlin {
 
         val jvmTest by getting {
             dependencies {
+                implementation(project.dependencies.platform(project(":llm-bom")))
                 implementation(libs.kotlin.test)
                 implementation(libs.junit)
                 implementation(libs.skainet.io.gguf)

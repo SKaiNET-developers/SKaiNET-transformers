@@ -57,6 +57,7 @@ kotlin {
 
         val jvmMain by getting {
             dependencies {
+                implementation(project.dependencies.platform(project(":llm-bom")))
                 implementation(project(":llm-core"))
                 implementation(project(":llm-inference:llama"))
                 implementation(project(":llm-runtime:kllama"))
@@ -83,6 +84,7 @@ kotlin {
         val nativeMain by creating {
             dependsOn(commonMain.get())
             dependencies {
+                implementation(project.dependencies.platform(project(":llm-bom")))
                 implementation(project(":llm-core"))
                 implementation(project(":llm-inference:llama"))
                 implementation(project(":llm-runtime:kllama"))

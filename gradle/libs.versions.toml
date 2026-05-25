@@ -78,17 +78,25 @@ kotest-assertions-core = { module = "io.kotest:kotest-assertions-core", version.
 kotest-property = { module = "io.kotest:kotest-property", version.ref = "kotest" }
 
 # SKaiNET
-skainet-lang-core = { module = "sk.ainet.core:skainet-lang-core", version.ref = "skainet" }
-skainet-lang-models = { module = "sk.ainet.core:skainet-lang-models", version.ref = "skainet" }
-skainet-lang-ksp-annotations = { module = "sk.ainet.core:skainet-lang-ksp-annotations", version.ref = "skainet" }
-skainet-compile-core = { module = "sk.ainet.core:skainet-compile-core", version.ref = "skainet" }
-skainet-compile-dag = { module = "sk.ainet.core:skainet-compile-dag", version.ref = "skainet" }
-skainet-compile-opt = { module = "sk.ainet.core:skainet-compile-opt", version.ref = "skainet" }
-skainet-backend-cpu = { module = "sk.ainet.core:skainet-backend-cpu", version.ref = "skainet" }
-skainet-backend-nativeCpu = { module = "sk.ainet.core:skainet-backend-native-cpu", version.ref = "skainet" }
-skainet-io-core = { module = "sk.ainet.core:skainet-io-core", version.ref = "skainet" }
-skainet-io-gguf = { module = "sk.ainet.core:skainet-io-gguf", version.ref = "skainet" }
-skainet-io-safetensors = { module = "sk.ainet.core:skainet-io-safetensors", version.ref = "skainet" }
+#
+# Coordinate-only — no `version.ref`. Versions are dictated by the
+# `sk.ainet:skainet-bom` platform constraint re-exported by `:llm-bom`,
+# which downstream consumers and every internal module pull in via
+# `implementation(platform(project(":llm-bom")))`. The single
+# `skainet = "X.Y.Z"` version above is the source-of-truth for the
+# BOM platform itself (`llm-bom/build.gradle.kts:20`), so a bump is
+# still a one-line change at the top of this file.
+skainet-lang-core = { module = "sk.ainet.core:skainet-lang-core" }
+skainet-lang-models = { module = "sk.ainet.core:skainet-lang-models" }
+skainet-lang-ksp-annotations = { module = "sk.ainet.core:skainet-lang-ksp-annotations" }
+skainet-compile-core = { module = "sk.ainet.core:skainet-compile-core" }
+skainet-compile-dag = { module = "sk.ainet.core:skainet-compile-dag" }
+skainet-compile-opt = { module = "sk.ainet.core:skainet-compile-opt" }
+skainet-backend-cpu = { module = "sk.ainet.core:skainet-backend-cpu" }
+skainet-backend-nativeCpu = { module = "sk.ainet.core:skainet-backend-native-cpu" }
+skainet-io-core = { module = "sk.ainet.core:skainet-io-core" }
+skainet-io-gguf = { module = "sk.ainet.core:skainet-io-gguf" }
+skainet-io-safetensors = { module = "sk.ainet.core:skainet-io-safetensors" }
 
 [plugins]
 androidLibrary = { id = "com.android.library", version.ref = "agp" }

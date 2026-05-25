@@ -11,6 +11,8 @@ application {
 }
 
 dependencies {
+    implementation(platform(project(":llm-bom")))
+
     // Core
     implementation(project(":llm-core"))
     implementation(project(":llm-agent"))

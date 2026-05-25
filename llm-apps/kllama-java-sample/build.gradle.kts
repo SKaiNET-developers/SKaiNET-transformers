@@ -19,6 +19,8 @@ application {
 sourceSets["main"].java.srcDir("src/main/java")
 
 dependencies {
+    implementation(platform(project(":llm-bom")))
+
     implementation(project(":llm-runtime:kllama"))
     implementation(project(":llm-agent"))
     implementation(project(":llm-inference:llama"))

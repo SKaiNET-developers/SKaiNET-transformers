@@ -69,6 +69,7 @@ kotlin {
 
     sourceSets {
         commonMain.dependencies {
+            implementation(project.dependencies.platform(project(":llm-bom")))
             implementation(project(":llm-inference:gemma"))
             implementation(project(":llm-core"))
             implementation(libs.skainet.lang.core)
@@ -83,6 +84,7 @@ kotlin {
         }
 
         commonTest.dependencies {
+            implementation(project.dependencies.platform(project(":llm-bom")))
             implementation(libs.kotlin.test)
             implementation(libs.skainet.lang.models)
             implementation(libs.skainet.io.gguf)
@@ -104,6 +106,7 @@ kotlin {
         }
         val jvmTest by getting {
             dependencies {
+                implementation(project.dependencies.platform(project(":llm-bom")))
                 implementation(libs.kotlin.test)
                 implementation(libs.kotlinx.coroutines.test)
                 implementation(libs.skainet.backend.cpu)

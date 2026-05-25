@@ -43,6 +43,7 @@ kotlin {
 
     sourceSets {
         commonMain.dependencies {
+            implementation(project.dependencies.platform(project(":llm-bom")))
             implementation(libs.skainet.lang.core)
             implementation(project(":llm-core"))
             implementation(libs.kotlinx.serialization.json)
