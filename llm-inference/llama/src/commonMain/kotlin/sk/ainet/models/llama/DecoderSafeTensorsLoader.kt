@@ -12,7 +12,11 @@ import sk.ainet.io.safetensors.StreamingSafeTensorsReader
 import sk.ainet.io.safetensors.StreamingSafeTensorInfo
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.Tensor
+import sk.ainet.lang.tensor.data.Bf16DenseTensorData
+import sk.ainet.lang.tensor.data.TensorData
+import sk.ainet.lang.types.BF16
 import sk.ainet.lang.types.DType
+import sk.ainet.lang.types.DTypePolicy
 import sk.ainet.lang.types.FP32
 import kotlin.math.pow
 import kotlin.reflect.KClass
@@ -24,16 +28,38 @@ import kotlin.reflect.KClass
  * Handles:
  * - HuggingFace → GGUF tensor name mapping
  * - Q4 + .qb companion tensor dequantization to FP32
- * - BF16/F16 dequantization to FP32
+ * - BF16/F16 dequantization to FP32 (default)
+ * - BF16 KEEP_NATIVE when [dtypePolicy] admits BF16 (SKaiNET 0.25.0):
+ *   constructs a [Bf16DenseTensorData]-backed tensor so the BF16 matmul
+ *   kernel routes via `DefaultCpuOpsJvm` without a 2× memory blow-up.
  * - Shape normalization ([1, dim] norms → [dim])
  * - Tied word embeddings (output.weight = token_embd.weight)
+ *
+ * @param dtypePolicy declarative dtype constraint. Default [DTypePolicy.Any]
+ *   = adaptive dequant. `Require(BF16)` / `Prefer(BF16)` / `OneOf` containing
+ *   BF16 = KEEP_NATIVE path. Mirrors the SKaiNET 0.25.0
+ *   `SafeTensorsParametersLoader.mapPolicyToBf16` semantics.
  */
 public class DecoderSafeTensorsLoader<T : DType>(
     private val ctx: ExecutionContext,
     private val dtype: KClass<T>,
     private val metadata: LlamaModelMetadata,
-    private val tiedEmbeddings: Boolean = false
+    private val tiedEmbeddings: Boolean = false,
+    private val dtypePolicy: DTypePolicy = DTypePolicy.Any,
 ) {
+
+    /**
+     * Returns `true` iff [dtypePolicy] wants BF16 weights kept in their
+     * packed 2-bytes-per-element form rather than dequantised to FP32.
+     * Matches the engine-side `SafeTensorsParametersLoader.mapPolicyToBf16`
+     * cases that resolve to `Bf16LoadPolicy.KEEP_NATIVE`.
+     */
+    private val keepBf16Native: Boolean = when (val p = dtypePolicy) {
+        DTypePolicy.Any -> false
+        is DTypePolicy.Require -> p.target == BF16
+        is DTypePolicy.Prefer -> p.target == BF16
+        is DTypePolicy.OneOf -> BF16 in p.allowed
+    }
 
     /**
      * Load weights from SafeTensors file into a flat tensor map with GGUF-canonical names.
@@ -66,10 +92,28 @@ public class DecoderSafeTensorsLoader<T : DType>(
                     }
                     DataType.BFLOAT16 -> {
                         val bytes = reader.loadTensorData(info)
-                        val floats = dequantBF16(bytes)
                         val targetShape = normalizeNormShape(info.shape)
-                        @Suppress("UNCHECKED_CAST")
-                        ctx.fromFloatArray<T, Float>(targetShape, dtype, floats) as Tensor<T, Float>
+                        if (keepBf16Native) {
+                            // KEEP_NATIVE: wrap the packed 2-bytes-per-element
+                            // BF16 buffer as `Bf16DenseTensorData`. The matmul
+                            // dispatch in `DefaultCpuOpsJvm` (SKaiNET 0.25.0)
+                            // detects `Bf16TensorData` at runtime and routes
+                            // to the SIMD BF16 kernel — avoiding the 2× memory
+                            // inflation of the FP32 dequant path.
+                            //
+                            // The declared dtype generic stays `T` (typically
+                            // FP32) because consumers don't care about the
+                            // physical encoding — the get/set surface still
+                            // returns Float. Mirrors the
+                            // `GemmaMemSegConverter` pattern for Q4/Q8.
+                            val data = Bf16DenseTensorData.fromRawBytes(targetShape, bytes)
+                            @Suppress("UNCHECKED_CAST")
+                            ctx.fromData(data as TensorData<T, Float>, dtype) as Tensor<T, Float>
+                        } else {
+                            val floats = dequantBF16(bytes)
+                            @Suppress("UNCHECKED_CAST")
+                            ctx.fromFloatArray<T, Float>(targetShape, dtype, floats) as Tensor<T, Float>
+                        }
                     }
                     DataType.FLOAT16 -> {
                         val bytes = reader.loadTensorData(info)

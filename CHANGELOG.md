@@ -43,6 +43,21 @@ window without a tagged 0.24.x release on either side.
   (`HybridTransformerBlock.compile()` will read this in a follow-up). Setting
   a non-`Any` value compiles today and starts taking effect when the
   compile-step plumbing lands — no API change at consumers.
+- **SafeTensors BF16 KEEP_NATIVE** in `DecoderSafeTensorsLoader`. When the
+  consumer attaches a `DTypePolicy` that admits BF16 (`Require(BF16)`,
+  `Prefer(BF16)`, or `OneOf` containing BF16), the loader stops dequanting
+  BF16 tensors and instead wraps the packed 2-bytes-per-element buffer in
+  `Bf16DenseTensorData`. The matmul dispatch in `DefaultCpuOpsJvm` (SKaiNET
+  0.25.0) detects `Bf16TensorData` at runtime and routes to the SIMD BF16
+  kernel — so a BF16 SafeTensors checkpoint now stays near its on-disk
+  footprint in RAM instead of inflating ~2× to FP32. Threaded through
+  `LlamaNetworkLoader` / `QwenNetworkLoader` / `VoxtralNetworkLoader`
+  (each forwards `loader.dtypePolicy` into the
+  `DecoderSafeTensorsLoader<T>(ctx, T::class, metadata, tied, dtypePolicy)`
+  constructor). The default value remains `DTypePolicy.Any` — adaptive
+  FP32 dequant, no behavioural change for existing callers. Validation
+  errors still fire at the `LlamaNetworkLoader.withDtypePolicy(...)`
+  boundary: `LlamaNetworkLoaderDTypePolicyTest` pins each policy arm.
 - **Three reference smoke tests with `@Tag("smoke-reference")`.** The new
   smoke tier exists alongside the existing `@Tag("integration")` filter and
   pins the three architectures we always want to run end-to-end:
@@ -95,12 +110,12 @@ changes land in follow-up PRs.
 - **`HybridTransformerBlock.compile()` honoring the policy on
   `DagBuilder.op(..., dtypePolicy = …)` per the W6 SKaiNET PR.** Blocked
   on the side-map above.
-- **`DecoderSafeTensorsLoader` / `DecoderGgufWeightLoader` actually
-  observing the policy at per-tensor load.** Both currently dequant
-  BF16 → FP32 unconditionally. The next step is to route them through
-  SKaiNET's `SafeTensorsParametersLoader.withPolicy(...)` /
-  `StreamingGgufParametersLoader.withPolicy(...)` so `Require(BF16)`
-  actually keeps native — a contained refactor with a clear contract.
+- **`DecoderGgufWeightLoader` per-tensor policy enforcement.** The GGUF
+  loader still dequants BF16 → FP32 unconditionally — SKaiNET 0.25.0's
+  `StreamingGgufParametersLoader.validatePolicy()` itself rejects
+  `Require(BF16)` for GGUF today (no KEEP_NATIVE GGUF backing yet), so
+  this is parked until the engine grows that path. *(SafeTensors BF16
+  KEEP_NATIVE shipped in this release — see Added.)*
 - **BOM-only versionless aliases in `libs.versions.toml`.** Currently
   every `skainet-*` alias still uses `version.ref = "skainet"` because
   the single-source bump is the lower-risk path during the 0.25.0

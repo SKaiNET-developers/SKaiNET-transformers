@@ -148,7 +148,7 @@ public class QwenNetworkLoader @PublishedApi internal constructor(
                 loader.loadToMapStreaming<T, V>(ctx)
             }
             is WeightsProvider.SafeTensors -> {
-                val loader = DecoderSafeTensorsLoader<T>(ctx, T::class, wp.metadata, wp.tiedEmbeddings)
+                val loader = DecoderSafeTensorsLoader<T>(ctx, T::class, wp.metadata, wp.tiedEmbeddings, dtypePolicy)
                 @Suppress("UNCHECKED_CAST")
                 loader.loadToMap(wp.randomAccessProvider) as DecoderGgufWeights<T, V>
             }
