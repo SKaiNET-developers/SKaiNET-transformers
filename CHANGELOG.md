@@ -93,6 +93,18 @@ window without a tagged 0.24.x release on either side.
   `MongoDB-mdbr-leaf-ir`) so the shell smoke harness and the JVM smoke
   tier point at the same artifacts. The `smoke-test.sh` script does not
   yet consume the flag — follow-up.
+- **`smoke-reference` GitHub Actions workflow.** New
+  `.github/workflows/smoke-reference.yml` triggers the three
+  `@Tag("smoke-reference")` tests via `./gradlew test -PsmokeReference
+  -PincludeIntegration`. `workflow_dispatch`-only (manual) with three
+  optional URL inputs — supply each artifact URL via the dispatch form
+  and the staging steps download it into `RUNNER_TEMP`, set the env var
+  the test reads (`QWEN3_1B7_MODEL_PATH` / `GEMMA4_E2B_SAFETENSORS_PATH`
+  / `LEAF_MODEL_DIR`), and the smoke tier actually exercises the models.
+  Run with empty inputs and every test self-skips via JUnit
+  `Assumptions` — the workflow is green either way, so it's safe to
+  promote to `push: branches: [develop]` later once a self-hosted
+  runner with pre-cached checkpoints is available.
 - **Catalog goes BOM-only.** Every `skainet-*` alias in
   `gradle/libs.versions.toml` is now coordinate-only (no `version.ref`);
   versions are supplied by the `sk.ainet:skainet-bom` platform
@@ -128,9 +140,6 @@ changes land in follow-up PRs.
   `Require(BF16)` for GGUF today (no KEEP_NATIVE GGUF backing yet), so
   this is parked until the engine grows that path. *(SafeTensors BF16
   KEEP_NATIVE shipped in this release — see Added.)*
-- **A `smoke-reference` GitHub Actions job.** The Gradle filter is in
-  place; the CI workflow that triggers it (with self-hosted model cache)
-  lands separately.
 
 ## [0.23.4] — 2026-05-08
 

@@ -76,7 +76,19 @@ public object DecoderGgufMemSegConverter {
 
         val meta = weights.metadata
         val dim = meta.embeddingLength
-        val headSize = dim / meta.headCount
+        // Attention head_dim is NOT always `dim / headCount`. Models that
+        // diverge include Qwen3-0.6B (`hidden=1024, n_heads=16, head_dim=128`,
+        // so `n_heads * head_dim = 2048 ≠ hidden`) and Voxtral.
+        // `LlamaModelMetadata.ropeDimensionCount` carries the real attention
+        // head_dim — populated either directly from `<arch>.rope.dimension_count`
+        // or inferred from `blk.0.attn_q.weight` shape in
+        // `DecoderGgufWeightLoader.metadataFromGguf` (the inference path
+        // covers GGUFs like Qwen3-0.6B that omit `rope.dimension_count`).
+        // Fall back to `dim / headCount` only when neither source is
+        // available — same lookup convention used by
+        // `decoderTransformerNetwork`.
+        val headSize = meta.ropeDimensionCount ?: (dim / meta.headCount)
+        val qDim = meta.headCount * headSize
         val kvDim = meta.kvHeadCount * headSize
         val ffnDim = meta.feedForwardLength
         val vocab = meta.vocabSize
@@ -88,7 +100,7 @@ public object DecoderGgufMemSegConverter {
                 newTensors[name] = tensor
                 continue
             }
-            val logicalShape = logicalShapeFor(name, dim, kvDim, ffnDim, vocab)
+            val logicalShape = logicalShapeFor(name, dim, qDim, kvDim, ffnDim, vocab)
             if (logicalShape == null) {
                 println(
                     "WARNING: DecoderGgufMemSegConverter: no logical shape for '$name'; " +
@@ -107,19 +119,20 @@ public object DecoderGgufMemSegConverter {
         return weights.copy(tensors = newTensors, quantTypes = emptyMap())
     }
 
-    private fun logicalShapeFor(
+    internal fun logicalShapeFor(
         name: String,
         dim: Int,
+        qDim: Int,
         kvDim: Int,
         ffnDim: Int,
         vocab: Int,
     ): Shape? = when {
         name == LlamaTensorNames.TOKEN_EMBEDDINGS -> Shape(vocab, dim)
         name == LlamaTensorNames.OUTPUT_WEIGHT -> Shape(vocab, dim)
-        name.endsWith(".attn_q.weight") -> Shape(dim, dim)
+        name.endsWith(".attn_q.weight") -> Shape(qDim, dim)
         name.endsWith(".attn_k.weight") -> Shape(kvDim, dim)
         name.endsWith(".attn_v.weight") -> Shape(kvDim, dim)
-        name.endsWith(".attn_output.weight") -> Shape(dim, dim)
+        name.endsWith(".attn_output.weight") -> Shape(dim, qDim)
         name.endsWith(".ffn_gate.weight") -> Shape(ffnDim, dim)
         name.endsWith(".ffn_up.weight") -> Shape(ffnDim, dim)
         name.endsWith(".ffn_down.weight") -> Shape(dim, ffnDim)
