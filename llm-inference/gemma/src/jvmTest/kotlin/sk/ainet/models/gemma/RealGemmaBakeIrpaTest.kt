@@ -1,18 +1,17 @@
 package sk.ainet.models.gemma
 
 import kotlinx.coroutines.runBlocking
-import kotlinx.io.buffered
-import kotlinx.io.files.Path
-import kotlinx.io.files.SystemFileSystem
 import sk.ainet.compile.hlo.ConstantMaterializationPolicy
 import sk.ainet.compile.hlo.StableHloConverterFactory
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.context.ExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
-import sk.ainet.io.irpa.IrpaWriter
 import sk.ainet.io.model.QuantPolicy
+import sk.ainet.lang.tensor.storage.BufferHandle
 import sk.ainet.lang.graph.DefaultExecutionTape
 import sk.ainet.lang.graph.DefaultGraphExecutionContext
+import sk.ainet.lang.nn.Module
+import sk.ainet.lang.nn.transformer.MultiHeadAttention
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.VoidOpsTensor
 import sk.ainet.lang.tensor.data.TensorData
@@ -41,6 +40,17 @@ class RealGemmaBakeIrpaTest {
             quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
         ).loadToMapStreaming<FP32, Float>(ctx, FP32::class)
         val model = GemmaNetworkLoader.fromWeights(ctx, weights, FP32::class)
+
+        // Disable per-layer KV caches before tracing. KVCache.update() does raw
+        // copyToFloatArray (non-traceable); under VoidTensorOps it returns a
+        // zero [1,seq,headDim] leaf for K and V -> 36 zero "frozen params" that
+        // kill RoPE/attention in the export. A single prefill pass needs no
+        // cache: K/V are computed fresh for all positions and stay traceable.
+        fun stripKvCache(m: Module<*, *>) {
+            if (m is MultiHeadAttention<*, *>) m.kvCache = null
+            m.modules.forEach { stripKvCache(it) }
+        }
+        stripKvCache(model)
 
         val seqLen = (System.getProperty("seqLen") ?: "4").toInt()
         val input = VoidOpsTensor(
@@ -78,10 +88,32 @@ class RealGemmaBakeIrpaTest {
         println("EXTPARAMS ${ext.size} totalMiB=${totalBytes / (1024 * 1024)}")
         println("FUNCARGS $funcArgs UTILGLOBALS $globals MLIRlines=${module.content.lines().size}")
 
-        val irpa = File(outDir, "gemma.irpa")
-        SystemFileSystem.sink(Path(irpa.absolutePath)).buffered().use { sink ->
-            IrpaWriter().write(ext, sink)
+        // Write a safetensors keyed t0..tN (1-D, size-equivalent; IREE accepts
+        // size-equivalent params and the util.global carries the real shape).
+        // iree-convert-parameters turns this into a valid .irpa — bypassing
+        // SKaiNET's IrpaWriter, whose header is not yet IREE-v0 compatible.
+        var off = 0L
+        val hdr = StringBuilder("{")
+        ext.forEachIndexed { i, e ->
+            val len = e.source.sizeInBytes
+            val count = len / 4
+            if (i > 0) hdr.append(",")
+            hdr.append("\"${e.key}\":{\"dtype\":\"F32\",\"shape\":[$count],\"data_offsets\":[$off,${off + len}]}")
+            off += len
         }
-        println("WROTE_IRPA ${irpa.absolutePath} sizeMiB=${irpa.length() / (1024 * 1024)}")
+        hdr.append("}")
+        val headerBytes = hdr.toString().encodeToByteArray()
+        val st = File(outDir, "gemma.safetensors")
+        java.io.BufferedOutputStream(java.io.FileOutputStream(st), 1 shl 20).use { os ->
+            val lenBuf = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+                .putLong(headerBytes.size.toLong())
+            os.write(lenBuf.array())
+            os.write(headerBytes)
+            for (e in ext) {
+                val src = e.source as BufferHandle.Owned
+                os.write(src.data, src.offset, src.sizeInBytes.toInt())
+            }
+        }
+        println("WROTE_SAFETENSORS ${st.absolutePath} sizeMiB=${st.length() / (1024 * 1024)}")
     }
 }
