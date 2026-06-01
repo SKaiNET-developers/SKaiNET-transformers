@@ -94,7 +94,11 @@ public class MultiHeadAttention<T : DType, V>(
      * attends to keys within `slidingWindow` positions back (inclusive). Used
      * by Gemma 4 local-attention layers. Null = no windowing.
      */
-    public val slidingWindow: Int? = null
+    public val slidingWindow: Int? = null,
+    // Logical element type prescribed by the DSL. When provided, placeholder
+    // (void) projection/bias weights carry it instead of erasing to Object — so
+    // the module can be traced to a graph (and StableHLO) before weights load.
+    private val dtype: KClass<T>? = null,
 ) : Module<T, V>(), ModuleParameters<T, V> {
 
     init {
@@ -121,7 +125,7 @@ public class MultiHeadAttention<T : DType, V>(
                 override fun get(vararg indices: Int): V = 0.0f as V
                 override fun set(vararg indices: Int, value: V) {}
             },
-            Any::class as KClass<T>
+            (dtype ?: Any::class) as KClass<T>
         )
         return ModuleParameter.WeightParameter(paramName, tensor)
     }
@@ -134,7 +138,7 @@ public class MultiHeadAttention<T : DType, V>(
                 override fun get(vararg indices: Int): V = 0.0f as V
                 override fun set(vararg indices: Int, value: V) {}
             },
-            Any::class as KClass<T>
+            (dtype ?: Any::class) as KClass<T>
         )
         return ModuleParameter.BiasParameter(paramName, tensor)
     }
