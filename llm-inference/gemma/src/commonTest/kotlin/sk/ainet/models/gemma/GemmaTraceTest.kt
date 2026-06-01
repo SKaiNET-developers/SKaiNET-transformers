@@ -11,6 +11,7 @@ import sk.ainet.lang.types.FP32
 import sk.ainet.tape.Execution
 import kotlin.test.Test
 import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 /**
  * Verifies the dtype fix end-to-end: a tiny gemma3 network traces to a
@@ -84,6 +85,20 @@ class GemmaTraceTest {
             val ops = graph.nodes.map { it.operationName }
             println("=== gemma traced: ${graph.nodes.size} nodes ===")
             ops.groupingBy { it }.eachCount().toSortedMap().forEach { (k, v) -> println("  $k x$v") }
+
+            // Informational: lower to StableHLO and report the remaining gaps.
+            // The op-level converters (split/permute/narrow/...) are unit-tested
+            // in skainet-compile-hlo. A *full* gemma lowering additionally needs
+            // two next-phase items, surfaced here:
+            //   1. weight/param operand wiring — module weights are placeholders,
+            //      not graph edges, so gather/transpose/matmul that consume them
+            //      report arity failures (cascading).
+            //   2. a scaledDotProductAttention converter (attention subgraph).
+            val mlir = sk.ainet.compile.hlo.toStableHlo(graph, "gemma").content
+            val unsupported = mlir.lines().filter { it.contains("Unsupported op", ignoreCase = true) }
+            val arity = mlir.lines().filter { it.contains("arity", ignoreCase = true) }
+            println("=== StableHLO: ${mlir.lines().size} lines; ${unsupported.size} unsupported-op, ${arity.size} arity gaps ===")
+            (unsupported + arity).take(12).forEach { println("  GAP $it") }
         }
     }
 }
