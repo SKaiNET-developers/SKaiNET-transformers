@@ -164,11 +164,11 @@ public class MultiHeadAttention<T : DType, V>(
 
     // Optional QK-Norm layers
     public val qNorm: RMSNormalization<T, V>? = if (qkNorm) {
-        RMSNormalization(intArrayOf(headDim), eps = qkNormEps, name = "$name.q_norm", unitOffset = qkNormUnitOffset)
+        RMSNormalization(intArrayOf(headDim), eps = qkNormEps, name = "$name.q_norm", unitOffset = qkNormUnitOffset, dtype = dtype)
     } else null
 
     public val kNorm: RMSNormalization<T, V>? = if (qkNorm) {
-        RMSNormalization(intArrayOf(headDim), eps = qkNormEps, name = "$name.k_norm", unitOffset = qkNormUnitOffset)
+        RMSNormalization(intArrayOf(headDim), eps = qkNormEps, name = "$name.k_norm", unitOffset = qkNormUnitOffset, dtype = dtype)
     } else null
 
     @Suppress("UNCHECKED_CAST")

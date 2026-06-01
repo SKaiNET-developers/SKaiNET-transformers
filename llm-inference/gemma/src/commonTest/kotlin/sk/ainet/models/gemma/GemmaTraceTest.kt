@@ -73,6 +73,7 @@ class GemmaTraceTest {
         // a dtype problem.
         val msg = thrown?.message ?: ""
         println("trace outcome: ${if (thrown == null) "completed" else thrown::class.simpleName + ": " + msg}")
+        thrown?.stackTraceToString()?.lines()?.take(14)?.forEach { println("  STACK $it") }
         assertFalse(
             msg.contains("Unsupported dtype", ignoreCase = true) || msg.contains("for zeros: class java.lang.Object"),
             "dtype fix regressed — placeholder weights are erasing to Object again: $msg",

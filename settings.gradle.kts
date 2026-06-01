@@ -13,7 +13,13 @@ dependencyResolutionManagement {
     }
 }
 
-// Composite build for validating local SKaiNET fixes against this repo. Auto-enables
+// Composite build for validating local SKaiNET fixes against this repo.
+// Opt-in: run with -PuseLocalSkainet=true (or set useLocalSkainet=true in
+// gradle.properties) to substitute sk.ainet.core:* with a sibling ../SKaiNET
+// checkout instead of the published Maven artifacts. Off by default.
+if (providers.gradleProperty("useLocalSkainet").orNull == "true") {
+    includeBuild("../SKaiNET")
+}
 
 rootProject.name = "SKaiNET-transformers"
 
