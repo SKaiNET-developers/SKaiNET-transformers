@@ -58,6 +58,8 @@ kotlin {
             implementation(project.dependencies.platform(project(":llm-bom")))
             implementation(libs.kotlin.test)
             implementation(libs.skainet.backend.cpu)
+            // Test-only: trace gemmaNetwork to a ComputeGraph (dtype-fix verification).
+            implementation(libs.skainet.compile.dag)
         }
 
         val jvmTest by getting {

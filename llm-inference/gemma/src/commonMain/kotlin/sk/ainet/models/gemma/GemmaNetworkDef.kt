@@ -245,7 +245,8 @@ public fun <T : DType, V> gemmaNetwork(
         // HF calls this self.layer_scalar = torch.ones(1), applied as
         // `hidden_states *= self.layer_scalar` at the end of the block.
         if (layerOutputScale) stage.modules += LayerScalarMul<T, V>(
-            name = "blk.$layer.layer_output_scale"
+            name = "blk.$layer.layer_output_scale",
+            dtype = dtype
         )
 
         dslImpl.modules += HybridTransformerBlock(stage.modules.toList(), name = "blk.$layer")
@@ -255,7 +256,7 @@ public fun <T : DType, V> gemmaNetwork(
     // Void placeholder for output projection — Gemma 4 E2B vocab is 262 144
     // and dense(vocabSize) would eagerly allocate ~1.5 GB of zeros before
     // WeightMapper runs.
-    dslImpl.modules += VoidDense<T, V>("output", vocabSize, dim)
+    dslImpl.modules += VoidDense<T, V>("output", vocabSize, dim, dtype = dtype)
 
     // Build the top-level GemmaModel wrapper. When PLE is disabled the model
     // runs the same forward sequence the pre-5f.5 `dslImpl.create()` wrap
