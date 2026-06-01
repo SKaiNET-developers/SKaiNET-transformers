@@ -75,6 +75,9 @@ kotlin {
                 // in this module keeps no llm-agent coupling.
                 implementation(project(":llm-agent"))
                 implementation(libs.kotlinx.serialization.json)
+                // Test-only: write the externalized weights to an IREE .irpa
+                // parameter archive (RealGemmaBakeIrpaTest).
+                implementation(libs.skainet.io.iree.params)
             }
         }
     }
@@ -102,5 +105,9 @@ tasks.matching { it.name == "jsBrowserTest" || it.name == "wasmJsBrowserTest" }.
     enabled = includeBrowserTests
 }
 
-// Real-model (FunctionGemma-270M) load test dequantizes ~270M params to FP32 (~1GB).
-tasks.withType<Test>().configureEach { maxHeapSize = "8g" }
+// Real-model (FunctionGemma-270M) tests dequantize ~270M params to FP32 and the
+// bake-to-irpa test holds weights + serialized bytes simultaneously; allow an
+// override via -PgemmaTestMaxHeap (default 8g).
+tasks.withType<Test>().configureEach {
+    maxHeapSize = (findProperty("gemmaTestMaxHeap") as? String) ?: "8g"
+}
