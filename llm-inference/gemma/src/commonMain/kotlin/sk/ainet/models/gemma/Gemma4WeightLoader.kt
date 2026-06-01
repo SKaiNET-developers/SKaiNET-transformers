@@ -275,7 +275,7 @@ public class Gemma4WeightLoader private constructor(
         tensors: List<ReaderTensor>
     ): Gemma4ModelMetadata {
         val arch = fields["general.architecture"]?.stringValue() ?: "unknown"
-        val prefix = findArchPrefix(fields, listOf("gemma4", "gemma", "llama"))
+        val prefix = findArchPrefix(fields, listOf("gemma3", "gemma4", "gemma", "llama"))
 
         val embeddingLength = fields["$prefix.embedding_length"]?.scalarInt()
             ?: inferEmbeddingFromTensor(tensors)
@@ -358,7 +358,7 @@ public class Gemma4WeightLoader private constructor(
         tensors: List<StreamingTensorInfo>
     ): Gemma4ModelMetadata {
         val arch = (fields["general.architecture"] as? String) ?: "unknown"
-        val prefix = findStreamingArchPrefix(fields, listOf("gemma4", "gemma", "llama"))
+        val prefix = findStreamingArchPrefix(fields, listOf("gemma3", "gemma4", "gemma", "llama"))
 
         val embeddingLength = fields["$prefix.embedding_length"]?.toIntValue()
             ?: inferEmbeddingFromStreamingTensor(tensors)

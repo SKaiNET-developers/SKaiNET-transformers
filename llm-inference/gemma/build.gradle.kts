@@ -101,3 +101,6 @@ tasks.matching { it.name == "jsBrowserTest" || it.name == "wasmJsBrowserTest" }.
         ?.failOnNoDiscoveredTests = false
     enabled = includeBrowserTests
 }
+
+// Real-model (FunctionGemma-270M) load test dequantizes ~270M params to FP32 (~1GB).
+tasks.withType<Test>().configureEach { maxHeapSize = "8g" }
