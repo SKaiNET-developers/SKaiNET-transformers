@@ -81,7 +81,11 @@ class GemmaTraceTest {
         )
 
         if (tape != null) {
-            val graph = (tape as DefaultExecutionTape).toComputeGraph()
+            // synthesizeExternalInputs=true runs finalize(), which materializes
+            // module weights / model inputs as graph nodes (input/constant) and
+            // wires them as operands — required so gather/transpose/matmul get
+            // their weight operand (otherwise: arity-failure cascade).
+            val graph = (tape as DefaultExecutionTape).toComputeGraph(synthesizeExternalInputs = true)
             val ops = graph.nodes.map { it.operationName }
             println("=== gemma traced: ${graph.nodes.size} nodes ===")
             ops.groupingBy { it }.eachCount().toSortedMap().forEach { (k, v) -> println("  $k x$v") }
