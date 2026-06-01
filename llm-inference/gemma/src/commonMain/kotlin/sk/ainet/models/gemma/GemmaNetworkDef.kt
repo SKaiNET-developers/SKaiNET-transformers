@@ -160,7 +160,7 @@ public fun <T : DType, V> gemmaNetwork(
             nKVHeads = nKVHeads,
             causal = true,
             qkNorm = qkNorm, // Gemma 4 per-head RMSNorm on Q and K before RoPE
-            qkNormUnitOffset = true, // GGUF stores raw weight (~0.984); HF computes gain=(1+weight)~1.984
+            qkNormUnitOffset = false, // DIAG: gemma3 gguf may already bake (1+w) into q/k norm
             // gemma3 scales attention by query_pre_attn_scalar^-0.5 = 1/sqrt(head_dim)
             // (HF Gemma3Attention). null => MHA's 1/sqrt(headDim) default. The
             // prior hardcoded 1.0 (a Gemma-4 "q/k-norm makes scale 1.0" claim)
