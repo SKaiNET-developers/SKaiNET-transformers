@@ -166,7 +166,10 @@ public fun <T : DType, V> gemmaNetwork(
             // prior hardcoded 1.0 (a Gemma-4 "q/k-norm makes scale 1.0" claim)
             // over-sharpened softmax for >1 token => parity broke at pos>=1.
             attentionScale = null,
-            vNormNoScale = true, // Gemma 4: v_norm = Gemma4RMSNorm(head_dim, with_scale=False)
+            // gemma3 has NO v_norm (gguf carries no attn_v_norm tensor; only
+            // q/k norm). vNormNoScale=true applied a spurious parameterless V
+            // RMS-normalization llama.cpp/HF don't do.
+            vNormNoScale = false,
             id = "attn",
             slidingWindow = slidingWindow
         ) {
