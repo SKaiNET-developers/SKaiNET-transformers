@@ -54,7 +54,10 @@ public class RMSNormalization<T : DType, V>(
      * uniform output logits. Default `false` matches LLaMA / Mistral / GPT
      * conventions.
      */
-    private val unitOffset: Boolean = false
+    private val unitOffset: Boolean = false,
+    // Logical element type prescribed by the DSL; keeps the placeholder weight
+    // typed so the module traces before real weights load.
+    private val dtype: KClass<T>? = null,
 ) : Module<T, V>(), ModuleParameters<T, V> {
 
     override val params: List<ModuleParameter<T, V>> = listOf(
@@ -78,7 +81,7 @@ public class RMSNormalization<T : DType, V>(
                 override fun get(vararg indices: Int): V = placeholder as V
                 override fun set(vararg indices: Int, value: V) {}
             },
-            Any::class as KClass<T>
+            (dtype ?: Any::class) as KClass<T>
         )
     }
 

@@ -27,7 +27,9 @@ import kotlin.reflect.KClass
 public class GeGLUFFN<T : DType, V>(
     public val dim: Int,
     public val hiddenDim: Int,
-    override val name: String = "GeGLUFFN"
+    override val name: String = "GeGLUFFN",
+    // Logical element type prescribed by the DSL; keeps placeholder weights typed.
+    private val dtype: KClass<T>? = null,
 ) : Module<T, V>(), ModuleParameters<T, V> {
 
     @Suppress("UNCHECKED_CAST")
@@ -38,7 +40,7 @@ public class GeGLUFFN<T : DType, V>(
                 override fun get(vararg indices: Int): V = 0.0f as V
                 override fun set(vararg indices: Int, value: V) {}
             },
-            Any::class as KClass<T>
+            (dtype ?: Any::class) as KClass<T>
         )
         return ModuleParameter.WeightParameter(paramName, tensor)
     }
