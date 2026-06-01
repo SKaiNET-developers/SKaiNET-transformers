@@ -301,9 +301,10 @@ public class Gemma4WeightLoader private constructor(
             ?: (embeddingLength * 4)
         val slidingWindow = fields["$prefix.attention.sliding_window"]?.scalarInt()
             ?: Gemma4ModelMetadata.DEFAULT_SLIDING_WINDOW
+        // See streaming-path note: absent KV-sharing key ⇒ no sharing (0).
         val kvSharedLayers = fields["$prefix.attention.shared_kv_layers"]?.scalarInt()
             ?: fields["$prefix.kv_shared_layers"]?.scalarInt()
-            ?: Gemma4ModelMetadata.DEFAULT_KV_SHARED_LAYERS
+            ?: 0
         val perLayerEmbeddingLength = fields["$prefix.embedding_length_per_layer_input"]?.scalarInt() ?: 0
 
         val layerTypes = extractLayerTypes(fields, prefix, blockCount)
@@ -383,9 +384,14 @@ public class Gemma4WeightLoader private constructor(
             ?: (embeddingLength * 4)
         val slidingWindow = fields["$prefix.attention.sliding_window"]?.toIntValue()
             ?: Gemma4ModelMetadata.DEFAULT_SLIDING_WINDOW
+        // KV-sharing only applies when the gguf explicitly declares it (gemma3n
+        // / gemma-4). A plain gemma3 checkpoint (e.g. FunctionGemma-270M) omits
+        // the key and uses no KV-sharing — default 0, NOT DEFAULT_KV_SHARED_LAYERS
+        // (20), which on an 18-layer model gives firstSharedLayer = 18-20 = -2
+        // and crashes GemmaNetworkDef.
         val kvSharedLayers = fields["$prefix.attention.shared_kv_layers"]?.toIntValue()
             ?: fields["$prefix.kv_shared_layers"]?.toIntValue()
-            ?: Gemma4ModelMetadata.DEFAULT_KV_SHARED_LAYERS
+            ?: 0
         val perLayerEmbeddingLength = fields["$prefix.embedding_length_per_layer_input"]?.toIntValue() ?: 0
 
         val layerTypes = extractStreamingLayerTypes(fields, prefix, blockCount)
