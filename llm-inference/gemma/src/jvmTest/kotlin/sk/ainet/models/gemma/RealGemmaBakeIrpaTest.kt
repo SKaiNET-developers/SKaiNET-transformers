@@ -39,7 +39,17 @@ class RealGemmaBakeIrpaTest {
             randomAccessProvider = { JvmRandomAccessSource.open(path) },
             quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
         ).loadToMapStreaming<FP32, Float>(ctx, FP32::class)
-        val model = GemmaNetworkLoader.fromWeights(ctx, weights, FP32::class)
+        // gemma3 uses FULL rotary; the gguf omits rope.partial_rotary_factor so
+        // the loader defaulted to 0.25 (a Gemma-4 convention) which mis-rotates
+        // global layers. Override via -DpartialRotary (default 1.0).
+        val partial = (System.getProperty("partialRotary") ?: "1.0").toFloat()
+        val patched = weights.copy(
+            metadata = weights.metadata.copy(
+                ropeParametersFull = weights.metadata.ropeParametersFull.copy(partialRotaryFactor = partial),
+            ),
+        )
+        println("PARTIAL_ROTARY $partial")
+        val model = GemmaNetworkLoader.fromWeights(ctx, patched, FP32::class)
 
         // Disable per-layer KV caches before tracing. KVCache.update() does raw
         // copyToFloatArray (non-traceable); under VoidTensorOps it returns a
