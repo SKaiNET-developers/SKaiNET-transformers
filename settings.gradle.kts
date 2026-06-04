@@ -40,6 +40,9 @@ include("llm-runtime:kgemma")
 // swap). The legacy `QwenIngestion` facade had no remaining consumers
 // after the architectural refactor — see PR closing this module.
 include("llm-runtime:kapertus")
+// Gemma-on-IREE runtime: decode loop + iree-run-module driver + tool-call codec
+// (the on-device side of the DSL -> StableHLO -> IREE path).
+include("llm-runtime:gemma-iree")
 include("llm-performance")
 include("llm-apps:skainet-cli")
 include("llm-apps:kllama-cli")
