@@ -58,9 +58,6 @@ kotlin {
             implementation(project.dependencies.platform(project(":llm-bom")))
             implementation(libs.kotlin.test)
             implementation(libs.skainet.backend.cpu)
-            // Test-only: trace gemmaNetwork to a ComputeGraph + lower to StableHLO.
-            implementation(libs.skainet.compile.dag)
-            implementation(libs.skainet.compile.hlo)
         }
 
         val jvmTest by getting {
@@ -70,6 +67,14 @@ kotlin {
                 implementation(libs.junit)
                 implementation(libs.kotlinx.coroutines.test)
                 implementation(libs.skainet.backend.cpu)
+                // Test-only: trace gemmaNetwork to a ComputeGraph + lower to
+                // StableHLO. JVM-only — skainet-compile-hlo/-dag publish no JS
+                // variant and the trace/export tests are host tooling anyway, so
+                // GemmaTraceTest lives in jvmTest too. Keeping these out of
+                // commonTest stops js/wasm from resolving compile-hlo against
+                // published SKaiNET.
+                implementation(libs.skainet.compile.dag)
+                implementation(libs.skainet.compile.hlo)
                 // Test-only dep so GemmaDslToolCallIntegrationTest can build
                 // a real ChatSession around the DSL runtime. Production code
                 // in this module keeps no llm-agent coupling.

@@ -1,5 +1,6 @@
 package sk.ainet.models.gemma
 
+import org.junit.jupiter.api.Tag
 import kotlinx.coroutines.runBlocking
 import sk.ainet.compile.hlo.ConstantMaterializationPolicy
 import sk.ainet.compile.hlo.StableHloConverterFactory
@@ -27,6 +28,7 @@ import kotlin.test.Test
  * how many external params, and are they keyed by gguf-style names — the input
  * to the .irpa packager + iree-compile --iree-opt-import-parameters.
  */
+@Tag("integration")
 class RealGemmaExternalParamTest {
     @Test
     fun externalizeRealGemmaWeights() = runBlocking {

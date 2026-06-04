@@ -53,7 +53,7 @@ class SdpaTraceTest {
         val graph = (tape as DefaultExecutionTape).toComputeGraph()
         val opTypes = graph.nodes.map { it.operationName }
         println("=== MHA traced: ${graph.nodes.size} op nodes ===")
-        opTypes.groupingBy { it }.eachCount().toSortedMap().forEach { (k, v) -> println("  $k x$v") }
+        opTypes.groupingBy { it }.eachCount().entries.sortedBy { it.key }.forEach { (k, v) -> println("  $k x$v") }
         println("SDPA atomic? -> " + opTypes.any { it.contains("ScaledDot", true) || it.contains("Attention", true) })
     }
 }

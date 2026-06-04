@@ -1,5 +1,6 @@
 package sk.ainet.models.gemma
 
+import org.junit.jupiter.api.Tag
 import kotlinx.coroutines.runBlocking
 import sk.ainet.compile.hlo.ConstantMaterializationPolicy
 import sk.ainet.compile.hlo.StableHloConverterFactory
@@ -30,6 +31,7 @@ import kotlin.test.Test
  * the archive via `iree-run-module --parameters=model=gemma.irpa`. No 361-arg
  * mapping, no host-side RoPE reproduction. Boxing-free (FloatArray) path.
  */
+@Tag("integration")
 class RealGemmaBakeIrpaTest {
     @Test
     fun bakeRealGemmaToIrpa() = runBlocking {

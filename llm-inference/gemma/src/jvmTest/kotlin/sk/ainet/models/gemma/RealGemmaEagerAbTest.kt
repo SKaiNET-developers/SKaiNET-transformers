@@ -1,5 +1,6 @@
 package sk.ainet.models.gemma
 
+import org.junit.jupiter.api.Tag
 import kotlinx.coroutines.runBlocking
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.context.ExecutionContext
@@ -19,6 +20,7 @@ import kotlin.test.Test
  *   - vmfb  vs eager      -> isolates the StableHLO/IREE lowering
  * KV cache stripped so the config matches the vmfb trace exactly.
  */
+@Tag("integration")
 class RealGemmaEagerAbTest {
     @Test
     fun eagerLogits() = runBlocking {
