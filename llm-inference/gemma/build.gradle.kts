@@ -58,6 +58,9 @@ kotlin {
             implementation(project.dependencies.platform(project(":llm-bom")))
             implementation(libs.kotlin.test)
             implementation(libs.skainet.backend.cpu)
+            // Test-only: trace gemmaNetwork to a ComputeGraph + lower to StableHLO.
+            implementation(libs.skainet.compile.dag)
+            implementation(libs.skainet.compile.hlo)
         }
 
         val jvmTest by getting {
@@ -72,6 +75,9 @@ kotlin {
                 // in this module keeps no llm-agent coupling.
                 implementation(project(":llm-agent"))
                 implementation(libs.kotlinx.serialization.json)
+                // Test-only: write the externalized weights to an IREE .irpa
+                // parameter archive (RealGemmaBakeIrpaTest).
+                implementation(libs.skainet.io.iree.params)
             }
         }
     }
@@ -97,4 +103,11 @@ tasks.matching { it.name == "jsBrowserTest" || it.name == "wasmJsBrowserTest" }.
     (this as? org.jetbrains.kotlin.gradle.targets.js.testing.KotlinJsTest)
         ?.failOnNoDiscoveredTests = false
     enabled = includeBrowserTests
+}
+
+// Real-model (FunctionGemma-270M) tests dequantize ~270M params to FP32 and the
+// bake-to-irpa test holds weights + serialized bytes simultaneously; allow an
+// override via -PgemmaTestMaxHeap (default 8g).
+tasks.withType<Test>().configureEach {
+    maxHeapSize = (findProperty("gemmaTestMaxHeap") as? String) ?: "8g"
 }

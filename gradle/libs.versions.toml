@@ -91,11 +91,13 @@ skainet-lang-models = { module = "sk.ainet.core:skainet-lang-models" }
 skainet-lang-ksp-annotations = { module = "sk.ainet.core:skainet-lang-ksp-annotations" }
 skainet-compile-core = { module = "sk.ainet.core:skainet-compile-core" }
 skainet-compile-dag = { module = "sk.ainet.core:skainet-compile-dag" }
+skainet-compile-hlo = { module = "sk.ainet.core:skainet-compile-hlo" }
 skainet-compile-opt = { module = "sk.ainet.core:skainet-compile-opt" }
 skainet-backend-cpu = { module = "sk.ainet.core:skainet-backend-cpu" }
 skainet-backend-nativeCpu = { module = "sk.ainet.core:skainet-backend-native-cpu" }
 skainet-io-core = { module = "sk.ainet.core:skainet-io-core" }
 skainet-io-gguf = { module = "sk.ainet.core:skainet-io-gguf" }
+skainet-io-iree-params = { module = "sk.ainet.core:skainet-io-iree-params" }
 skainet-io-safetensors = { module = "sk.ainet.core:skainet-io-safetensors" }
 
 [plugins]

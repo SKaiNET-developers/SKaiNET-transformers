@@ -160,9 +160,16 @@ public fun <T : DType, V> gemmaNetwork(
             nKVHeads = nKVHeads,
             causal = true,
             qkNorm = qkNorm, // Gemma 4 per-head RMSNorm on Q and K before RoPE
-            qkNormUnitOffset = true, // GGUF stores raw weight (~0.984); HF computes gain=(1+weight)~1.984
-            attentionScale = 1.0f, // Gemma 4: HF Gemma4TextAttention uses scaling=1.0 (q/k norms already unit-RMS)
-            vNormNoScale = true, // Gemma 4: v_norm = Gemma4RMSNorm(head_dim, with_scale=False)
+            qkNormUnitOffset = false, // DIAG: gemma3 gguf may already bake (1+w) into q/k norm
+            // gemma3 scales attention by query_pre_attn_scalar^-0.5 = 1/sqrt(head_dim)
+            // (HF Gemma3Attention). null => MHA's 1/sqrt(headDim) default. The
+            // prior hardcoded 1.0 (a Gemma-4 "q/k-norm makes scale 1.0" claim)
+            // over-sharpened softmax for >1 token => parity broke at pos>=1.
+            attentionScale = null,
+            // gemma3 has NO v_norm (gguf carries no attn_v_norm tensor; only
+            // q/k norm). vNormNoScale=true applied a spurious parameterless V
+            // RMS-normalization llama.cpp/HF don't do.
+            vNormNoScale = false,
             id = "attn",
             slidingWindow = slidingWindow
         ) {
@@ -245,7 +252,8 @@ public fun <T : DType, V> gemmaNetwork(
         // HF calls this self.layer_scalar = torch.ones(1), applied as
         // `hidden_states *= self.layer_scalar` at the end of the block.
         if (layerOutputScale) stage.modules += LayerScalarMul<T, V>(
-            name = "blk.$layer.layer_output_scale"
+            name = "blk.$layer.layer_output_scale",
+            dtype = dtype
         )
 
         dslImpl.modules += HybridTransformerBlock(stage.modules.toList(), name = "blk.$layer")
@@ -255,7 +263,7 @@ public fun <T : DType, V> gemmaNetwork(
     // Void placeholder for output projection — Gemma 4 E2B vocab is 262 144
     // and dense(vocabSize) would eagerly allocate ~1.5 GB of zeros before
     // WeightMapper runs.
-    dslImpl.modules += VoidDense<T, V>("output", vocabSize, dim)
+    dslImpl.modules += VoidDense<T, V>("output", vocabSize, dim, dtype = dtype)
 
     // Build the top-level GemmaModel wrapper. When PLE is disabled the model
     // runs the same forward sequence the pre-5f.5 `dslImpl.create()` wrap

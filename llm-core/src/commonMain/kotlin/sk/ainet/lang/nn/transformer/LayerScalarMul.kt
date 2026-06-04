@@ -35,7 +35,9 @@ import kotlin.reflect.KClass
  */
 @Suppress("UNCHECKED_CAST")
 public class LayerScalarMul<T : DType, V>(
-    override val name: String = "LayerScalarMul"
+    override val name: String = "LayerScalarMul",
+    // Logical element type prescribed by the DSL; keeps placeholder weight typed.
+    private val dtype: KClass<T>? = null,
 ) : Module<T, V>(), ModuleParameters<T, V> {
 
     private fun onesPlaceholder(): VoidOpsTensor<T, V> = VoidOpsTensor(
@@ -44,7 +46,7 @@ public class LayerScalarMul<T : DType, V>(
             override fun get(vararg indices: Int): V = 1.0f as V
             override fun set(vararg indices: Int, value: V) {}
         },
-        Any::class as KClass<T>
+        (dtype ?: Any::class) as KClass<T>
     )
 
     override val params: List<ModuleParameter<T, V>> = listOf(
