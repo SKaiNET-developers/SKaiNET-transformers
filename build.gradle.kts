@@ -67,10 +67,16 @@ subprojects {
     //      agents. The same tests already run on jvmTest, so skipping the
     //      browser variants loses no coverage in practice.
     // `-PincludeBrowserTests` re-enables them when a browser is available.
+    // Use the lazy withType().configureEach (NOT tasks.matching{byName}, which
+    // eagerly realizes the js/wasm test tasks during configuration — that
+    // cascades into KGP's KotlinPackageJsonTask resolving *NpmAggregated at
+    // config time, which AGP's DependencyResolutionChecks then rejects).
     val includeBrowserTests = project.hasProperty("includeBrowserTests")
-    tasks.matching { it.name == "jsBrowserTest" || it.name == "wasmJsBrowserTest" }.configureEach {
-        (this as? org.jetbrains.kotlin.gradle.targets.js.testing.KotlinJsTest)
-            ?.failOnNoDiscoveredTests = false
-        enabled = includeBrowserTests
-    }
+    tasks.withType(org.jetbrains.kotlin.gradle.targets.js.testing.KotlinJsTest::class.java)
+        .configureEach {
+            if (name == "jsBrowserTest" || name == "wasmJsBrowserTest") {
+                failOnNoDiscoveredTests = false
+                enabled = includeBrowserTests
+            }
+        }
 }
