@@ -1,5 +1,6 @@
 package sk.ainet.models.gemma
 
+import org.junit.jupiter.api.Tag
 import kotlinx.coroutines.runBlocking
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
@@ -16,6 +17,7 @@ import kotlin.test.Test
  * FP32 dequant here is a correctness-first choice (clean FP32 A/B); production
  * would keep weights packed (QuantPolicy.NATIVE_OPTIMIZED) for memory/NPU.
  */
+@Tag("integration")
 class RealGemmaLoadTest {
     @Test
     fun loadFunctionGemmaWeights() = runBlocking {

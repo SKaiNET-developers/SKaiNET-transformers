@@ -1,5 +1,6 @@
 package sk.ainet.models.gemma
 
+import org.junit.jupiter.api.Tag
 import kotlinx.coroutines.runBlocking
 import kotlinx.io.buffered
 import kotlinx.io.files.Path
@@ -28,6 +29,7 @@ import kotlin.test.assertEquals
  * Generation is driven from llama's prompt tokens to isolate it from
  * tokenization; tokenizer parity is asserted separately.
  */
+@Tag("integration")
 class GemmaBehavioralAbTest {
     private val gguf = "/home/miso/projects/coral/sl2610-voice-cc-kt/models/functiongemma-physical-ai-v10-Q5_K_M.gguf"
 
