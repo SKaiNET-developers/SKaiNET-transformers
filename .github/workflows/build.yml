@@ -37,9 +37,14 @@ jobs:
         env:
           GRADLE_OPTS: -Dorg.gradle.jvmargs="-Xmx4g -Dfile.encoding=UTF-8"
         run: |
+          # Config cache is disabled in CI: KGP's KotlinPackageJsonTask resolves
+          # the *NpmAggregated configs during configuration, which AGP's
+          # DependencyResolutionChecks rejects under config-cache (gradle#31483).
+          # Local dev keeps it on (gradle.properties) where warm caches skip
+          # re-configuration. release.yml already publishes with --no-configuration-cache.
           ./gradlew --no-daemon --stacktrace --info \
             -Dorg.gradle.caching=true \
-            -Dorg.gradle.configuration-cache=true \
+            --no-configuration-cache \
             clean assemble allTests
 
       - name: Build and Test (push)
@@ -47,9 +52,10 @@ jobs:
         env:
           GRADLE_OPTS: -Dorg.gradle.jvmargs="-Xmx4g -Dfile.encoding=UTF-8"
         run: |
+          # See the PR step above: config cache disabled in CI (gradle#31483).
           ./gradlew --no-daemon --stacktrace --info \
             -Dorg.gradle.caching=true \
-            -Dorg.gradle.configuration-cache=true \
+            --no-configuration-cache \
             assemble allTests
 
       - name: Memory info (on failure)
