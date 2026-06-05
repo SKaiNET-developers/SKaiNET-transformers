@@ -115,4 +115,5 @@ tasks.matching { it.name == "jsBrowserTest" || it.name == "wasmJsBrowserTest" }.
 // override via -PgemmaTestMaxHeap (default 8g).
 tasks.withType<Test>().configureEach {
     maxHeapSize = (findProperty("gemmaTestMaxHeap") as? String) ?: "8g"
+    (findProperty("seqLen") as? String)?.let { systemProperty("seqLen", it) }
 }

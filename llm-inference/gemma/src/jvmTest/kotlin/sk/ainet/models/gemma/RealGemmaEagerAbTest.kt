@@ -43,7 +43,14 @@ class RealGemmaEagerAbTest {
         }
         stripKvCache(model)
 
-        val tokens = floatArrayOf(2f, 887f, 506f, 2214f)
+        // Read the exact token ids llama.cpp used (ab_llama.py writes tokens.json)
+        // so both sides see an identical prefix; fall back to a default.
+        val tokFile = File("/home/miso/projects/coral/build-mlir/out/tokens.json")
+        val tokens = if (tokFile.exists()) {
+            tokFile.readText().trim().removeSurrounding("[", "]")
+                .split(",").map { it.trim().toFloat() }.toFloatArray()
+        } else floatArrayOf(2f, 887f, 506f, 2214f)
+        println("TOKENS_USED ${tokens.toList()}")
         // Eager Embedding indexes a 1-D [seq] token tensor (not [1,seq]).
         val input = ctx.fromFloatArray<FP32, Float>(sk.ainet.lang.tensor.Shape(tokens.size), FP32::class, tokens)
         val out = model.forward(input, ctx as ExecutionContext)
