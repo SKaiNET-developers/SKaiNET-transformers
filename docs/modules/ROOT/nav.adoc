@@ -10,7 +10,6 @@
 
 .How-to Guides
 * xref:how-to/add-model.adoc[Add a New Model Architecture]
-* xref:how-to/add-compute-backend.adoc[Add a Compute Backend]
 * xref:how-to/add-tool.adoc[Add a Custom Tool]
 * xref:how-to/run-unified-cli.adoc[Use the Unified CLI]
 * xref:how-to/benchmarking.adoc[Run Benchmarks]
