@@ -33,7 +33,9 @@ import kotlin.reflect.KClass
 public class VoidDense<T : DType, V>(
     override val name: String,
     public val outDim: Int,
-    public val inDim: Int
+    public val inDim: Int,
+    // Logical element type prescribed by the DSL; keeps placeholder weights typed.
+    private val dtype: KClass<T>? = null,
 ) : Module<T, V>(), ModuleParameters<T, V> {
 
     private fun voidTensor(shape: Shape): VoidOpsTensor<T, V> = VoidOpsTensor(
@@ -42,7 +44,7 @@ public class VoidDense<T : DType, V>(
             override fun get(vararg indices: Int): V = 0.0f as V
             override fun set(vararg indices: Int, value: V) {}
         },
-        Any::class as KClass<T>
+        (dtype ?: Any::class) as KClass<T>
     )
 
     override val params: List<ModuleParameter<T, V>> = listOf(

@@ -67,11 +67,22 @@ kotlin {
                 implementation(libs.junit)
                 implementation(libs.kotlinx.coroutines.test)
                 implementation(libs.skainet.backend.cpu)
+                // Test-only: trace gemmaNetwork to a ComputeGraph + lower to
+                // StableHLO. JVM-only — skainet-compile-hlo/-dag publish no JS
+                // variant and the trace/export tests are host tooling anyway, so
+                // GemmaTraceTest lives in jvmTest too. Keeping these out of
+                // commonTest stops js/wasm from resolving compile-hlo against
+                // published SKaiNET.
+                implementation(libs.skainet.compile.dag)
+                implementation(libs.skainet.compile.hlo)
                 // Test-only dep so GemmaDslToolCallIntegrationTest can build
                 // a real ChatSession around the DSL runtime. Production code
                 // in this module keeps no llm-agent coupling.
                 implementation(project(":llm-agent"))
                 implementation(libs.kotlinx.serialization.json)
+                // Test-only: write the externalized weights to an IREE .irpa
+                // parameter archive (RealGemmaBakeIrpaTest).
+                implementation(libs.skainet.io.iree.params)
             }
         }
     }
@@ -97,4 +108,12 @@ tasks.matching { it.name == "jsBrowserTest" || it.name == "wasmJsBrowserTest" }.
     (this as? org.jetbrains.kotlin.gradle.targets.js.testing.KotlinJsTest)
         ?.failOnNoDiscoveredTests = false
     enabled = includeBrowserTests
+}
+
+// Real-model (FunctionGemma-270M) tests dequantize ~270M params to FP32 and the
+// bake-to-irpa test holds weights + serialized bytes simultaneously; allow an
+// override via -PgemmaTestMaxHeap (default 8g).
+tasks.withType<Test>().configureEach {
+    maxHeapSize = (findProperty("gemmaTestMaxHeap") as? String) ?: "8g"
+    (findProperty("seqLen") as? String)?.let { systemProperty("seqLen", it) }
 }

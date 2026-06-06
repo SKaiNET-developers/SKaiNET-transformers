@@ -79,6 +79,7 @@ public class AttentionImpl<T : DType, V>(
     private val bias: Boolean,
     private val id: String,
     private val slidingWindow: Int? = null,
+    private val kClass: kotlin.reflect.KClass<T>? = null,
 ) : ATTENTION<T, V> {
 
     private var ropeModule: RoPE<T, V>? = null
@@ -138,7 +139,8 @@ public class AttentionImpl<T : DType, V>(
             rope = ropeModule,
             kvCache = kvCacheModule,
             explicitHeadDim = if (needsExplicitHeadDim) explicitHeadDim else null,
-            slidingWindow = slidingWindow
+            slidingWindow = slidingWindow,
+            dtype = kClass
         )
     }
 }
@@ -155,7 +157,7 @@ public fun <T : DType, V> StageImpl<T, V>.embedding(vocabSize: Int, dim: Int, id
             override fun get(vararg indices: Int): V = 0.0f as V
             override fun set(vararg indices: Int, value: V) {}
         },
-        Any::class as kotlin.reflect.KClass<T>
+        kClass
     )
     val emb = Embedding<T, V>(
         numEmbeddings = vocabSize,
@@ -172,7 +174,8 @@ public fun <T : DType, V> StageImpl<T, V>.rmsNorm(normalizedShape: Int, eps: Flo
         normalizedShape = intArrayOf(normalizedShape),
         eps = eps.toDouble(),
         name = getDefaultName(id, "RMSNorm", modules.size),
-        unitOffset = unitOffset
+        unitOffset = unitOffset,
+        dtype = kClass
     )
 }
 
@@ -206,6 +209,7 @@ public fun <T : DType, V> StageImpl<T, V>.multiHeadAttention(
         bias = bias,
         id = attnName,
         slidingWindow = slidingWindow,
+        kClass = kClass,
     )
     impl.content()
     modules += impl.create()
@@ -223,7 +227,8 @@ public fun <T : DType, V> StageImpl<T, V>.geGluFFN(dim: Int, hiddenDim: Int, id:
     modules += GeGLUFFN<T, V>(
         dim = dim,
         hiddenDim = hiddenDim,
-        name = getDefaultName(id, "GeGLUFFN", modules.size)
+        name = getDefaultName(id, "GeGLUFFN", modules.size),
+        dtype = kClass
     )
 }
 
@@ -253,7 +258,7 @@ public fun <T : DType, V> NeuralNetworkDslImpl<T, V>.embedding(vocabSize: Int, d
             override fun get(vararg indices: Int): V = 0.0f as V
             override fun set(vararg indices: Int, value: V) {}
         },
-        Any::class as kotlin.reflect.KClass<T>
+        kClass
     )
     val emb = Embedding<T, V>(
         numEmbeddings = vocabSize,
@@ -270,7 +275,8 @@ public fun <T : DType, V> NeuralNetworkDslImpl<T, V>.rmsNorm(normalizedShape: In
         normalizedShape = intArrayOf(normalizedShape),
         eps = eps.toDouble(),
         name = getDefaultName(id, "RMSNorm", modules.size),
-        unitOffset = unitOffset
+        unitOffset = unitOffset,
+        dtype = kClass
     )
 }
 
@@ -298,6 +304,7 @@ public fun <T : DType, V> NeuralNetworkDslImpl<T, V>.multiHeadAttention(
         bias = bias,
         id = attnName,
         slidingWindow = slidingWindow,
+        kClass = kClass,
     )
     impl.content()
     modules += impl.create()
@@ -315,7 +322,8 @@ public fun <T : DType, V> NeuralNetworkDslImpl<T, V>.geGluFFN(dim: Int, hiddenDi
     modules += GeGLUFFN<T, V>(
         dim = dim,
         hiddenDim = hiddenDim,
-        name = getDefaultName(id, "GeGLUFFN", modules.size)
+        name = getDefaultName(id, "GeGLUFFN", modules.size),
+        dtype = kClass
     )
 }
 
