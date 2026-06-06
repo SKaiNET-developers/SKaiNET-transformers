@@ -77,6 +77,11 @@ subprojects {
             if (name == "jsBrowserTest" || name == "wasmJsBrowserTest") {
                 failOnNoDiscoveredTests = false
                 enabled = includeBrowserTests
+                // Generous Mocha timeout (default is 2s): browser engines — wasmJs
+                // especially — run slower under CI/parallel load, so a heavier test
+                // can exceed the default before it finishes computing. Mirrors the
+                // engine repo's per-module bump. Harmless for the fast tests here.
+                useMocha { timeout = "60s" }
             }
         }
 }
