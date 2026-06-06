@@ -97,23 +97,28 @@ Honest status — see the project-status note at the top of this README.
   before extending scope.
 - Verify each generative architecture end-to-end with smoke tests.
 - Wire the **StableHLO / native compilation path** for full transformer models.
+  As of 0.28.1 a full gemma3 graph exports to StableHLO and `iree-compile`s to a
+  `vmfb` (`GemmaMlirDumpTest`); next is running the compiled module and extending
+  the same path to the other families.
 
 ## Current release
 
-The current release is **0.25.0** — version-aligned with **SKaiNET 0.25.0**.
-Skips 0.24.x: the engine bumped 0.23.1 → 0.25.0 in the same release window
-without a tagged 0.24.x on either side. Brings the new
-[hybrid adaptive DSL with optional dtype constraints](https://github.com/SKaiNET-developers/SKaiNET/pull/616)
-(`DTypePolicy.Any | Require | Prefer | OneOf`) to every `*NetworkLoader`,
-turns the catalog BOM-only so every internal build now exercises
-`sk.ainet:skainet-bom` end-to-end, and locks three reference models
-(`@Tag("smoke-reference")`) for the smoke tier.
+The current release is **0.28.1** — version-aligned with **SKaiNET 0.28.1**.
+Skips 0.26.x / 0.27.x: SKaiNET-transformers tracked the engine internally across
+that window without a tagged release. The headline is that the engine's
+**Kotlin DSL → StableHLO → IREE export path is now complete** — a full gemma3
+graph traces and lowers to StableHLO that `iree-compile`s to a `vmfb`
+(`GemmaMlirDumpTest` / `GemmaTraceTest` are green against 0.28.1). SKaiNET
+0.28.0/0.28.1 fixed the remaining export bugs: result-type inference for
+`reshape`/`matmul`/`concatenate` ([#673](https://github.com/SKaiNET-developers/SKaiNET/issues/673))
+and `conv1d`/`gather`/pooling/`flatten` shapes plus the `reduce_window` emission
+form ([#675](https://github.com/SKaiNET-developers/SKaiNET/issues/675)).
 
 The recommended way to consume is via the BOM. It pins every published `skainet-transformers-*` artifact and re-exports the upstream `sk.ainet:skainet-bom`, so the engine-side `sk.ainet.core:skainet-*` artifacts get the matching version too — you only need to declare the BOM version in one place.
 
 ```kotlin
 dependencies {
-    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.25.0"))
+    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.28.1"))
 
     // Versions resolved from the BOM:
     implementation("sk.ainet.transformers:skainet-transformers-core")
@@ -189,6 +194,18 @@ try (KLlamaSession session = KLlamaJava.loadGGUF(modelPath, /* systemPrompt */ n
 ```
 
 See `llm-test/llm-test-java/src/test/java/.../KLlamaJavaToolCallingTest.java` for a runnable reference.
+
+## What's new in 0.28.1
+
+- **Engine pin `skainet 0.27.0 → 0.28.1`.** Picks up the completed Kotlin DSL →
+  StableHLO → IREE export path. Every shape-changing op now declares its inferred
+  output type (`reshape`/`matmul`/`concatenate`, [#673](https://github.com/SKaiNET-developers/SKaiNET/issues/673);
+  `conv1d`/`gather`/pooling/`flatten`, [#675](https://github.com/SKaiNET-developers/SKaiNET/issues/675)),
+  and `reduce_window` is emitted in IREE's generic region form — so a full gemma3
+  graph traced via `GemmaMlirDumpTest` lowers to StableHLO that `iree-compile`s to
+  a `vmfb`. No transformers-side API changes; existing callers compile unchanged.
+- Verified end-to-end: `:llm-inference:gemma:jvmTest` green against the published
+  0.28.1 (`GemmaMlirDumpTest`, `GemmaTraceTest` pass).
 
 ## What's new in 0.25.0
 
