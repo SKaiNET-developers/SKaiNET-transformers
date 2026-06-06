@@ -7,6 +7,31 @@ version line is kept in lock-step with the underlying SKaiNET engine
 The format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.28.1] — 2026-06-06
+
+Version-aligned with **SKaiNET 0.28.1**. Skips 0.26.x / 0.27.x —
+SKaiNET-transformers tracked the engine internally across that window without a
+tagged release.
+
+### Changed
+
+- **`gradle/libs.versions.toml` `skainet` pin: 0.27.0 → 0.28.1.** Picks up the
+  completed Kotlin DSL → StableHLO → IREE export path. SKaiNET 0.28.0/0.28.1
+  closed the remaining DAG-DSL export bugs: shape-changing ops now declare their
+  inferred output type instead of echoing operand-0 — `reshape`/`matmul`/`concatenate`
+  ([SKaiNET #673](https://github.com/SKaiNET-developers/SKaiNET/issues/673)) and
+  `conv1d`/`gather`/`maxpool2d`/`avgpool2d`/`flatten`
+  ([SKaiNET #675](https://github.com/SKaiNET-developers/SKaiNET/issues/675)) — and
+  `reduce_window` is emitted in IREE's generic region form. A full gemma3 graph
+  traced through `GemmaMlirDumpTest` / `GemmaTraceTest` now lowers to StableHLO
+  that `iree-compile`s to a `vmfb`. No transformers-side API changes; existing
+  callers compile unchanged.
+
+### Verified
+
+- `:llm-inference:gemma:jvmTest` green against the published SKaiNET 0.28.1
+  (`GemmaMlirDumpTest` 1/1, `GemmaTraceTest` 1/1).
+
 ## [0.25.0] — 2026-05-25
 
 Version-aligned with **SKaiNET 0.25.0**. Skips 0.24.x — SKaiNET-transformers has
