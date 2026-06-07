@@ -197,17 +197,40 @@ private fun <T : DType, V> convertOne(
             ctx.fromData(data as TensorData<FP32, Float>, advertisedDtype) as Tensor<T, V>
         }
         GGMLQuantizationType.Q5_K -> {
-            // No native matmul kernel yet for Q5_K (not needed for Gemma 4
-            // E2B Q4_K_M — it has no Q5_K tensors). Fall back to dequant.
-            val elemCount = shape.volume
-            val floats = DequantOps.dequantFromBytes(bytes, qt, elemCount)
-            ctx.fromFloatArray<FP32, Float>(shape, advertisedDtype, floats) as Tensor<T, V>
+            // No native matmul kernel yet for Q5_K. Fall back to a correct FP32 dequant.
+            dequantPackedToFp32<T, V>(bytes, qt, shape, ctx)
         }
         else -> {
-            println("WARNING: GemmaMemSegConverter: unsupported quant type $qt for '$name'; leaving as-is")
-            tensor
+            // Any other quant type without a packed SIMD kernel (Q5_0/Q5_1/Q4_1/Q2_K/…)
+            // would otherwise be left as raw 1-D bytes, which `linearProject` then can't
+            // transpose ("Transpose requires at least 2 dimensions"). Dequantize to a
+            // correct FP32 `[out, in]` weight so the DSL path runs; the supported packed
+            // types (Q4_0/Q8_0/Q4_K/Q6_K) above keep their fast SIMD form. This trades
+            // those tensors' memory savings for correctness until a packed kernel exists.
+            dequantPackedToFp32<T, V>(bytes, qt, shape, ctx)
         }
     }
+}
+
+/**
+ * Dequantize raw GGUF quant `bytes` of logical shape `[out, in]` to a canonical FP32
+ * `[out, in]` row-major weight — the same layout `Gemma4WeightLoader.createTensor` produces
+ * on the `DEQUANTIZE_TO_FP32` path. GGUF stores K/legacy-quant blocks column-major within a
+ * row, so the dequantized floats are transposed column-major → row-major (rows = `in`,
+ * cols = `out`) to match what `linearProject` (`x @ W.t()`) expects.
+ */
+@Suppress("UNCHECKED_CAST")
+private fun <T : DType, V> dequantPackedToFp32(
+    bytes: ByteArray,
+    qt: GGMLQuantizationType,
+    shape: Shape,
+    ctx: ExecutionContext,
+): Tensor<T, V> {
+    val floats = DequantOps.dequantFromBytes(bytes, qt, shape.volume)
+    val out = shape[0]
+    val inDim = shape[1]
+    val rowMajor = DequantOps.transposeColumnMajorToRowMajor(floats, inDim, out)
+    return ctx.fromFloatArray<FP32, Float>(shape, FP32::class, rowMajor) as Tensor<T, V>
 }
 
 /**
