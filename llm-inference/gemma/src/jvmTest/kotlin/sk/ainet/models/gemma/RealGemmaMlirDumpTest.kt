@@ -83,7 +83,7 @@ class RealGemmaMlirDumpTest {
         val unsupported = mlir.lines().count { it.contains("Unsupported op", ignoreCase = true) }
         val arity = mlir.lines().count { it.contains("arity", ignoreCase = true) }
         println("MLIR lines=${mlir.lines().size} unsupported=$unsupported arity=$arity")
-        val out = File(System.getProperty("gemmaMlirOut") ?: "/home/miso/projects/coral/build-mlir/gemma-real.mlir")
+        val out = File(System.getProperty("gemmaMlirOut") ?: "build/build-mlir/gemma-real.mlir")
         out.parentFile?.mkdirs()
         out.writeText(mlir)
         println("WROTE_MLIR ${out.absolutePath}")

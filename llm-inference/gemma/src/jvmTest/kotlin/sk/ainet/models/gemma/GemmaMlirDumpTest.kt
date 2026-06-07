@@ -56,7 +56,7 @@ class GemmaMlirDumpTest {
         val graph = (tape as DefaultExecutionTape).toComputeGraph(synthesizeExternalInputs = true)
         val mlir = sk.ainet.compile.hlo.toStableHlo(graph, "gemma").content
 
-        val out = File(System.getProperty("gemmaMlirOut") ?: "/home/miso/projects/coral/build-mlir/gemma.mlir")
+        val out = File(System.getProperty("gemmaMlirOut") ?: "build/build-mlir/gemma.mlir")
         out.parentFile?.mkdirs()
         out.writeText(mlir)
         println("WROTE_MLIR ${out.absolutePath} (${mlir.lines().size} lines)")
