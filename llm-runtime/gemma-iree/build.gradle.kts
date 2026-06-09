@@ -15,6 +15,7 @@ kotlin {
     jvm()
     linuxX64()
     linuxArm64()
+    macosArm64() // Apple Silicon host dev (mirrors :llm-runtime:kgemma); uses the same nativeMain sources
 
     sourceSets {
         commonTest.dependencies {
