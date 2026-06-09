@@ -1,6 +1,6 @@
 public final class sk/ainet/apps/kllama/agent/GenerateExtensionsKt {
-	public static final fun generateUntilStop (Lsk/ainet/apps/llm/InferenceRuntime;[IIIFLkotlin/random/Random;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;)Lsk/ainet/apps/kllama/agent/GenerateResult;
-	public static synthetic fun generateUntilStop$default (Lsk/ainet/apps/llm/InferenceRuntime;[IIIFLkotlin/random/Random;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;ILjava/lang/Object;)Lsk/ainet/apps/kllama/agent/GenerateResult;
+	public static final fun generateUntilStop (Lsk/ainet/apps/llm/InferenceRuntime;[IIIFLkotlin/random/Random;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function2;)Lsk/ainet/apps/kllama/agent/GenerateResult;
+	public static synthetic fun generateUntilStop$default (Lsk/ainet/apps/llm/InferenceRuntime;[IIIFLkotlin/random/Random;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function2;ILjava/lang/Object;)Lsk/ainet/apps/kllama/agent/GenerateResult;
 	public static final fun sampleFromLogits (Lsk/ainet/lang/tensor/Tensor;FLkotlin/random/Random;)I
 	public static synthetic fun sampleFromLogits$default (Lsk/ainet/lang/tensor/Tensor;FLkotlin/random/Random;ILjava/lang/Object;)I
 }
@@ -45,6 +45,7 @@ public final class sk/ainet/apps/kllama/chat/AgentConfig {
 public abstract interface class sk/ainet/apps/kllama/chat/AgentListener {
 	public fun onAssistantMessage (Ljava/lang/String;)V
 	public fun onComplete (Ljava/lang/String;)V
+	public fun onPrefillProgress (II)V
 	public fun onThinking (Ljava/lang/String;)V
 	public fun onToken (Ljava/lang/String;)V
 	public fun onToolCallValidationFailed (Lsk/ainet/apps/kllama/chat/ToolCall;Ljava/lang/String;)V
@@ -55,6 +56,7 @@ public abstract interface class sk/ainet/apps/kllama/chat/AgentListener {
 public final class sk/ainet/apps/kllama/chat/AgentListener$DefaultImpls {
 	public static fun onAssistantMessage (Lsk/ainet/apps/kllama/chat/AgentListener;Ljava/lang/String;)V
 	public static fun onComplete (Lsk/ainet/apps/kllama/chat/AgentListener;Ljava/lang/String;)V
+	public static fun onPrefillProgress (Lsk/ainet/apps/kllama/chat/AgentListener;II)V
 	public static fun onThinking (Lsk/ainet/apps/kllama/chat/AgentListener;Ljava/lang/String;)V
 	public static fun onToken (Lsk/ainet/apps/kllama/chat/AgentListener;Ljava/lang/String;)V
 	public static fun onToolCallValidationFailed (Lsk/ainet/apps/kllama/chat/AgentListener;Lsk/ainet/apps/kllama/chat/ToolCall;Ljava/lang/String;)V

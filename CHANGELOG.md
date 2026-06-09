@@ -7,6 +7,42 @@ version line is kept in lock-step with the underlying SKaiNET engine
 The format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.29.1] — 2026-06-09
+
+Version-aligned with **SKaiNET 0.29.1**.
+
+### Changed
+
+- **`gradle/libs.versions.toml` `skainet` pin: 0.28.1 → 0.29.1.** Picks up the
+  engine's new **packed-quantization matmul kernels** — Q5_0, Q5_1, Q4_K, and
+  Q6_K now have matmul support across the full provider stack (scalar
+  `commonMain` kernels, `DefaultCpuOpsBase` dispatch, Panama Vector JVM SIMD, and
+  the CPU backend matmul ops), so GGUF models quantized in those formats run on
+  the eager CPU path without a dequant-to-FP32 detour. SKaiNET 0.29.0 also added
+  the **Minerva secure-MCU export module** (a StableHLO adapter → secure
+  microcontroller bundle pipeline) on top of the same StableHLO/IREE export path
+  that powers transformers' gemma export; **0.29.1** is a follow-up that fixes
+  that module's Maven Central publication metadata (`POM_ARTIFACT_ID` /
+  `POM_NAME`). The kernel-to-platform support matrix is now auto-generated and
+  CI-gated upstream.
+- **Public API dumps refreshed (`:llm-agent`, `:llm-core`).** Two independent
+  drifts are reconciled in this release:
+  - `:llm-agent` — `generateUntilStop` / `AgentListener` gained the
+    `onPrefill` / `onPrefillProgress` prefill-progress callback (merged earlier
+    via "feat(agent): expose prefill progress via AgentListener"); the dump had
+    not been regenerated since 0.23.2.
+  - `:llm-core` — the re-exported engine `sk.ainet.lang.nn.*` constructors
+    (`MultiHeadAttention`, `AttentionImpl`, `RMSNormalization`, `GeGLUFFN`,
+    `LayerScalarMul`, `VoidDense`) gained a trailing dtype type-token
+    (`KClass<…>`) parameter from the engine bump. The new parameter carries a
+    default, so existing source-level callers compile unchanged — only the
+    binary signature (and therefore the API baseline) moved.
+
+### Verified
+
+- `./gradlew check` green against the published SKaiNET 0.29.1 — all module
+  compilations, unit tests, and `apiCheck` baselines pass.
+
 ## [0.28.1] — 2026-06-06
 
 Version-aligned with **SKaiNET 0.28.1**. Skips 0.26.x / 0.27.x —

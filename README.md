@@ -103,22 +103,23 @@ Honest status — see the project-status note at the top of this README.
 
 ## Current release
 
-The current release is **0.28.1** — version-aligned with **SKaiNET 0.28.1**.
-Skips 0.26.x / 0.27.x: SKaiNET-transformers tracked the engine internally across
-that window without a tagged release. The headline is that the engine's
-**Kotlin DSL → StableHLO → IREE export path is now complete** — a full gemma3
-graph traces and lowers to StableHLO that `iree-compile`s to a `vmfb`
-(`GemmaMlirDumpTest` / `GemmaTraceTest` are green against 0.28.1). SKaiNET
-0.28.0/0.28.1 fixed the remaining export bugs: result-type inference for
-`reshape`/`matmul`/`concatenate` ([#673](https://github.com/SKaiNET-developers/SKaiNET/issues/673))
-and `conv1d`/`gather`/pooling/`flatten` shapes plus the `reduce_window` emission
-form ([#675](https://github.com/SKaiNET-developers/SKaiNET/issues/675)).
+The current release is **0.29.1** — version-aligned with **SKaiNET 0.29.1**.
+The headline is the engine's new **packed-quantization matmul kernels**: Q5_0,
+Q5_1, Q4_K, and Q6_K now have matmul support across the provider stack (scalar
+`commonMain` kernels, `DefaultCpuOpsBase` dispatch, Panama Vector JVM SIMD, and
+the CPU backend), so GGUF models quantized in those formats run on the eager CPU
+path without a dequant-to-FP32 detour. SKaiNET 0.29.0 also introduced the
+**Minerva secure-MCU export module**, which builds on the same StableHLO/IREE
+export path that powers transformers' gemma export; 0.29.1 is a follow-up that
+fixes that module's Maven Central publication metadata. Existing source-level
+callers compile unchanged — the only API-baseline movement is the engine's
+re-exported `nn` constructors gaining a defaulted dtype type-token.
 
 The recommended way to consume is via the BOM. It pins every published `skainet-transformers-*` artifact and re-exports the upstream `sk.ainet:skainet-bom`, so the engine-side `sk.ainet.core:skainet-*` artifacts get the matching version too — you only need to declare the BOM version in one place.
 
 ```kotlin
 dependencies {
-    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.28.1"))
+    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.29.1"))
 
     // Versions resolved from the BOM:
     implementation("sk.ainet.transformers:skainet-transformers-core")
@@ -194,6 +195,21 @@ try (KLlamaSession session = KLlamaJava.loadGGUF(modelPath, /* systemPrompt */ n
 ```
 
 See `llm-test/llm-test-java/src/test/java/.../KLlamaJavaToolCallingTest.java` for a runnable reference.
+
+## What's new in 0.29.1
+
+- **Engine pin `skainet 0.28.1 → 0.29.1`.** Adds **packed-quantization matmul
+  kernels** for Q5_0, Q5_1, Q4_K, and Q6_K across the provider stack (scalar,
+  Panama Vector SIMD, and CPU backend), so GGUF models in those quant formats run
+  on the eager CPU path without a dequant-to-FP32 detour. SKaiNET 0.29.0 also
+  shipped the **Minerva secure-MCU export module** on top of the shared
+  StableHLO/IREE export path; 0.29.1 fixes that module's Maven Central
+  publication metadata.
+- **Public API baselines refreshed (`:llm-agent`, `:llm-core`).** Picks up the
+  earlier-merged `AgentListener` prefill-progress callback (`onPrefill` /
+  `onPrefillProgress`) and the engine's re-exported `nn` constructors gaining a
+  defaulted dtype type-token. Source-level callers are unaffected.
+- Verified end-to-end: `./gradlew check` green against the published 0.29.1.
 
 ## What's new in 0.28.1
 
