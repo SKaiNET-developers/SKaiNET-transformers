@@ -8,6 +8,7 @@ import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.tensor.data.IntArrayTensorData
 import sk.ainet.lang.tensor.data.Q4_KBlockTensorData
+import sk.ainet.lang.tensor.data.Q5_KBlockTensorData
 import sk.ainet.lang.tensor.data.Q6_KBlockTensorData
 import sk.ainet.lang.tensor.data.Q4MemorySegmentTensorData
 import sk.ainet.lang.tensor.data.Q8MemorySegmentTensorData
@@ -197,8 +198,14 @@ private fun <T : DType, V> convertOne(
             ctx.fromData(data as TensorData<FP32, Float>, advertisedDtype) as Tensor<T, V>
         }
         GGMLQuantizationType.Q5_K -> {
-            // No native matmul kernel yet for Q5_K. Fall back to a correct FP32 dequant.
-            dequantPackedToFp32<T, V>(bytes, qt, shape, ctx)
+            // Same packed-path treatment as Q4_K/Q6_K, enabled by the Q5_K
+            // matmul kernel (scalar/Panama/native) + the lazy Q5_K transpose
+            // in DefaultCpuOps. FunctionGemma-270M Q5_K_M ships most attn/FFN
+            // weights as Q5_K, so keeping them packed (176 B/block) avoids the
+            // FP32 inflation and runs the in-kernel dequant matmul.
+            val relaid = relayoutKSeriesRowMajorToBlockMajor(bytes, shape, 176)
+            val data = Q5_KBlockTensorData.fromRawBytes(shape, relaid)
+            ctx.fromData(data as TensorData<FP32, Float>, advertisedDtype) as Tensor<T, V>
         }
         else -> {
             // Any other quant type without a packed SIMD kernel (Q5_0/Q5_1/Q4_1/Q2_K/…)

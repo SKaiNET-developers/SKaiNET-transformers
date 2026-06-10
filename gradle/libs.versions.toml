@@ -1,5 +1,5 @@
 [versions]
-skainet = "0.28.1"
+skainet = "0.29.1"
 agp = "9.2.1"
 jacksonDatabind = "2.22.0"
 jsonSchemaValidator = "3.0.3"

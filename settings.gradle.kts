@@ -8,6 +8,12 @@ pluginManagement {
 
 dependencyResolutionManagement {
     repositories {
+        // mavenLocal first so a locally-published upstream SKaiNET (same
+        // coordinates/version, e.g. sk.ainet.core:*:0.29.1 from a sibling
+        // ../SKaiNET `publishToMavenLocal`) shadows Maven Central. Lets the
+        // transformers build consume in-progress SKaiNET changes without the
+        // composite build. Maven Central remains the fallback.
+        mavenLocal()
         google()
         mavenCentral()
     }
