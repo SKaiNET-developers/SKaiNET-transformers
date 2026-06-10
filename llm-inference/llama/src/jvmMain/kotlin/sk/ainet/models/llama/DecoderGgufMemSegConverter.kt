@@ -27,18 +27,20 @@ import java.lang.foreign.Arena
  *   [Q8MemorySegmentTensorData] with the **logical** matrix shape derived
  *   from metadata. Upstream `DefaultCpuOpsJvm.matmul` and `transpose`
  *   detect the markers and dispatch quant-aware kernels at forward time.
- * - **Q4_K / Q5_K / Q6_K** → dequantized to FP32. The packed K-quant kernels
- *   are MemSeg-only on a hot path the DSL doesn't yet route through, so this
- *   trades memory for correctness. Same trade-off the legacy converter
- *   makes for K-quants.
+ * - **Every other quant type** (Q4_1, Q5_0, Q5_1, Q8_1, the K-quants
+ *   Q4_K / Q5_K / Q6_K, IQ4_NL/XS, TQ1/2_0, ...) → dequantized to FP32. None
+ *   of these has a packed MemSeg kernel on the hot path the DSL routes
+ *   through, so this trades memory for correctness — the same trade-off the
+ *   legacy converter makes for K-quants. [DequantOps.dequantFromBytes] throws
+ *   for genuinely unknown types, so an unsupported model fails explicitly at
+ *   load time instead of silently passing bytes through and crashing later
+ *   inside matmul (see issue #654).
  * - **token_embd.weight** → always dequantized to FP32 regardless of quant
  *   type. The Embedding layer consumes this via `gather`, not matmul, so it
  *   needs real floats with the logical 2D shape — packed quant bytes would
  *   be misread as FP32 values, and the loader's intermediate Int8 wrapper
  *   stores a 1D byte-count shape that `gather` rejects.
  * - **FP32 (no entry in `quantTypes`)** → passed through unchanged.
- * - **Other quant types** → warning logged, passed through (will fail later
- *   if the model actually hits them via matmul).
  *
  * Why logical shape matters here: the loader stores raw quant bytes via
  * `ctx.fromByteArray(Shape(bytes.size), Int8, bytes)` — a 1D byte-count
@@ -168,18 +170,16 @@ public object DecoderGgufMemSegConverter {
                 @Suppress("UNCHECKED_CAST")
                 ctx.fromData(newData as TensorData<FP32, Float>, FP32::class)
             }
-            GGMLQuantizationType.Q4_K,
-            GGMLQuantizationType.Q5_K,
-            GGMLQuantizationType.Q6_K -> {
+            // Every other GGUF quant type (Q4_1, Q5_0, Q5_1, Q8_1, the
+            // K-quants, IQ4_NL/XS, TQ1/2_0, ...) has no packed MemSeg kernel
+            // on the DSL forward path, so dequantize to FP32 here — the same
+            // memory-for-correctness trade-off the K-quants already made.
+            // DequantOps throws for genuinely unknown types, which turns what
+            // used to be a silent pass-through (and a confusing crash deep
+            // inside matmul) into an explicit failure at load time. See #654.
+            else -> {
                 val floats = DequantOps.dequantFromBytes(bytes, quantType, logicalShape.volume)
                 ctx.fromFloatArray(logicalShape, FP32::class, floats)
-            }
-            else -> {
-                println(
-                    "WARNING: DecoderGgufMemSegConverter: unsupported quant type $quantType for '$name'; " +
-                        "passing through unchanged. Forward pass may fail at matmul.",
-                )
-                tensor
             }
         }
     }
