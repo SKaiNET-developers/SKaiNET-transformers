@@ -105,6 +105,36 @@ class DecoderGgufMemSegConverterTest {
     }
 
     @Test
+    fun `Q4_1 tensor is dequantized to FP32 with logical shape`() {
+        // Regression for #654: Q4_1 used to hit the silent pass-through
+        // `else` branch and crash later inside matmul. It must now be
+        // dequantized to a 2D FP32 tensor with the logical matrix shape.
+        // ffn_down logical shape is (dim, ffn); size the raw fixture to match.
+        val rawQ4_1 = rawQ4_1Tensor(rows = dim, cols = ffn)
+        val weights = DecoderGgufWeights<FP32, Float>(
+            metadata = metadata,
+            tensors = mapOf("blk.0.ffn_down.weight" to rawQ4_1),
+            quantTypes = mapOf("blk.0.ffn_down.weight" to GGMLQuantizationType.Q4_1),
+        )
+
+        Arena.ofConfined().use { arena ->
+            val out = DecoderGgufMemSegConverter.convert(weights, ctx, arena)
+            val down = out.tensors.getValue("blk.0.ffn_down.weight")
+
+            assertEquals(
+                Shape(dim, ffn),
+                down.shape,
+                "Q4_1 weight must be dequantized to its logical 2D shape, not passed through as 1D bytes",
+            )
+            assertTrue(
+                down.data !is Q4MemorySegmentMarker && down.data !is Q8MemorySegmentMarker,
+                "Q4_1 has no packed MemSeg path; it must be plain dequantized FP32, got ${down.data::class.simpleName}",
+            )
+            assertTrue(out.quantTypes.isEmpty(), "quantTypes should be cleared post-convert")
+        }
+    }
+
+    @Test
     fun `tensor count and key set are preserved`() {
         val q4 = rawQ4Tensor(dim, dim)
         val q8 = rawQ8Tensor(ffn, dim)
@@ -149,6 +179,36 @@ class DecoderGgufMemSegConverterTest {
             // Nibble codes: 8 (zero offset) on both halves for simplicity
             for (i in 0 until 16) {
                 bytes[off + 2 + i] = 0x88.toByte()
+            }
+        }
+
+        val tensor = ctx.fromByteArray<Int8, Byte>(Shape(nBytes), Int8::class, bytes)
+        @Suppress("UNCHECKED_CAST")
+        return tensor as Tensor<FP32, Float>
+    }
+
+    /** Build a raw-byte tensor that simulates a NATIVE_OPTIMIZED Q4_1 load. */
+    private fun rawQ4_1Tensor(rows: Int, cols: Int): Tensor<FP32, Float> {
+        val nElements = rows * cols
+        val blockSize = 32
+        val bytesPerBlock = 20 // 2B d (f16) + 2B m (f16) + 16B packed nibbles
+        val nBlocks = nElements / blockSize
+        val nBytes = nBlocks * bytesPerBlock
+
+        val bytes = ByteArray(nBytes)
+        for (block in 0 until nBlocks) {
+            val off = block * bytesPerBlock
+            // f16 scale d = 0.5
+            val dBits = floatToHalf(0.5f)
+            bytes[off] = (dBits and 0xFF).toByte()
+            bytes[off + 1] = ((dBits shr 8) and 0xFF).toByte()
+            // f16 min m = 0.25
+            val mBits = floatToHalf(0.25f)
+            bytes[off + 2] = (mBits and 0xFF).toByte()
+            bytes[off + 3] = ((mBits shr 8) and 0xFF).toByte()
+            // Nibble codes: 8 on both halves for simplicity (w = d*8 + m)
+            for (i in 0 until 16) {
+                bytes[off + 4 + i] = 0x88.toByte()
             }
         }
 
