@@ -123,5 +123,20 @@ class GemmaQ5KPackedParityTest {
 
             assertEquals(genFp32, genNat, "Q5_K packed decode diverged from FP32 baseline")
         }
+
+        // The wired path: GemmaNetworkLoader.load(NATIVE_OPTIMIZED) applies the
+        // commonMain convertGemmaWeightsPacked (the board path) — no MemSeg, no
+        // Arena. Must decode identically to the FP32 baseline too.
+        val mLoad = GemmaNetworkLoader.fromGguf(
+            randomAccessProvider = { JvmRandomAccessSource.open(gguf) },
+            quantPolicy = QuantPolicy.NATIVE_OPTIMIZED,
+        ).load<FP32, Float>(ctx)
+        val rtLoad = OptimizedLLMRuntime(
+            model = mLoad, ctx = ctx, mode = OptimizedLLMMode.DIRECT,
+            dtype = FP32::class, bos = tokenizer.bosTokenId,
+        )
+        val genLoad = decode(rtLoad, promptTokens, maxNew, eos, eot)
+        println("load(NATIVE_OPTIMIZED) gen=$genLoad")
+        assertEquals(genFp32, genLoad, "load(NATIVE_OPTIMIZED) packed decode diverged from FP32 baseline")
     }
 }
