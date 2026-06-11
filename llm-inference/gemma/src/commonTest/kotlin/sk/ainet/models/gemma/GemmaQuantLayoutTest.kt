@@ -4,10 +4,12 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.gguf.GGMLQuantizationType
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.data.Q5_KBlockTensorData
 import sk.ainet.lang.types.FP32
+import sk.ainet.lang.types.Int8
 
 /**
  * Unit tests for the commonMain (board-shareable) Gemma quant layout helpers.
@@ -55,5 +57,17 @@ class GemmaQuantLayoutTest {
     @Test
     fun pack_non_kquant_returns_null() {
         assertNull(packGemmaKQuant<FP32>(ByteArray(34), GGMLQuantizationType.Q8_0, Shape(1, 32)))
+    }
+
+    @Test
+    fun extract_raw_bytes_roundtrips_on_every_platform() {
+        // The NATIVE_OPTIMIZED loader wraps quant bytes via ctx.fromByteArray<Int8,Byte>;
+        // extractRawBytes must read them back regardless of the platform backing
+        // (JVM IntArrayTensorData vs native Byte-typed). Runs on jvm + linuxX64.
+        val ctx = DirectCpuExecutionContext.create()
+        val bytes = ByteArray(176 * 3) { ((it * 31 + 7) and 0xFF).toByte() }
+        val t = ctx.fromByteArray<Int8, Byte>(Shape(bytes.size), Int8::class, bytes)
+        val got = extractRawBytes(t.data)
+        assertTrue(bytes.contentEquals(got), "extractRawBytes round-trip mismatch")
     }
 }
