@@ -103,22 +103,21 @@ Honest status — see the project-status note at the top of this README.
 
 ## Current release
 
-The current release is **0.28.1** — version-aligned with **SKaiNET 0.28.1**.
-Skips 0.26.x / 0.27.x: SKaiNET-transformers tracked the engine internally across
-that window without a tagged release. The headline is that the engine's
-**Kotlin DSL → StableHLO → IREE export path is now complete** — a full gemma3
-graph traces and lowers to StableHLO that `iree-compile`s to a `vmfb`
-(`GemmaMlirDumpTest` / `GemmaTraceTest` are green against 0.28.1). SKaiNET
-0.28.0/0.28.1 fixed the remaining export bugs: result-type inference for
-`reshape`/`matmul`/`concatenate` ([#673](https://github.com/SKaiNET-developers/SKaiNET/issues/673))
-and `conv1d`/`gather`/pooling/`flatten` shapes plus the `reduce_window` emission
-form ([#675](https://github.com/SKaiNET-developers/SKaiNET/issues/675)).
+The current release is **0.30.0** — version-aligned with **SKaiNET 0.30.0**.
+Skips 0.29.x: SKaiNET-transformers tracked the engine internally across that
+window without a tagged release. The headline is that **Q5_K weights now stay
+packed in the eager Gemma runtime** (SKaiNET 0.30.0 ships a first-class Q5_K
+packed matmul) and the Gemma `NATIVE_OPTIMIZED` packed-weight path is now
+**Kotlin/Native–ready** — the board binary can keep K-quant weights packed
+without the JVM's `java.lang.foreign` MemSeg path. FunctionGemma-270M (`Q5_K_M`)
+decodes byte-identically across the FP32 baseline and both packed paths
+(`GemmaQ5KPackedParityTest`).
 
 The recommended way to consume is via the BOM. It pins every published `skainet-transformers-*` artifact and re-exports the upstream `sk.ainet:skainet-bom`, so the engine-side `sk.ainet.core:skainet-*` artifacts get the matching version too — you only need to declare the BOM version in one place.
 
 ```kotlin
 dependencies {
-    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.28.1"))
+    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.30.0"))
 
     // Versions resolved from the BOM:
     implementation("sk.ainet.transformers:skainet-transformers-core")
@@ -194,6 +193,27 @@ try (KLlamaSession session = KLlamaJava.loadGGUF(modelPath, /* systemPrompt */ n
 ```
 
 See `llm-test/llm-test-java/src/test/java/.../KLlamaJavaToolCallingTest.java` for a runnable reference.
+
+## What's new in 0.30.0
+
+- **Q5_K stays packed in the eager Gemma runtime.** `GemmaMemSegConverter` used to
+  dequantize Q5_K weights to FP32 on load; SKaiNET 0.30.0 provides a first-class
+  Q5_K packed matmul (`Q5_KBlockTensorData` + `Q5KMatmulKernel`), so the converter
+  now relayouts the GGUF bytes to block-major and keeps them packed (176 B/block).
+  FunctionGemma-270M (`Q5_K_M`) decodes byte-identically to the FP32 baseline
+  (`GemmaQ5KPackedParityTest`).
+- **Gemma `NATIVE_OPTIMIZED` path is Kotlin/Native–ready.** The reusable layout +
+  packing helpers (`GemmaQuantLayout.kt`, `GemmaPackedWeights.kt`) moved to
+  `commonMain`, and `GemmaNetworkLoader.load()` now runs `convertGemmaWeightsPacked`
+  under `NATIVE_OPTIMIZED` — so the board binary keeps K-quant weights packed with
+  no `java.lang.foreign` MemSeg dependency. Verified on JVM and `linuxX64`.
+- **Engine pin `skainet 0.28.1 → 0.30.0`** — released Q5_K packed matmul, NEON
+  native kernels, and Kotlin/Native cinterop. The `mavenLocal()`-first dev shim is
+  reverted; the release resolves the engine from Maven Central.
+- **Fixes.** Kernel-less quant types under `NATIVE_OPTIMIZED` now dequant to FP32
+  `[out, in]` instead of crashing on a rank-1 transpose; `DecoderGgufMemSegConverter`
+  dequantizes Q4_1 and every other non-packed quant type instead of passing raw
+  bytes through to a matmul crash ([#654](https://github.com/SKaiNET-developers/SKaiNET-transformers/issues/654)).
 
 ## What's new in 0.28.1
 

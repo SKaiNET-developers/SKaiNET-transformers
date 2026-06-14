@@ -31,7 +31,7 @@ import kotlin.test.assertEquals
  */
 @Tag("integration")
 class GemmaBehavioralAbTest {
-    private val gguf = "/home/miso/projects/coral/sl2610-voice-cc-kt/models/functiongemma-physical-ai-v10-Q5_K_M.gguf"
+    private val gguf = "/home/miso/projects/coral/SKaiNET-embedded/sl2610-function-calling/models/functiongemma-physical-ai-v10-Q5_K_M.gguf"
 
     private fun argmax(a: FloatArray): Int {
         var bi = 0; var bv = a[0]

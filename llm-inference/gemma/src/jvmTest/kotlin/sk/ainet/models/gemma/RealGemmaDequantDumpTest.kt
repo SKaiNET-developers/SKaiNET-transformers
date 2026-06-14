@@ -17,7 +17,7 @@ import kotlin.test.Test
 class RealGemmaDequantDumpTest {
     @Test
     fun dumpDequant() = runBlocking {
-        val path = "/home/miso/projects/coral/sl2610-voice-cc-kt/models/functiongemma-physical-ai-v10-Q5_K_M.gguf"
+        val path = "/home/miso/projects/coral/SKaiNET-embedded/sl2610-function-calling/models/functiongemma-physical-ai-v10-Q5_K_M.gguf"
         val ctx = DirectCpuExecutionContext.create()
         val weights = Gemma4WeightLoader(
             randomAccessProvider = { JvmRandomAccessSource.open(path) },

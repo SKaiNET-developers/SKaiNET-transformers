@@ -122,7 +122,7 @@ public class GemmaNetworkLoader @PublishedApi internal constructor(
     public suspend inline fun <reified T : DType, V> load(
         ctx: ExecutionContext
     ): Module<T, V> {
-        val weights: Gemma4Weights<T, V> = when (val wp = weightsProvider) {
+        val rawWeights: Gemma4Weights<T, V> = when (val wp = weightsProvider) {
             is WeightsProvider.GgufSource -> {
                 val loader = Gemma4WeightLoader(wp.sourceProvider, quantPolicy = wp.quantPolicy)
                 loader.loadToMap<T, V>(ctx)
@@ -141,6 +141,24 @@ public class GemmaNetworkLoader @PublishedApi internal constructor(
                 wp.weights as Gemma4Weights<T, V>
             }
         }
+
+        // NATIVE_OPTIMIZED yields raw-byte quant tensors the network mapper can't
+        // consume directly. Pack them (heap Q4/5/6_K + FP32 fallback) here — this
+        // is commonMain so it works on Kotlin/Native (the board) as well as the
+        // JVM, and replaces the JVM-only `convertGemmaWeightsToMemSeg` for the
+        // `load()` entry point.
+        val ggufPolicy = when (val wp = weightsProvider) {
+            is WeightsProvider.GgufSource -> wp.quantPolicy
+            is WeightsProvider.GgufRandomAccess -> wp.quantPolicy
+            else -> null
+        }
+        val weights: Gemma4Weights<T, V> =
+            if (ggufPolicy == QuantPolicy.NATIVE_OPTIMIZED) {
+                @Suppress("UNCHECKED_CAST")
+                convertGemmaWeightsPacked(rawWeights, ctx) as Gemma4Weights<T, V>
+            } else {
+                rawWeights
+            }
 
         return applyWeightsToNetwork(ctx, weights)
     }

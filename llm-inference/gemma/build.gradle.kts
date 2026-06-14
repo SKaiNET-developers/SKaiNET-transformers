@@ -88,9 +88,16 @@ kotlin {
     }
 }
 
+// Real-model (FunctionGemma-270M) integration tests (run with -PincludeIntegration)
+// dequantize ~270M params to FP32, and GemmaQ5KPackedParityTest holds the FP32
+// baseline plus both packed decode networks at once; the bake-to-irpa test holds
+// weights + serialized bytes simultaneously. 8g OOMs once the real model is
+// present, so default to 12g — override via -PgemmaTestMaxHeap (CI without the
+// model file self-skips these and never needs the headroom).
 tasks.withType<Test>().configureEach {
     jvmArgs("--enable-preview", "--add-modules", "jdk.incubator.vector")
-    maxHeapSize = (findProperty("gemmaTestMaxHeap") as? String) ?: "6g"
+    maxHeapSize = (findProperty("gemmaTestMaxHeap") as? String) ?: "12g"
+    (findProperty("seqLen") as? String)?.let { systemProperty("seqLen", it) }
 }
 
 // Kotlin/JS + Kotlin/WASM browser test runners have two separate problems on
@@ -108,12 +115,4 @@ tasks.matching { it.name == "jsBrowserTest" || it.name == "wasmJsBrowserTest" }.
     (this as? org.jetbrains.kotlin.gradle.targets.js.testing.KotlinJsTest)
         ?.failOnNoDiscoveredTests = false
     enabled = includeBrowserTests
-}
-
-// Real-model (FunctionGemma-270M) tests dequantize ~270M params to FP32 and the
-// bake-to-irpa test holds weights + serialized bytes simultaneously; allow an
-// override via -PgemmaTestMaxHeap (default 8g).
-tasks.withType<Test>().configureEach {
-    maxHeapSize = (findProperty("gemmaTestMaxHeap") as? String) ?: "8g"
-    (findProperty("seqLen") as? String)?.let { systemProperty("seqLen", it) }
 }
