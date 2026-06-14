@@ -7,6 +7,110 @@ version line is kept in lock-step with the underlying SKaiNET engine
 The format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.30.0] — 2026-06-14
+
+Version-aligned with **SKaiNET 0.30.0**. Skips 0.29.x — SKaiNET-transformers
+tracked the engine internally across that window (the in-progress Q5_K kernel
+shipped as a local `0.29.1`) without a tagged release. The headline is
+**Q5_K stays packed in the eager Gemma runtime** and the **Gemma
+`NATIVE_OPTIMIZED` packed-weight path is now Kotlin/Native–ready** — the board
+binary can keep K-quant weights packed without the JVM's `java.lang.foreign`
+MemSeg path.
+
+### Added
+
+- **Q5_K packed in-kernel dequant in the eager Gemma runtime.** FunctionGemma-270M
+  ships as `Q5_K_M`, but `GemmaMemSegConverter` previously dequantized Q5_K
+  weights to FP32 on load ("no native matmul kernel yet for Q5_K"), giving up
+  both the memory saving and the in-kernel dequant. SKaiNET 0.30.0 provides a
+  first-class Q5_K packed matmul (`Q5_KBlockTensorData` + `Q5KMatmulKernel`:
+  scalar / Panama / native), so the converter now relayouts the GGUF bytes to
+  block-major and wraps them as `Q5_KBlockTensorData` (176 B/block). Dispatch and
+  the lazy transpose reach the kernel through `DefaultCpuOps`. Verified by
+  `GemmaQ5KPackedParityTest` (`-PincludeIntegration`): the Q5_K packed path
+  decodes FunctionGemma byte-identically to the FP32 baseline —
+  `[262146, 236769, 3255, 718, 498, 1373, 262152, 106]` →
+  `<tool_0>(state="on")<end>` for *"Turn the light on."*
+- **Kotlin/Native–ready Gemma packed-weight path.** The `NATIVE_OPTIMIZED`
+  packed conversion was `jvmMain`-only (it built `MemSeg`/`Arena`-backed tensors
+  via `java.lang.foreign`), so the Kotlin/Native board binary couldn't keep
+  K-quant weights packed. The platform-neutral pieces now live in `commonMain`:
+  - **`GemmaQuantLayout.kt`** (`commonMain`) — `logicalShapeFor`,
+    `relayoutKSeriesRowMajorToBlockMajor` (KMP-safe `copyInto`), and
+    `packGemmaKQuant<T>()`, which builds heap-packed Q4_K/Q5_K/Q6_K
+    `BlockTensorData` directly with no `MemSeg`/`Arena`.
+  - **`GemmaPackedWeights.kt`** (`commonMain`) — `convertGemmaWeightsPacked`
+    packs Q4/Q5/Q6_K matmul weights to heap `Q*_KBlockTensorData`, dequants
+    `token_embd`/`output` to FP32 (gathered, no transpose) and any other quant
+    type to FP32 `[out, in]`. `extractRawBytes` reads the loader's bytes back
+    across both backings (JVM `IntArrayTensorData` / native `Byte`-typed).
+  - **`GemmaNetworkLoader.load()`** now runs `convertGemmaWeightsPacked` before
+    `applyWeightsToNetwork` under `NATIVE_OPTIMIZED`, so `load(NATIVE_OPTIMIZED)`
+    yields a runnable network on the board *and* the JVM (previously it could not
+    be built from raw-byte weights at all). `GemmaMemSegConverter` (`jvmMain`)
+    now shares the `commonMain` helpers; only the `MemSeg`/FFM conversion and the
+    FP32 fallbacks stay JVM-only.
+  Verified on JVM and `linuxX64` (`GemmaQuantLayoutTest`): relayout, packing, and
+  the native byte-extraction round-trip run on every target, and
+  `GemmaQ5KPackedParityTest` confirms all three paths (FP32 baseline, `jvmMain`
+  MemSeg-packed, `load()` packed) produce the identical token sequence.
+
+### Changed
+
+- **`gradle/libs.versions.toml` `skainet` pin: 0.28.1 → 0.30.0.** Picks up the
+  released Q5_K packed matmul, the NEON native kernels, and the Kotlin/Native
+  cinterop. Downstream consumers get the upstream SKaiNET BOM transparently via
+  `:llm-bom`, so no per-consumer migration is needed.
+- **`gradle.properties` `VERSION_NAME=0.30.0`.** Lock-step with the engine.
+- **`settings.gradle.kts` reverts the `mavenLocal()`-first dev shim.** The
+  ordering added while consuming the in-progress local SKaiNET `0.29.1` is no
+  longer needed now that 0.30.0 is on Maven Central; the release resolves the
+  engine purely from Central. The opt-in `-PuseLocalSkainet` composite build is
+  unchanged for local engine work.
+
+### Fixed
+
+- **`fix(gemma): dequant kernel-less quant types in `NATIVE_OPTIMIZED` instead of
+  leaving raw bytes`.** Loading a Gemma GGUF whose attention/FFN weights used a
+  quant type with no packed SIMD kernel (e.g. Q5_1) under
+  `QuantPolicy.NATIVE_OPTIMIZED` crashed at the first decode step
+  (`Transpose requires at least 2 dimensions` in `MultiHeadAttention` →
+  `linearProject`): `GemmaMemSegConverter.convertOne` left every unhandled quant
+  type as raw 1-D bytes. Kernel-less types now dequantize to a correct FP32
+  `[out, in]` weight via a new `dequantPackedToFp32` helper (mirroring the proven
+  `Gemma4WeightLoader.createTensor` column-major → row-major transpose). The
+  supported packed types (Q4_0/Q8_0/Q4_K/Q6_K) keep their fast SIMD form; only
+  kernel-less types pay the FP32 dequant.
+- **`fix(llama): dequantize Q4_1 (and all non-packed quant types) in
+  `DecoderGgufMemSegConverter``.** The converter handled only Q4_0/Q8_0 (packed)
+  and Q4_K/Q5_K/Q6_K (dequant); every other quant type fell through an `else`
+  branch that logged a warning and passed the raw quant bytes through unchanged,
+  crashing deep inside matmul (e.g. `unsupported quant type Q4_1 for
+  blk.0.ffn_down.weight` on Q4_1 Qwen3 models). The `else` branch now routes
+  through `DequantOps.dequantFromBytes` to FP32, covering Q4_1, Q5_0, Q5_1, Q8_1,
+  IQ4_NL/XS, TQ1/2_0, etc.; genuinely unknown types now fail explicitly at load
+  time instead of crashing later inside matmul. Closes
+  [#654](https://github.com/SKaiNET-developers/SKaiNET-transformers/issues/654).
+
+### Tests / CI
+
+- **`GemmaQ5KPackedParityTest`** — byte-identical decode parity across the FP32
+  baseline, the `jvmMain` MemSeg-packed path, and the `load(NATIVE_OPTIMIZED)`
+  `commonMain` packed path.
+- **`GemmaQuantLayoutTest`** (`commonTest`) — block-transpose relayout, packing,
+  and the byte-extraction round-trip; runs on JVM and `linuxX64`.
+- **`DecoderGgufMemSegConverterTest`** — regression that a Q4_1 weight is
+  dequantized to its logical 2-D FP32 shape rather than passed through as 1-D
+  bytes.
+- **`fix(gemma): macosArm64 target for `gemma-iree``** and CI parity fixes:
+  MLIR-dump tests write to a portable build dir instead of a hardcoded local
+  path; browser Mocha gets a 60 s timeout (parity with the engine repo).
+- **`test(gemma): repoint stale FunctionGemma GGUF path`** — six real-model
+  integration tests now point at the in-repo
+  `sl2610-function-calling/models/` location, matching
+  `GemmaQ5KPackedParityTest`; all pass against the published SKaiNET 0.30.0
+  (`-PincludeIntegration`).
+
 ## [0.28.1] — 2026-06-06
 
 Version-aligned with **SKaiNET 0.28.1**. Skips 0.26.x / 0.27.x —
@@ -385,6 +489,8 @@ Version-aligned with **SKaiNET 0.21.0**.
 Last published transformers release before the engine-aligned version line.
 See `git log v0.16.0..0.18.0` for details.
 
+[0.30.0]: https://github.com/SKaiNET-developers/SKaiNET-transformers/releases/tag/0.30.0
+[0.28.1]: https://github.com/SKaiNET-developers/SKaiNET-transformers/releases/tag/0.28.1
 [0.23.1]: https://github.com/SKaiNET-developers/SKaiNET-transformers/releases/tag/0.23.1
 [0.21.1]: https://github.com/SKaiNET-developers/SKaiNET-transformers/releases/tag/0.21.1
 [0.21.0]: https://github.com/SKaiNET-developers/SKaiNET-transformers/releases/tag/0.21.0
