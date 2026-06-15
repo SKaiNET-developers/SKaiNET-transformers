@@ -5,6 +5,7 @@ import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.data.Q4_KBlockTensorData
 import sk.ainet.lang.tensor.data.Q5_KBlockTensorData
 import sk.ainet.lang.tensor.data.Q6_KBlockTensorData
+import sk.ainet.lang.tensor.data.Q8_0BlockTensorData
 import sk.ainet.lang.tensor.data.TensorData
 import sk.ainet.lang.types.DType
 
@@ -66,8 +67,8 @@ internal fun relayoutKSeriesRowMajorToBlockMajor(
     bytes: ByteArray,
     shape: Shape,
     bytesPerBlock: Int,
+    blockSize: Int = 256,
 ): ByteArray {
-    val blockSize = 256
     require(shape.rank == 2) { "K-series weight must be 2D, got rank ${shape.rank}" }
     val outDim = shape[0]
     val inDim = shape[1]
@@ -88,19 +89,31 @@ internal fun relayoutKSeriesRowMajorToBlockMajor(
     return out
 }
 
-/** Bytes per ggml block for the K-quant types this packer handles. */
-private fun kQuantBytesPerBlock(qt: GGMLQuantizationType): Int? = when (qt) {
-    GGMLQuantizationType.Q4_K -> 144
-    GGMLQuantizationType.Q5_K -> 176
-    GGMLQuantizationType.Q6_K -> 210
+/**
+ * Block geometry `(blockElems, bytesPerBlock)` for the quant types this packer
+ * handles. The K-series are 256-element super-blocks; Q8_0 is a 32-element block
+ * (f16 scale + 32 int8). All four have a first-class CPU matmul kernel + a lazy
+ * transpose in `ops.transpose`, so all four can stay packed instead of FP32.
+ */
+private fun quantBlockLayout(qt: GGMLQuantizationType): Pair<Int, Int>? = when (qt) {
+    GGMLQuantizationType.Q4_K -> 256 to 144
+    GGMLQuantizationType.Q5_K -> 256 to 176
+    GGMLQuantizationType.Q6_K -> 256 to 210
+    GGMLQuantizationType.Q8_0 -> 32 to 34
     else -> null
 }
 
 /**
- * Pack raw GGUF K-quant `bytes` of logical `[out, in]` shape into the
- * heap-packed block tensor data the matmul kernels read directly (Q4_K / Q5_K /
- * Q6_K). Performs the row-major → block-major relayout. Returns `null` for
- * non-K-quant types (caller dequantizes those to FP32).
+ * Pack raw GGUF `bytes` of logical `[out, in]` shape into the heap-packed block
+ * tensor data the matmul kernels read directly (Q4_K / Q5_K / Q6_K / Q8_0).
+ * Performs the row-major → block-major relayout. Returns `null` for types
+ * without a packed kernel (caller dequantizes those to FP32).
+ *
+ * Q8_0 matters for gemma's tied `output`/lm_head: FunctionGemma's token_embd is
+ * Q8_0, so keeping the lm_head packed (vs ~0.67 GB FP32) is what lets the eager
+ * decode fit the 1.9 GB board, and it runs on the NEON Q8_0 kernel. (Requires
+ * the Q8_0 case in `ops.transpose` — engine — so `linearProject` can transpose
+ * the packed weight; see transformers #178.)
  *
  * commonMain → works on JVM and Kotlin/Native alike (no MemSeg / Arena).
  */
@@ -109,13 +122,14 @@ internal fun <T : DType> packGemmaKQuant(
     qt: GGMLQuantizationType,
     shape: Shape,
 ): TensorData<T, *>? {
-    val bpb = kQuantBytesPerBlock(qt) ?: return null
-    val relaid = relayoutKSeriesRowMajorToBlockMajor(bytes, shape, bpb)
+    val (blockElems, bpb) = quantBlockLayout(qt) ?: return null
+    val relaid = relayoutKSeriesRowMajorToBlockMajor(bytes, shape, bpb, blockElems)
     @Suppress("UNCHECKED_CAST")
     return when (qt) {
         GGMLQuantizationType.Q4_K -> Q4_KBlockTensorData(shape, relaid) as TensorData<T, *>
         GGMLQuantizationType.Q5_K -> Q5_KBlockTensorData(shape, relaid) as TensorData<T, *>
         GGMLQuantizationType.Q6_K -> Q6_KBlockTensorData(shape, relaid) as TensorData<T, *>
+        GGMLQuantizationType.Q8_0 -> Q8_0BlockTensorData(shape, relaid) as TensorData<T, *>
         else -> null
     }
 }

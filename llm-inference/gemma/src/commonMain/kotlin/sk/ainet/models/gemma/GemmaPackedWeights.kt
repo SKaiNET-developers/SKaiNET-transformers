@@ -5,6 +5,7 @@ import sk.ainet.io.gguf.GGMLQuantizationType
 import sk.ainet.io.gguf.dequant.DequantOps
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.Tensor
+import sk.ainet.lang.tensor.data.DenseFloatArrayTensorData
 import sk.ainet.lang.tensor.data.IntArrayTensorData
 import sk.ainet.lang.tensor.data.TensorData
 import sk.ainet.lang.types.DType
@@ -48,8 +49,12 @@ public fun convertGemmaWeightsPacked(
                     tensor // unknown 2-D layout — leave as-is
                 } else {
                     val bytes = extractRawBytes(tensor.data)
-                    val isEmbed = name == Gemma4TensorNames.TOKEN_EMBEDDINGS ||
-                        name == Gemma4TensorNames.OUTPUT_WEIGHT
+                    // Only the token-embedding table is gathered (row lookup) and so
+                    // must be FP32 here. `output`/lm_head is a real matmul weight —
+                    // it stays packed (FunctionGemma's tied output is Q8_0 → NEON
+                    // Q8_0 kernel, transposed lazily by ops.transpose) instead of a
+                    // second ~0.67 GB FP32 copy that would OOM the 1.9 GB board.
+                    val isEmbed = name == Gemma4TensorNames.TOKEN_EMBEDDINGS
                     val packed = if (!isEmbed) packGemmaKQuant<FP32>(bytes, qt, shape) else null
                     when {
                         packed != null -> {
@@ -76,7 +81,11 @@ private fun dequantNoTranspose(
     ctx: ExecutionContext,
 ): Tensor<DType, Any> {
     val floats = DequantOps.dequantFromBytes(bytes, qt, shape.volume)
-    return ctx.fromFloatArray<FP32, Float>(shape, FP32::class, floats) as Tensor<DType, Any>
+    // Wrap the dequant array directly (no-copy) rather than ctx.fromFloatArray,
+    // which routes through BufferHandleFactory.owned and allocates a second
+    // full-size buffer — for the 262k×640 FP32 token_embd (~0.67 GB) that
+    // transient double is itself enough to OOM the 1.9 GB board.
+    return ctx.fromData(DenseFloatArrayTensorData<FP32>(shape, floats), FP32::class) as Tensor<DType, Any>
 }
 
 /**
