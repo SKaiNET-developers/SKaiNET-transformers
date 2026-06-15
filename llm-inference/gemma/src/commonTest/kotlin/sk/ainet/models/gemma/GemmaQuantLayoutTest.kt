@@ -8,6 +8,7 @@ import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.gguf.GGMLQuantizationType
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.data.Q5_KBlockTensorData
+import sk.ainet.lang.tensor.data.Q8_0BlockTensorData
 import sk.ainet.lang.types.FP32
 import sk.ainet.lang.types.Int8
 
@@ -55,8 +56,17 @@ class GemmaQuantLayoutTest {
     }
 
     @Test
-    fun pack_non_kquant_returns_null() {
-        assertNull(packGemmaKQuant<FP32>(ByteArray(34), GGMLQuantizationType.Q8_0, Shape(1, 32)))
+    fun pack_q8_0_produces_block_tensor() {
+        // Q8_0 is now packed (32 elems / 34 B per block) so a tied Q8_0 lm_head
+        // stays packed and runs on the Q8_0 kernel instead of dequanting to FP32.
+        val td = packGemmaKQuant<FP32>(ByteArray(34), GGMLQuantizationType.Q8_0, Shape(1, 32))
+        assertTrue(td is Q8_0BlockTensorData, "Q8_0 should pack to Q8_0BlockTensorData")
+    }
+
+    @Test
+    fun pack_unsupported_quant_returns_null() {
+        // A quant type with no packed kernel (e.g. Q4_1) falls back to FP32 dequant.
+        assertNull(packGemmaKQuant<FP32>(ByteArray(20), GGMLQuantizationType.Q4_1, Shape(1, 32)))
     }
 
     @Test
