@@ -862,7 +862,8 @@ public final class sk/ainet/models/gemma/GemmaNetworkLoader$WeightsProvider$Safe
 }
 
 public final class sk/ainet/models/gemma/GemmaNetworkLoaderKt {
-	public static final fun applyWeightsToNetworkNonReified (Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/gemma/Gemma4Weights;Lkotlin/reflect/KClass;Z)Lsk/ainet/lang/nn/Module;
+	public static final fun applyWeightsToNetworkNonReified (Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/gemma/Gemma4Weights;Lkotlin/reflect/KClass;ZLjava/lang/Integer;)Lsk/ainet/lang/nn/Module;
+	public static synthetic fun applyWeightsToNetworkNonReified$default (Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/gemma/Gemma4Weights;Lkotlin/reflect/KClass;ZLjava/lang/Integer;ILjava/lang/Object;)Lsk/ainet/lang/nn/Module;
 }
 
 public final class sk/ainet/models/gemma/GemmaPackedWeightsKt {

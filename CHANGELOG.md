@@ -7,6 +7,47 @@ version line is kept in lock-step with the underlying SKaiNET engine
 The format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.31.0] — 2026-06-15
+
+Version-aligned with **SKaiNET 0.31.0**. Completes the eager board-decode path
+for FunctionGemma: the tied **Q8_0 lm_head now stays packed** (paired with the
+engine's `ops.transpose` fix for all packed dtypes), and `load()` can cap the
+context to fit constrained devices.
+
+### Added
+
+- **`maxInferenceLen` on `GemmaNetworkLoader.load()`** — an optional cap on the
+  context length the eager network sizes its KV cache + RoPE tables for (default
+  `min(contextLength, 4096)`, threaded through `applyWeightsToNetwork` →
+  `gemmaNetwork`). A constrained-device consumer (e.g. the 1.9 GB SL2610 board)
+  can pass a small value (e.g. `32` for a short tool-call prompt) to shrink the
+  KV cache ~100×, which otherwise allocates ~0.4 GB at the first forward and OOMs
+  the board after the weights load. Default `null` preserves existing behaviour. (#180)
+
+### Changed
+
+- **`gradle/libs.versions.toml` `skainet` pin: 0.30.0 → 0.31.0.** Picks up the
+  engine's `ops.transpose` lazy-rewrap fix for **all** packed matmul dtypes
+  (Q8_0/Q4_0 added) — required so the packed Q8_0 lm_head below transposes
+  through `linearProject` instead of throwing `ClassCastException`. Downstream
+  consumers get the upstream SKaiNET BOM transparently via `:llm-bom`.
+- **`gradle.properties` `VERSION_NAME=0.31.0`.** Lock-step with the engine.
+- **`com.networknt:json-schema-validator` → 3.0.4.** (#175)
+
+### Fixed
+
+- **Tied Q8_0 lm_head stays packed in the eager `NATIVE_OPTIMIZED` Gemma path.**
+  FunctionGemma's `token_embd` is Q8_0 and tied, so `convertGemmaWeightsPacked`
+  was dequantizing **both** `token_embd` and `output` to FP32 (2×~0.67 GB) —
+  OOM on the 1.9 GB SL2610. `output`/lm_head now packs as Q8_0
+  (`packGemmaKQuant` gained a Q8_0 case; the row-major→block-major relayout is
+  generalized with a `blockSize` param) and runs on the (NEON) Q8_0 kernel;
+  `token_embd` stays FP32 (it is gathered, not matmul'd) but is wrapped no-copy
+  via `DenseFloatArrayTensorData` instead of `ctx.fromFloatArray` (which
+  allocated a second ~0.67 GB buffer). Tied embed/lm_head footprint
+  ~1.34 GB → ~0.76 GB. Verified byte-identical decode parity
+  (`GemmaQ5KPackedParityTest`) and a stable ~1.06 GB load on the SL2610. (#179)
+
 ## [0.30.0] — 2026-06-14
 
 Version-aligned with **SKaiNET 0.30.0**. Skips 0.29.x — SKaiNET-transformers
@@ -489,6 +530,7 @@ Version-aligned with **SKaiNET 0.21.0**.
 Last published transformers release before the engine-aligned version line.
 See `git log v0.16.0..0.18.0` for details.
 
+[0.31.0]: https://github.com/SKaiNET-developers/SKaiNET-transformers/releases/tag/0.31.0
 [0.30.0]: https://github.com/SKaiNET-developers/SKaiNET-transformers/releases/tag/0.30.0
 [0.28.1]: https://github.com/SKaiNET-developers/SKaiNET-transformers/releases/tag/0.28.1
 [0.23.1]: https://github.com/SKaiNET-developers/SKaiNET-transformers/releases/tag/0.23.1

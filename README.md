@@ -103,21 +103,20 @@ Honest status — see the project-status note at the top of this README.
 
 ## Current release
 
-The current release is **0.30.0** — version-aligned with **SKaiNET 0.30.0**.
-Skips 0.29.x: SKaiNET-transformers tracked the engine internally across that
-window without a tagged release. The headline is that **Q5_K weights now stay
-packed in the eager Gemma runtime** (SKaiNET 0.30.0 ships a first-class Q5_K
-packed matmul) and the Gemma `NATIVE_OPTIMIZED` packed-weight path is now
-**Kotlin/Native–ready** — the board binary can keep K-quant weights packed
-without the JVM's `java.lang.foreign` MemSeg path. FunctionGemma-270M (`Q5_K_M`)
-decodes byte-identically across the FP32 baseline and both packed paths
-(`GemmaQ5KPackedParityTest`).
+The current release is **0.31.0** — version-aligned with **SKaiNET 0.31.0**.
+The headline is that the eager `NATIVE_OPTIMIZED` Gemma path now keeps the
+**tied Q8_0 lm_head packed** (paired with SKaiNET 0.31.0's `ops.transpose` fix
+for all packed dtypes), and `GemmaNetworkLoader.load()` takes an optional
+`maxInferenceLen` to cap the KV cache for constrained devices — together
+dropping FunctionGemma-270M's footprint enough to load eagerly on the 1.9 GB
+Astra Machina SL2610. FunctionGemma (`Q5_K_M`) still decodes byte-identically
+across the FP32 baseline and both packed paths (`GemmaQ5KPackedParityTest`).
 
 The recommended way to consume is via the BOM. It pins every published `skainet-transformers-*` artifact and re-exports the upstream `sk.ainet:skainet-bom`, so the engine-side `sk.ainet.core:skainet-*` artifacts get the matching version too — you only need to declare the BOM version in one place.
 
 ```kotlin
 dependencies {
-    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.30.0"))
+    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.31.0"))
 
     // Versions resolved from the BOM:
     implementation("sk.ainet.transformers:skainet-transformers-core")
@@ -193,6 +192,22 @@ try (KLlamaSession session = KLlamaJava.loadGGUF(modelPath, /* systemPrompt */ n
 ```
 
 See `llm-test/llm-test-java/src/test/java/.../KLlamaJavaToolCallingTest.java` for a runnable reference.
+
+## What's new in 0.31.0
+
+- **Tied Q8_0 lm_head stays packed (eager `NATIVE_OPTIMIZED`).** FunctionGemma's
+  `token_embd` is Q8_0 and tied, so `convertGemmaWeightsPacked` was dequantizing
+  *both* `token_embd` and `output` to FP32 (2×~0.67 GB) — OOM on the 1.9 GB
+  SL2610. `output`/lm_head now packs as Q8_0 (runs on the NEON Q8_0 kernel);
+  `token_embd` stays FP32 (it's gathered) but is wrapped no-copy. Footprint
+  ~1.34 GB → ~0.76 GB; byte-identical decode (`GemmaQ5KPackedParityTest`),
+  stable ~1.06 GB load on the SL2610.
+- **`GemmaNetworkLoader.load(maxInferenceLen = …)`** — cap the context so the KV
+  cache + RoPE tables stay tiny on constrained devices (default
+  `min(contextLength, 4096)`).
+- **Engine pin `skainet 0.30.0 → 0.31.0`** — picks up `ops.transpose`'s
+  lazy-rewrap fix for all packed matmul dtypes (Q8_0/Q4_0), required so the
+  packed lm_head transposes through `linearProject` instead of `ClassCastException`.
 
 ## What's new in 0.30.0
 
