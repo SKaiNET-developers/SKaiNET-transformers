@@ -37,6 +37,28 @@ class BomCoveragePlugin : Plugin<Project> {
                 )
             }
 
+            // Fail fast (at configuration time, not at Maven Central deploy time) when a NEW published
+            // module forgot its gradle.properties. Without POM_ARTIFACT_ID the artifact silently defaults
+            // to the bare project name (wrong coordinates / not the skainet-transformers-* convention);
+            // without POM_NAME, Maven Central rejects the deploy. This recurs on every new module — catch it.
+            val pomProblems = publishedPaths.mapNotNull { path ->
+                val p = project.project(path)
+                val missing = buildList {
+                    if (p.findProperty("POM_ARTIFACT_ID")?.toString().isNullOrBlank()) add("POM_ARTIFACT_ID")
+                    if (p.findProperty("POM_NAME")?.toString().isNullOrBlank()) add("POM_NAME")
+                }
+                if (missing.isEmpty()) null else "$path — missing ${missing.joinToString(" + ")}"
+            }
+            if (pomProblems.isNotEmpty()) {
+                throw GradleException(
+                    "[bom-coverage] Published module(s) are missing required POM properties — the Maven " +
+                        "Central deploy would fail:\n" +
+                        pomProblems.joinToString("\n") { "  - $it" } +
+                        "\nAdd a `gradle.properties` to each module with POM_ARTIFACT_ID + POM_NAME " +
+                        "(see `llm-core/gradle.properties`)."
+                )
+            }
+
             project.dependencies.constraints {
                 publishedPaths.forEach { add("api", project.project(it)) }
             }

@@ -4,7 +4,8 @@
 == Module Structure
 
 ----
-llm-core                    Core abstractions (Tokenizer, InferenceRuntime, ModelRegistry)
+transformer-core            NN primitives (attention, KV-cache, embedding, norms, RoPE, FFNs) — all targets incl. androidNative
+llm-core                    Core abstractions (Tokenizer, InferenceRuntime, ModelRegistry); re-exports transformer-core
 llm-agent                   Chat templates, tool calling, AgentLoop, ChatSession
 llm-inference/
   llama/                    LLaMA/Qwen network definition and weight loading

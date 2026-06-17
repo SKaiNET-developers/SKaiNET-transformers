@@ -52,7 +52,7 @@ The pieces you need live in three modules:
 [source,kotlin]
 ----
 dependencies {
-    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.31.0"))
+    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.31.1"))
 
     implementation("sk.ainet.transformers:skainet-transformers-runtime-kllama")
     implementation("sk.ainet.transformers:skainet-transformers-agent")
