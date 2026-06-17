@@ -103,8 +103,13 @@ Honest status — see the project-status note at the top of this README.
 
 ## Current release
 
-The current release is **0.31.0** — version-aligned with **SKaiNET 0.31.0**.
-The headline is that the eager `NATIVE_OPTIMIZED` Gemma path now keeps the
+The current release is **0.31.1** (against **SKaiNET 0.31.0**). It adds
+**`transformer-core`** — the framework NN primitives (attention, KV-cache family,
+embedding, norms, RoPE, FFNs, linear projection) extracted out of `llm-core` so they
+build on the **full target matrix including `androidNative`** (32-bit + 64-bit ARM);
+`llm-core` re-exports it, so nothing changes for existing consumers, and ARM-native
+downstreams (e.g. on-device whisper) can reuse the primitives instead of reimplementing
+them. The 0.31.0 highlights still apply: the eager `NATIVE_OPTIMIZED` Gemma path keeps the
 **tied Q8_0 lm_head packed** (paired with SKaiNET 0.31.0's `ops.transpose` fix
 for all packed dtypes), and `GemmaNetworkLoader.load()` takes an optional
 `maxInferenceLen` to cap the KV cache for constrained devices — together
@@ -116,7 +121,7 @@ The recommended way to consume is via the BOM. It pins every published `skainet-
 
 ```kotlin
 dependencies {
-    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.31.0"))
+    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.31.1"))
 
     // Versions resolved from the BOM:
     implementation("sk.ainet.transformers:skainet-transformers-core")
@@ -141,6 +146,7 @@ dependencies {
 | Module               | Purpose                                                                 |
 | -------------------- | ----------------------------------------------------------------------- |
 | `llm-api`            | Framework-neutral interfaces (`ChatModel`, `EmbeddingModel`, `ToolDefinition`) — Spring AI-shaped. |
+| `transformer-core`   | Framework NN primitives (attention, KV-cache family, embedding, norms, RoPE, FFNs, linear projection). `lang-core`-only → **all targets incl. `androidNative`**; re-exported by `llm-core`. |
 | `llm-core`           | `OptimizedLLMRuntime`, `ModelRegistry`, `UnifiedModelLoader`, shared abstractions. |
 | `llm-inference/<arch>` | Per-architecture network DSLs and weight loaders (`llama`, `gemma`, `qwen`, `apertus`, `bert`). |
 | `llm-runtime/<arch>` | Per-architecture runtime facades (`kllama`, `kgemma`, `kqwen`, `kapertus`). |
@@ -192,6 +198,15 @@ try (KLlamaSession session = KLlamaJava.loadGGUF(modelPath, /* systemPrompt */ n
 ```
 
 See `llm-test/llm-test-java/src/test/java/.../KLlamaJavaToolCallingTest.java` for a runnable reference.
+
+## What's new in 0.31.1
+
+- **`transformer-core` module — NN primitives reusable on all targets incl. `androidNative`.** The
+  attention / KV-cache / embedding / norm / RoPE / FFN / linear-projection primitives were trapped in
+  `llm-core` (whose io/compile/backend deps lack `androidNative`); they only need `skainet-lang-core`
+  (which has it), so they're extracted into `transformer-core` and `llm-core` re-exports them. Existing
+  consumers are unaffected; ARM-native downstreams (on-device whisper, future models) reuse them instead of
+  reimplementing. Ships against engine **0.31.0** (additive, no engine change). (#183)
 
 ## What's new in 0.31.0
 

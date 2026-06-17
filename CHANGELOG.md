@@ -7,6 +7,33 @@ version line is kept in lock-step with the underlying SKaiNET engine
 The format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.31.1] — 2026-06-17
+
+Adds **`transformer-core`** — the framework NN primitives (attention, the KV-cache family, embedding,
+norms, RoPE, SwiGLU/GeGLU FFN, residual, linear projection) extracted from `llm-core` so they build on the
+**full Kotlin target matrix including `androidNative`** (32-bit + 64-bit ARM). `llm-core` re-exports it, so
+existing consumers are unaffected; ARM-native downstreams (e.g. on-device whisper) can now reuse the
+primitives instead of reimplementing them.
+
+### Added
+
+- **`transformer-core` module** (`sk.ainet.transformers:skainet-transformers-transformer-core`) — the
+  lang-core-only NN primitives, reusable on every target incl. `androidNativeArm32`/`androidNativeArm64`.
+  Depends only on `skainet-lang-core`. Added to the BOM. (#183)
+
+### Changed
+
+- **`llm-core` now `api`-depends on `transformer-core` and re-exports it** (no behaviour change). The NN
+  primitive sources moved out of `llm-core` into `transformer-core`; `dsl/decoder/*` stayed (it needs the
+  compile-opt-coupled `HybridTransformerBlock`). `MultiHeadAttention`'s diagnostic `dumpStats` is decoupled
+  via a settable `mhaStatSink` that `HybridTransformerBlock` wires to llm-core's platform `dumpStats`.
+
+### Notes
+
+- **Engine pin unchanged (`skainet = 0.31.0`).** `transformer-core` needs nothing new from the engine (only
+  `skainet-lang-core`, already in 0.31.0), so this patch ships against engine **0.31.0** — the one case the
+  transformers-`X.Y.Z` ↔ engine-`X.Y.Z` alignment is intentionally relaxed (additive + engine-independent).
+
 ## [0.31.0] — 2026-06-15
 
 Version-aligned with **SKaiNET 0.31.0**. Completes the eager board-decode path
