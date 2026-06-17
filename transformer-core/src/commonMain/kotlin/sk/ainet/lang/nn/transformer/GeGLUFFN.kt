@@ -15,7 +15,7 @@ import kotlin.reflect.KClass
  *
  * Computes: down_proj(gelu(gate_proj(x)) * up_proj(x))
  *
- * Identical parameter layout to [SwiGLUFFN] so [sk.ainet.apps.llm.weights.LlamaGGUFNameResolver]
+ * Identical parameter layout to [SwiGLUFFN] so `LlamaGGUFNameResolver` (llm-core)
  * maps the same GGUF tensor names. The only difference is the activation
  * (GELU instead of SiLU).
  *

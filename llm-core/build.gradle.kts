@@ -48,6 +48,7 @@ kotlin {
             // versions. Bumping the engine is then a one-line change at the
             // top of `gradle/libs.versions.toml`.
             implementation(project.dependencies.platform(project(":llm-bom")))
+            api(project(":transformer-core"))
             implementation(libs.skainet.lang.core)
             implementation(libs.skainet.compile.dag)
             implementation(libs.skainet.compile.opt)

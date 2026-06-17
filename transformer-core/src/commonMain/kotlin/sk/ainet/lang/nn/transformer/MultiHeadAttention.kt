@@ -474,9 +474,15 @@ public class MultiHeadAttention<T : DType, V>(
      *  references. Stats are over the *whole* tensor, not just last
      *  position — different MHA substeps have different shapes. */
     private fun mhaDumpStat(label: String, t: Tensor<T, V>) {
-        sk.ainet.apps.llm.diag.dumpStats(label, t)
+        mhaStatSink?.invoke(label, t)
     }
 }
+
+/**
+ * Optional diagnostic sink for MHA substep stats — decouples `transformer-core` from llm-core's
+ * platform `dumpStats`. Defaults to no-op (diagnostics off); llm-core wires its `dumpStats` into it.
+ */
+public var mhaStatSink: ((String, Tensor<*, *>) -> Unit)? = null
 
 /**
  * Per-call MHA-substep dump gate. The MHA module itself is named just `"attn"`

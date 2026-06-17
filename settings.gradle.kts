@@ -24,6 +24,7 @@ if (providers.gradleProperty("useLocalSkainet").orNull == "true") {
 rootProject.name = "SKaiNET-transformers"
 
 include("llm-api")
+include("transformer-core")
 include("llm-core")
 include("llm-agent")
 include("llm-providers")
