@@ -168,7 +168,11 @@ public class HybridTransformerBlock<T : DType, V>(
             // the same name — so MHA can't gate its own dump on the block id.
             // Toggle the static flag from here, where we know which block we're in.
             val isMhaCall = dumpMha && module is MultiHeadAttention<*, *>
-            if (isMhaCall) sk.ainet.lang.nn.transformer.MultiHeadAttentionDiag.shouldDumpThisCall = true
+            if (isMhaCall) {
+                // wire transformer-core's MHA diagnostic sink to llm-core's platform dumpStats (idempotent)
+                sk.ainet.lang.nn.transformer.mhaStatSink = { l, t -> sk.ainet.apps.llm.diag.dumpStats(l, t) }
+                sk.ainet.lang.nn.transformer.MultiHeadAttentionDiag.shouldDumpThisCall = true
+            }
             tmp = module.forward(tmp, ctx)
             if (isMhaCall) sk.ainet.lang.nn.transformer.MultiHeadAttentionDiag.shouldDumpThisCall = false
             outputs[i + 1] = tmp
