@@ -333,6 +333,24 @@ public class MultiHeadAttention<T : DType, V>(
             mhaDumpStat("[blk.0.mha cached-V (full)  ]", fullV)
         }
 
+        // Fused decode-attention fast path — the hot autoregressive case.
+        // When seqQ == 1 (one token per forward), self-attention, and no
+        // sliding-window mask, compute scores → softmax → (GQA) weighted-V
+        // directly from the cached K/V buffers in a single buffer-direct pass,
+        // emitting the merged [1, qDim] output. This skips repeatKVHeads' concat
+        // (built every token/layer), the unsqueeze → SDPA → squeeze → permute
+        // chain, and every intermediate tensor those allocate — which the
+        // jstack profile (docs/upstream/A2-PROFILE.md) showed dominate decode.
+        // Numerically identical to the general path below for seqLen 1 (same
+        // max-stable softmax, same GQA head mapping head h → kv head h/nRep).
+        if (qSeqLen == 1 && !isCrossAttention && slidingWindow == null) {
+            val merged = fusedDecodeAttention(q, fullK, fullV, scale, ctx)
+            var output = linearProject(ops, merged, wO)
+            if (bias) output = ops.add(output, params[oWIdx + 1].value)
+            if (mhaDump) mhaDumpStat("[blk.0.mha post-fused-decode ]", output)
+            return output
+        }
+
         // Expand KV heads for GQA if needed
         val expandedK = if (nKVHeads < nHeads) repeatKVHeads(fullK, nHeads / nKVHeads, ops) else fullK
         val expandedV = if (nKVHeads < nHeads) repeatKVHeads(fullV, nHeads / nKVHeads, ops) else fullV
@@ -389,6 +407,69 @@ public class MultiHeadAttention<T : DType, V>(
             output = ops.add(output, params[oWIdx + 1].value)
         }
         return output
+    }
+
+    /**
+     * Fused single-token (decode) attention. [q] is `[nHeads, 1, headDim]`
+     * (heads-first, post-RoPE); [fullK]/[fullV] are `[nKVHeads, seqKV, headDim]`
+     * (post-cache, post-V-norm). Returns the merged `[1, qDim]` context where
+     * row 0 is the concatenation of each head's output — exactly what the
+     * general SDPA + squeeze + swapSeqHeadDims + reshape chain produces for
+     * seqLen 1, but with zero intermediate tensors. GQA query head `h` reads KV
+     * head `h / (nHeads / nKVHeads)`, matching [repeatKVHeads].
+     */
+    private fun fusedDecodeAttention(
+        q: Tensor<T, V>,
+        fullK: Tensor<T, V>,
+        fullV: Tensor<T, V>,
+        scale: Float,
+        ctx: ExecutionContext,
+    ): Tensor<T, V> {
+        val qBuf = q.data.copyToFloatArray()        // [nHeads * headDim]
+        val kBuf = fullK.data.copyToFloatArray()    // [nKVHeads * seqKV * headDim]
+        val vBuf = fullV.data.copyToFloatArray()    // [nKVHeads * seqKV * headDim]
+        val seqKV = fullK.shape[1]
+        val nRep = nHeads / nKVHeads
+        val out = FloatArray(nHeads * headDim)      // == qDim, row-major [h, d]
+        val scores = FloatArray(seqKV)
+        for (h in 0 until nHeads) {
+            val g = h / nRep                        // GQA: which KV head this query head reads
+            val qOff = h * headDim
+            val kvHeadBase = g * seqKV * headDim
+            // scores[ki] = (q_h · k_{g,ki}) * scale, tracking the max for a stable softmax
+            var maxV = Float.NEGATIVE_INFINITY
+            for (ki in 0 until seqKV) {
+                val kOff = kvHeadBase + ki * headDim
+                var dot = 0f
+                for (d in 0 until headDim) dot += qBuf[qOff + d] * kBuf[kOff + d]
+                val s = dot * scale
+                scores[ki] = s
+                if (s > maxV) maxV = s
+            }
+            // softmax over keys
+            var sum = 0f
+            for (ki in 0 until seqKV) {
+                val e = kotlin.math.exp(scores[ki] - maxV)
+                scores[ki] = e
+                sum += e
+            }
+            val inv = if (sum > 0f) 1f / sum else 0f
+            // context_h = Σ_ki softmax_ki * v_{g,ki}
+            val oOff = h * headDim
+            for (d in 0 until headDim) {
+                var acc = 0f
+                for (ki in 0 until seqKV) {
+                    acc += scores[ki] * vBuf[kvHeadBase + ki * headDim + d]
+                }
+                out[oOff + d] = acc * inv
+            }
+        }
+        @Suppress("UNCHECKED_CAST")
+        return ctx.fromData(
+            sk.ainet.lang.tensor.data.DenseFloatArrayTensorData<T>(Shape(1, qDim), out)
+                as sk.ainet.lang.tensor.data.TensorData<T, V>,
+            q.dtype,
+        )
     }
 
     /**
