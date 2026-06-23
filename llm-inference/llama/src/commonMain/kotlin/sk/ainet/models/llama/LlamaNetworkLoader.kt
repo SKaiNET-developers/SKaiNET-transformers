@@ -156,7 +156,18 @@ public class LlamaNetworkLoader @PublishedApi internal constructor(
             }
         }
 
-        return applyWeightsToNetwork(weights)
+        // NATIVE_OPTIMIZED keeps quantized tensors as raw 1-D bytes; convert them to the packed /
+        // FP32 forms the DSL matmul + gather paths consume (mirrors the Gemma packed path).
+        val ggufPolicy = (weightsProvider as? WeightsProvider.GgufSource)?.quantPolicy
+            ?: (weightsProvider as? WeightsProvider.GgufRandomAccess)?.quantPolicy
+        val finalWeights: DecoderGgufWeights<T, V> = if (ggufPolicy == QuantPolicy.NATIVE_OPTIMIZED) {
+            @Suppress("UNCHECKED_CAST")
+            convertLlamaWeightsPacked(weights, ctx) as DecoderGgufWeights<T, V>
+        } else {
+            weights
+        }
+
+        return applyWeightsToNetwork(finalWeights)
     }
 
     /**
