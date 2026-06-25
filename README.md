@@ -103,25 +103,27 @@ Honest status — see the project-status note at the top of this README.
 
 ## Current release
 
-The current release is **0.31.1** (against **SKaiNET 0.31.0**). It adds
-**`transformer-core`** — the framework NN primitives (attention, KV-cache family,
-embedding, norms, RoPE, FFNs, linear projection) extracted out of `llm-core` so they
-build on the **full target matrix including `androidNative`** (32-bit + 64-bit ARM);
-`llm-core` re-exports it, so nothing changes for existing consumers, and ARM-native
-downstreams (e.g. on-device whisper) can reuse the primitives instead of reimplementing
-them. The 0.31.0 highlights still apply: the eager `NATIVE_OPTIMIZED` Gemma path keeps the
-**tied Q8_0 lm_head packed** (paired with SKaiNET 0.31.0's `ops.transpose` fix
-for all packed dtypes), and `GemmaNetworkLoader.load()` takes an optional
-`maxInferenceLen` to cap the KV cache for constrained devices — together
-dropping FunctionGemma-270M's footprint enough to load eagerly on the 1.9 GB
-Astra Machina SL2610. FunctionGemma (`Q5_K_M`) still decodes byte-identically
-across the FP32 baseline and both packed paths (`GemmaQ5KPackedParityTest`).
+The current release is **0.32.0** (against **SKaiNET 0.32.0**). It brings the
+real-GGUF **Llama** eager path up to the Gemma standard and **unblocks StableHLO/IREE
+export for Llama-family models**:
+
+- The eager **`NATIVE_OPTIMIZED` path now works for Llama** (`Q4_K`/`Q6_K`): weights stay
+  packed and `LlamaNetworkLoader.fromGguf(NATIVE_OPTIMIZED) + OptimizedLLMRuntime` decodes
+  coherently, matching llama.cpp — fixing the packed token-embedding
+  `gather: unsupported input rank 1`.
+- **Fused decode-attention** (`seqQ == 1`) skips the `repeatKVHeads` concat + SDPA plumbing
+  for a faster decode loop (~1.5×), bit-identical output.
+- **Interleaved RoPE is now traceable**, so Llama/Mistral/GGUF graphs export to StableHLO
+  (and `iree-compile` to a `vmfb`) instead of baking a disconnected constant.
+
+The earlier `transformer-core` extraction (0.31.1) and the Gemma `NATIVE_OPTIMIZED`
+footprint work (0.31.0) still apply.
 
 The recommended way to consume is via the BOM. It pins every published `skainet-transformers-*` artifact and re-exports the upstream `sk.ainet:skainet-bom`, so the engine-side `sk.ainet.core:skainet-*` artifacts get the matching version too — you only need to declare the BOM version in one place.
 
 ```kotlin
 dependencies {
-    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.31.1"))
+    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.32.0"))
 
     // Versions resolved from the BOM:
     implementation("sk.ainet.transformers:skainet-transformers-core")
@@ -198,6 +200,24 @@ try (KLlamaSession session = KLlamaJava.loadGGUF(modelPath, /* systemPrompt */ n
 ```
 
 See `llm-test/llm-test-java/src/test/java/.../KLlamaJavaToolCallingTest.java` for a runnable reference.
+
+## What's new in 0.32.0
+
+- **Eager `NATIVE_OPTIMIZED` for real-GGUF Llama.** `LlamaNetworkLoader.fromGguf(NATIVE_OPTIMIZED)`
+  now keeps `Q4_K`/`Q6_K` weights packed and runs them through `OptimizedLLMRuntime`, mirroring the
+  Gemma path (new `LlamaQuantLayout` + `LlamaPackedWeights.convertLlamaWeightsPacked`). Output is
+  coherent and matches llama.cpp; fixes the packed token-embedding `gather: unsupported input rank 1`.
+  This is the low-footprint path real-GGUF Llama inference on constrained ARM was missing. (ccbd87e)
+- **Fused decode-attention fast path.** For the decode step (`seqQ == 1`), `MultiHeadAttention` runs
+  scores → softmax → GQA-weighted-V straight from the cached K/V, bypassing the `repeatKVHeads` concat
+  and the `unsqueeze → SDPA → squeeze → permute` chain. ~1.5× decode throughput on the JVM eager path;
+  bit-for-bit-equivalent output. Prefill keeps the general SDPA path. (3791f88)
+- **Traceable interleaved RoPE (graph export).** `RoPE` in `INTERLEAVED` mode (Llama / Mistral / most
+  GGUF) used a raw-array path (`copyToFloatArray` / `fromFloatArray`) that, under graph tracing, recorded
+  the rotated Q/K as a *disconnected constant* — severing them from the projection weights and crashing
+  `iree-compile` downstream. It now records the rotation as tensor ops when tracing (gated on the tracing
+  wrapper; eager keeps the fast raw-array path byte-identical). Unblocks TinyLlama → StableHLO → IREE. (019b049)
+- **Engine pin `skainet 0.31.0 → 0.32.0`.**
 
 ## What's new in 0.31.1
 

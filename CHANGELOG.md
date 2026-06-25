@@ -7,6 +7,39 @@ version line is kept in lock-step with the underlying SKaiNET engine
 The format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.32.0] — 2026-06-25
+
+Brings the real-GGUF **Llama** eager path up to the Gemma standard (packed
+`NATIVE_OPTIMIZED`) and **unblocks StableHLO/IREE export for Llama-family models**
+(traceable interleaved RoPE). Ships against engine **0.32.0**.
+
+### Added
+
+- **Eager `NATIVE_OPTIMIZED` packed path for Llama.** `LlamaNetworkLoader.fromGguf(NATIVE_OPTIMIZED)`
+  keeps `Q4_K`/`Q6_K` weights packed and runs them through `OptimizedLLMRuntime` — new `LlamaQuantLayout`
+  + `LlamaPackedWeights.convertLlamaWeightsPacked`, mirroring `convertGemmaWeightsPacked`. Coherent
+  output matching llama.cpp; the low-footprint path real-GGUF Llama inference on constrained ARM was
+  missing. (ccbd87e)
+
+### Changed
+
+- **Fused decode-attention fast path.** `MultiHeadAttention`'s decode step (`seqQ == 1`) now computes
+  scores → softmax → GQA-weighted-V directly from the cached K/V, bypassing the `repeatKVHeads` concat
+  and the `unsqueeze → SDPA → squeeze → permute` chain — ~1.5× decode throughput, bit-identical output.
+  Prefill (`seqLen > 1`) keeps the general SDPA path. (3791f88)
+- **Engine pin `skainet 0.31.0 → 0.32.0`.**
+
+### Fixed
+
+- **Packed token-embedding gather for Llama** — `fromGguf(NATIVE_OPTIMIZED)` no longer fails with
+  `gather: unsupported input rank 1`; the packed embedding is wired through the canonical loader. (ccbd87e)
+- **Interleaved RoPE is now traceable.** In `INTERLEAVED` mode (Llama / Mistral / most GGUF) the rotation
+  used a raw float-array path (`copyToFloatArray` / `fromFloatArray`) that, under graph tracing, baked the
+  rotated Q/K as a *disconnected constant* — severing them from the projection weights and crashing
+  `iree-compile` (null-deref in constant folding) on the exported graph. `RoPE` now records the rotation
+  as tensor ops when running under the tracing wrapper; eager execution keeps the byte-identical raw-array
+  fast path. Unblocks Llama/Mistral/GGUF StableHLO/IREE export. (019b049)
+
 ## [0.31.1] — 2026-06-17
 
 Adds **`transformer-core`** — the framework NN primitives (attention, the KV-cache family, embedding,
