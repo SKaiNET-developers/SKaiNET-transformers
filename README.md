@@ -103,7 +103,7 @@ Honest status — see the project-status note at the top of this README.
 
 ## Current release
 
-The current release is **0.32.0** (against **SKaiNET 0.32.0**). It brings the
+The current release is **0.32.0** (against **SKaiNET 0.32.2**). It brings the
 real-GGUF **Llama** eager path up to the Gemma standard and **unblocks StableHLO/IREE
 export for Llama-family models**:
 
@@ -217,7 +217,7 @@ See `llm-test/llm-test-java/src/test/java/.../KLlamaJavaToolCallingTest.java` fo
   the rotated Q/K as a *disconnected constant* — severing them from the projection weights and crashing
   `iree-compile` downstream. It now records the rotation as tensor ops when tracing (gated on the tracing
   wrapper; eager keeps the fast raw-array path byte-identical). Unblocks TinyLlama → StableHLO → IREE. (019b049)
-- **Engine pin `skainet 0.31.0 → 0.32.0`.**
+- **Engine pin `skainet 0.31.0 → 0.32.2`.**
 
 ## What's new in 0.31.1
 

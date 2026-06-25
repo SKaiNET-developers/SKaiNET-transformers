@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Brings the real-GGUF **Llama** eager path up to the Gemma standard (packed
 `NATIVE_OPTIMIZED`) and **unblocks StableHLO/IREE export for Llama-family models**
-(traceable interleaved RoPE). Ships against engine **0.32.0**.
+(traceable interleaved RoPE). Ships against engine **0.32.2**.
 
 ### Added
 
@@ -27,7 +27,8 @@ Brings the real-GGUF **Llama** eager path up to the Gemma standard (packed
   scores → softmax → GQA-weighted-V directly from the cached K/V, bypassing the `repeatKVHeads` concat
   and the `unsqueeze → SDPA → squeeze → permute` chain — ~1.5× decode throughput, bit-identical output.
   Prefill (`seqLen > 1`) keeps the general SDPA path. (3791f88)
-- **Engine pin `skainet 0.31.0 → 0.32.0`.**
+- **Engine pin `skainet 0.31.0 → 0.32.2`** (0.32.2 is the first engine release exposing
+  `ExecutionContext.isRecording`, required by the trace-faithful KV-cache path).
 
 ### Fixed
 
