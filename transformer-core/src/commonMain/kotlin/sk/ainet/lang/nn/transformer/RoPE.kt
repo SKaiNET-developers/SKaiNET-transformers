@@ -4,6 +4,7 @@ import sk.ainet.context.ExecutionContext
 import sk.ainet.lang.nn.Module
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.Tensor
+import sk.ainet.lang.tensor.ops.KspTensorOps
 import sk.ainet.lang.types.DType
 import kotlin.math.cos
 import kotlin.math.pow
@@ -259,6 +260,16 @@ public class RoPE<T : DType, V>(
      * `headDim - rotaryDim` floats of every head are left untouched.
      */
     private fun applyRoPEInterleaved(input: Tensor<T, V>, position: Int, ctx: ExecutionContext): Tensor<T, V> {
+        // Graph tracing: the raw-array path below reads input.data and rebuilds via
+        // fromFloatArray, which records the rotated Q/K as a DISCONNECTED CONSTANT —
+        // severing the link to the projection weights. Post-GQA-broadcast that lowers
+        // to a slice-into-empty const cascade that crashes iree-compile. Under the
+        // tracing wrapper (KspTensorOps), take the traceable op-based path so the
+        // rotation is recorded as tensor ops. Full-rotary only (TinyLlama/Llama/
+        // Mistral); partial rotary keeps the raw path (no GGUF model needs it traced).
+        if (rotaryDim == headDim && input.ops is KspTensorOps) {
+            return applyRoPEInterleavedOps(input, position, ctx)
+        }
         val data = input.data.copyToFloatArray()
         val lastDim = input.shape[input.rank - 1]
         require(lastDim == headDim) { "RoPE input last dim ($lastDim) != headDim ($headDim)" }
@@ -286,5 +297,70 @@ public class RoPE<T : DType, V>(
         }
 
         return ctx.fromFloatArray(input.shape, input.dtype, data)
+    }
+
+    /**
+     * Traceable interleaved RoPE: pure tensor ops, numerically identical to
+     * [applyRoPEInterleaved] but recordable to a compute graph. Used under
+     * void/graph tracing where the raw-array path bakes a disconnected constant.
+     *
+     * Interleaved pairing `(x[2i], x[2i+1])` is realized by reshaping the head
+     * dim `[headDim] -> [halfRotary, 2]` (row-major: `[i,0]=x[2i]`, `[i,1]=x[2i+1]`),
+     * rotating the even/odd planes, then reshaping back. Full-rotary only
+     * (`rotaryDim == headDim`); the caller gates on that.
+     */
+    private fun applyRoPEInterleavedOps(input: Tensor<T, V>, position: Int, ctx: ExecutionContext): Tensor<T, V> {
+        val ops = ctx.ops
+        val rank = input.rank
+        val lastDim = input.shape[rank - 1]
+        require(lastDim == headDim) { "RoPE input last dim ($lastDim) != headDim ($headDim)" }
+        val seqLen = input.shape[rank - 2]
+
+        // cos/sin tables [seqLen, halfRotary] for the requested positions — same
+        // tables as the raw path, so the rotation is bit-for-bit equivalent.
+        val cosData = FloatArray(seqLen * halfRotary)
+        val sinData = FloatArray(seqLen * halfRotary)
+        for (s in 0 until seqLen) {
+            val pos = position + s
+            for (i in 0 until halfRotary) {
+                cosData[s * halfRotary + i] = cosTable[pos * halfRotary + i]
+                sinData[s * halfRotary + i] = sinTable[pos * halfRotary + i]
+            }
+        }
+        val tableShape = Shape(seqLen, halfRotary)
+        @Suppress("UNCHECKED_CAST")
+        val cosTensor: Tensor<T, V> = ctx.fromData(
+            sk.ainet.lang.tensor.data.DenseFloatArrayTensorData<T>(tableShape, cosData) as sk.ainet.lang.tensor.data.TensorData<T, V>,
+            input.dtype,
+        )
+        @Suppress("UNCHECKED_CAST")
+        val sinTensor: Tensor<T, V> = ctx.fromData(
+            sk.ainet.lang.tensor.data.DenseFloatArrayTensorData<T>(tableShape, sinData) as sk.ainet.lang.tensor.data.TensorData<T, V>,
+            input.dtype,
+        )
+
+        // [..., seqLen, headDim] -> [..., seqLen, halfRotary, 2] so interleaved pairs
+        // land on the trailing size-2 axis.
+        val leading = IntArray(rank - 1) { input.shape[it] }
+        val pairedShape = Shape(*leading, halfRotary, 2)
+        val paired = ops.reshape(input, pairedShape)
+
+        // even = pairs[..., 0], odd = pairs[..., 1] (narrow the size-2 axis, drop it).
+        val pairAxis = rank // trailing axis index of pairedShape
+        val planeShape = Shape(*leading, halfRotary)
+        val even = ops.reshape(ops.narrow(paired, pairAxis, 0, 1), planeShape) // [..., seqLen, halfRotary]
+        val odd = ops.reshape(ops.narrow(paired, pairAxis, 1, 1), planeShape)
+
+        // (even, odd) -> (even*cos - odd*sin, even*sin + odd*cos); cos/sin [seqLen, halfRotary]
+        // broadcast over the leading (head/batch) dims.
+        val rotEven = ops.subtract(ops.multiply(even, cosTensor), ops.multiply(odd, sinTensor))
+        val rotOdd = ops.add(ops.multiply(even, sinTensor), ops.multiply(odd, cosTensor))
+
+        // Re-interleave: stack on a new trailing axis -> [..., halfRotary, 2] -> [..., headDim].
+        val recombined = ops.concat(
+            listOf(ops.unsqueeze(rotEven, rank), ops.unsqueeze(rotOdd, rank)),
+            dim = rank,
+        )
+        return ops.reshape(recombined, input.shape)
     }
 }
