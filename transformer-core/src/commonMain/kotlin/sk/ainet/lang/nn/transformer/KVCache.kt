@@ -215,11 +215,35 @@ public class PositionalKVCache<T : DType, V>(
     internal val valueBuf: FloatArray = FloatArray(maxSeqLen * nKVHeads * headDim)
     private var pos: Int = 0
 
+    // Functional K/V history kept only while tracing (see update()).
+    private var tracedKeys: Tensor<T, V>? = null
+    private var tracedValues: Tensor<T, V>? = null
+
     override fun update(
         newKey: Tensor<T, V>,
         newValue: Tensor<T, V>,
         ctx: ExecutionContext
     ): Pair<Tensor<T, V>, Tensor<T, V>> {
+        // The eager buffer path below copies tensor *data* into a heap array
+        // (writeAt) and reads it back via ctx.fromData (sliceView), bypassing
+        // ctx.ops. Under tracing the incoming K/V carry no data, so that path
+        // would bake an all-zero buffer as a constant and disconnect the
+        // computed k_proj/v_proj from attention (the exported decoder then
+        // attends over K=V=0). When recording, wire K/V functionally instead —
+        // the same ops.concat history AppendKVCache uses — so the StableHLO
+        // export carries the real projections.
+        if (ctx.isRecording) {
+            val ops = ctx.ops
+            val seqDim = newKey.rank - 2
+            val prevK = tracedKeys
+            val prevV = tracedValues
+            val fullK = if (prevK != null) ops.concat(listOf(prevK, newKey), dim = seqDim) else newKey
+            val fullV = if (prevV != null) ops.concat(listOf(prevV, newValue), dim = seqDim) else newValue
+            tracedKeys = fullK
+            tracedValues = fullV
+            pos += newKey.shape[seqDim]
+            return fullK to fullV
+        }
         val newLen = newKey.shape[newKey.rank - 2]
         writeAt(pos, newKey, newValue)
         pos += newLen
@@ -321,6 +345,8 @@ public class PositionalKVCache<T : DType, V>(
 
     override fun reset() {
         pos = 0
+        tracedKeys = null
+        tracedValues = null
     }
 
     override val position: Int get() = pos
