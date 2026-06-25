@@ -25,7 +25,7 @@ In your `build.gradle.kts`:
 [source,kotlin]
 ----
 dependencies {
-    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.31.1"))
+    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.32.0"))
 
     implementation("sk.ainet.transformers:skainet-transformers-runtime-kllama")
     implementation("sk.ainet.transformers:skainet-transformers-agent")
@@ -41,7 +41,7 @@ Or in Maven (Maven needs the `-jvm` classifier suffix on platform artifacts):
     <dependency>
       <groupId>sk.ainet.transformers</groupId>
       <artifactId>skainet-transformers-bom</artifactId>
-      <version>0.31.1</version>
+      <version>0.32.0</version>
       <type>pom</type>
       <scope>import</scope>
     </dependency>

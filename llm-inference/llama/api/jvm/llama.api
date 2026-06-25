@@ -245,6 +245,10 @@ public final class sk/ainet/models/llama/LlamaNetworkLoader$WeightsProvider$Safe
 	public fun toString ()Ljava/lang/String;
 }
 
+public final class sk/ainet/models/llama/LlamaPackedWeightsKt {
+	public static final fun convertLlamaWeightsPacked (Lsk/ainet/models/llama/DecoderGgufWeights;Lsk/ainet/context/ExecutionContext;)Lsk/ainet/models/llama/DecoderGgufWeights;
+}
+
 public final class sk/ainet/models/llama/LlamaRuntime : sk/ainet/apps/llm/DecoderRuntime, sk/ainet/models/llama/LlamaRuntimeInterface {
 	public static final field DEFAULT_BOS_TOKEN I
 	public fun <init> (Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/llama/LlamaRuntimeWeights;Lsk/ainet/models/llama/AttentionBackend;Lkotlin/reflect/KClass;FLkotlin/random/Random;Lsk/ainet/models/llama/GraphAccelerator;)V
