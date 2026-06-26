@@ -7,6 +7,23 @@ version line is kept in lock-step with the underlying SKaiNET engine
 The format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.32.1] — 2026-06-26
+
+Fixes streaming detokenization — generated text no longer runs words together
+(`"the process"` → `"theprocess"`). Ships against engine **0.32.4**.
+
+### Fixed
+
+- **Per-token streaming decode preserves word-boundary spaces.** `SentencePieceSpecialTokens.decode(Int)`
+  and `UpstreamTokenizerAdapter.decode(Int)` now route through the engine's new `Tokenizer.decodeToken(id)`
+  (engine 0.32.4), which keeps each SentencePiece piece's leading space instead of stripping it per token
+  (the sequence-level `addSpacePrefix` strip is only correct once per sequence). Fixes correct-but-spaceless
+  output in streaming generation (kllama, agent loops). Adds `SentencePieceSpecialTokensStreamingTest`.
+
+### Changed
+
+- **Engine pin `skainet 0.32.2 → 0.32.4`** (adds `Tokenizer.decodeToken`).
+
 ## [0.32.0] — 2026-06-25
 
 Brings the real-GGUF **Llama** eager path up to the Gemma standard (packed

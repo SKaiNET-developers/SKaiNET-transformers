@@ -103,9 +103,10 @@ Honest status — see the project-status note at the top of this README.
 
 ## Current release
 
-The current release is **0.32.0** (against **SKaiNET 0.32.2**). It brings the
-real-GGUF **Llama** eager path up to the Gemma standard and **unblocks StableHLO/IREE
-export for Llama-family models**:
+The current release is **0.32.1** (against **SKaiNET 0.32.4**). It fixes streaming
+detokenization — per-token decode now keeps each word's leading space, so generated text
+no longer runs together (`"the process"` not `"theprocess"`). On top of the **0.32.0**
+real-GGUF **Llama** eager + StableHLO/IREE export work:
 
 - The eager **`NATIVE_OPTIMIZED` path now works for Llama** (`Q4_K`/`Q6_K`): weights stay
   packed and `LlamaNetworkLoader.fromGguf(NATIVE_OPTIMIZED) + OptimizedLLMRuntime` decodes
@@ -123,7 +124,7 @@ The recommended way to consume is via the BOM. It pins every published `skainet-
 
 ```kotlin
 dependencies {
-    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.32.0"))
+    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.32.1"))
 
     // Versions resolved from the BOM:
     implementation("sk.ainet.transformers:skainet-transformers-core")
@@ -200,6 +201,14 @@ try (KLlamaSession session = KLlamaJava.loadGGUF(modelPath, /* systemPrompt */ n
 ```
 
 See `llm-test/llm-test-java/src/test/java/.../KLlamaJavaToolCallingTest.java` for a runnable reference.
+
+## What's new in 0.32.1
+
+- **Streaming detokenization keeps word spaces.** A generation loop decoding one token at a time
+  (`tokenizer.decode(tokenId)`) no longer runs words together. `SentencePieceSpecialTokens` and
+  `UpstreamTokenizerAdapter` route `decode(Int)` through engine 0.32.4's `Tokenizer.decodeToken`,
+  which preserves each SentencePiece piece's leading space (llama.cpp `token_to_piece` semantics).
+  Engine pin `0.32.2 → 0.32.4`.
 
 ## What's new in 0.32.0
 

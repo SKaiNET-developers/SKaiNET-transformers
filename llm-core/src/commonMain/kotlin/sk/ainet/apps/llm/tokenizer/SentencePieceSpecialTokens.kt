@@ -107,7 +107,9 @@ public class SentencePieceSpecialTokens(
     override fun decode(token: Int): String {
         val special = specialIdToString[token]
         if (special != null) return special
-        return base.decode(intArrayOf(token))
+        // Streaming single-token decode: keep the leading word-boundary space so
+        // generated tokens don't run together ("the process" not "theprocess").
+        return base.decodeToken(token)
     }
 
     private fun matchSpecialAt(text: String, from: Int): String? {
