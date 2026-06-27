@@ -331,7 +331,6 @@ public class DecoderGgufWeightLoader private constructor(
                 // the physical tensor is TOKEN_EMBEDDINGS — both must have [vocab, dim] shape.
                 validateStreamingTensorShape(name, st, metadata)
                 val tensor: Tensor<T, V> = streamingTensorToTensor(ctx, dtype, reader, st)
-                onTensorLoaded(name, tensor)
                 val isRawQuant = when (quantPolicy) {
                     QuantPolicy.RAW_BYTES -> st.tensorType != GGMLQuantizationType.F32
                     QuantPolicy.NATIVE_OPTIMIZED -> st.tensorType != GGMLQuantizationType.F32
@@ -339,8 +338,26 @@ public class DecoderGgufWeightLoader private constructor(
                         && st.tensorType != GGMLQuantizationType.BF16
                     QuantPolicy.DEQUANTIZE_TO_FP32 -> false
                 }
-                if (isRawQuant) {
-                    quantCallback?.invoke(name, st.tensorType)
+                if (quantPolicy == QuantPolicy.NATIVE_OPTIMIZED && isRawQuant) {
+                    // Fuse load+pack: convert this tensor to its packed/FP32 form NOW so the raw
+                    // bytes are never accumulated in the map. Holding the whole raw model AND the
+                    // whole packed model at once is the ~3.2 GB load peak that OOM-kills the 2 GB
+                    // board (see PERF-LOGBOOK p1-result). The packed data encodes its own quant
+                    // type, so we DON'T register it in quantTypes — the post-load
+                    // convertLlamaWeightsPacked then leaves it untouched (idempotent).
+                    @Suppress("UNCHECKED_CAST")
+                    val packed = packLlamaTensor(
+                        name, tensor as Tensor<DType, Any>, st.tensorType, metadata, ctx,
+                    ) as Tensor<T, V>
+                    onTensorLoaded(name, packed)
+                    // Free this tensor's transient copies (raw Int8 + extractRawBytes + relayout)
+                    // before the next tensor; on Kotlin/Native they otherwise pile up uncollected.
+                    gcCollectHint()
+                } else {
+                    onTensorLoaded(name, tensor)
+                    if (isRawQuant) {
+                        quantCallback?.invoke(name, st.tensorType)
+                    }
                 }
             }
 
