@@ -2,6 +2,12 @@ site:
   title: SKaiNET Transformers
   start_page: skainet-transformers::index.adoc
 
+# Keep Antora's content cache inside the project tree so the container
+# can be run as a non-root user (docker run --user $(id -u):$(id -g)).
+# Matches mainline SKaiNET's playbook.
+runtime:
+  cache_dir: ./.cache/antora
+
 content:
   sources:
     - url: /antora
@@ -10,11 +16,13 @@ content:
 
 asciidoc:
   extensions:
-    - asciidoctor-kroki
-  attributes:
-    # Use local mermaid-cli via Kroki (no external server needed when
-    # built with the custom Docker image in docs/.docker/Dockerfile)
-    kroki-fetch-diagram: true
+    # Local mermaid block processor — renders every `[mermaid]` block
+    # inline by invoking the @mermaid-js/mermaid-cli binary baked into
+    # the Docker image at /opt/antora/node_modules/.bin/mmdc. Replaces
+    # asciidoctor-kroki so builds don't depend on kroki.io at all
+    # (no GET-URL length limit, no external server). Same approach as
+    # mainline SKaiNET.
+    - /opt/antora/local-mermaid-extension.js
 
 ui:
   bundle:
