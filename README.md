@@ -103,10 +103,12 @@ Honest status — see the project-status note at the top of this README.
 
 ## Current release
 
-The current release is **0.32.1** (against **SKaiNET 0.32.4**). It fixes streaming
-detokenization — per-token decode now keeps each word's leading space, so generated text
-no longer runs together (`"the process"` not `"theprocess"`). On top of the **0.32.0**
-real-GGUF **Llama** eager + StableHLO/IREE export work:
+The current release is **0.33.0** (against **SKaiNET 0.33.0**). It adopts the new engine line —
+no transformers API changes — so transformer models inherit the engine's 0.33.0 work: `layerNorm`/
+`rmsNorm` now lower to real `stablehlo.reduce` (exports compile on stock IREE), a silent autodiff
+gradient-drop is fixed, and new differentiable ops (`cos`/`sin`/`gather`/…) are available. On top of
+the **0.32.1** streaming-detokenization fix and the **0.32.0** real-GGUF **Llama** eager +
+StableHLO/IREE export work:
 
 - The eager **`NATIVE_OPTIMIZED` path now works for Llama** (`Q4_K`/`Q6_K`): weights stay
   packed and `LlamaNetworkLoader.fromGguf(NATIVE_OPTIMIZED) + OptimizedLLMRuntime` decodes

@@ -7,6 +7,20 @@ version line is kept in lock-step with the underlying SKaiNET engine
 The format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.33.0] — 2026-06-29
+
+Ships against **SKaiNET engine 0.33.0**. No transformers API changes — this release adopts the new
+engine line and routine dependency updates.
+
+### Changed
+
+- **Engine → 0.33.0.** Transformer models authored with this layer inherit the engine's 0.33.0 work;
+  most relevant here, `layerNorm` / `rmsNorm` now lower to real `stablehlo.reduce`, so transformer
+  exports compile and run on stock IREE (engine #769). The engine also fixes a silent autodiff
+  gradient-drop (`elu`/`leakyRelu`/`permute`) and adds new differentiable ops (`cos`/`sin`/`gather`/…),
+  available to model authors. (engine 0.33.0)
+- **Dependencies:** Ktor client `3.5.1` (#198), Logback `1.5.36` (#199).
+
 ## [0.32.1] — 2026-06-26
 
 Fixes streaming detokenization — generated text no longer runs words together
