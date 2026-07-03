@@ -30,6 +30,6 @@ public class ResidualAdd<T : DType, V>(
     override fun onForward(input: Tensor<T, V>, ctx: ExecutionContext): Tensor<T, V> {
         val skip = savedInput ?: return input
         savedInput = null // consume
-        return ctx.ops.add(input, skip)
+        return PhaseProfile.time("residual") { ctx.ops.add(input, skip) }
     }
 }
