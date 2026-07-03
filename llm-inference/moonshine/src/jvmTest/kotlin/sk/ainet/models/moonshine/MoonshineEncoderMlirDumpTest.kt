@@ -22,7 +22,7 @@ import kotlin.test.assertTrue
 class MoonshineEncoderMlirDumpTest {
     @Test
     fun dumpEncoderBf16Mlir() {
-        val cfg = MoonshineConfig()
+        val cfg = MoonshineConfig(encoderLayers = System.getProperty("encLayers")?.toInt() ?: 6)
         val model = moonshineEncoder<BF16, Float>(cfg, BF16::class)
 
         // Encoder input = conv-frontend output [batch, frames, dim].
@@ -45,10 +45,18 @@ class MoonshineEncoderMlirDumpTest {
             }
         }.first
         val rawGraph = (tape as DefaultExecutionTape).toComputeGraph(synthesizeExternalInputs = true)
-        // Unify edge dtypes: bf16-native traces record reductions/norms with a
-        // stale FP32 dtype while their producers emit bf16, which would render the
-        // same SSA value with two types. See DtypeForwardPropagationPass.
-        val graph = sk.ainet.compile.opt.passes.DtypeForwardPropagationPass(targetFloatDtype = "BF16").apply(rawGraph).graph
+        // Target-pluggable optimization: the Torq NPU backend registers its own
+        // graph-lowering pass (attention head-tiling) via the core TargetOptimizers
+        // registry — no HW knowledge in core or in the model. dagPipelineFor("torq")
+        // applies whatever is plugged in for that target; it produces standard,
+        // still-portable StableHLO (compiles on llvm-cpu too).
+        sk.ainet.compile.opt.TargetOptimizers.registerDagPasses("torq") {
+            listOf(TorqAttentionTilingPass(maxHeadsPerTile = 4))
+        }
+        val tiled = sk.ainet.compile.opt.dagPipelineFor("torq").optimize(rawGraph).graph
+        // Then unify edge dtypes to bf16 (bf16-native traces record reductions/norms
+        // as FP32 while producers emit bf16). HW-agnostic.
+        val graph = sk.ainet.compile.opt.passes.DtypeForwardPropagationPass(targetFloatDtype = "BF16").apply(tiled).graph
         val mlir = sk.ainet.compile.hlo.toStableHlo(graph, "moonshine_encoder").content
 
         val out = File(System.getProperty("moonshineMlirOut") ?: "build/build-mlir/moonshine-encoder.mlir")
