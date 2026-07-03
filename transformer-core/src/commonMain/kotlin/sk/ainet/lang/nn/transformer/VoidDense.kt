@@ -59,6 +59,6 @@ public class VoidDense<T : DType, V>(
         val weight = params[0].value
         // linearProject handles both [out, in] (stock checkpoint layout) and
         // [in, out] (pre-transposed for quantized NATIVE_OPTIMIZED loads).
-        return linearProject(ops, input, weight)
+        return PhaseProfile.time("lm_head") { linearProject(ops, input, weight) }
     }
 }

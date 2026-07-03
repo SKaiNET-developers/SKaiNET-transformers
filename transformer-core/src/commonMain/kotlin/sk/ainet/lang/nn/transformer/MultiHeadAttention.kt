@@ -241,9 +241,9 @@ public class MultiHeadAttention<T : DType, V>(
         // Project Q, K, V: input @ W^T (+ bias if enabled).
         // Q always comes from qInput; in self-attn kvInput === qInput,
         // in cross-attn kvInput is the encoder memory (different seqLen).
-        var q = linearProject(ops, qInput, wQ)
-        var k = linearProject(ops, kvInput, wK)
-        var v = linearProject(ops, kvInput, wV)
+        var q = PhaseProfile.time("attn.qkv_proj") { linearProject(ops, qInput, wQ) }
+        var k = PhaseProfile.time("attn.qkv_proj") { linearProject(ops, kvInput, wK) }
+        var v = PhaseProfile.time("attn.qkv_proj") { linearProject(ops, kvInput, wV) }
         if (mhaDump) {
             mhaDumpStat("[blk.0.mha post-Q-proj      ]", q)
             mhaDumpStat("[blk.0.mha post-K-proj      ]", k)
@@ -277,9 +277,9 @@ public class MultiHeadAttention<T : DType, V>(
         // can't reuse it here; we materialise the permute via a copy.
         val qSeqLen = if (qInput.rank >= 2) qInput.shape[qInput.rank - 2] else 1
         val kvSeqLen = if (kvInput.rank >= 2) kvInput.shape[kvInput.rank - 2] else 1
-        q = swapSeqHeadDims(ops.reshape(q, Shape(qSeqLen, nHeads, headDim)), ctx)
-        k = swapSeqHeadDims(ops.reshape(k, Shape(kvSeqLen, nKVHeads, headDim)), ctx)
-        var vReshaped = swapSeqHeadDims(ops.reshape(v, Shape(kvSeqLen, nKVHeads, headDim)), ctx)
+        q = PhaseProfile.time("attn.reshape") { swapSeqHeadDims(ops.reshape(q, Shape(qSeqLen, nHeads, headDim)), ctx) }
+        k = PhaseProfile.time("attn.reshape") { swapSeqHeadDims(ops.reshape(k, Shape(kvSeqLen, nKVHeads, headDim)), ctx) }
+        var vReshaped = PhaseProfile.time("attn.reshape") { swapSeqHeadDims(ops.reshape(v, Shape(kvSeqLen, nKVHeads, headDim)), ctx) }
 
         // Optional QK-Norm
         if (qNorm != null && kNorm != null) {
@@ -311,8 +311,8 @@ public class MultiHeadAttention<T : DType, V>(
         if (ropeModule != null && !isCrossAttention) {
             val position = kvCache?.position ?: 0
             if (mhaDump) println("[blk.0.mha pos=$position]")
-            q = ropeModule.forward(q, position, ctx)
-            k = ropeModule.forward(k, position, ctx)
+            q = PhaseProfile.time("attn.rope") { ropeModule.forward(q, position, ctx) }
+            k = PhaseProfile.time("attn.rope") { ropeModule.forward(k, position, ctx) }
             if (mhaDump) {
                 mhaDumpStat("[blk.0.mha post-RoPE-Q      ]", q)
                 mhaDumpStat("[blk.0.mha post-RoPE-K      ]", k)
@@ -324,7 +324,7 @@ public class MultiHeadAttention<T : DType, V>(
         // different ownership). Caching is the runtime's responsibility
         // for cross-attention and is rejected at the entry above.
         val (fullK, fullV) = if (kvCache != null && !isCrossAttention) {
-            kvCache!!.update(k, vReshaped, ctx)
+            PhaseProfile.time("attn.kvcache") { kvCache!!.update(k, vReshaped, ctx) }
         } else {
             k to vReshaped
         }
@@ -345,7 +345,7 @@ public class MultiHeadAttention<T : DType, V>(
         // max-stable softmax, same GQA head mapping head h → kv head h/nRep).
         if (qSeqLen == 1 && !isCrossAttention && slidingWindow == null) {
             val merged = fusedDecodeAttention(q, fullK, fullV, scale, ctx)
-            var output = linearProject(ops, merged, wO)
+            var output = PhaseProfile.time("attn.o_proj") { linearProject(ops, merged, wO) }
             if (bias) output = ops.add(output, params[oWIdx + 1].value)
             if (mhaDump) mhaDumpStat("[blk.0.mha post-fused-decode ]", output)
             return output
@@ -425,13 +425,17 @@ public class MultiHeadAttention<T : DType, V>(
         scale: Float,
         ctx: ExecutionContext,
     ): Tensor<T, V> {
-        val qBuf = q.data.copyToFloatArray()        // [nHeads * headDim]
-        val kBuf = fullK.data.copyToFloatArray()    // [nKVHeads * seqKV * headDim]
-        val vBuf = fullV.data.copyToFloatArray()    // [nKVHeads * seqKV * headDim]
+        // The three buffer copies grow with the KV length (K/V are the full
+        // cache) and repeat every token × layer — timed separately from the
+        // arithmetic so the profile can tell copy cost from compute cost.
+        val qBuf = PhaseProfile.time("attn.fused_copy") { q.data.copyToFloatArray() }        // [nHeads * headDim]
+        val kBuf = PhaseProfile.time("attn.fused_copy") { fullK.data.copyToFloatArray() }    // [nKVHeads * seqKV * headDim]
+        val vBuf = PhaseProfile.time("attn.fused_copy") { fullV.data.copyToFloatArray() }    // [nKVHeads * seqKV * headDim]
         val seqKV = fullK.shape[1]
         val nRep = nHeads / nKVHeads
         val out = FloatArray(nHeads * headDim)      // == qDim, row-major [h, d]
         val scores = FloatArray(seqKV)
+        PhaseProfile.time("attn.fused_compute") {
         for (h in 0 until nHeads) {
             val g = h / nRep                        // GQA: which KV head this query head reads
             val qOff = h * headDim
@@ -463,6 +467,7 @@ public class MultiHeadAttention<T : DType, V>(
                 }
                 out[oOff + d] = acc * inv
             }
+        }
         }
         @Suppress("UNCHECKED_CAST")
         return ctx.fromData(
