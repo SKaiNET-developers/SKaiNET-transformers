@@ -5,7 +5,10 @@ import sk.ainet.lang.nn.Module
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.tensor.ops.KspTensorOps
+import sk.ainet.lang.types.BF16
 import sk.ainet.lang.types.DType
+import sk.ainet.lang.types.FP16
+import sk.ainet.lang.types.FP32
 import kotlin.math.cos
 import kotlin.math.pow
 import kotlin.math.sin
@@ -75,6 +78,11 @@ public class RoPE<T : DType, V>(
     public val scaling: RoPEScaling = RoPEScaling.NONE,
     public val scalingFactor: Float = 1.0f,
     public val partialRotaryFactor: Float = 1.0f,
+    // inv_freq denominator convention. HF "proportional" rope uses headDim even under partial
+    // rotary (default, false). The classic/original partial rope (e.g. Moonshine) uses the
+    // rotated width itself, rotaryDim — set true. Verified against Moonshine's ONNX (freqs match
+    // base^(-2i/32) with rotaryDim=32, not base^(-2i/36)).
+    public val freqDenomRotaryDim: Boolean = false,
     override val name: String = "RoPE"
 ) : Module<T, V>() {
 
@@ -112,9 +120,10 @@ public class RoPE<T : DType, V>(
         // partialRotaryFactor < 1. Positions beyond rotaryDim pass through
         // unchanged (handled by the rotate-then-concat/slice in applyRoPE*).
         val applyFactor = scaling == RoPEScaling.PROPORTIONAL && scalingFactor != 1.0f
+        val freqDenom = if (freqDenomRotaryDim) rotaryDim else headDim
         for (pos in 0 until maxSeqLen) {
             for (i in 0 until halfRotary) {
-                var freq = 1.0f / base.pow(2.0f * i / headDim)
+                var freq = 1.0f / base.pow(2.0f * i / freqDenom)
                 if (applyFactor) freq /= scalingFactor
                 val angle = pos * freq
                 cosTable[pos * halfRotary + i] = cos(angle)
@@ -267,7 +276,11 @@ public class RoPE<T : DType, V>(
         // tracing wrapper (KspTensorOps), take the traceable op-based path so the
         // rotation is recorded as tensor ops. Full-rotary only (TinyLlama/Llama/
         // Mistral); partial rotary keeps the raw path (no GGUF model needs it traced).
-        if (rotaryDim == headDim && input.ops is KspTensorOps) {
+        if (input.ops is KspTensorOps) {
+            // Traceable ops path for BOTH full and partial rotary. The raw-array path
+            // below bakes a disconnected constant under void/graph tracing (it reads
+            // input.data), so anything traced (incl. Moonshine's partial rotary) must
+            // use the op-based rotation to stay wired to the projection weights.
             return applyRoPEInterleavedOps(input, position, ctx)
         }
         val data = input.data.copyToFloatArray()
@@ -304,10 +317,11 @@ public class RoPE<T : DType, V>(
      * [applyRoPEInterleaved] but recordable to a compute graph. Used under
      * void/graph tracing where the raw-array path bakes a disconnected constant.
      *
-     * Interleaved pairing `(x[2i], x[2i+1])` is realized by reshaping the head
-     * dim `[headDim] -> [halfRotary, 2]` (row-major: `[i,0]=x[2i]`, `[i,1]=x[2i+1]`),
-     * rotating the even/odd planes, then reshaping back. Full-rotary only
-     * (`rotaryDim == headDim`); the caller gates on that.
+     * Interleaved pairing `(x[2i], x[2i+1])` is realized by reshaping the rotated
+     * subspace `[rotaryDim] -> [halfRotary, 2]` (row-major: `[i,0]=x[2i]`, `[i,1]=x[2i+1]`),
+     * rotating the even/odd planes, then reshaping back. Supports PARTIAL rotary:
+     * the leading `rotaryDim` head dims are rotated, the trailing `headDim - rotaryDim`
+     * pass through unchanged (Moonshine rotates 32 of 36). Traceable (pure tensor ops).
      */
     private fun applyRoPEInterleavedOps(input: Tensor<T, V>, position: Int, ctx: ExecutionContext): Tensor<T, V> {
         val ops = ctx.ops
@@ -316,47 +330,73 @@ public class RoPE<T : DType, V>(
         require(lastDim == headDim) { "RoPE input last dim ($lastDim) != headDim ($headDim)" }
         val seqLen = input.shape[rank - 2]
 
-        // cos/sin tables [seqLen, halfRotary] for the requested positions — same
-        // tables as the raw path, so the rotation is bit-for-bit equivalent.
-        val cosData = FloatArray(seqLen * halfRotary)
-        val sinData = FloatArray(seqLen * halfRotary)
+        // Rotate the FULL head as halfHead pairs, PADDING the cos/sin tables with
+        // (cos=1, sin=0) for the non-rotated tail pairs (i >= halfRotary). This is
+        // numerically identical to "rotate the first rotaryDim, pass through the rest"
+        // but avoids splitting the head into a narrow()+concat() (which creates a
+        // split-feature-dim tensor that trips the Torq NPU layout solver on the
+        // downstream attention matmuls). The full-rotary case (halfHead == halfRotary)
+        // uses no padding and is unchanged.
+        val halfHead = headDim / 2
+        val cosData = FloatArray(seqLen * halfHead)
+        val sinData = FloatArray(seqLen * halfHead)
         for (s in 0 until seqLen) {
             val pos = position + s
-            for (i in 0 until halfRotary) {
-                cosData[s * halfRotary + i] = cosTable[pos * halfRotary + i]
-                sinData[s * halfRotary + i] = sinTable[pos * halfRotary + i]
+            for (i in 0 until halfHead) {
+                if (i < halfRotary) {
+                    cosData[s * halfHead + i] = cosTable[pos * halfRotary + i]
+                    sinData[s * halfHead + i] = sinTable[pos * halfRotary + i]
+                } else {
+                    cosData[s * halfHead + i] = 1.0f
+                    sinData[s * halfHead + i] = 0.0f
+                }
             }
         }
-        val tableShape = Shape(seqLen, halfRotary)
+        // Bake cos/sin at full f32 precision and rotate in f32. A bf16 sin/cos table
+        // truncates the trig, skewing the rotated Q/K by ~8% (the non-rotated V is exact).
+        // The pair is converted to f32, rotated, and converted back to the model dtype —
+        // same recipe as the f32 LayerNorm. No-op when the model already runs f32.
+        val tableShape = Shape(seqLen, halfHead)
         @Suppress("UNCHECKED_CAST")
-        val cosTensor: Tensor<T, V> = ctx.fromData(
-            sk.ainet.lang.tensor.data.DenseFloatArrayTensorData<T>(tableShape, cosData) as sk.ainet.lang.tensor.data.TensorData<T, V>,
-            input.dtype,
+        val cosTensor: Tensor<FP32, V> = ctx.fromData(
+            sk.ainet.lang.tensor.data.DenseFloatArrayTensorData<FP32>(tableShape, cosData) as sk.ainet.lang.tensor.data.TensorData<FP32, V>,
+            FP32::class,
         )
         @Suppress("UNCHECKED_CAST")
-        val sinTensor: Tensor<T, V> = ctx.fromData(
-            sk.ainet.lang.tensor.data.DenseFloatArrayTensorData<T>(tableShape, sinData) as sk.ainet.lang.tensor.data.TensorData<T, V>,
-            input.dtype,
+        val sinTensor: Tensor<FP32, V> = ctx.fromData(
+            sk.ainet.lang.tensor.data.DenseFloatArrayTensorData<FP32>(tableShape, sinData) as sk.ainet.lang.tensor.data.TensorData<FP32, V>,
+            FP32::class,
         )
 
-        // [..., seqLen, headDim] -> [..., seqLen, halfRotary, 2] so interleaved pairs
+        // [..., seqLen, headDim] -> [..., seqLen, halfHead, 2] so interleaved pairs
         // land on the trailing size-2 axis.
         val leading = IntArray(rank - 1) { input.shape[it] }
-        val pairedShape = Shape(*leading, halfRotary, 2)
+        val pairedShape = Shape(*leading, halfHead, 2)
         val paired = ops.reshape(input, pairedShape)
 
         // even = pairs[..., 0], odd = pairs[..., 1] (narrow the size-2 axis, drop it).
         val pairAxis = rank // trailing axis index of pairedShape
-        val planeShape = Shape(*leading, halfRotary)
-        val even = ops.reshape(ops.narrow(paired, pairAxis, 0, 1), planeShape) // [..., seqLen, halfRotary]
+        val planeShape = Shape(*leading, halfHead)
+        val even = ops.reshape(ops.narrow(paired, pairAxis, 0, 1), planeShape) // [..., seqLen, halfHead]
         val odd = ops.reshape(ops.narrow(paired, pairAxis, 1, 1), planeShape)
 
-        // (even, odd) -> (even*cos - odd*sin, even*sin + odd*cos); cos/sin [seqLen, halfRotary]
-        // broadcast over the leading (head/batch) dims.
-        val rotEven = ops.subtract(ops.multiply(even, cosTensor), ops.multiply(odd, sinTensor))
-        val rotOdd = ops.add(ops.multiply(even, sinTensor), ops.multiply(odd, cosTensor))
+        // (even, odd) -> (even*cos - odd*sin, even*sin + odd*cos) in f32, cos/sin [seqLen,
+        // halfHead] broadcast over the leading (head/batch) dims. Tail pairs (cos=1,sin=0)
+        // pass through. The rotated pair is cast back to the model dtype for the re-interleave.
+        val isF32 = input.dtype == FP32::class
+        @Suppress("UNCHECKED_CAST")
+        val evenF: Tensor<FP32, V> = if (isF32) even as Tensor<FP32, V> else ops.convert(even, FP32)
+        @Suppress("UNCHECKED_CAST")
+        val oddF: Tensor<FP32, V> = if (isF32) odd as Tensor<FP32, V> else ops.convert(odd, FP32)
+        val rotEvenF = ops.subtract(ops.multiply(evenF, cosTensor), ops.multiply(oddF, sinTensor))
+        val rotOddF = ops.add(ops.multiply(evenF, sinTensor), ops.multiply(oddF, cosTensor))
+        val modelDtype: DType = if (input.dtype == FP16::class) FP16 else BF16
+        @Suppress("UNCHECKED_CAST")
+        val rotEven: Tensor<T, V> = if (isF32) rotEvenF as Tensor<T, V> else ops.convert(rotEvenF, modelDtype) as Tensor<T, V>
+        @Suppress("UNCHECKED_CAST")
+        val rotOdd: Tensor<T, V> = if (isF32) rotOddF as Tensor<T, V> else ops.convert(rotOddF, modelDtype) as Tensor<T, V>
 
-        // Re-interleave: stack on a new trailing axis -> [..., halfRotary, 2] -> [..., headDim].
+        // Re-interleave: stack on a new trailing axis -> [..., halfHead, 2] -> [..., headDim].
         val recombined = ops.concat(
             listOf(ops.unsqueeze(rotEven, rank), ops.unsqueeze(rotOdd, rank)),
             dim = rank,
