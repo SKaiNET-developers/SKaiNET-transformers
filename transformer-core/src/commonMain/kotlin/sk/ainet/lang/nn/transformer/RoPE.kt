@@ -353,7 +353,11 @@ public class RoPE<T : DType, V>(
                 val c = if (i < halfRotary) cosTable[pos * halfRotary + i] else 1.0f
                 val sn = if (i < halfRotary) sinTable[pos * halfRotary + i] else 0.0f
                 cosFull[s * headDim + 2 * i] = c; cosFull[s * headDim + 2 * i + 1] = c
-                sinFull[s * headDim + 2 * i] = sn; sinFull[s * headDim + 2 * i + 1] = sn
+                // Sign of the 2D rotation is baked into sin here (even lane negated), so the
+                // graph needs only a pair-SWAP below — no per-element negate op. This keeps
+                // the full-head form bit-exact while avoiding a mulScalar node the OPTIMIZED
+                // DAG runtime drops (0-outputs) on interleaved models like LLaMA.
+                sinFull[s * headDim + 2 * i] = -sn; sinFull[s * headDim + 2 * i + 1] = sn
             }
         }
         val fullShape = Shape(seqLen, headDim)
@@ -372,8 +376,11 @@ public class RoPE<T : DType, V>(
         @Suppress("UNCHECKED_CAST")
         val xF: Tensor<FP32, V> = if (isF32) input as Tensor<FP32, V> else ops.convert(input, FP32)
 
-        // rotate(x): pair (x0, x1) -> (-x1, x0). even = pairs[...,0], odd = pairs[...,1];
-        // interleave (-odd, even) back to a full head [..., headDim].
+        // swap(x): pair (x0, x1) -> (x1, x0). even = pairs[...,0], odd = pairs[...,1];
+        // interleave (odd, even) back to a full head [..., headDim]. The rotation's sign
+        // lives in sin_full (even lane negated above), so this is a pure swap — no negate
+        // node, which is what the OPTIMIZED DAG runtime needs (a mulScalar here traced to a
+        // 0-output node on interleaved models). Numerically identical to (-odd, even)·sin.
         val leading = IntArray(rank - 1) { input.shape[it] }
         val pairedShape = Shape(*leading, halfHead, 2)
         val planeShape = Shape(*leading, halfHead)
@@ -381,15 +388,14 @@ public class RoPE<T : DType, V>(
         val paired = ops.reshape(xF, pairedShape)
         val even = ops.reshape(ops.narrow(paired, pairAxis, 0, 1), planeShape)
         val odd = ops.reshape(ops.narrow(paired, pairAxis, 1, 1), planeShape)
-        val negOdd = ops.mulScalar(odd, -1.0f)
-        val rotate = ops.reshape(
-            ops.concat(listOf(ops.unsqueeze(negOdd, rank), ops.unsqueeze(even, rank)), dim = rank),
+        val swapped = ops.reshape(
+            ops.concat(listOf(ops.unsqueeze(odd, rank), ops.unsqueeze(even, rank)), dim = rank),
             input.shape,
         )
 
-        // Full-head: out = x * cos_full + rotate(x) * sin_full (cos/sin broadcast over the
-        // leading head/batch dims).
-        val outF = ops.add(ops.multiply(xF, cosTensor), ops.multiply(rotate, sinTensor))
+        // Full-head: out = x * cos_full + swap(x) * sin_full  (sign folded into sin_full;
+        // cos/sin broadcast over the leading head/batch dims).
+        val outF = ops.add(ops.multiply(xF, cosTensor), ops.multiply(swapped, sinTensor))
         val modelDtype: DType = if (input.dtype == FP16::class) FP16 else BF16
         @Suppress("UNCHECKED_CAST")
         return if (isF32) outF as Tensor<T, V> else ops.convert(outF, modelDtype) as Tensor<T, V>
