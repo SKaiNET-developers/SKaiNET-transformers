@@ -7,6 +7,19 @@ version line is kept in lock-step with the underlying SKaiNET engine
 The format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.34.1] — 2026-07-05
+
+Patch on **0.34.0** (same SKaiNET engine 0.34.0). Fixes Moonshine encoder parameter naming.
+
+### Fixed
+
+- **Layer-qualified Moonshine encoder parameter names.** The encoder's attention and LayerNorm
+  parameters were not prefixed with the layer (`attn.q_proj.weight`, `attn_norm.weight` repeated
+  identically every layer), while the FFN parameters were (`enc.$layer.ffn_*`). By-name weight
+  loading could therefore not distinguish the layers. All parameter names are now unique and
+  layer-qualified (`enc.$layer.attn.*`, `enc.$layer.attn_norm.*`, `enc.$layer.ffn_norm.*`),
+  matching the FFN convention. No public API change — `moonshineEncoder()` is unchanged.
+
 ## [0.34.0] — 2026-07-05
 
 Ships against **SKaiNET engine 0.34.0**. Headline: the first **Moonshine** speech-to-text encoder
