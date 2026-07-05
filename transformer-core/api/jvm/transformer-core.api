@@ -1,12 +1,12 @@
 public abstract interface class sk/ainet/lang/nn/dsl/ATTENTION : sk/ainet/lang/nn/dsl/NetworkDslItem {
 	public abstract fun kvCache (III)V
 	public abstract fun kvCache (Lsk/ainet/lang/nn/transformer/KVCache;)V
-	public abstract fun rope (IILsk/ainet/lang/nn/transformer/RoPEMode;FLsk/ainet/lang/nn/transformer/RoPEScaling;FF)V
-	public static synthetic fun rope$default (Lsk/ainet/lang/nn/dsl/ATTENTION;IILsk/ainet/lang/nn/transformer/RoPEMode;FLsk/ainet/lang/nn/transformer/RoPEScaling;FFILjava/lang/Object;)V
+	public abstract fun rope (IILsk/ainet/lang/nn/transformer/RoPEMode;FLsk/ainet/lang/nn/transformer/RoPEScaling;FFZ)V
+	public static synthetic fun rope$default (Lsk/ainet/lang/nn/dsl/ATTENTION;IILsk/ainet/lang/nn/transformer/RoPEMode;FLsk/ainet/lang/nn/transformer/RoPEScaling;FFZILjava/lang/Object;)V
 }
 
 public final class sk/ainet/lang/nn/dsl/ATTENTION$DefaultImpls {
-	public static synthetic fun rope$default (Lsk/ainet/lang/nn/dsl/ATTENTION;IILsk/ainet/lang/nn/transformer/RoPEMode;FLsk/ainet/lang/nn/transformer/RoPEScaling;FFILjava/lang/Object;)V
+	public static synthetic fun rope$default (Lsk/ainet/lang/nn/dsl/ATTENTION;IILsk/ainet/lang/nn/transformer/RoPEMode;FLsk/ainet/lang/nn/transformer/RoPEScaling;FFZILjava/lang/Object;)V
 }
 
 public final class sk/ainet/lang/nn/dsl/AttentionImpl : sk/ainet/lang/nn/dsl/ATTENTION {
@@ -16,7 +16,7 @@ public final class sk/ainet/lang/nn/dsl/AttentionImpl : sk/ainet/lang/nn/dsl/ATT
 	public fun getExecutionContext ()Lsk/ainet/context/ExecutionContext;
 	public fun kvCache (III)V
 	public fun kvCache (Lsk/ainet/lang/nn/transformer/KVCache;)V
-	public fun rope (IILsk/ainet/lang/nn/transformer/RoPEMode;FLsk/ainet/lang/nn/transformer/RoPEScaling;FF)V
+	public fun rope (IILsk/ainet/lang/nn/transformer/RoPEMode;FLsk/ainet/lang/nn/transformer/RoPEScaling;FFZ)V
 }
 
 public final class sk/ainet/lang/nn/dsl/TransformerDslKt {
@@ -236,9 +236,10 @@ public final class sk/ainet/lang/nn/transformer/ResidualAdd : sk/ainet/lang/nn/M
 }
 
 public final class sk/ainet/lang/nn/transformer/RoPE : sk/ainet/lang/nn/Module {
-	public fun <init> (IIFLsk/ainet/lang/nn/transformer/RoPEMode;Lsk/ainet/lang/nn/transformer/RoPEScaling;FFLjava/lang/String;)V
-	public synthetic fun <init> (IIFLsk/ainet/lang/nn/transformer/RoPEMode;Lsk/ainet/lang/nn/transformer/RoPEScaling;FFLjava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (IIFLsk/ainet/lang/nn/transformer/RoPEMode;Lsk/ainet/lang/nn/transformer/RoPEScaling;FFZLjava/lang/String;)V
+	public synthetic fun <init> (IIFLsk/ainet/lang/nn/transformer/RoPEMode;Lsk/ainet/lang/nn/transformer/RoPEScaling;FFZLjava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun forward (Lsk/ainet/lang/tensor/Tensor;ILsk/ainet/context/ExecutionContext;)Lsk/ainet/lang/tensor/Tensor;
+	public final fun getFreqDenomRotaryDim ()Z
 	public final fun getHeadDim ()I
 	public final fun getMaxSeqLen ()I
 	public final fun getMode ()Lsk/ainet/lang/nn/transformer/RoPEMode;
@@ -304,8 +305,9 @@ public final class sk/ainet/lang/nn/transformer/SwiGLUFFN : sk/ainet/lang/nn/Mod
 }
 
 public final class sk/ainet/lang/nn/transformer/VoidDense : sk/ainet/lang/nn/Module, sk/ainet/lang/nn/topology/ModuleParameters {
-	public fun <init> (Ljava/lang/String;IILkotlin/reflect/KClass;)V
-	public synthetic fun <init> (Ljava/lang/String;IILkotlin/reflect/KClass;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Ljava/lang/String;IILkotlin/reflect/KClass;Z)V
+	public synthetic fun <init> (Ljava/lang/String;IILkotlin/reflect/KClass;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getAddBias ()Z
 	public final fun getInDim ()I
 	public fun getModules ()Ljava/util/List;
 	public fun getName ()Ljava/lang/String;
