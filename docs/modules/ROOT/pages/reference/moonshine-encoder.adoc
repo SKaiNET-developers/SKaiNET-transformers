@@ -1,0 +1,120 @@
+= Moonshine Encoder (Speech-to-Text)
+:description: The Moonshine-tiny audio encoder authored in the SKaiNET NN DSL — portable StableHLO that runs on CPU and NPU targets.
+
+`skainet-transformers-inference-moonshine` provides the **Moonshine-tiny** speech-to-text
+*encoder* built entirely in the SKaiNET NN DSL. Unlike the GGUF/eager LLM runtimes, this model
+is authored as a graph you *compile*: DSL → StableHLO → IREE, so the same definition runs on a
+CPU backend or a hardware NPU. It was first published in **0.34.0**; **0.34.1** layer-qualifies
+its parameter names (see below).
+
+[NOTE]
+====
+**Encoder only — for now.** Moonshine is an *encoder-decoder* (seq2seq) model, like Whisper: an
+encoder turns audio into a memory tensor, and an autoregressive decoder emits text using
+self-attention (KV-cached) plus cross-attention into that memory. This module currently
+implements **only the encoder** — the compute-heavy half and the one that carried the hard NPU
+compilation work (bidirectional attention, partial RoPE, bf16 LayerNorm). The decoder is not yet
+authored in the DSL: in the SL2610 demo it runs from prebuilt vendor vmfbs
+(`decoder.vmfb` + `decoder_with_past.vmfb`). `MoonshineConfig.decoderLayers` reserves the shape;
+a DSL decoder is future work.
+====
+
+== Coordinates
+
+[source,kotlin]
+----
+dependencies {
+    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.34.1"))
+    implementation("sk.ainet.transformers:skainet-transformers-inference-moonshine")
+}
+----
+
+== API
+
+[source,kotlin]
+----
+public fun <T : DType, V> moonshineEncoder(
+    cfg: MoonshineConfig,
+    dtype: KClass<T>,
+): Module<T, V>
+----
+
+Build it with **`BF16`** so the DSL→StableHLO export keeps bf16 weights at the matmul — the
+Torq NPU requirement (fp32 weights crash the Torq compiler's `getWeightMemoryFormat`). The
+input is the conv-frontend output `[batch, frames, dim]`; the output is the encoder memory
+`[batch, frames, dim]` for a decoder's cross-attention.
+
+=== `MoonshineConfig` (moonshine-tiny defaults)
+
+[cols="2,1,4"]
+|===
+| Field | Default | Notes
+
+| `dim` | `288` | model width (`nHeads × headDim` = 8 × 36)
+| `encoderLayers` | `6` | pre-norm transformer layers
+| `nHeads` | `8` | attention heads
+| `headDim` | `36` | per-head width
+| `ffnDim` | `1152` | GELU MLP hidden (4 × dim)
+| `maxFrames` | `165` | encoder sequence length after the conv frontend
+| `partialRotaryFactor` | `0.9` | rotate 32 of 36 head dims; the trailing 4 pass through
+| `ropeBase` | `10000` | RoPE base
+|===
+
+== Architecture
+
+Each layer is pre-norm: `x + Attn(LN(x))` then `x + MLP(LN(x))`, with
+
+* **non-causal RoPE self-attention** (bidirectional, no bias). Moonshine uses *interleaved*
+  (adjacent-pair) RoPE with **partial rotary** — only `headDim × partialRotaryFactor = 32` of
+  the 36 head dims are rotated, and `inv_freq` is computed over the rotary dim (32), not the
+  full head dim.
+* a plain **GELU MLP** (`fc1 → GELU → fc2`), both projections biased.
+
+A final LayerNorm produces the encoder memory.
+
+== Compilation path
+
+The emitted StableHLO is **portable** — it names no backend. Hardware-specific optimizations
+(e.g. the Synaptics Torq attention/FFN tiling and compile flags) plug in from *outside* core via
+the `TargetOptimizer` registry, so the model definition stays target-agnostic:
+
+[source]
+----
+moonshineEncoder() → tape → ComputeGraph → DtypeForwardPropagation(bf16) → StableHLO
+                                                                          ↓
+                                            (vendor plugin adds target passes) → iree-compile → vmfb
+----
+
+See the *SKaiNET Embedded* docs (`sl2610-function-calling`) for an end-to-end example that
+self-compiles this encoder from the DSL and runs it on the Synaptics SL2610 NPU.
+
+[TIP]
+====
+**Validation status.** This encoder is proven end-to-end, not just structurally emitted: on
+`test.wav` the 6-layer DSL encoder → decoder transcribes *"One, two, three."* correctly on the
+SL2610 Torq NPU, matching the reference (encoder cosine **1.0** on f32 CPU, **~0.9998** bf16 CPU;
+the full 6-layer graph compiles and runs on the NPU). The *decoder* in that run is an external
+one (HF `MoonshineForConditionalGeneration` in the validation harness; prebuilt vendor vmfbs on
+the board) — authoring the decoder in the DSL is the next milestone.
+====
+
+== Parameter names
+
+As of **0.34.1** every parameter is uniquely **layer-qualified**, so by-name weight loading can
+tell the layers apart:
+
+[source]
+----
+enc.$layer.attn_norm.{weight,bias}
+enc.$layer.attn.{q,k,v,o}_proj.weight
+enc.$layer.ffn_norm.{weight,bias}
+enc.$layer.ffn_up.{weight,bias}      # fc1
+enc.$layer.ffn_down.{weight,bias}    # fc2
+enc_out_norm.{weight,bias}           # final norm
+----
+
+[NOTE]
+====
+In 0.34.0 the attention/LayerNorm names were *not* layer-qualified (`attn.q_proj.weight`
+repeated every layer); 0.34.1 fixes this with no public-API change.
+====

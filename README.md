@@ -103,7 +103,9 @@ Honest status — see the project-status note at the top of this README.
 
 ## Current release
 
-The current release is **0.34.0** (against **SKaiNET 0.34.0**). It adds the first **Moonshine**
+The current release is **0.34.1** (against **SKaiNET 0.34.0**) — a patch that layer-qualifies the
+Moonshine encoder's attention/LayerNorm parameter names so by-name weight loading can tell the
+layers apart (no public API change). It builds on **0.34.0**, which adds the first **Moonshine**
 speech-to-text encoder authored entirely in the SKaiNET NN DSL (`skainet-transformers-inference-moonshine`,
 bf16-native) — it emits portable StableHLO and transcribes correctly on both CPU and the Synaptics Torq
 NPU. Supporting this, `transformer-core` RoPE now computes its rotation and `cos`/`sin` tables in **f32**

@@ -16,6 +16,7 @@
 
 .Reference
 * xref:reference/architecture.adoc[Architecture Overview]
+* xref:reference/moonshine-encoder.adoc[Moonshine Encoder (Speech-to-Text)]
 * xref:reference/pipeline.adoc[Inference Pipeline]
 * xref:reference/tokenizer-api.adoc[Tokenizer API]
 * xref:reference/chat-session-api.adoc[ChatSession API]

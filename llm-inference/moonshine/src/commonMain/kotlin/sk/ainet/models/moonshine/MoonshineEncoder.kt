@@ -40,15 +40,18 @@ public fun <T : DType, V> moonshineEncoder(
     for (layer in 0 until cfg.encoderLayers) {
         val stage = StageImpl<T, V>(nnCtx, "enc.$layer", dtype)
 
-        // x + Attn(LN(x))
-        stage.layerNorm(intArrayOf(dim), eps.toDouble(), id = "attn_norm")
+        // x + Attn(LN(x)). Layer-qualify every id ("enc.$layer.*") so the attention /
+        // LayerNorm parameter names are UNIQUE across layers — matching the FFN naming below.
+        // Without the prefix, `attn.q_proj.weight` / `attn_norm.weight` repeat every layer and
+        // by-name weight loading can't tell the layers apart.
+        stage.layerNorm(intArrayOf(dim), eps.toDouble(), id = "enc.$layer.attn_norm")
         stage.multiHeadAttention(
             dim = dim,
             nHeads = cfg.nHeads,
             nKVHeads = cfg.nHeads,
             causal = false, // encoder = bidirectional self-attention
             bias = false,
-            id = "attn",
+            id = "enc.$layer.attn",
         ) {
             rope(
                 headDim = cfg.headDim,
@@ -64,7 +67,7 @@ public fun <T : DType, V> moonshineEncoder(
         // x + MLP(LN(x)) — plain GELU MLP (not gated). VoidDense carries explicit
         // in/out dims (no eager placeholder alloc, and no reliance on DSL
         // dimension-tracking through the attention/residual sub-blocks).
-        stage.layerNorm(intArrayOf(dim), eps.toDouble(), id = "ffn_norm")
+        stage.layerNorm(intArrayOf(dim), eps.toDouble(), id = "enc.$layer.ffn_norm")
         // Moonshine MLP is a biased fc1 -> GELU -> biased fc2 (the reference model
         // carries `mlp.fc1.bias`/`mlp.fc2.bias`). addBias=true keeps the trace faithful.
         stage.modules += VoidDense<T, V>("enc.$layer.ffn_up", cfg.ffnDim, dim, dtype, addBias = true)
