@@ -7,6 +7,36 @@ version line is kept in lock-step with the underlying SKaiNET engine
 The format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.34.0] — 2026-07-05
+
+Ships against **SKaiNET engine 0.34.0**. Headline: the first **Moonshine** speech-to-text encoder
+authored entirely in the SKaiNET NN DSL, plus the RoPE work that makes transformer exports
+bit-exact on a real NPU.
+
+### Added
+
+- **`skainet-transformers-inference-moonshine`** (new, first published module) — the Moonshine-tiny
+  audio **encoder** built in the NN DSL, bf16-native, emitting portable (hardware-agnostic) StableHLO.
+  It compiles through the SKaiNET pipeline and transcribes correctly on both CPU and the Synaptics
+  Torq NPU. The exported IR carries no target-specific ops — backend optimizations plug in from
+  outside core (see the vendor-plugin pattern).
+- **Partial rotary embeddings** in `transformer-core`: `RoPE` gains `partialRotaryFactor` (rotate only
+  the leading fraction of each head, the rest passes through) and `freqDenomRotaryDim` (compute
+  `inv_freq` over the rotary dim rather than the full head dim). `TransformerDsl.rope()` threads both.
+  Matches models like Moonshine (rotate 32 of 36 head dims), verified against the reference ONNX.
+- **`VoidDense(addBias = true)`** — a projection can now add its `$name.bias` term, keeping traced
+  FFNs faithful to reference checkpoints that carry `fc1.bias` / `fc2.bias`.
+
+### Changed
+
+- **RoPE precision & form.** The interleaved rotation and its `cos`/`sin` tables are computed in
+  **f32** (upcast, then back to model dtype), and the interleaved path uses the **full-head (ONNX)
+  form** — numerically identical to the split-recombine form but bit-exact once accelerator layout
+  passes sit between the split and merge. Fixes low-precision RoPE drift on NPU targets.
+- **Engine → 0.34.0.** Transformer models inherit the engine's 0.34.0 work (f32 LayerNorm
+  decomposition, the pluggable target-optimizer / op-granularity seam that keeps exported StableHLO
+  portable).
+
 ## [0.33.0] — 2026-06-29
 
 Ships against **SKaiNET engine 0.33.0**. No transformers API changes — this release adopts the new

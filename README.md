@@ -103,12 +103,14 @@ Honest status — see the project-status note at the top of this README.
 
 ## Current release
 
-The current release is **0.33.0** (against **SKaiNET 0.33.0**). It adopts the new engine line —
-no transformers API changes — so transformer models inherit the engine's 0.33.0 work: `layerNorm`/
-`rmsNorm` now lower to real `stablehlo.reduce` (exports compile on stock IREE), a silent autodiff
-gradient-drop is fixed, and new differentiable ops (`cos`/`sin`/`gather`/…) are available. On top of
-the **0.32.1** streaming-detokenization fix and the **0.32.0** real-GGUF **Llama** eager +
-StableHLO/IREE export work:
+The current release is **0.34.0** (against **SKaiNET 0.34.0**). It adds the first **Moonshine**
+speech-to-text encoder authored entirely in the SKaiNET NN DSL (`skainet-transformers-inference-moonshine`,
+bf16-native) — it emits portable StableHLO and transcribes correctly on both CPU and the Synaptics Torq
+NPU. Supporting this, `transformer-core` RoPE now computes its rotation and `cos`/`sin` tables in **f32**
+and uses the **full-head (ONNX) interleaved form** for bit-exact accuracy on NPU targets, and gains
+**partial-rotary** support (`partialRotaryFactor` / `freqDenomRotaryDim`); `VoidDense` gains an optional
+`addBias` for faithful FFNs. On top of the **0.33.0** engine adoption, the **0.32.1**
+streaming-detokenization fix and the **0.32.0** real-GGUF **Llama** eager + StableHLO/IREE export work:
 
 - The eager **`NATIVE_OPTIMIZED` path now works for Llama** (`Q4_K`/`Q6_K`): weights stay
   packed and `LlamaNetworkLoader.fromGguf(NATIVE_OPTIMIZED) + OptimizedLLMRuntime` decodes
