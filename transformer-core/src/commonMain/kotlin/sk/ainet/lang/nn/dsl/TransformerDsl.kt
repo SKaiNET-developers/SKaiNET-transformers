@@ -57,7 +57,8 @@ public interface ATTENTION<T : DType, V> : NetworkDslItem {
         base: Float = 10000.0f,
         scaling: RoPEScaling = RoPEScaling.NONE,
         scalingFactor: Float = 1.0f,
-        partialRotaryFactor: Float = 1.0f
+        partialRotaryFactor: Float = 1.0f,
+        freqDenomRotaryDim: Boolean = false
     )
     /** Build a default [AppendKVCache] in place. */
     public fun kvCache(maxSeqLen: Int, nKVHeads: Int, headDim: Int)
@@ -93,7 +94,8 @@ public class AttentionImpl<T : DType, V>(
         base: Float,
         scaling: RoPEScaling,
         scalingFactor: Float,
-        partialRotaryFactor: Float
+        partialRotaryFactor: Float,
+        freqDenomRotaryDim: Boolean
     ) {
         ropeModule = RoPE(
             headDim = headDim,
@@ -103,6 +105,7 @@ public class AttentionImpl<T : DType, V>(
             scaling = scaling,
             scalingFactor = scalingFactor,
             partialRotaryFactor = partialRotaryFactor,
+            freqDenomRotaryDim = freqDenomRotaryDim,
             name = "$id.rope"
         )
         explicitHeadDim = headDim

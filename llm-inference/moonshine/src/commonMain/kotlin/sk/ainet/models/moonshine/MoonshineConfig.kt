@@ -26,6 +26,10 @@ public data class MoonshineConfig(
     val maxAudioSamples: Int = 64000, // 4 s @ 16 kHz → 165 frames
     val maxFrames: Int = 165,         // encoder sequence length after the conv frontend
     val ropeBase: Float = 10000.0f,
+    // Moonshine uses PARTIAL rotary: only rotaryDim = headDim*partialRotaryFactor = 36*0.9 = 32
+    // head dims are rotated (rotate-half / SPLIT_HALF), the trailing 4 pass through. Verified
+    // against enc_xformer.onnx (cos/sin are [·,·,32] while head_dim is 36).
+    val partialRotaryFactor: Float = 0.9f,
     val layerNormEps: Float = 1e-5f,
 ) {
     // Conv frontend (channels/kernel/stride), from the ONNX frontend graph.

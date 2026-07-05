@@ -24,7 +24,7 @@ class RoPEScalingTest {
     private val ctx = DirectCpuExecutionContext()
 
     @Test
-    fun `partialRotaryFactor of 1 leaves no tail untouched — rotates full head`() {
+    fun `partialRotaryFactor of 1 leaves no tail untouched - rotates full head`() {
         val rope = RoPE<FP32, Float>(
             headDim = 8,
             maxSeqLen = 4,

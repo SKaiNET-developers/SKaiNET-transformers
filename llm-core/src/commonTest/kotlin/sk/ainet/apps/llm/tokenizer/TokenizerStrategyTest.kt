@@ -105,7 +105,7 @@ class TokenizerStrategyTest {
     // ==================== BPEStrategy byte-level decode ====================
 
     @Test
-    fun `BPEStrategy postprocess decodes newline glyph Ċ back to newline byte`() {
+    fun `BPEStrategy postprocess decodes newline glyph C-dot back to newline byte`() {
         // GPT-2 byte_to_unicode maps byte 0x0A (newline) to U+010A (Ċ).
         // The reverse-mapping in postprocess should restore the newline.
         val result = BPEStrategy.postprocess("Ċ")
@@ -113,7 +113,7 @@ class TokenizerStrategyTest {
     }
 
     @Test
-    fun `BPEStrategy postprocess decodes tab glyph ĉ back to tab byte`() {
+    fun `BPEStrategy postprocess decodes tab glyph c-circumflex back to tab byte`() {
         // GPT-2 byte_to_unicode maps byte 0x09 (tab) to U+0109 (ĉ).
         val result = BPEStrategy.postprocess("ĉ")
         assertEquals("\t", result)

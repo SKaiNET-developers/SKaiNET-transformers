@@ -50,7 +50,14 @@ public fun <T : DType, V> moonshineEncoder(
             bias = false,
             id = "attn",
         ) {
-            rope(headDim = cfg.headDim, maxSeqLen = cfg.maxFrames, mode = RoPEMode.INTERLEAVED, base = cfg.ropeBase)
+            rope(
+                headDim = cfg.headDim,
+                maxSeqLen = cfg.maxFrames,
+                mode = RoPEMode.INTERLEAVED, // Moonshine rope = adjacent-pair (verified bit-exact vs ONNX Mul_4)
+                base = cfg.ropeBase,
+                partialRotaryFactor = cfg.partialRotaryFactor,
+                freqDenomRotaryDim = true, // Moonshine inv_freq uses rotaryDim (32), not headDim (36)
+            )
         }
         stage.residual()
 
@@ -58,9 +65,11 @@ public fun <T : DType, V> moonshineEncoder(
         // in/out dims (no eager placeholder alloc, and no reliance on DSL
         // dimension-tracking through the attention/residual sub-blocks).
         stage.layerNorm(intArrayOf(dim), eps.toDouble(), id = "ffn_norm")
-        stage.modules += VoidDense<T, V>("enc.$layer.ffn_up", cfg.ffnDim, dim, dtype)
+        // Moonshine MLP is a biased fc1 -> GELU -> biased fc2 (the reference model
+        // carries `mlp.fc1.bias`/`mlp.fc2.bias`). addBias=true keeps the trace faithful.
+        stage.modules += VoidDense<T, V>("enc.$layer.ffn_up", cfg.ffnDim, dim, dtype, addBias = true)
         stage.modules += GELU<T, V>(name = "enc.$layer.ffn_gelu")
-        stage.modules += VoidDense<T, V>("enc.$layer.ffn_down", dim, cfg.ffnDim, dtype)
+        stage.modules += VoidDense<T, V>("enc.$layer.ffn_down", dim, cfg.ffnDim, dtype, addBias = true)
         stage.residual()
 
         dsl.modules += HybridTransformerBlock(stage.modules.toList(), name = "enc.$layer")
