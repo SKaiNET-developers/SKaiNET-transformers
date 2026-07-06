@@ -25,6 +25,7 @@ public data class MoonshineConfig(
     val vocabSize: Int = 32768,
     val maxAudioSamples: Int = 64000, // 4 s @ 16 kHz → 165 frames
     val maxFrames: Int = 165,         // encoder sequence length after the conv frontend
+    val maxDecodeTokens: Int = 194,   // decoder RoPE table size = config max_position_embeddings (board uses ≤30)
     val ropeBase: Float = 10000.0f,
     // Moonshine uses PARTIAL rotary: only rotaryDim = headDim*partialRotaryFactor = 36*0.9 = 32
     // head dims are rotated (rotate-half / SPLIT_HALF), the trailing 4 pass through. Verified

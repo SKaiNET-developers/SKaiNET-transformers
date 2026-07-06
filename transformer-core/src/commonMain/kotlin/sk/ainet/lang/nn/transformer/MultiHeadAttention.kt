@@ -41,6 +41,16 @@ import kotlin.reflect.KClass
  * @param bias whether Q/K/V/O projections have bias (true for BERT, false for Llama)
  * @param name module name
  */
+/**
+ * Attention output plus the reshaped K/V it computed (`[nKVHeads, seq, headDim]`, heads-first,
+ * post-RoPE for self-attention). Returned by [MultiHeadAttention.forwardWithKV] for KV-cache export.
+ */
+public class AttentionKV<T : DType, V>(
+    public val output: Tensor<T, V>,
+    public val k: Tensor<T, V>,
+    public val v: Tensor<T, V>,
+)
+
 public class MultiHeadAttention<T : DType, V>(
     public val dim: Int,
     public val nHeads: Int,
@@ -181,7 +191,32 @@ public class MultiHeadAttention<T : DType, V>(
         }
 
     override fun onForward(input: Tensor<T, V>, ctx: ExecutionContext): Tensor<T, V> =
-        attentionImpl(qInput = input, kvInput = input, isCrossAttention = false, ctx = ctx)
+        attentionImpl(qInput = input, kvInput = input, isCrossAttention = false, ctx = ctx).output
+
+    /**
+     * Like [forward], but also returns the reshaped K/V this attention computed
+     * (`[nKVHeads, seq, headDim]`, heads-first, post-RoPE for self-attention). Used by
+     * encoder-decoder KV-cache export (e.g. the Moonshine prefill graph) to surface the
+     * self/cross K/V as graph outputs without duplicating the projection/RoPE/reshape.
+     * The K/V are pre-GQA-expansion (one entry per KV head). Cross-attention (`encoderMemory
+     * != null`) returns the memory-projected K/V with no RoPE.
+     */
+    public fun forwardWithKV(
+        input: Tensor<T, V>,
+        encoderMemory: Tensor<T, V>?,
+        ctx: ExecutionContext,
+    ): AttentionKV<T, V> {
+        val boundInput = input.bind(ctx)
+        return if (encoderMemory == null) {
+            attentionImpl(qInput = boundInput, kvInput = boundInput, isCrossAttention = false, ctx = ctx)
+        } else {
+            require(kvCache == null && slidingWindow == null) {
+                "MultiHeadAttention.forwardWithKV: cross-attention supports neither kvCache nor slidingWindow."
+            }
+            val boundMemory = encoderMemory.bind(ctx)
+            attentionImpl(qInput = boundInput, kvInput = boundMemory, isCrossAttention = true, ctx = ctx)
+        }
+    }
 
     /**
      * Forward entry that supports cross-attention. When [encoderMemory] is `null`
@@ -210,7 +245,7 @@ public class MultiHeadAttention<T : DType, V>(
         val boundInput = input.bind(ctx)
         val boundMemory = encoderMemory.bind(ctx)
         return sk.ainet.lang.nn.hooks.withForwardHooks(ctx, this, boundInput) {
-            attentionImpl(qInput = boundInput, kvInput = boundMemory, isCrossAttention = true, ctx = ctx)
+            attentionImpl(qInput = boundInput, kvInput = boundMemory, isCrossAttention = true, ctx = ctx).output
         }
     }
 
@@ -219,7 +254,7 @@ public class MultiHeadAttention<T : DType, V>(
         kvInput: Tensor<T, V>,
         isCrossAttention: Boolean,
         ctx: ExecutionContext,
-    ): Tensor<T, V> {
+    ): AttentionKV<T, V> {
         val ops = ctx.ops
         val scale = attentionScale ?: (1.0f / sqrt(headDim.toFloat()))
 
@@ -343,12 +378,19 @@ public class MultiHeadAttention<T : DType, V>(
         // jstack profile (docs/upstream/A2-PROFILE.md) showed dominate decode.
         // Numerically identical to the general path below for seqLen 1 (same
         // max-stable softmax, same GQA head mapping head h → kv head h/nRep).
-        if (qSeqLen == 1 && !isCrossAttention && slidingWindow == null) {
+        //
+        // Skipped while RECORDING a graph: fusedDecodeAttention reads concrete float
+        // buffers (`q.data.copyToFloatArray()`) and rewraps a fresh constant tensor, so
+        // it detaches from the trace tape (q/k/v would dangle, the result would be a
+        // disconnected constant). When `ctx.isRecording`, fall through to the symbolic
+        // `ops.*` SDPA path below, which exports cleanly. This is exactly the eager
+        // fast-path / traceable-path split `ExecutionContext.isRecording` documents.
+        if (qSeqLen == 1 && !isCrossAttention && slidingWindow == null && !ctx.isRecording) {
             val merged = fusedDecodeAttention(q, fullK, fullV, scale, ctx)
             var output = linearProject(ops, merged, wO)
             if (bias) output = ops.add(output, params[oWIdx + 1].value)
             if (mhaDump) mhaDumpStat("[blk.0.mha post-fused-decode ]", output)
-            return output
+            return AttentionKV(output, fullK, fullV)
         }
 
         // Expand KV heads for GQA if needed
@@ -406,7 +448,7 @@ public class MultiHeadAttention<T : DType, V>(
         if (bias) {
             output = ops.add(output, params[oWIdx + 1].value)
         }
-        return output
+        return AttentionKV(output, fullK, fullV)
     }
 
     /**
