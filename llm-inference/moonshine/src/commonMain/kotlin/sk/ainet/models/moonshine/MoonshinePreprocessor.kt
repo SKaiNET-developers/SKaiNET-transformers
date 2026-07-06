@@ -36,6 +36,10 @@ import kotlin.reflect.KClass
 public class MoonshinePreprocessor<T : DType, V>(
     cfg: MoonshineConfig,
     dtype: KClass<T>,
+    // When true, emit the conv output `[1, dim, frames]` WITHOUT the final transpose — the layout the
+    // board pipeline feeds to the (board-layout) encoder, so this is a drop-in for the vendor
+    // `preprocessor_cpu.vmfb`. Default false = `[1, frames, dim]` (matches `enc_frontend.onnx`).
+    private val boardLayout: Boolean = false,
 ) : Module<T, V>() {
 
     override val name: String = "moonshine_preprocessor"
@@ -83,6 +87,7 @@ public class MoonshinePreprocessor<T : DType, V>(
         x = groupNorm1(x, ctx)                       // [1, dim, L1]
         x = conv2.forward(x, ctx).gelu()             // [1, 2·dim, L2]
         x = conv3.forward(x, ctx).gelu()             // [1, dim, frames]
+        if (boardLayout) return x                    // board feeds [1, dim, frames] to the encoder
         // [1, dim, frames] → [1, frames, dim] via a 2D swap (rank-3 ops.transpose reverses all dims).
         return ops.unsqueeze(ops.transpose(ops.squeeze(x, 0)), 0)
     }
@@ -109,4 +114,5 @@ public class MoonshinePreprocessor<T : DType, V>(
 public fun <T : DType, V> moonshinePreprocessor(
     cfg: MoonshineConfig,
     dtype: KClass<T>,
-): MoonshinePreprocessor<T, V> = MoonshinePreprocessor(cfg, dtype)
+    boardLayout: Boolean = false,
+): MoonshinePreprocessor<T, V> = MoonshinePreprocessor(cfg, dtype, boardLayout)
