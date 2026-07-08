@@ -92,6 +92,12 @@ kotlin {
 
         val jvmMain by getting {
             dependencies {
+                // FunctionGemma compiled export: DSL -> StableHLO (external params).
+                // JVM-only (skainet-compile-hlo/-dag publish no JS).
+                implementation(libs.skainet.compile.hlo)
+                implementation(libs.skainet.compile.dag)
+                // FunctionGemma facade: CompactCodec (<tool_N> -> ToolCall) + ToolCall.
+                implementation(project(":llm-runtime:gemma-iree"))
                 implementation(project(":llm-runtime:kllama"))
                 // Direct dep on llm-agent for the --agent CLI flag.
                 // kllama's `implementation(project(":llm-agent"))` isn't
@@ -154,4 +160,20 @@ tasks.withType<JavaExec>().configureEach {
     jvmArgs("--enable-preview", "--add-modules", "jdk.incubator.vector", "-XX:MaxDirectMemorySize=36g")
     minHeapSize = "4g"
     maxHeapSize = "24g"
+}
+
+// FunctionGemma compiled export entry point (driven by the demo's scripts/compile-gemma.sh):
+//   GEMMA_GGUF=…Q5_K_M.gguf GEMMA_OUT_DIR=… \
+//     ./gradlew -PuseLocalSkainet=true :llm-runtime:kgemma:exportFunctionGemma
+// Inherits the --add-modules jdk.incubator.vector + heap config from withType<JavaExec> above.
+tasks.register<JavaExec>("exportFunctionGemma") {
+    group = "bridge"
+    description = "Export FunctionGemma -> gemma-gen.mlir + bf16 gemma.safetensors from the GGUF."
+    val jvmMainComp = kotlin.jvm().compilations.getByName("main")
+    dependsOn(jvmMainComp.compileTaskProvider)
+    classpath = jvmMainComp.output.allOutputs + jvmMainComp.runtimeDependencyFiles
+    mainClass.set("sk.ainet.apps.kgemma.FunctionGemmaExportMainKt")
+    listOf("GEMMA_GGUF", "GEMMA_OUT_DIR", "GEN_SEQ", "PARTIAL_ROTARY", "GEMMA_DTYPE").forEach { k ->
+        System.getenv(k)?.let { environment(k, it) }
+    }
 }
