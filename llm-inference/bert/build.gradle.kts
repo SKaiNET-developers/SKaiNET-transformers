@@ -67,6 +67,8 @@ kotlin {
                 implementation(libs.kotlinx.coroutines.test)
                 implementation(libs.skainet.backend.cpu)
                 implementation(libs.skainet.io.safetensors)
+                // StableHLO export smoke test (JVM-only, like gemma's MLIR dump test)
+                implementation(libs.skainet.compile.hlo)
             }
         }
     }
