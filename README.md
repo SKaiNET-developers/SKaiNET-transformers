@@ -103,9 +103,17 @@ Honest status — see the project-status note at the top of this README.
 
 ## Current release
 
-The current release is **0.34.1** (against **SKaiNET 0.34.0**) — a patch that layer-qualifies the
+The current release is **0.35.0** (against **SKaiNET 0.35.0**) — it adds **FunctionGemma**
+self-compiled from the SKaiNET NN DSL: a one-dependency function-calling sLLM
+(`skainet-transformers-runtime-kgemma`) with an eager one-line API
+(`FunctionGemma.fromGguf(gguf).call("turn the light on")` → `ToolCall(set_lights, {state="on"})`, runs
+anywhere on CPU, no iree) **and** a no-Python compiled edge export (`FunctionGemma.exportCompiled` /
+`compile-gemma.sh`) verified token-for-token against llama.cpp on the SL2610 board. It uses the engine's
+new `argMax` op to fold the `logits → token-ids` argmax tail into the DSL trace.
+
+It builds on **0.34.1** — a patch that layer-qualifies the
 Moonshine encoder's attention/LayerNorm parameter names so by-name weight loading can tell the
-layers apart (no public API change). It builds on **0.34.0**, which adds the first **Moonshine**
+layers apart (no public API change) — and on **0.34.0**, which adds the first **Moonshine**
 speech-to-text encoder authored entirely in the SKaiNET NN DSL (`skainet-transformers-inference-moonshine`,
 bf16-native) — it emits portable StableHLO and transcribes correctly on both CPU and the Synaptics Torq
 NPU. Supporting this, `transformer-core` RoPE now computes its rotation and `cos`/`sin` tables in **f32**
@@ -130,7 +138,7 @@ The recommended way to consume is via the BOM. It pins every published `skainet-
 
 ```kotlin
 dependencies {
-    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.32.1"))
+    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.35.0"))
 
     // Versions resolved from the BOM:
     implementation("sk.ainet.transformers:skainet-transformers-core")
