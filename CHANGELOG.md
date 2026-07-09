@@ -7,6 +7,31 @@ version line is kept in lock-step with the underlying SKaiNET engine
 The format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.35.0] — 2026-07-09
+
+Ships against **SKaiNET engine 0.35.0**, whose new `argMax` op this release uses to fold the LLM
+`logits → token-ids` tail into the DSL trace.
+
+### Added
+
+- **FunctionGemma self-compile from the SKaiNET DSL** (`sk.ainet.transformers:…-kgemma`). One reusable
+  dependency for the FunctionGemma-270M function-calling sLLM, in **both** SKaiNET execution modes:
+  - `FunctionGemma.fromGguf(gguf).call("turn the light on")` → `ToolCall(set_lights, {state="on"})` —
+    **eager** (DirectCpu + `OptimizedLLMRuntime(DIRECT)` + Octopus-v2 template + `CompactCodec`), runs
+    anywhere on CPU, no iree. (The `partialRotary = 1.0` gemma3 rotary fix is applied.)
+  - `FunctionGemma.exportCompiled(outDir)` / `FunctionGemmaExport.export(…)` — **compiled** edge path:
+    traces `gemmaNetwork()` ending in `ops.argMax(logits, -1)` (the engine op), emits StableHLO with
+    **bf16 external params** (bf16 globals + convert-on-load + bf16 safetensors). Promotes the former
+    `RealGemmaBakeIrpaTest` and retires the Python argmax/f16 MLIR rewrites. Verified token-for-token
+    against llama.cpp on the SL2610 board.
+  - `exportFunctionGemma` Gradle task (for `scripts/compile-gemma.sh`); `kgemma` jvm deps gain
+    `skainet-compile-hlo`/`-dag` + `gemma-iree` (`CompactCodec`).
+
+### Changed
+
+- **Engine → 0.35.0.** Adopts the new engine line; the compiled FunctionGemma export depends on the
+  engine's new `argMax` op. (engine 0.35.0)
+
 ## [0.34.1] — 2026-07-05
 
 Patch on **0.34.0** (same SKaiNET engine 0.34.0). Fixes Moonshine encoder parameter naming.
