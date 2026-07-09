@@ -95,6 +95,19 @@ internal fun decoderHfNameFor(dslName: String): DecMap? {
 
 internal data class DecMap(val hfName: String?, val transpose: Boolean)
 
+/** Preprocessor (audio frontend) param → HF encoder conv/groupnorm tensor. Conv weights [out,in,k] map
+ *  directly (no transpose). */
+internal fun preprocessorHfNameFor(dslName: String): DecMap? = when (dslName) {
+    "conv1.weight" -> DecMap("encoder.conv1.weight", false)
+    "conv2.weight" -> DecMap("encoder.conv2.weight", false)
+    "conv2.bias" -> DecMap("encoder.conv2.bias", false)
+    "conv3.weight" -> DecMap("encoder.conv3.weight", false)
+    "conv3.bias" -> DecMap("encoder.conv3.bias", false)
+    "groupnorm.weight" -> DecMap("encoder.groupnorm.weight", false)
+    "groupnorm.bias" -> DecMap("encoder.groupnorm.bias", false)
+    else -> null
+}
+
 private val ENC_LAYER = Regex("""^enc\.(\d+)\.(.+)$""")
 
 /**
