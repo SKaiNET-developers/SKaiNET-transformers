@@ -5,7 +5,6 @@ import sk.ainet.lang.nn.DefaultNeuralNetworkExecutionContext
 import sk.ainet.lang.nn.Module
 import sk.ainet.lang.nn.dsl.NeuralNetworkDslImpl
 import sk.ainet.lang.nn.dsl.StageImpl
-import sk.ainet.lang.nn.dsl.embedding
 import sk.ainet.lang.nn.dsl.multiHeadAttention
 import sk.ainet.lang.nn.dsl.residual
 import sk.ainet.lang.nn.dsl.sequential
@@ -15,15 +14,14 @@ import sk.ainet.lang.types.DType
 /**
  * BERT architecture defined via the network DSL.
  *
- * Replaces the hand-coded [BertRuntime] with a declarative definition.
- *
- * Architecture: Embedding → LayerNorm →
+ * Architecture: BertEmbeddings (word + position + token_type + LayerNorm) →
  *               N × (MHA(bidirectional, bias) → Residual → LayerNorm →
  *               Dense → GeLU → Dense → Residual → LayerNorm)
  *
- * Note: BERT has 3 embedding types (word, position, token_type) but only
- * word embeddings are defined here. Position and token_type are handled
- * by the runtime's forward logic as additive lookups.
+ * The returned module is a complete `tokens → hidden-states` encoder: feed it
+ * a `[L]`-shaped token-id tensor and it produces `[L, hiddenSize]` hidden
+ * states. Pooling and the optional sentence-transformers projection live in
+ * [BertEncoderRuntime], keeping the traced graph a pure encoder.
  */
 public inline fun <reified T : DType, V> bertNetwork(
     config: BertModelConfig
@@ -32,18 +30,14 @@ public inline fun <reified T : DType, V> bertNetwork(
     val nHeads = config.numAttentionHeads
     val nLayers = config.numHiddenLayers
     val ffnDim = config.intermediateSize
-    val vocabSize = config.vocabSize
     val eps = config.layerNormEps
 
     return sequential<T, V> {
         val dslImpl = this as NeuralNetworkDslImpl<T, V>
         val nnCtx = DefaultNeuralNetworkExecutionContext()
 
-        // Embedding stage: word embeddings + LayerNorm
-        val embStage = StageImpl<T, V>(nnCtx, "embeddings", T::class)
-        embStage.embedding(vocabSize, dim, id = "word_embeddings")
-        embStage.layerNorm(intArrayOf(dim), eps, id = "LayerNorm")
-        dslImpl.modules += HybridTransformerBlock(embStage.modules.toList(), name = "embeddings")
+        // Complete embeddings block: word + position + token_type, LayerNorm
+        dslImpl.modules += BertEmbeddings(config, T::class)
 
         // Encoder layers — use TransformerBlock for residual connections
         for (layer in 0 until nLayers) {

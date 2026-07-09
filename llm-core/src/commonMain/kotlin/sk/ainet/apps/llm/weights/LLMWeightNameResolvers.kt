@@ -167,6 +167,13 @@ public class BertSafeTensorsNameResolver : WeightNameResolver {
             moduleName == "word_embeddings" && inEmbeddings ->
                 "bert.embeddings.word_embeddings.weight"
 
+            // BertEmbeddings' own additive tables: the module path ends at
+            // "embeddings"; the param name carries the table identity.
+            paramName.endsWith("position_embeddings.weight") && inEmbeddings ->
+                "bert.embeddings.position_embeddings.weight"
+            paramName.endsWith("token_type_embeddings.weight") && inEmbeddings ->
+                "bert.embeddings.token_type_embeddings.weight"
+
             moduleName == "LayerNorm" && inEmbeddings && paramName.endsWith(".weight") ->
                 "bert.embeddings.LayerNorm.weight"
             moduleName == "LayerNorm" && inEmbeddings && paramName.endsWith(".bias") ->

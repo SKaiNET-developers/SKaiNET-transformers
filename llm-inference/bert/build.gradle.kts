@@ -46,6 +46,10 @@ kotlin {
             implementation(libs.skainet.lang.core)
             implementation(libs.skainet.io.safetensors)
             implementation(libs.skainet.compile.core)
+            // Traced ComputeGraph execution for BertEncoderRuntime's OPTIMIZED
+            // mode (llm-core declares these as implementation — not transitive).
+            implementation(libs.skainet.compile.dag)
+            implementation(libs.skainet.compile.opt)
             implementation(libs.skainet.backend.cpu)
             implementation(libs.skainet.io.core)
             implementation(libs.kotlinx.coroutines)
