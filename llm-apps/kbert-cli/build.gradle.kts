@@ -12,6 +12,7 @@ dependencies {
     implementation(platform(project(":llm-bom")))
 
     implementation(project(":llm-inference:bert"))
+    implementation(project(":llm-providers"))
     implementation(libs.skainet.lang.core)
     implementation(libs.skainet.io.core)
     implementation(libs.skainet.io.safetensors)
