@@ -7,6 +7,58 @@ version line is kept in lock-step with the underlying SKaiNET engine
 The format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **BERT sentence embeddings completed on the DSL path.** `bertNetwork()` is now a numerically
+  complete `tokens → hidden-states` encoder: the new `BertEmbeddings` module adds absolute-position
+  and token-type embeddings (index-free `narrow`-based lookups, single-segment) that the DSL
+  definition previously omitted. New `BertEncoderRuntime` executes it eagerly (**DIRECT**, default)
+  or as a traced, optimized **ComputeGraph** (**OPTIMIZED**, shape-specialized per sequence length
+  with an LRU cache) and adds masked mean pooling, the optional sentence-transformers `2_Dense`
+  projection, and L2 normalization on top of the pure encoder graph. The encoder trace lowers to
+  StableHLO (gather / dot_general / SDPA preserved) — export is gate-tested; IREE *execution* of the
+  exported module stays out of scope for now. Verified against the PyTorch-validated legacy runtime
+  on real MongoDB/mdbr-leaf-mt (hidden-state parity ≤ 2.2e-6) and DIRECT-vs-OPTIMIZED bit-exact.
+- **One-call embedding factory with built-in Hugging Face download.**
+  `BertEmbeddingModel.fromHuggingFace("MongoDB/mdbr-leaf-mt")` (llm-providers) downloads the
+  snapshot via the engine's `skainet-data-source` (`hf://` URIs, `HF_TOKEN`-aware) into
+  `~/.cache/skainet/models/`, streamed with `.part` + atomic rename, offline-safe after the first
+  run; `fromSafeTensors(dir)` loads a local snapshot, auto-detecting weights, config, tokenizer
+  (`vocab.txt` → `tokenizer.json`), and the `2_Dense/` head. `kbert-cli` accepts an HF repo id
+  directly: `kbert MongoDB/mdbr-leaf-mt "query" "doc"`.
+- `BertConfigParser` — shared `config.json` (+ `2_Dense/config.json` → `projectionDim`) parser,
+  consolidating the copies previously living in `KBertJava` and downstream apps.
+
+### Fixed
+
+- **BERT post-norm residual wiring.** The single-block-per-layer `bertNetwork()` definition wired the
+  FFN residual to the pre-LayerNorm value — the transformer blocks' residual rule fits pre-norm
+  decoder stacks, but BERT is post-norm. Each encoder layer is now two blocks (`attn` / `ffn`) so
+  every residual segment starts at the correct value.
+- **Bias-free `2_Dense` projection heads were silently dropped.** The legacy eager runtime required
+  projection weight *and* bias; LEAF models ship `bias=false`, so it skipped the projection entirely
+  (returning 384-dim vectors while advertising 1024). `BertEncoderRuntime` applies bias-free
+  projections; `KBertJava` now picks up `2_Dense/` heads it previously ignored.
+- **Graph replay dropped `permute` axes.** The ComputeGraph executor's builtin dispatch replayed
+  `permute` as a plain last-two-dims transpose; `LLMFusedOpHandlers` registers an axes-aware
+  `permute` handler (the registry precedes the builtin), fixing every multi-token attention trace —
+  single-token decode never hit it. Remove once the engine executor honors `axes` upstream.
+
+### Removed
+
+- **BREAKING: the deprecated hand-coded BERT stack is gone** — `BertRuntime`, `BertRuntimeWeights`,
+  `BertLayerWeights`, `loadBertWeights`, `BertWeightMapper`, `BertTensorNames`, `BertIngestion`, and
+  `BertNetworkLoader.fromRuntimeWeights`. Migrate to `createBertEncoderRuntime(config, tensors, ctx)`
+  (tensors from `BertNetworkLoader.loadWeightTensors`) or, one level up, to
+  `BertEmbeddingModel.fromSafeTensors(...)` / `fromHuggingFace(...)`. `SkaiNetEmbeddingModel`'s
+  constructor now takes `BertEncoderRuntime`; `KBertJava` / `KBertSession` keep their method surface
+  (`loadSafeTensors` / `encode` / `similarity`) with the constructor type changing. `BertModelConfig`
+  and `MDBR_LEAF_IR_CONFIG` moved to `BertConfig.kt` (same package — imports unaffected). The
+  `docs/optimizable-LLM-NNs-DAG.md` reference in the old deprecation pointed at a document that never
+  existed; the real migration guide is `explanation/dsl-vs-handcoded.adoc`.
+
 ## [0.35.0] — 2026-07-09
 
 Ships against **SKaiNET engine 0.35.0**, whose new `argMax` op this release uses to fold the LLM

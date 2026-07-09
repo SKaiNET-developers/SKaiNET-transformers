@@ -88,7 +88,7 @@ Honest status — see the project-status note at the top of this README.
 | **Qwen 2 / 3** | DSL + loaders present; runs through the shared decoder path. Early; Qwen3 RoPE / QK-norm fixes landed in 0.23.2. |
 | **Gemma 2 / 3 / 3n** | DSL + loaders present (Gemma 4 via the SafeTensors path); has the most test coverage, but not verified end-to-end. |
 | **Apertus** | DSL + loaders present; declared end-to-end in 0.23.1, still early. |
-| **BERT** | Encoder for embeddings only — no text generation, no tool calling. |
+| **BERT** | Sentence embeddings on the DSL path (`bertNetwork()` + `BertEncoderRuntime`, eager or traced/fused) — verified against sentence-transformers on MongoDB/mdbr-leaf. One-call `BertEmbeddingModel.fromHuggingFace(...)` with built-in Hub download. No text generation, no tool calling. |
 | **Voxtral** | TTS / voice; architecture code only — no runtime facade or CLI yet. |
 
 ### Near term

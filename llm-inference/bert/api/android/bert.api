@@ -1,47 +1,40 @@
-public final class sk/ainet/models/bert/BertIngestion {
-	public fun <init> (Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;Lsk/ainet/models/bert/BertModelConfig;)V
-	public final fun load (Lsk/ainet/io/ParametersLoader;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+public final class sk/ainet/models/bert/BertConfigKt {
+	public static final fun getMDBR_LEAF_IR_CONFIG ()Lsk/ainet/models/bert/BertModelConfig;
 }
 
-public final class sk/ainet/models/bert/BertLayerWeights {
-	public fun <init> (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;)V
-	public final fun component1 ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun component10 ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun component11 ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun component12 ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun component13 ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun component14 ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun component15 ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun component16 ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun component2 ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun component3 ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun component4 ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun component5 ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun component6 ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun component7 ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun component8 ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun component9 ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun copy (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;)Lsk/ainet/models/bert/BertLayerWeights;
-	public static synthetic fun copy$default (Lsk/ainet/models/bert/BertLayerWeights;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;ILjava/lang/Object;)Lsk/ainet/models/bert/BertLayerWeights;
-	public fun equals (Ljava/lang/Object;)Z
-	public final fun getAttnLayerNormBias ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun getAttnLayerNormWeight ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun getAttnOutputBias ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun getAttnOutputWeight ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun getIntermediateBias ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun getIntermediateWeight ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun getKeyBias ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun getKeyWeight ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun getOutputBias ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun getOutputLayerNormBias ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun getOutputLayerNormWeight ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun getOutputWeight ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun getQueryBias ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun getQueryWeight ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun getValueBias ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun getValueWeight ()Lsk/ainet/lang/tensor/Tensor;
-	public fun hashCode ()I
-	public fun toString ()Ljava/lang/String;
+public final class sk/ainet/models/bert/BertConfigParser {
+	public static final field INSTANCE Lsk/ainet/models/bert/BertConfigParser;
+	public final fun parse (Ljava/lang/String;Ljava/lang/String;)Lsk/ainet/models/bert/BertModelConfig;
+	public static synthetic fun parse$default (Lsk/ainet/models/bert/BertConfigParser;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lsk/ainet/models/bert/BertModelConfig;
+}
+
+public final class sk/ainet/models/bert/BertEmbeddings : sk/ainet/lang/nn/Module, sk/ainet/lang/nn/topology/ModuleParameters {
+	public fun <init> (Lsk/ainet/models/bert/BertModelConfig;Lkotlin/reflect/KClass;Ljava/lang/String;)V
+	public synthetic fun <init> (Lsk/ainet/models/bert/BertModelConfig;Lkotlin/reflect/KClass;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun getModules ()Ljava/util/List;
+	public fun getName ()Ljava/lang/String;
+	public fun getParams ()Ljava/util/List;
+}
+
+public final class sk/ainet/models/bert/BertEncoderRuntime {
+	public fun <init> (Lsk/ainet/lang/nn/Module;Lsk/ainet/models/bert/BertModelConfig;Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/models/bert/BertExecutionMode;)V
+	public synthetic fun <init> (Lsk/ainet/lang/nn/Module;Lsk/ainet/models/bert/BertModelConfig;Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/models/bert/BertExecutionMode;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun compile (I)Ljava/util/List;
+	public static synthetic fun compile$default (Lsk/ainet/models/bert/BertEncoderRuntime;IILjava/lang/Object;)Ljava/util/List;
+	public final fun encode ([I[I)[F
+	public static synthetic fun encode$default (Lsk/ainet/models/bert/BertEncoderRuntime;[I[IILjava/lang/Object;)[F
+	public final fun exportTape (I)Lsk/ainet/lang/graph/DefaultExecutionTape;
+	public final fun forward ([I)Lsk/ainet/lang/tensor/Tensor;
+	public final fun getConfig ()Lsk/ainet/models/bert/BertModelConfig;
+	public final fun getDimensions ()I
+}
+
+public final class sk/ainet/models/bert/BertExecutionMode : java/lang/Enum {
+	public static final field DIRECT Lsk/ainet/models/bert/BertExecutionMode;
+	public static final field OPTIMIZED Lsk/ainet/models/bert/BertExecutionMode;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lsk/ainet/models/bert/BertExecutionMode;
+	public static fun values ()[Lsk/ainet/models/bert/BertExecutionMode;
 }
 
 public final class sk/ainet/models/bert/BertModelConfig {
@@ -76,93 +69,6 @@ public final class sk/ainet/models/bert/BertNetworkLoader {
 	public static final field INSTANCE Lsk/ainet/models/bert/BertNetworkLoader;
 }
 
-public final class sk/ainet/models/bert/BertNetworkLoaderKt {
-	public static final fun buildBertTensorMap (Lsk/ainet/models/bert/BertRuntimeWeights;)Ljava/util/Map;
-}
-
-public final class sk/ainet/models/bert/BertRuntime {
-	public fun <init> (Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/bert/BertRuntimeWeights;Lkotlin/reflect/KClass;)V
-	public final fun encode ([I[I[I)Lsk/ainet/lang/tensor/Tensor;
-	public static synthetic fun encode$default (Lsk/ainet/models/bert/BertRuntime;[I[I[IILjava/lang/Object;)Lsk/ainet/lang/tensor/Tensor;
-	public final fun forward ([I[I)Lsk/ainet/lang/tensor/Tensor;
-	public static synthetic fun forward$default (Lsk/ainet/models/bert/BertRuntime;[I[IILjava/lang/Object;)Lsk/ainet/lang/tensor/Tensor;
-}
-
-public final class sk/ainet/models/bert/BertRuntimeWeights {
-	public fun <init> (Lsk/ainet/models/bert/BertModelConfig;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/List;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;)V
-	public synthetic fun <init> (Lsk/ainet/models/bert/BertModelConfig;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/List;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public final fun component1 ()Lsk/ainet/models/bert/BertModelConfig;
-	public final fun component10 ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun component11 ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun component2 ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun component3 ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun component4 ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun component5 ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun component6 ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun component7 ()Ljava/util/List;
-	public final fun component8 ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun component9 ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun copy (Lsk/ainet/models/bert/BertModelConfig;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/List;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;)Lsk/ainet/models/bert/BertRuntimeWeights;
-	public static synthetic fun copy$default (Lsk/ainet/models/bert/BertRuntimeWeights;Lsk/ainet/models/bert/BertModelConfig;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/List;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;ILjava/lang/Object;)Lsk/ainet/models/bert/BertRuntimeWeights;
-	public fun equals (Ljava/lang/Object;)Z
-	public final fun getConfig ()Lsk/ainet/models/bert/BertModelConfig;
-	public final fun getEmbeddingLayerNormBias ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun getEmbeddingLayerNormWeight ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun getLayers ()Ljava/util/List;
-	public final fun getPoolerDenseBias ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun getPoolerDenseWeight ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun getPositionEmbeddings ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun getProjectionBias ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun getProjectionWeight ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun getTokenTypeEmbeddings ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun getWordEmbeddings ()Lsk/ainet/lang/tensor/Tensor;
-	public fun hashCode ()I
-	public fun toString ()Ljava/lang/String;
-}
-
-public final class sk/ainet/models/bert/BertRuntimeWeightsKt {
-	public static final fun getMDBR_LEAF_IR_CONFIG ()Lsk/ainet/models/bert/BertModelConfig;
-}
-
-public final class sk/ainet/models/bert/BertTensorNames {
-	public static final field EMBEDDING_LN_BIAS Ljava/lang/String;
-	public static final field EMBEDDING_LN_WEIGHT Ljava/lang/String;
-	public static final field INSTANCE Lsk/ainet/models/bert/BertTensorNames;
-	public static final field POOLER_DENSE_BIAS Ljava/lang/String;
-	public static final field POOLER_DENSE_WEIGHT Ljava/lang/String;
-	public static final field POSITION_EMBEDDINGS Ljava/lang/String;
-	public static final field PROJECTION_BIAS Ljava/lang/String;
-	public static final field PROJECTION_WEIGHT Ljava/lang/String;
-	public static final field TOKEN_TYPE_EMBEDDINGS Ljava/lang/String;
-	public static final field WORD_EMBEDDINGS Ljava/lang/String;
-	public final fun attnLayerNormBias (I)Ljava/lang/String;
-	public final fun attnLayerNormWeight (I)Ljava/lang/String;
-	public final fun attnOutputBias (I)Ljava/lang/String;
-	public final fun attnOutputWeight (I)Ljava/lang/String;
-	public final fun intermediateBias (I)Ljava/lang/String;
-	public final fun intermediateWeight (I)Ljava/lang/String;
-	public final fun keyBias (I)Ljava/lang/String;
-	public final fun keyWeight (I)Ljava/lang/String;
-	public final fun outputBias (I)Ljava/lang/String;
-	public final fun outputLayerNormBias (I)Ljava/lang/String;
-	public final fun outputLayerNormWeight (I)Ljava/lang/String;
-	public final fun outputWeight (I)Ljava/lang/String;
-	public final fun queryBias (I)Ljava/lang/String;
-	public final fun queryWeight (I)Ljava/lang/String;
-	public final fun valueBias (I)Ljava/lang/String;
-	public final fun valueWeight (I)Ljava/lang/String;
-}
-
-public final class sk/ainet/models/bert/BertWeightLoaderKt {
-	public static final fun loadBertWeights (Ljava/util/List;Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;Lsk/ainet/models/bert/BertModelConfig;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static final fun loadBertWeights (Lsk/ainet/io/ParametersLoader;Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;Lsk/ainet/models/bert/BertModelConfig;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-}
-
-public final class sk/ainet/models/bert/BertWeightMapper {
-	public static final field INSTANCE Lsk/ainet/models/bert/BertWeightMapper;
-	public final fun map (Ljava/util/Map;Lsk/ainet/models/bert/BertModelConfig;)Lsk/ainet/models/bert/BertRuntimeWeights;
-}
-
 public final class sk/ainet/models/bert/HuggingFaceTokenizer : sk/ainet/apps/llm/Tokenizer {
 	public static final field Companion Lsk/ainet/models/bert/HuggingFaceTokenizer$Companion;
 	public fun decode (I)Ljava/lang/String;
@@ -194,4 +100,3 @@ public final class sk/ainet/models/bert/TokenizerOutput {
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
 }
-
