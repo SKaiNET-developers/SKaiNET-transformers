@@ -49,7 +49,7 @@ class Gemma4ChatTemplateHfParityTest {
     )
 
     @Test
-    fun `case calculator — single string-arg tool`() = runParityCase("calculator") {
+    fun `case calculator - single string-arg tool`() = runParityCase("calculator") {
         listOf(
             ToolDefinition(
                 name = "calculator",
@@ -69,7 +69,7 @@ class Gemma4ChatTemplateHfParityTest {
     }
 
     @Test
-    fun `case two_tools — multiple per-tool blocks`() = runParityCase("two_tools") {
+    fun `case two_tools - multiple per-tool blocks`() = runParityCase("two_tools") {
         listOf(
             ToolDefinition(
                 name = "calculator",
@@ -99,11 +99,11 @@ class Gemma4ChatTemplateHfParityTest {
     }
 
     @Test
-    fun `case no_tools — system message only, no tool block`() =
+    fun `case no_tools - system message only, no tool block`() =
         runParityCase("no_tools") { emptyList() }
 
     @Test
-    fun `case multi_arg — string + number + boolean params`() = runParityCase("multi_arg") {
+    fun `case multi_arg - string + number + boolean params`() = runParityCase("multi_arg") {
         listOf(
             ToolDefinition(
                 name = "search",

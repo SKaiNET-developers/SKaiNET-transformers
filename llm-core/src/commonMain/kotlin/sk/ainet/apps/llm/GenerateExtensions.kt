@@ -14,9 +14,9 @@ public fun <T : DType> sampleFromTensor(
     logits: Tensor<T, Float>,
     temperature: Float,
     random: Random = Random.Default
-): Int {
+): Int = sk.ainet.lang.nn.transformer.PhaseProfile.time("sample") {
     val buf = extractFloatBuffer(logits).copyOf()
-    return sampleFromLogits(buf, temperature, random)
+    sampleFromLogits(buf, temperature, random)
 }
 
 /**

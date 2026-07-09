@@ -7,6 +7,139 @@ version line is kept in lock-step with the underlying SKaiNET engine
 The format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.35.0] — 2026-07-09
+
+Ships against **SKaiNET engine 0.35.0**, whose new `argMax` op this release uses to fold the LLM
+`logits → token-ids` tail into the DSL trace.
+
+### Added
+
+- **FunctionGemma self-compile from the SKaiNET DSL** (`sk.ainet.transformers:…-kgemma`). One reusable
+  dependency for the FunctionGemma-270M function-calling sLLM, in **both** SKaiNET execution modes:
+  - `FunctionGemma.fromGguf(gguf).call("turn the light on")` → `ToolCall(set_lights, {state="on"})` —
+    **eager** (DirectCpu + `OptimizedLLMRuntime(DIRECT)` + Octopus-v2 template + `CompactCodec`), runs
+    anywhere on CPU, no iree. (The `partialRotary = 1.0` gemma3 rotary fix is applied.)
+  - `FunctionGemma.exportCompiled(outDir)` / `FunctionGemmaExport.export(…)` — **compiled** edge path:
+    traces `gemmaNetwork()` ending in `ops.argMax(logits, -1)` (the engine op), emits StableHLO with
+    **bf16 external params** (bf16 globals + convert-on-load + bf16 safetensors). Promotes the former
+    `RealGemmaBakeIrpaTest` and retires the Python argmax/f16 MLIR rewrites. Verified token-for-token
+    against llama.cpp on the SL2610 board.
+  - `exportFunctionGemma` Gradle task (for `scripts/compile-gemma.sh`); `kgemma` jvm deps gain
+    `skainet-compile-hlo`/`-dag` + `gemma-iree` (`CompactCodec`).
+
+### Changed
+
+- **Engine → 0.35.0.** Adopts the new engine line; the compiled FunctionGemma export depends on the
+  engine's new `argMax` op. (engine 0.35.0)
+
+## [0.34.1] — 2026-07-05
+
+Patch on **0.34.0** (same SKaiNET engine 0.34.0). Fixes Moonshine encoder parameter naming.
+
+### Fixed
+
+- **Layer-qualified Moonshine encoder parameter names.** The encoder's attention and LayerNorm
+  parameters were not prefixed with the layer (`attn.q_proj.weight`, `attn_norm.weight` repeated
+  identically every layer), while the FFN parameters were (`enc.$layer.ffn_*`). By-name weight
+  loading could therefore not distinguish the layers. All parameter names are now unique and
+  layer-qualified (`enc.$layer.attn.*`, `enc.$layer.attn_norm.*`, `enc.$layer.ffn_norm.*`),
+  matching the FFN convention. No public API change — `moonshineEncoder()` is unchanged.
+
+## [0.34.0] — 2026-07-05
+
+Ships against **SKaiNET engine 0.34.0**. Headline: the first **Moonshine** speech-to-text encoder
+authored entirely in the SKaiNET NN DSL, plus the RoPE work that makes transformer exports
+bit-exact on a real NPU.
+
+### Added
+
+- **`skainet-transformers-inference-moonshine`** (new, first published module) — the Moonshine-tiny
+  audio **encoder** built in the NN DSL, bf16-native, emitting portable (hardware-agnostic) StableHLO.
+  It compiles through the SKaiNET pipeline and transcribes correctly on both CPU and the Synaptics
+  Torq NPU. The exported IR carries no target-specific ops — backend optimizations plug in from
+  outside core (see the vendor-plugin pattern).
+- **Partial rotary embeddings** in `transformer-core`: `RoPE` gains `partialRotaryFactor` (rotate only
+  the leading fraction of each head, the rest passes through) and `freqDenomRotaryDim` (compute
+  `inv_freq` over the rotary dim rather than the full head dim). `TransformerDsl.rope()` threads both.
+  Matches models like Moonshine (rotate 32 of 36 head dims), verified against the reference ONNX.
+- **`VoidDense(addBias = true)`** — a projection can now add its `$name.bias` term, keeping traced
+  FFNs faithful to reference checkpoints that carry `fc1.bias` / `fc2.bias`.
+
+### Changed
+
+- **RoPE precision & form.** The interleaved rotation and its `cos`/`sin` tables are computed in
+  **f32** (upcast, then back to model dtype), and the interleaved path uses the **full-head (ONNX)
+  form** — numerically identical to the split-recombine form but bit-exact once accelerator layout
+  passes sit between the split and merge. Fixes low-precision RoPE drift on NPU targets.
+- **Engine → 0.34.0.** Transformer models inherit the engine's 0.34.0 work (f32 LayerNorm
+  decomposition, the pluggable target-optimizer / op-granularity seam that keeps exported StableHLO
+  portable).
+
+## [0.33.0] — 2026-06-29
+
+Ships against **SKaiNET engine 0.33.0**. No transformers API changes — this release adopts the new
+engine line and routine dependency updates.
+
+### Changed
+
+- **Engine → 0.33.0.** Transformer models authored with this layer inherit the engine's 0.33.0 work;
+  most relevant here, `layerNorm` / `rmsNorm` now lower to real `stablehlo.reduce`, so transformer
+  exports compile and run on stock IREE (engine #769). The engine also fixes a silent autodiff
+  gradient-drop (`elu`/`leakyRelu`/`permute`) and adds new differentiable ops (`cos`/`sin`/`gather`/…),
+  available to model authors. (engine 0.33.0)
+- **Dependencies:** Ktor client `3.5.1` (#198), Logback `1.5.36` (#199).
+
+## [0.32.1] — 2026-06-26
+
+Fixes streaming detokenization — generated text no longer runs words together
+(`"the process"` → `"theprocess"`). Ships against engine **0.32.4**.
+
+### Fixed
+
+- **Per-token streaming decode preserves word-boundary spaces.** `SentencePieceSpecialTokens.decode(Int)`
+  and `UpstreamTokenizerAdapter.decode(Int)` now route through the engine's new `Tokenizer.decodeToken(id)`
+  (engine 0.32.4), which keeps each SentencePiece piece's leading space instead of stripping it per token
+  (the sequence-level `addSpacePrefix` strip is only correct once per sequence). Fixes correct-but-spaceless
+  output in streaming generation (kllama, agent loops). Adds `SentencePieceSpecialTokensStreamingTest`.
+
+### Changed
+
+- **Engine pin `skainet 0.32.2 → 0.32.4`** (adds `Tokenizer.decodeToken`).
+
+## [0.32.0] — 2026-06-25
+
+Brings the real-GGUF **Llama** eager path up to the Gemma standard (packed
+`NATIVE_OPTIMIZED`) and **unblocks StableHLO/IREE export for Llama-family models**
+(traceable interleaved RoPE). Ships against engine **0.32.2**.
+
+### Added
+
+- **Eager `NATIVE_OPTIMIZED` packed path for Llama.** `LlamaNetworkLoader.fromGguf(NATIVE_OPTIMIZED)`
+  keeps `Q4_K`/`Q6_K` weights packed and runs them through `OptimizedLLMRuntime` — new `LlamaQuantLayout`
+  + `LlamaPackedWeights.convertLlamaWeightsPacked`, mirroring `convertGemmaWeightsPacked`. Coherent
+  output matching llama.cpp; the low-footprint path real-GGUF Llama inference on constrained ARM was
+  missing. (ccbd87e)
+
+### Changed
+
+- **Fused decode-attention fast path.** `MultiHeadAttention`'s decode step (`seqQ == 1`) now computes
+  scores → softmax → GQA-weighted-V directly from the cached K/V, bypassing the `repeatKVHeads` concat
+  and the `unsqueeze → SDPA → squeeze → permute` chain — ~1.5× decode throughput, bit-identical output.
+  Prefill (`seqLen > 1`) keeps the general SDPA path. (3791f88)
+- **Engine pin `skainet 0.31.0 → 0.32.2`** (0.32.2 is the first engine release exposing
+  `ExecutionContext.isRecording`, required by the trace-faithful KV-cache path).
+
+### Fixed
+
+- **Packed token-embedding gather for Llama** — `fromGguf(NATIVE_OPTIMIZED)` no longer fails with
+  `gather: unsupported input rank 1`; the packed embedding is wired through the canonical loader. (ccbd87e)
+- **Interleaved RoPE is now traceable.** In `INTERLEAVED` mode (Llama / Mistral / most GGUF) the rotation
+  used a raw float-array path (`copyToFloatArray` / `fromFloatArray`) that, under graph tracing, baked the
+  rotated Q/K as a *disconnected constant* — severing them from the projection weights and crashing
+  `iree-compile` (null-deref in constant folding) on the exported graph. `RoPE` now records the rotation
+  as tensor ops when running under the tracing wrapper; eager execution keeps the byte-identical raw-array
+  fast path. Unblocks Llama/Mistral/GGUF StableHLO/IREE export. (019b049)
+
 ## [0.31.1] — 2026-06-17
 
 Adds **`transformer-core`** — the framework NN primitives (attention, the KV-cache family, embedding,

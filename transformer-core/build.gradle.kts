@@ -5,6 +5,9 @@ plugins {
     alias(libs.plugins.kotlinMultiplatform)
     alias(libs.plugins.androidMultiplatformLibrary)
     alias(libs.plugins.vanniktech.mavenPublish)
+    // Track the public API of the NN primitives here (they live in this module since the 0.31.1
+    // extraction). Before this, they were only listed in the stale llm-core.api re-export.
+    alias(libs.plugins.binary.compatibility.validator)
 }
 
 // Framework NN primitives (attention, KV-cache family, embedding, norms, RoPE, FFNs) extracted from

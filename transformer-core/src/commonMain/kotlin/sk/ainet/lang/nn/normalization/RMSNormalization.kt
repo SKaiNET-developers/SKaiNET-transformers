@@ -87,25 +87,27 @@ public class RMSNormalization<T : DType, V>(
 
     override fun forward(input: Tensor<T, V>, ctx: ExecutionContext): Tensor<T, V> =
         sk.ainet.lang.nn.hooks.withForwardHooks(ctx, this, input) {
-            // Try fused path if the ops backend supports it. Skip for Gemma's
-            // unit-offset variant — backends don't know about (1 + weight).
-            val w = params[0].value
-            if (!unitOffset) {
-                val fusedOps = ctx.ops as? FusedRmsNormOps
-                if (fusedOps != null) {
-                    val result = fusedOps.fusedRmsNorm(input, w, eps.toFloat())
-                    if (result != null) return@withForwardHooks result
+            sk.ainet.lang.nn.transformer.PhaseProfile.time("rmsnorm") {
+                // Try fused path if the ops backend supports it. Skip for Gemma's
+                // unit-offset variant — backends don't know about (1 + weight).
+                val w = params[0].value
+                val fused = if (!unitOffset) {
+                    (ctx.ops as? FusedRmsNormOps)?.fusedRmsNorm(input, w, eps.toFloat())
+                } else null
+                if (fused != null) {
+                    fused
+                } else {
+                    // Fallback: decomposed path
+                    val squared = input * input
+                    val mean = squared.mean(dim = input.rank - 1)
+                    // Unsqueeze so broadcasting works for batched input (e.g. [B, dim] / [B, 1])
+                    val rmsRaw = (mean + eps).sqrt()
+                    val rms = if (rmsRaw.rank < input.rank) rmsRaw.unsqueeze(rmsRaw.rank) else rmsRaw
+                    val normalized = input / rms
+                    val gain = if (unitOffset) ctx.ops.addScalar(w, 1f) else w
+                    val gainBcast = if (gain.rank == 1) gain.reshape(Shape(1, gain.shape[0])) else gain
+                    normalized * gainBcast
                 }
             }
-            // Fallback: decomposed path
-            val squared = input * input
-            val mean = squared.mean(dim = input.rank - 1)
-            // Unsqueeze so broadcasting works for batched input (e.g. [B, dim] / [B, 1])
-            val rmsRaw = (mean + eps).sqrt()
-            val rms = if (rmsRaw.rank < input.rank) rmsRaw.unsqueeze(rmsRaw.rank) else rmsRaw
-            val normalized = input / rms
-            val gain = if (unitOffset) ctx.ops.addScalar(w, 1f) else w
-            val gainBcast = if (gain.rank == 1) gain.reshape(Shape(1, gain.shape[0])) else gain
-            normalized * gainBcast
         }
 }

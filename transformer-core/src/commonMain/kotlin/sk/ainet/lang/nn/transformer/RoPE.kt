@@ -4,7 +4,11 @@ import sk.ainet.context.ExecutionContext
 import sk.ainet.lang.nn.Module
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.Tensor
+import sk.ainet.lang.tensor.ops.KspTensorOps
+import sk.ainet.lang.types.BF16
 import sk.ainet.lang.types.DType
+import sk.ainet.lang.types.FP16
+import sk.ainet.lang.types.FP32
 import kotlin.math.cos
 import kotlin.math.pow
 import kotlin.math.sin
@@ -74,6 +78,11 @@ public class RoPE<T : DType, V>(
     public val scaling: RoPEScaling = RoPEScaling.NONE,
     public val scalingFactor: Float = 1.0f,
     public val partialRotaryFactor: Float = 1.0f,
+    // inv_freq denominator convention. HF "proportional" rope uses headDim even under partial
+    // rotary (default, false). The classic/original partial rope (e.g. Moonshine) uses the
+    // rotated width itself, rotaryDim — set true. Verified against Moonshine's ONNX (freqs match
+    // base^(-2i/32) with rotaryDim=32, not base^(-2i/36)).
+    public val freqDenomRotaryDim: Boolean = false,
     override val name: String = "RoPE"
 ) : Module<T, V>() {
 
@@ -111,9 +120,10 @@ public class RoPE<T : DType, V>(
         // partialRotaryFactor < 1. Positions beyond rotaryDim pass through
         // unchanged (handled by the rotate-then-concat/slice in applyRoPE*).
         val applyFactor = scaling == RoPEScaling.PROPORTIONAL && scalingFactor != 1.0f
+        val freqDenom = if (freqDenomRotaryDim) rotaryDim else headDim
         for (pos in 0 until maxSeqLen) {
             for (i in 0 until halfRotary) {
-                var freq = 1.0f / base.pow(2.0f * i / headDim)
+                var freq = 1.0f / base.pow(2.0f * i / freqDenom)
                 if (applyFactor) freq /= scalingFactor
                 val angle = pos * freq
                 cosTable[pos * halfRotary + i] = cos(angle)
@@ -259,6 +269,20 @@ public class RoPE<T : DType, V>(
      * `headDim - rotaryDim` floats of every head are left untouched.
      */
     private fun applyRoPEInterleaved(input: Tensor<T, V>, position: Int, ctx: ExecutionContext): Tensor<T, V> {
+        // Graph tracing: the raw-array path below reads input.data and rebuilds via
+        // fromFloatArray, which records the rotated Q/K as a DISCONNECTED CONSTANT —
+        // severing the link to the projection weights. Post-GQA-broadcast that lowers
+        // to a slice-into-empty const cascade that crashes iree-compile. Under the
+        // tracing wrapper (KspTensorOps), take the traceable op-based path so the
+        // rotation is recorded as tensor ops. Full-rotary only (TinyLlama/Llama/
+        // Mistral); partial rotary keeps the raw path (no GGUF model needs it traced).
+        if (input.ops is KspTensorOps) {
+            // Traceable ops path for BOTH full and partial rotary. The raw-array path
+            // below bakes a disconnected constant under void/graph tracing (it reads
+            // input.data), so anything traced (incl. Moonshine's partial rotary) must
+            // use the op-based rotation to stay wired to the projection weights.
+            return applyRoPEInterleavedOps(input, position, ctx)
+        }
         val data = input.data.copyToFloatArray()
         val lastDim = input.shape[input.rank - 1]
         require(lastDim == headDim) { "RoPE input last dim ($lastDim) != headDim ($headDim)" }
@@ -286,5 +310,122 @@ public class RoPE<T : DType, V>(
         }
 
         return ctx.fromFloatArray(input.shape, input.dtype, data)
+    }
+
+    /**
+     * Traceable interleaved RoPE: pure tensor ops, numerically identical to
+     * [applyRoPEInterleaved] but recordable to a compute graph. Used under
+     * void/graph tracing where the raw-array path bakes a disconnected constant.
+     *
+     * Interleaved pairing `(x[2i], x[2i+1])` is realized by reshaping the rotated
+     * subspace `[rotaryDim] -> [halfRotary, 2]` (row-major: `[i,0]=x[2i]`, `[i,1]=x[2i+1]`),
+     * rotating the even/odd planes, then reshaping back. Supports PARTIAL rotary:
+     * the leading `rotaryDim` head dims are rotated, the trailing `headDim - rotaryDim`
+     * pass through unchanged (Moonshine rotates 32 of 36). Traceable (pure tensor ops).
+     */
+    private fun applyRoPEInterleavedOps(input: Tensor<T, V>, position: Int, ctx: ExecutionContext): Tensor<T, V> {
+        val seqLen = input.shape[input.rank - 2]
+        val (cosFull, sinFull) = buildInterleavedCosSin(position, seqLen)
+        val fullShape = Shape(seqLen, headDim)
+        @Suppress("UNCHECKED_CAST")
+        val cosTensor: Tensor<FP32, V> = ctx.fromData(
+            sk.ainet.lang.tensor.data.DenseFloatArrayTensorData<FP32>(fullShape, cosFull) as sk.ainet.lang.tensor.data.TensorData<FP32, V>,
+            FP32::class,
+        )
+        @Suppress("UNCHECKED_CAST")
+        val sinTensor: Tensor<FP32, V> = ctx.fromData(
+            sk.ainet.lang.tensor.data.DenseFloatArrayTensorData<FP32>(fullShape, sinFull) as sk.ainet.lang.tensor.data.TensorData<FP32, V>,
+            FP32::class,
+        )
+        return applyInterleavedRotation(input, cosTensor, sinTensor, ctx)
+    }
+
+    /**
+     * Build the sign-baked, pair-repeated cos/sin tables `[seqLen, headDim]` for interleaved
+     * full-head RoPE at [position] (see [applyInterleavedRotation] for the layout: pair (2i, 2i+1)
+     * shares cos/sin[i]; the rotation's sign is folded into the even lane of sin; tail pairs
+     * i >= halfRotary pass through with cos=1/sin=0).
+     *
+     * Public so a runtime that supplies cos/sin as graph INPUTS — e.g. Moonshine's
+     * `decoder_with_past`, whose position is a runtime value, not a compile-time constant — can
+     * produce byte-identical tables host-side and feed them to [forwardWithCosSin]. (No in-graph
+     * gather op is needed; this mirrors how token embeddings are looked up host-side.)
+     */
+    public fun buildInterleavedCosSin(position: Int, seqLen: Int): Pair<FloatArray, FloatArray> {
+        val halfHead = headDim / 2
+        val cosFull = FloatArray(seqLen * headDim)
+        val sinFull = FloatArray(seqLen * headDim)
+        for (s in 0 until seqLen) {
+            val pos = position + s
+            for (i in 0 until halfHead) {
+                val c = if (i < halfRotary) cosTable[pos * halfRotary + i] else 1.0f
+                val sn = if (i < halfRotary) sinTable[pos * halfRotary + i] else 0.0f
+                cosFull[s * headDim + 2 * i] = c; cosFull[s * headDim + 2 * i + 1] = c
+                sinFull[s * headDim + 2 * i] = -sn; sinFull[s * headDim + 2 * i + 1] = sn
+            }
+        }
+        return cosFull to sinFull
+    }
+
+    /**
+     * Interleaved full-head RoPE with cos/sin supplied as TENSORS (already sign-baked,
+     * pair-repeated `[seqLen, headDim]` per [buildInterleavedCosSin]) rather than derived from a
+     * compile-time position — so the position can be a runtime graph input. Numerically identical
+     * to [forward]; the rotation runs in f32.
+     */
+    public fun forwardWithCosSin(
+        input: Tensor<T, V>,
+        cosFull: Tensor<T, V>,
+        sinFull: Tensor<T, V>,
+        ctx: ExecutionContext,
+    ): Tensor<T, V> {
+        val ops = ctx.ops
+        @Suppress("UNCHECKED_CAST")
+        val cosF: Tensor<FP32, V> = if (cosFull.dtype == FP32::class) cosFull as Tensor<FP32, V> else ops.convert(cosFull, FP32)
+        @Suppress("UNCHECKED_CAST")
+        val sinF: Tensor<FP32, V> = if (sinFull.dtype == FP32::class) sinFull as Tensor<FP32, V> else ops.convert(sinFull, FP32)
+        return sk.ainet.lang.nn.hooks.withForwardHooks(ctx, this, input) {
+            applyInterleavedRotation(input, cosF, sinF, ctx)
+        }
+    }
+
+    /**
+     * The position-independent interleaved rotation `out = x * cos_full + swap(x) * sin_full`.
+     * `swap(x)` maps each pair (x0, x1) -> (x1, x0); the rotation's sign lives in `sin_full`
+     * (even lane negated) so this needs only a pair-SWAP, no negate node (the OPTIMIZED DAG
+     * runtime drops a mulScalar here to 0-outputs on interleaved models). This is the FULL-HEAD
+     * form the reference ONNX uses — numerically identical to rotating even/odd separately and
+     * re-interleaving, but the recombine reshape mis-lays-out on the Torq NPU while this compiles
+     * bit-exact (SL2610 sim). Extracted so the compile-time-position and runtime-cos/sin paths
+     * share identical math. cos/sin are `[seqLen, headDim]`, broadcasting over the leading dims.
+     */
+    private fun applyInterleavedRotation(
+        input: Tensor<T, V>,
+        cosTensor: Tensor<FP32, V>,
+        sinTensor: Tensor<FP32, V>,
+        ctx: ExecutionContext,
+    ): Tensor<T, V> {
+        val ops = ctx.ops
+        val rank = input.rank
+        require(input.shape[rank - 1] == headDim) { "RoPE input last dim (${input.shape[rank - 1]}) != headDim ($headDim)" }
+        val halfHead = headDim / 2
+        val isF32 = input.dtype == FP32::class
+        @Suppress("UNCHECKED_CAST")
+        val xF: Tensor<FP32, V> = if (isF32) input as Tensor<FP32, V> else ops.convert(input, FP32)
+        val leading = IntArray(rank - 1) { input.shape[it] }
+        val pairedShape = Shape(*leading, halfHead, 2)
+        val planeShape = Shape(*leading, halfHead)
+        val pairAxis = rank
+        val paired = ops.reshape(xF, pairedShape)
+        val even = ops.reshape(ops.narrow(paired, pairAxis, 0, 1), planeShape)
+        val odd = ops.reshape(ops.narrow(paired, pairAxis, 1, 1), planeShape)
+        val swapped = ops.reshape(
+            ops.concat(listOf(ops.unsqueeze(odd, rank), ops.unsqueeze(even, rank)), dim = rank),
+            input.shape,
+        )
+        val outF = ops.add(ops.multiply(xF, cosTensor), ops.multiply(swapped, sinTensor))
+        val modelDtype: DType = if (input.dtype == FP16::class) FP16 else BF16
+        @Suppress("UNCHECKED_CAST")
+        return if (isF32) outF as Tensor<T, V> else ops.convert(outF, modelDtype) as Tensor<T, V>
     }
 }

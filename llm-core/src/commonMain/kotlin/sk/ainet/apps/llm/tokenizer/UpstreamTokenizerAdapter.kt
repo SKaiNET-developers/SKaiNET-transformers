@@ -33,5 +33,5 @@ internal class UpstreamTokenizerAdapter(
 
     override fun decode(tokens: IntArray): String = delegate.decode(tokens)
 
-    override fun decode(token: Int): String = delegate.decode(intArrayOf(token))
+    override fun decode(token: Int): String = delegate.decodeToken(token)
 }
