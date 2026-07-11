@@ -35,6 +35,8 @@ include("llm-inference:moonshine")
 include("llm-inference:apertus")
 include("llm-inference:bert")
 include("llm-inference:voxtral")
+include("llm-inference:t5")
+include("llm-inference:vec2text")
 include("llm-runtime:kllama")
 include("llm-runtime:kgemma")
 // :llm-runtime:kqwen — removed; Qwen runs through the DSL Qwen path
