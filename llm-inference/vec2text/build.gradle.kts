@@ -28,7 +28,11 @@ kotlin {
         val jvmTest by getting {
             dependencies {
                 implementation(libs.kotlin.test)
+                implementation(libs.kotlinx.coroutines.test)
                 implementation(libs.skainet.backend.cpu)
+                implementation(libs.skainet.io.core)
+                implementation(libs.skainet.io.safetensors)
+                implementation(libs.kotlinx.serialization.json)
             }
         }
     }
