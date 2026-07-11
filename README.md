@@ -74,9 +74,11 @@ flowchart LR
     HLO --> Native["Native code"]
 ```
 
-Today every model family runs through the **eager JVM path**. The StableHLO /
-native path is shared with the engine and not yet wired for full transformer
-models.
+The **eager JVM path** is the primary way every model family runs today. The
+StableHLO / native path is shared with the engine and wired for the first
+families: FunctionGemma exports a compiled edge build (0.35.0), and the BERT
+encoder traces to an optimized ComputeGraph and lowers to StableHLO (0.36.0);
+full generative-model coverage is still in progress.
 
 ### Where each architecture fits
 
@@ -103,15 +105,33 @@ Honest status — see the project-status note at the top of this README.
 
 ## Current release
 
-The current release is **0.35.0** (against **SKaiNET 0.35.0**) — it adds **FunctionGemma**
-self-compiled from the SKaiNET NN DSL: a one-dependency function-calling sLLM
-(`skainet-transformers-runtime-kgemma`) with an eager one-line API
-(`FunctionGemma.fromGguf(gguf).call("turn the light on")` → `ToolCall(set_lights, {state="on"})`, runs
-anywhere on CPU, no iree) **and** a no-Python compiled edge export (`FunctionGemma.exportCompiled` /
-`compile-gemma.sh`) verified token-for-token against llama.cpp on the SL2610 board. It uses the engine's
-new `argMax` op to fold the `logits → token-ids` argmax tail into the DSL trace.
+The current release is **0.36.0** (against **SKaiNET 0.35.0**) — **BERT is now completely
+defined in the SKaiNET NN DSL**, and the deprecated hand-coded eager BERT stack is **removed
+(BREAKING)** in the same release:
 
-It builds on **0.34.1** — a patch that layer-qualifies the
+- `bertNetwork()` is a numerically complete `tokens → hidden-states` encoder: the new
+  `BertEmbeddings` module adds the absolute-position and token-type embeddings the DSL definition
+  previously omitted, and each encoder layer is wired as two post-norm blocks so every residual
+  lands on the right value.
+- `BertEncoderRuntime` runs the same definition **eagerly** (`DIRECT`, default) or as a traced,
+  LLM-pipeline-**optimized ComputeGraph** (`OPTIMIZED`, bit-exact vs eager), adds masked mean
+  pooling, the optional sentence-transformers `2_Dense` projection, and L2 normalization — and
+  `exportTape(...)` lowers the encoder to StableHLO.
+- One-call consumption: `BertEmbeddingModel.fromHuggingFace("MongoDB/mdbr-leaf-mt")` /
+  `fromSafeTensors(dir)` behind the neutral `EmbeddingModel` SPI, with built-in Hub download
+  (`HF_TOKEN`-aware, cached, offline-safe after the first run).
+- Downstream effect: indexing the leaf-cli reference corpus dropped **676.9 s → 44.5 s (~15×)**
+  with identical embeddings. Migration notes for the removed `BertRuntime` stack are in the
+  [CHANGELOG](CHANGELOG.md) and the
+  [BERT-as-DSL explanation](docs/modules/ROOT/pages/explanation/bert-dsl.adoc).
+
+It builds on **0.35.0**, which added **FunctionGemma** self-compiled from the SKaiNET NN DSL: a
+one-dependency function-calling sLLM (`skainet-transformers-runtime-kgemma`) with an eager one-line
+API (`FunctionGemma.fromGguf(gguf).call("turn the light on")` → `ToolCall(set_lights, {state="on"})`,
+runs anywhere on CPU, no iree) **and** a no-Python compiled edge export
+(`FunctionGemma.exportCompiled` / `compile-gemma.sh`) verified token-for-token against llama.cpp on
+the SL2610 board, using the engine's new `argMax` op to fold the `logits → token-ids` argmax tail
+into the DSL trace; and on **0.34.1** — a patch that layer-qualifies the
 Moonshine encoder's attention/LayerNorm parameter names so by-name weight loading can tell the
 layers apart (no public API change) — and on **0.34.0**, which adds the first **Moonshine**
 speech-to-text encoder authored entirely in the SKaiNET NN DSL (`skainet-transformers-inference-moonshine`,
@@ -138,7 +158,7 @@ The recommended way to consume is via the BOM. It pins every published `skainet-
 
 ```kotlin
 dependencies {
-    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.35.0"))
+    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.36.0"))
 
     // Versions resolved from the BOM:
     implementation("sk.ainet.transformers:skainet-transformers-core")
@@ -194,6 +214,22 @@ java -jar skainet-all.jar -m model.gguf --agent --template=apertus
 ```
 
 `--template` accepts `llama3`, `chatml`, `qwen`, `gemma`, `apertus` (auto-detected from GGUF metadata if omitted).
+
+### Embeddings: LEAF in one call
+
+Sentence embeddings with MongoDB's compact LEAF retrieval models need a single factory call —
+the model downloads from the Hugging Face Hub and is cached on first use:
+
+```kotlin
+import sk.ainet.llm.providers.BertEmbeddingModel
+
+BertEmbeddingModel.fromHuggingFace("MongoDB/mdbr-leaf-ir").use { model ->
+    val vector = model.embed("The quick brown fox")   // L2-normalized FloatArray
+}
+```
+
+See the [Getting Started with LEAF tutorial](docs/modules/ROOT/pages/tutorials/getting-started-leaf.adoc)
+and the [BERT-as-DSL explanation](docs/modules/ROOT/pages/explanation/bert-dsl.adoc).
 
 ### Java consumers
 

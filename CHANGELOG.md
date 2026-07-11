@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.36.0] — 2026-07-11
+
+Ships against **SKaiNET engine 0.35.0**. Headline: **BERT is now completely defined on the DSL
+path** — the legacy hand-coded eager stack is removed (**BREAKING**, see *Removed*), and sentence
+embeddings get a one-call factory with built-in Hugging Face Hub download. Downstream impact:
+indexing the leaf-cli reference corpus (56 chunks) drops from 676.9 s to 44.5 s (~15×) with
+identical embeddings. The engine's `permute`-axes replay fix
+([SKaiNET#803](https://github.com/SKaiNET-developers/SKaiNET/pull/803)) is merged upstream but not
+yet released; this release keeps its local axes-aware `permute` handler in `LLMFusedOpHandlers`
+until an engine release containing the fix is consumed.
+
 ### Added
 
 - **BERT sentence embeddings completed on the DSL path.** `bertNetwork()` is now a numerically
@@ -742,6 +753,7 @@ Version-aligned with **SKaiNET 0.21.0**.
 Last published transformers release before the engine-aligned version line.
 See `git log v0.16.0..0.18.0` for details.
 
+[0.36.0]: https://github.com/SKaiNET-developers/SKaiNET-transformers/releases/tag/0.36.0
 [0.31.0]: https://github.com/SKaiNET-developers/SKaiNET-transformers/releases/tag/0.31.0
 [0.30.0]: https://github.com/SKaiNET-developers/SKaiNET-transformers/releases/tag/0.30.0
 [0.28.1]: https://github.com/SKaiNET-developers/SKaiNET-transformers/releases/tag/0.28.1
