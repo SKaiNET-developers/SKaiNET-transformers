@@ -91,6 +91,7 @@ Honest status — see the project-status note at the top of this README.
 | **Gemma 2 / 3 / 3n** | DSL + loaders present (Gemma 4 via the SafeTensors path); has the most test coverage, but not verified end-to-end. |
 | **Apertus** | DSL + loaders present; declared end-to-end in 0.23.1, still early. |
 | **BERT** | Sentence embeddings on the DSL path (`bertNetwork()` + `BertEncoderRuntime`, eager or traced/fused) — verified against sentence-transformers on MongoDB/mdbr-leaf. One-call `BertEmbeddingModel.fromHuggingFace(...)` with built-in Hub download. No text generation, no tool calling. |
+| **T5 / GTR** | Encoder-decoder runtime (hand-coded, batch 1, no KV cache) + `GtrEmbedder`, powering the **vec2text** embedding-inversion pipeline — verified with a real-weights gtr-base round-trip test. |
 | **Voxtral** | TTS / voice; architecture code only — no runtime facade or CLI yet. |
 
 ### Near term
@@ -124,6 +125,11 @@ defined in the SKaiNET NN DSL**, and the deprecated hand-coded eager BERT stack 
   with identical embeddings. Migration notes for the removed `BertRuntime` stack are in the
   [CHANGELOG](CHANGELOG.md) and the
   [BERT-as-DSL explanation](docs/modules/ROOT/pages/explanation/bert-dsl.adoc).
+
+0.36.0 also adds a **T5 encoder-decoder** runtime (`llm-inference/t5`) with `GtrEmbedder`, and a
+**vec2text embedding-inversion** pipeline (`llm-inference/vec2text`) that iteratively reconstructs
+text from a GTR embedding — verified end-to-end against real
+`sentence-transformers/gtr-t5-base` weights.
 
 It builds on **0.35.0**, which added **FunctionGemma** self-compiled from the SKaiNET NN DSL: a
 one-dependency function-calling sLLM (`skainet-transformers-runtime-kgemma`) with an eager one-line
@@ -185,7 +191,7 @@ dependencies {
 | `llm-api`            | Framework-neutral interfaces (`ChatModel`, `EmbeddingModel`, `ToolDefinition`) — Spring AI-shaped. |
 | `transformer-core`   | Framework NN primitives (attention, KV-cache family, embedding, norms, RoPE, FFNs, linear projection). `lang-core`-only → **all targets incl. `androidNative`**; re-exported by `llm-core`. |
 | `llm-core`           | `OptimizedLLMRuntime`, `ModelRegistry`, `UnifiedModelLoader`, shared abstractions. |
-| `llm-inference/<arch>` | Per-architecture network DSLs and weight loaders (`llama`, `gemma`, `qwen`, `apertus`, `bert`). |
+| `llm-inference/<arch>` | Per-architecture network DSLs and weight loaders (`llama`, `gemma`, `qwen`, `apertus`, `bert`, `t5`, `vec2text`). |
 | `llm-runtime/<arch>` | Per-architecture runtime facades (`kllama`, `kgemma`, `kqwen`, `kapertus`). |
 | `llm-agent`          | Chat templates, tool-call parsers, agent loops; Java surface.           |
 | `llm-apps`           | CLIs: `skainet-cli` (unified), `kllama-cli`, `kbert-cli`, plus `kllama-java-sample`. |

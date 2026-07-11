@@ -13,7 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Ships against **SKaiNET engine 0.35.0**. Headline: **BERT is now completely defined on the DSL
 path** — the legacy hand-coded eager stack is removed (**BREAKING**, see *Removed*), and sentence
-embeddings get a one-call factory with built-in Hugging Face Hub download. Downstream impact:
+embeddings get a one-call factory with built-in Hugging Face Hub download. Also new: a **T5
+encoder-decoder** runtime and a **vec2text embedding-inversion** pipeline (invert GTR embeddings
+back to text). Downstream impact:
 indexing the leaf-cli reference corpus (56 chunks) drops from 676.9 s to 44.5 s (~15×) with
 identical embeddings. The engine's `permute`-axes replay fix
 ([SKaiNET#803](https://github.com/SKaiNET-developers/SKaiNET/pull/803)) is merged upstream but not
@@ -41,6 +43,20 @@ until an engine release containing the fix is consumed.
   directly: `kbert MongoDB/mdbr-leaf-mt "query" "doc"`.
 - `BertConfigParser` — shared `config.json` (+ `2_Dense/config.json` → `projectionDim`) parser,
   consolidating the copies previously living in `KBertJava` and downstream apps.
+- **T5 encoder-decoder runtime** (`llm-inference/t5`, `sk.ainet.models.t5`). Hand-coded in the
+  direct tensor-ops style (per-head attention via narrow/matmul/softmax, batch 1, no KV cache —
+  the greedy decoder recomputes the stack per step), handling T5's specifics: no 1/√d attention
+  scaling, learned relative-position bias (`T5RelativeBias`, block-0 table shared per stack,
+  none in cross-attention), RMSNorm-style T5LayerNorm, un-gated ReLU FFN, tied embeddings with
+  `d_model^-0.5` logit scaling. Includes `GtrEmbedder` — GTR sentence embeddings exactly as
+  vec2text consumes them (raw T5 encoder + mean pooling; deliberately no Dense projection and no
+  L2 normalization) — with a parity test against real `sentence-transformers/gtr-t5-base` weights.
+- **vec2text embedding inversion** (`llm-inference/vec2text`, `sk.ainet.models.vec2text`).
+  Port of vec2text's greedy corrector loop (`sequence_beam_width = 1`): `InversionModel`
+  produces an initial hypothesis from a target GTR embedding, then `CorrectorModel` iteratively
+  re-embeds and corrects it, early-stopping when the cosine score plateaus — `Vec2TextInverter`
+  returns the best reconstruction plus the full step trace. Verified with an end-to-end
+  round-trip test on real gtr-base weights.
 
 ### Fixed
 

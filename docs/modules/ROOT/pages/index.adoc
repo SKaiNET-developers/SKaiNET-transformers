@@ -43,6 +43,11 @@ It loads GGUF and SafeTensors models, builds compute graphs from DSL network def
 |No
 |`bertNetwork()`
 
+|T5
+|gtr-t5-base (GTR embedder, vec2text inversion)
+|No
+|Hand-coded
+
 |Voxtral
 |Voxtral TTS
 |No
