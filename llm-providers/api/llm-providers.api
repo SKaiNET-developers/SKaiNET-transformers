@@ -1,3 +1,17 @@
+public final class sk/ainet/llm/providers/BertEmbeddingModel {
+	public static final field INSTANCE Lsk/ainet/llm/providers/BertEmbeddingModel;
+	public static final fun fromHuggingFace (Ljava/lang/String;)Lsk/ainet/llm/api/EmbeddingModel;
+	public static final fun fromHuggingFace (Ljava/lang/String;Ljava/lang/String;)Lsk/ainet/llm/api/EmbeddingModel;
+	public static final fun fromHuggingFace (Ljava/lang/String;Ljava/lang/String;Lsk/ainet/context/ExecutionContext;)Lsk/ainet/llm/api/EmbeddingModel;
+	public static final fun fromHuggingFace (Ljava/lang/String;Ljava/lang/String;Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/bert/BertExecutionMode;)Lsk/ainet/llm/api/EmbeddingModel;
+	public static synthetic fun fromHuggingFace$default (Ljava/lang/String;Ljava/lang/String;Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/bert/BertExecutionMode;ILjava/lang/Object;)Lsk/ainet/llm/api/EmbeddingModel;
+	public static final fun fromSafeTensors (Ljava/nio/file/Path;)Lsk/ainet/llm/api/EmbeddingModel;
+	public static final fun fromSafeTensors (Ljava/nio/file/Path;Lsk/ainet/context/ExecutionContext;)Lsk/ainet/llm/api/EmbeddingModel;
+	public static final fun fromSafeTensors (Ljava/nio/file/Path;Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/bert/BertExecutionMode;)Lsk/ainet/llm/api/EmbeddingModel;
+	public static final fun fromSafeTensors (Ljava/nio/file/Path;Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/bert/BertExecutionMode;Ljava/lang/String;)Lsk/ainet/llm/api/EmbeddingModel;
+	public static synthetic fun fromSafeTensors$default (Ljava/nio/file/Path;Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/bert/BertExecutionMode;Ljava/lang/String;ILjava/lang/Object;)Lsk/ainet/llm/api/EmbeddingModel;
+}
+
 public final class sk/ainet/llm/providers/SkaiNetChatModel : sk/ainet/llm/api/StreamingChatModel {
 	public fun <init> (Lsk/ainet/apps/llm/InferenceRuntime;Lsk/ainet/apps/llm/Tokenizer;Lsk/ainet/apps/kllama/chat/ChatTemplate;Lsk/ainet/llm/api/ChatOptions;ILjava/util/Set;Lkotlin/random/Random;Ljava/lang/String;)V
 	public synthetic fun <init> (Lsk/ainet/apps/llm/InferenceRuntime;Lsk/ainet/apps/llm/Tokenizer;Lsk/ainet/apps/kllama/chat/ChatTemplate;Lsk/ainet/llm/api/ChatOptions;ILjava/util/Set;Lkotlin/random/Random;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
@@ -8,8 +22,8 @@ public final class sk/ainet/llm/providers/SkaiNetChatModel : sk/ainet/llm/api/St
 }
 
 public final class sk/ainet/llm/providers/SkaiNetEmbeddingModel : sk/ainet/llm/api/EmbeddingModel {
-	public fun <init> (Lsk/ainet/models/bert/BertRuntime;Lsk/ainet/apps/llm/Tokenizer;ILjava/lang/String;)V
-	public synthetic fun <init> (Lsk/ainet/models/bert/BertRuntime;Lsk/ainet/apps/llm/Tokenizer;ILjava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lsk/ainet/models/bert/BertEncoderRuntime;Lsk/ainet/apps/llm/Tokenizer;ILjava/lang/String;)V
+	public synthetic fun <init> (Lsk/ainet/models/bert/BertEncoderRuntime;Lsk/ainet/apps/llm/Tokenizer;ILjava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun call (Lsk/ainet/llm/api/EmbeddingRequest;)Lsk/ainet/llm/api/EmbeddingResponse;
 	public fun getDimensions ()I
 }

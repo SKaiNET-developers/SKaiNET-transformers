@@ -15,7 +15,7 @@ import sk.ainet.lang.tensor.scratch.SizeClassedScratchPool
  * val baseCtx = DirectCpuExecutionContext(tensorDataFactory = memSegFactory)
  * val pooledCtx = PooledExecutionContext(baseCtx)
  *
- * val runtime = BertRuntime(pooledCtx, weights, FP32::class)
+ * val runtime = createBertEncoderRuntime(config, tensors, pooledCtx, FP32::class)
  *
  * // Each forward acquires + releases scratch buffers in a per-call scope.
  * val v1 = runtime.encode(tokens1)

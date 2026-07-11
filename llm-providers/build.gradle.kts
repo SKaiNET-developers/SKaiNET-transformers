@@ -29,6 +29,15 @@ dependencies {
     implementation(libs.kotlinx.coroutines)
     implementation(libs.kotlinx.serialization.json)
 
+    // BertEmbeddingModel one-call factory: local SafeTensors loading + built-in
+    // Hugging Face download (hf:// URIs). kotlinx-io appears in data-source's
+    // public API but is declared implementation upstream, so add it explicitly.
+    implementation(libs.skainet.backend.cpu)
+    implementation(libs.skainet.io.core)
+    implementation(libs.skainet.io.safetensors)
+    implementation(libs.skainet.data.source)
+    implementation(libs.kotlinx.io.core)
+
     testImplementation(libs.kotlin.test)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.junit.jupiter)

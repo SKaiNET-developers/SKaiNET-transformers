@@ -3,18 +3,24 @@
 package sk.ainet.models.bert.java
 
 import kotlinx.coroutines.runBlocking
-import sk.ainet.models.bert.*
 import sk.ainet.context.DirectCpuExecutionContext
-import sk.ainet.models.bert.PooledExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
 import sk.ainet.io.safetensors.SafeTensorsParametersLoader
 import sk.ainet.lang.types.FP32
+import sk.ainet.models.bert.BertConfigParser
+import sk.ainet.models.bert.BertEncoderRuntime
+import sk.ainet.models.bert.BertNetworkLoader
+import sk.ainet.models.bert.HuggingFaceTokenizer
+import sk.ainet.models.bert.MDBR_LEAF_IR_CONFIG
+import sk.ainet.models.bert.PooledExecutionContext
+import sk.ainet.models.bert.createBertEncoderRuntime
 import java.nio.file.Path
 import kotlin.io.path.exists
 import kotlin.io.path.readText
 
 /**
- * Java-friendly facade for loading and running BERT models.
+ * Java-friendly facade for loading and running BERT embedding models on the
+ * DSL path ([sk.ainet.models.bert.bertNetwork] + [BertEncoderRuntime]).
  *
  * Example usage from Java:
  * ```java
@@ -28,7 +34,8 @@ public object KBertJava {
 
     /**
      * Load a BERT model from a HuggingFace directory containing
-     * model.safetensors, vocab.txt, and optionally config.json.
+     * model.safetensors, vocab.txt, and optionally config.json plus the
+     * sentence-transformers `2_Dense/` projection head.
      *
      * @param modelDir Path to the model directory.
      * @return A KBertSession that implements AutoCloseable.
@@ -43,8 +50,21 @@ public object KBertJava {
         val vocabPath = modelDir.resolve("vocab.txt")
         require(vocabPath.exists()) { "vocab.txt not found in $modelDir" }
 
-        // Detect config from config.json or use defaults
-        val config = detectConfig(modelDir)
+        val denseWeights = modelDir.resolve("2_Dense").resolve("model.safetensors")
+        val denseConfig = modelDir.resolve("2_Dense").resolve("config.json")
+
+        // Detect config from config.json (+ projection head) or use defaults.
+        // The legacy facade ignored 2_Dense entirely and silently returned
+        // unprojected embeddings for models that ship a projection.
+        val configFile = modelDir.resolve("config.json")
+        val config = if (configFile.exists()) {
+            BertConfigParser.parse(
+                configFile.readText(),
+                if (denseConfig.exists()) denseConfig.readText() else null,
+            )
+        } else {
+            MDBR_LEAF_IR_CONFIG
+        }
 
         val tokenizer = HuggingFaceTokenizer.fromVocabTxt(vocabPath.readText())
         // Pool scratch buffers across encode() calls — embedding workloads
@@ -53,42 +73,27 @@ public object KBertJava {
         // worse than NoopScratchPool.
         val ctx = PooledExecutionContext(DirectCpuExecutionContext())
 
-        val ingestion = BertIngestion<FP32>(ctx, FP32::class, config)
-        val loader = SafeTensorsParametersLoader(
-            sourceProvider = { JvmRandomAccessSource.open(safetensorsPath.toString()) },
-            onProgress = { _, _, _ -> }
-        )
+        val loaders = buildList {
+            add(
+                SafeTensorsParametersLoader(
+                    sourceProvider = { JvmRandomAccessSource.open(safetensorsPath.toString()) },
+                    onProgress = { _, _, _ -> }
+                )
+            )
+            if (denseWeights.exists()) {
+                add(
+                    SafeTensorsParametersLoader(
+                        sourceProvider = { JvmRandomAccessSource.open(denseWeights.toString()) },
+                        onProgress = { _, _, _ -> }
+                    )
+                )
+            }
+        }
 
-        val weights = runBlocking { ingestion.load(loader) }
-        val runtime = BertRuntime(ctx, weights, FP32::class)
+        val tensors = runBlocking { BertNetworkLoader.loadWeightTensors(loaders, ctx, FP32::class) }
+        val runtime = createBertEncoderRuntime(config, tensors, ctx)
 
         return KBertSession(runtime, tokenizer)
-    }
-
-    private fun detectConfig(modelDir: Path): BertModelConfig {
-        val configFile = modelDir.resolve("config.json")
-        if (!configFile.exists()) return MDBR_LEAF_IR_CONFIG
-
-        val json = configFile.readText()
-        fun extractInt(key: String, default: Int): Int {
-            val pattern = Regex("\"$key\"\\s*:\\s*(\\d+)")
-            return pattern.find(json)?.groupValues?.get(1)?.toIntOrNull() ?: default
-        }
-        fun extractDouble(key: String, default: Double): Double {
-            val pattern = Regex("\"$key\"\\s*:\\s*([\\d.eE\\-+]+)")
-            return pattern.find(json)?.groupValues?.get(1)?.toDoubleOrNull() ?: default
-        }
-
-        return BertModelConfig(
-            vocabSize = extractInt("vocab_size", 30522),
-            hiddenSize = extractInt("hidden_size", 768),
-            numHiddenLayers = extractInt("num_hidden_layers", 12),
-            numAttentionHeads = extractInt("num_attention_heads", 12),
-            intermediateSize = extractInt("intermediate_size", 3072),
-            maxPositionEmbeddings = extractInt("max_position_embeddings", 512),
-            typeVocabSize = extractInt("type_vocab_size", 2),
-            layerNormEps = extractDouble("layer_norm_eps", 1e-12)
-        )
     }
 }
 
@@ -98,7 +103,7 @@ public object KBertJava {
  * Implements AutoCloseable for try-with-resources usage.
  */
 public class KBertSession(
-    private val runtime: BertRuntime<FP32>,
+    private val runtime: BertEncoderRuntime<FP32>,
     private val tokenizer: HuggingFaceTokenizer
 ) : AutoCloseable {
 
@@ -110,8 +115,7 @@ public class KBertSession(
      */
     public fun encode(text: String): FloatArray {
         val tokOutput = tokenizer.encodeWithMetadata(text)
-        val embedding = runtime.encode(tokOutput.inputIds, tokOutput.attentionMask, tokOutput.tokenTypeIds)
-        return embedding.data.copyToFloatArray()
+        return runtime.encode(tokOutput.inputIds, tokOutput.attentionMask)
     }
 
     /**

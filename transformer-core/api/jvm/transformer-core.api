@@ -121,6 +121,13 @@ public final class sk/ainet/lang/nn/transformer/AppendKVCache : sk/ainet/lang/nn
 	public fun update (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/context/ExecutionContext;)Lkotlin/Pair;
 }
 
+public final class sk/ainet/lang/nn/transformer/AttentionKV {
+	public fun <init> (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;)V
+	public final fun getK ()Lsk/ainet/lang/tensor/Tensor;
+	public final fun getOutput ()Lsk/ainet/lang/tensor/Tensor;
+	public final fun getV ()Lsk/ainet/lang/tensor/Tensor;
+}
+
 public final class sk/ainet/lang/nn/transformer/GeGLUFFN : sk/ainet/lang/nn/Module, sk/ainet/lang/nn/topology/ModuleParameters {
 	public fun <init> (IILjava/lang/String;Lkotlin/reflect/KClass;)V
 	public synthetic fun <init> (IILjava/lang/String;Lkotlin/reflect/KClass;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
@@ -162,6 +169,7 @@ public final class sk/ainet/lang/nn/transformer/MultiHeadAttention : sk/ainet/la
 	public fun <init> (IIIZZZDLjava/lang/Float;ZZLjava/lang/String;Lsk/ainet/lang/nn/transformer/RoPE;Lsk/ainet/lang/nn/transformer/KVCache;Ljava/lang/Integer;Ljava/lang/Integer;Lkotlin/reflect/KClass;)V
 	public synthetic fun <init> (IIIZZZDLjava/lang/Float;ZZLjava/lang/String;Lsk/ainet/lang/nn/transformer/RoPE;Lsk/ainet/lang/nn/transformer/KVCache;Ljava/lang/Integer;Ljava/lang/Integer;Lkotlin/reflect/KClass;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun forward (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/context/ExecutionContext;)Lsk/ainet/lang/tensor/Tensor;
+	public final fun forwardWithKV (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/context/ExecutionContext;)Lsk/ainet/lang/nn/transformer/AttentionKV;
 	public final fun getAttentionScale ()Ljava/lang/Float;
 	public final fun getBias ()Z
 	public final fun getCausal ()Z
@@ -217,6 +225,13 @@ public final class sk/ainet/lang/nn/transformer/PaddedSharedPositionalKVCache : 
 	public fun update (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/context/ExecutionContext;)Lkotlin/Pair;
 }
 
+public final class sk/ainet/lang/nn/transformer/PhaseProfile {
+	public static final field INSTANCE Lsk/ainet/lang/nn/transformer/PhaseProfile;
+	public final fun report ()Ljava/lang/String;
+	public final fun reset ()V
+	public final fun time (Ljava/lang/String;Lkotlin/jvm/functions/Function0;)Ljava/lang/Object;
+}
+
 public final class sk/ainet/lang/nn/transformer/PositionalKVCache : sk/ainet/lang/nn/transformer/KVCache {
 	public fun <init> (IIILjava/lang/String;)V
 	public synthetic fun <init> (IIILjava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
@@ -238,7 +253,9 @@ public final class sk/ainet/lang/nn/transformer/ResidualAdd : sk/ainet/lang/nn/M
 public final class sk/ainet/lang/nn/transformer/RoPE : sk/ainet/lang/nn/Module {
 	public fun <init> (IIFLsk/ainet/lang/nn/transformer/RoPEMode;Lsk/ainet/lang/nn/transformer/RoPEScaling;FFZLjava/lang/String;)V
 	public synthetic fun <init> (IIFLsk/ainet/lang/nn/transformer/RoPEMode;Lsk/ainet/lang/nn/transformer/RoPEScaling;FFZLjava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun buildInterleavedCosSin (II)Lkotlin/Pair;
 	public final fun forward (Lsk/ainet/lang/tensor/Tensor;ILsk/ainet/context/ExecutionContext;)Lsk/ainet/lang/tensor/Tensor;
+	public final fun forwardWithCosSin (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/context/ExecutionContext;)Lsk/ainet/lang/tensor/Tensor;
 	public final fun getFreqDenomRotaryDim ()Z
 	public final fun getHeadDim ()I
 	public final fun getMaxSeqLen ()I

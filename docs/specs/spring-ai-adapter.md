@@ -39,7 +39,7 @@ On branch `feature/llm-api-neutral-spi`:
   `Flow` for streaming. Deps: `kotlin-stdlib` + `kotlinx-coroutines` only.
 - `llm-providers/` — JVM module with `SkaiNetChatModel<T>` (wraps any
   `InferenceRuntime<T>` + `Tokenizer` + `ChatTemplate`) and `SkaiNetEmbeddingModel<T>`
-  (wraps `BertRuntime<T>`).
+  (wraps `BertEncoderRuntime<T>`).
 - BOM updated; binary-compat baseline (`api/`) generated; basic unit tests for
   mappers and stop-sequence helper.
 
@@ -115,8 +115,8 @@ Conditional bean wiring:
   `ChatTemplate` via `ModelRegistry.detect(...)` (or the explicit override),
   wraps in `SkaiNetChatModel`, then in `SpringSkaiNetChatModel`.
 - `@Bean @ConditionalOnMissingBean EmbeddingModel skaiNetEmbeddingModel(...)` —
-  same pattern with `BertRuntime` (or its eventual `OptimizedLLMRuntime`-based
-  replacement) + `SkaiNetEmbeddingModel`.
+  same pattern with `BertEncoderRuntime` (the DSL-path encoder) +
+  `SkaiNetEmbeddingModel`, or simply `BertEmbeddingModel.fromHuggingFace(...)`.
 
 ## Open dependencies / blockers
 

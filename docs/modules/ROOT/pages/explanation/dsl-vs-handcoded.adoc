@@ -108,7 +108,7 @@ The goal is to extend the DSL to support these patterns over time.
 
 |BERT
 |`bertNetwork()`
-|`BertRuntime` deprecated
+|DSL-only: `BertEncoderRuntime` (eager + traced graph); legacy runtime removed
 
 |Voxtral
 |`voxtralBackboneNetwork()`

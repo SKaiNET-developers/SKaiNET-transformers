@@ -99,6 +99,8 @@ skainet-io-core = { module = "sk.ainet.core:skainet-io-core" }
 skainet-io-gguf = { module = "sk.ainet.core:skainet-io-gguf" }
 skainet-io-iree-params = { module = "sk.ainet.core:skainet-io-iree-params" }
 skainet-io-safetensors = { module = "sk.ainet.core:skainet-io-safetensors" }
+# URI-backed data sources (hf:// downloads) — BertEmbeddingModel.fromHuggingFace
+skainet-data-source = { module = "sk.ainet.core:skainet-data-source" }
 
 [plugins]
 androidLibrary = { id = "com.android.library", version.ref = "agp" }
