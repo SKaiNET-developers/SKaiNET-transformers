@@ -187,8 +187,7 @@ public class BertEncoderRuntime<T : DType>(
     }
 
     private fun compiledFor(sampleTokenIds: IntArray, diagnostics: MutableList<String>): CompiledEncoder {
-        // Correct replay handlers (incl. the axes-aware permute override the
-        // multi-token attention trace depends on).
+        // Fused-op replay handlers (RMSNorm / SwiGLU / QKV decompositions).
         LLMFusedOpHandlers.registerAll()
 
         // 1. Record one eager forward through a tape-recording context.

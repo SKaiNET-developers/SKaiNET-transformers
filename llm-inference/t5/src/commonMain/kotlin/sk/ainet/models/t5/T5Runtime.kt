@@ -21,8 +21,8 @@ import sk.ainet.lang.types.DType
 import kotlin.reflect.KClass
 
 /**
- * Hand-coded T5 encoder-decoder runtime, written in the direct tensor-ops style of
- * [sk.ainet.models.bert.BertRuntime] (per-head attention via narrow/matmul/softmax; no
+ * Hand-coded T5 encoder-decoder runtime, written in the direct tensor-ops style of the
+ * (since-removed) hand-coded BERT runtime (per-head attention via narrow/matmul/softmax; no
  * Module/graph composition, no KV cache). Batch size 1.
  *
  * T5 specifics vs. a vanilla transformer, all handled here:

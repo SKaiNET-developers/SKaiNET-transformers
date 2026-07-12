@@ -1,0 +1,144 @@
+= BERT Completely Defined in the DSL
+:description: How the BERT encoder is declared once in the SKaiNET NN DSL and executed eagerly, as an optimized ComputeGraph, or exported to StableHLO.
+
+Since 0.36.0, BERT has no hand-coded forward pass left in this repository. The entire
+architecture is a single declarative definition — `bertNetwork()` — and everything else
+(eager execution, graph tracing and fusion, StableHLO export, weight loading) is derived
+from that one definition. This page explains what that means concretely and why the
+design looks the way it does. For the general DSL-vs-hand-coded argument, see
+xref:explanation/dsl-vs-handcoded.adoc[DSL Networks vs Hand-Coded Runtimes].
+
+== One definition, three ways to run it
+
+The SKaiNET engine's core path is: *define the model once in the Kotlin DSL, then either
+execute the module tree eagerly or capture it as a graph — without rewriting it.* For BERT
+this is now fully realized:
+
+[cols="1,2"]
+|===
+|Path |What happens
+
+|`DIRECT` (default)
+|`BertEncoderRuntime` walks the module tree eagerly on the execution context — the primary
+JVM path, easy to debug, no tracing involved.
+
+|`OPTIMIZED`
+|The same module tree is traced into a ComputeGraph and run through the LLM optimization
+pipeline (transpose elimination, op fusion, dead-code elimination). Graphs are
+shape-specialized per sequence length and kept in a small LRU cache. Output is bit-exact
+against `DIRECT`.
+
+|StableHLO export
+|`exportTape(seqLen)` captures the encoder trace for the MLIR / StableHLO lowering shared
+with the engine — `gather`, `dot_general`, and SDPA survive the lowering. Export is
+gate-tested; executing the exported module (IREE) is not in scope yet.
+|===
+
+Because pooling and projection live *outside* the DSL network (see below), all three paths
+share literally the same encoder definition.
+
+== The definition
+
+`bertNetwork()` in `llm-inference/bert` declares the whole encoder as a `sequential`:
+
+[source,kotlin]
+----
+sequential<T, V> {
+    // Complete embeddings block: word + position + token_type, LayerNorm
+    modules += BertEmbeddings(config, T::class)
+
+    for (layer in 0 until nLayers) {
+        // attn block: MHA(bidirectional, bias) → Residual → LayerNorm
+        // ffn block:  Dense → GeLU → Dense → Residual → LayerNorm
+    }
+}
+----
+
+Feed it an `[L]`-shaped token-id tensor and it produces `[L, hiddenSize]` hidden states.
+Two details make this definition complete and traceable where earlier attempts were not.
+
+=== Index-free position and token-type embeddings
+
+BERT sums three embeddings per token: word, absolute position, and token type. Word
+embeddings use the input tensor's ids with `ops.gather` — but position ids (`0..L-1`) and
+token-type ids (all zeros for sentence embedding) would normally require *synthesizing index
+tensors*, which pollutes a traced graph with extra non-parameter leaves.
+
+`BertEmbeddings` avoids the indices entirely:
+
+* *Positions*: rows `0..L-1` of the position table _are_ the position vectors, in order —
+  so `ops.narrow(table, 0, 0, L)` selects them with no index tensor at all.
+* *Token type*: sentence-embedding callers always pass segment 0, so row 0 of the type
+  table is reshaped to `[dim]` and broadcast-added — the same `[L, dim] + [dim]` broadcast
+  a Linear layer uses for bias.
+
+The result: a traced forward has *exactly one non-parameter leaf* — the token-id tensor.
+That makes compiled-mode input detection unambiguous and the exported graph a clean
+`tokens → hidden-states` encoder. The trade-off is deliberate: two-segment (cross-encoder)
+inputs are not expressible, which sentence-embedding workloads never need.
+
+=== Post-norm residual wiring: two blocks per layer
+
+Decoder stacks (Llama & friends) are *pre-norm*: normalize, transform, then add the
+residual. BERT is *post-norm*:
+
+    h1 = LayerNorm(x + MHA(x))
+    h2 = LayerNorm(h1 + FFN(h1))
+
+The DSL's transformer blocks wire each `ResidualAdd` back to the value at the start of its
+residual segment — the input of the module right after the previous `ResidualAdd`. That
+rule is correct for pre-norm stacks, but in a single-block BERT layer it makes the FFN
+residual grab the value *before* the post-attention LayerNorm instead of after it — a
+subtle numerical bug that survives smoke tests and only shows up in parity comparisons.
+
+The fix is structural, not a special case: each encoder layer is defined as *two* blocks
+(`encoder.layer.N.attn`, `encoder.layer.N.ffn`). Within a block, the first residual
+segment starts at the block input — which places both residual boundaries exactly where
+post-norm needs them.
+
+== What stays outside the graph — and why
+
+`BertEncoderRuntime` adds what sentence embedding needs *on top of* the pure encoder:
+
+1. *Masked mean pooling* over token positions,
+2. the optional sentence-transformers `2_Dense` projection (applied even when the head is
+   bias-free — LEAF models ship `bias=false`, which the legacy runtime silently dropped),
+3. *L2 normalization*.
+
+These deliberately live outside the DSL network. The pooling mask is dynamic per call, so
+baking it into the graph would force retracing; and keeping the traced/exported artifact a
+pure `tokens → hidden-states` encoder means the same export serves any pooling strategy a
+downstream consumer picks.
+
+== Weight loading is derived, not written
+
+DSL modules have stable parameter paths (`encoder.layer.3.attn/attention/q_proj`, …).
+`createBertEncoderRuntime` maps checkpoint tensors onto them via `WeightMapper` +
+`BertSafeTensorsNameResolver` — there is no hand-written "load layer 3's query weight"
+code left. One level up, `BertEmbeddingModel.fromHuggingFace(...)` /
+`fromSafeTensors(...)` (in `llm-providers`) adds tokenizer detection, config parsing, and
+Hub download, presenting the whole stack behind the neutral `EmbeddingModel` SPI.
+
+== What was removed, and how it was verified
+
+0.36.0 removes the deprecated hand-coded eager stack: `BertRuntime`,
+`BertRuntimeWeights` / `BertLayerWeights`, `loadBertWeights`, `BertWeightMapper`,
+`BertTensorNames`, `BertIngestion`. Migration targets:
+
+* `createBertEncoderRuntime(config, tensors, ctx)` — drop-in runtime level, or
+* `BertEmbeddingModel.fromSafeTensors(...)` / `fromHuggingFace(...)` — the one-call level.
+
+The removal was gated on parity, not on review alone:
+
+* Hidden states within `2.2e-6` and final embeddings within `9e-8` of the
+  PyTorch-validated legacy runtime on real `MongoDB/mdbr-leaf-mt`;
+* `DIRECT` vs `OPTIMIZED` bit-exact on synthetic and real models;
+* the Java surface's reference smoke test passed *unmodified* across the swap;
+* downstream, the SK-leaf CLI re-indexed its 56-chunk reference corpus with identical
+  embeddings — in 44.5 s instead of 676.9 s (~15×).
+
+== Where to go next
+
+* xref:tutorials/getting-started-leaf.adoc[Getting Started with LEAF] — use the result in ten lines.
+* xref:tutorials/embeddings.adoc[Embeddings — Getting Started] — the `EmbeddingModel` SPI tutorial.
+* xref:explanation/dsl-vs-handcoded.adoc[DSL Networks vs Hand-Coded Runtimes] — the project-wide policy this completes.
