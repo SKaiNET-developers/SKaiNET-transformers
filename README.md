@@ -106,7 +106,7 @@ Honest status — see the project-status note at the top of this README.
 
 ## Current release
 
-The current release is **0.36.0** (against **SKaiNET 0.35.0**) — **BERT is now completely
+The current release is **0.36.0** (against **SKaiNET 0.36.0**) — **BERT is now completely
 defined in the SKaiNET NN DSL**, and the deprecated hand-coded eager BERT stack is **removed
 (BREAKING)** in the same release:
 

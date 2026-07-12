@@ -9,18 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.36.0] — 2026-07-11
+## [0.36.0] — 2026-07-12
 
-Ships against **SKaiNET engine 0.35.0**. Headline: **BERT is now completely defined on the DSL
+Ships against **SKaiNET engine 0.36.0**. Headline: **BERT is now completely defined on the DSL
 path** — the legacy hand-coded eager stack is removed (**BREAKING**, see *Removed*), and sentence
 embeddings get a one-call factory with built-in Hugging Face Hub download. Also new: a **T5
 encoder-decoder** runtime and a **vec2text embedding-inversion** pipeline (invert GTR embeddings
 back to text). Downstream impact:
 indexing the leaf-cli reference corpus (56 chunks) drops from 676.9 s to 44.5 s (~15×) with
-identical embeddings. The engine's `permute`-axes replay fix
-([SKaiNET#803](https://github.com/SKaiNET-developers/SKaiNET/pull/803)) is merged upstream but not
-yet released; this release keeps its local axes-aware `permute` handler in `LLMFusedOpHandlers`
-until an engine release containing the fix is consumed.
+identical embeddings.
 
 ### Added
 
@@ -69,9 +66,11 @@ until an engine release containing the fix is consumed.
   (returning 384-dim vectors while advertising 1024). `BertEncoderRuntime` applies bias-free
   projections; `KBertJava` now picks up `2_Dense/` heads it previously ignored.
 - **Graph replay dropped `permute` axes.** The ComputeGraph executor's builtin dispatch replayed
-  `permute` as a plain last-two-dims transpose; `LLMFusedOpHandlers` registers an axes-aware
-  `permute` handler (the registry precedes the builtin), fixing every multi-token attention trace —
-  single-token decode never hit it. Remove once the engine executor honors `axes` upstream.
+  `permute` as a plain last-two-dims transpose, breaking every multi-token attention trace —
+  single-token decode never hit it. Fixed upstream in engine 0.36.0
+  ([SKaiNET#803](https://github.com/SKaiNET-developers/SKaiNET/pull/803)), which this release
+  consumes; the interim axes-aware `permute` handler in `LLMFusedOpHandlers` (never in a published
+  release) is removed again.
 
 ### Removed
 
