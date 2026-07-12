@@ -45,11 +45,35 @@ public class Vec2TextInverter<T : DType>(
 ) {
     /**
      * Invert [text]'s embedding back to text using [numSteps] correction rounds.
+     *
+     * With [sequenceBeamWidth] and [tokenBeams] both 1 (default) this is the greedy path.
+     * Raising them enables beam search (vec2text's main quality lever):
+     * - [tokenBeams] — token-level beam inside each T5 generation.
+     * - [sequenceBeamWidth] — keep this many hypotheses across correction rounds, ranked by
+     *   cosine similarity to the target embedding (the "oracle" that beam search exploits).
      * (Set [numSteps] = 0 for single-shot inversion — the hypothesizer only.)
      */
-    public fun invert(text: String, numSteps: Int = 20, maxLength: Int = 128): Vec2TextResult {
-        val target = embedder.embed(tokenizer.encodeForEmbedder(text))
+    public fun invert(
+        text: String,
+        numSteps: Int = 20,
+        maxLength: Int = 128,
+        sequenceBeamWidth: Int = 1,
+        tokenBeams: Int = 1,
+    ): Vec2TextResult =
+        invertEmbedding(embedder.embed(tokenizer.encodeForEmbedder(text)), numSteps, maxLength, sequenceBeamWidth, tokenBeams)
 
+    /** As [invert], but starting from a raw target embedding (e.g. an interpolated vector). */
+    public fun invertEmbedding(
+        target: Tensor<T, Float>,
+        numSteps: Int = 20,
+        maxLength: Int = 128,
+        sequenceBeamWidth: Int = 1,
+        tokenBeams: Int = 1,
+    ): Vec2TextResult =
+        if (sequenceBeamWidth <= 1 && tokenBeams <= 1) invertGreedy(target, numSteps, maxLength)
+        else invertBeam(target, numSteps, maxLength, sequenceBeamWidth.coerceAtLeast(1), tokenBeams.coerceAtLeast(1))
+
+    private fun invertGreedy(target: Tensor<T, Float>, numSteps: Int, maxLength: Int): Vec2TextResult {
         var hypIds = inversion.invert(target, maxLength)
         var hypText = tokenizer.decode(hypIds)
         var cos = cosineToTarget(target, hypText)
@@ -76,6 +100,47 @@ public class Vec2TextInverter<T : DType>(
         }
         return Vec2TextResult(bestText, bestCos, trace)
     }
+
+    /** Sequence-level beam: keep [beamWidth] hypotheses per round, ranked by cosine to [target]. */
+    private fun invertBeam(
+        target: Tensor<T, Float>,
+        numSteps: Int,
+        maxLength: Int,
+        beamWidth: Int,
+        tokenBeams: Int,
+    ): Vec2TextResult {
+        var beams = rankByCosine(target, inversion.invertBeam(target, maxOf(beamWidth, tokenBeams), maxLength)).take(beamWidth)
+        val trace = ArrayList<Vec2TextStep>()
+        var best = beams.first()
+        trace.add(Vec2TextStep(0, best.text, best.cos))
+
+        for (step in 1..numSteps) {
+            val pool = ArrayList<IntArray>()
+            for (b in beams) {
+                val hypEmb = embedder.embed(tokenizer.encodeForEmbedder(b.text))
+                pool += corrector.correctBeam(target, hypEmb, b.ids, tokenBeams, maxLength)
+            }
+            beams = rankByCosine(target, pool).take(beamWidth)
+            val stepBest = beams.first()
+            trace.add(Vec2TextStep(step, stepBest.text, stepBest.cos))
+
+            val improvement = stepBest.cos - best.cos
+            if (stepBest.cos > best.cos) best = stepBest
+            if (abs(improvement) < EARLY_STOP_ATOL) break
+        }
+        return Vec2TextResult(best.text, best.cos, trace)
+    }
+
+    /** Decode + re-embed each candidate, dedup by text, and sort by cosine to [target] (best first). */
+    private fun rankByCosine(target: Tensor<T, Float>, idsList: List<IntArray>): List<Candidate> =
+        idsList.asSequence()
+            .map { ids -> tokenizer.decode(ids) to ids }
+            .distinctBy { it.first }
+            .map { (text, ids) -> Candidate(ids, text, cosineToTarget(target, text)) }
+            .sortedByDescending { it.cos }
+            .toList()
+
+    private class Candidate(val ids: IntArray, val text: String, val cos: Float)
 
     private fun cosineToTarget(target: Tensor<T, Float>, hypText: String): Float {
         val hypEmb = embedder.embed(tokenizer.encodeForEmbedder(hypText))

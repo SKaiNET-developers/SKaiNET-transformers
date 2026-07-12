@@ -19,9 +19,20 @@ public class InversionModel<T : DType>(
     private val t5 = T5Runtime(ctx, weights.t5, dtype)
 
     /** Produce the initial hypothesis token ids (T5 tokenizer space) from a `[dEmbedder]` target. */
-    public fun invert(targetEmbedding: Tensor<T, Float>, maxLength: Int = 128): IntArray {
+    public fun invert(targetEmbedding: Tensor<T, Float>, maxLength: Int = 128): IntArray =
+        invertBeam(targetEmbedding, numBeams = 1, maxLength = maxLength).first()
+
+    /**
+     * Beam-search variant returning up to [numBeams] candidate hypotheses, best-first
+     * (token-level beam over the T5 decoder). `numBeams = 1` is plain greedy.
+     */
+    public fun invertBeam(
+        targetEmbedding: Tensor<T, Float>,
+        numBeams: Int,
+        maxLength: Int = 128,
+    ): List<IntArray> {
         val pseudoTokens = weights.transform.project(targetEmbedding) // [R, dModel]
         val memory = t5.encode(pseudoTokens)
-        return t5.generate(memory, maxLength)
+        return t5.generateBeam(memory, numBeams, maxLength)
     }
 }
