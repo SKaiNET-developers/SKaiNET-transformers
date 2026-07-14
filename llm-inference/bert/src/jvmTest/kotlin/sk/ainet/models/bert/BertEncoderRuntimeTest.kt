@@ -187,4 +187,43 @@ class BertEncoderRuntimeTest {
     fun encode_emptyInputIsRejected() {
         assertFailsWith<IllegalArgumentException> { runtime().encode(intArrayOf()) }
     }
+
+    @Test
+    fun encode_clsPooling_takesFirstTokenRow() {
+        val cfg = config()
+        val rt = createBertEncoderRuntime(cfg, syntheticTensors(cfg), ctx, pooling = BertPooling.CLS)
+        val tokens = intArrayOf(1, 2, 3)
+
+        // Expected: hidden-state row 0, L2-normalized (no projection configured).
+        val hidden = rt.forward(tokens)
+        val row = FloatArray(h) { c -> hidden.data[0, c] }
+        val norm = sqrt(row.sumOf { (it * it).toDouble() }).toFloat()
+
+        val got = rt.encode(tokens)
+        assertEquals(h, got.size)
+        for (i in 0 until h) {
+            assertTrue(abs(row[i] / norm - got[i]) < 1e-5f, "CLS row mismatch at $i")
+        }
+    }
+
+    @Test
+    fun encode_clsPooling_differsFromMeanOnMultiTokenInput() {
+        val cfg = config()
+        val cls = createBertEncoderRuntime(cfg, syntheticTensors(cfg), ctx, pooling = BertPooling.CLS)
+            .encode(intArrayOf(1, 2, 3))
+        val mean = runtime().encode(intArrayOf(1, 2, 3))
+        val diff = cls.indices.sumOf { abs(cls[it] - mean[it]).toDouble() }
+        assertTrue(diff > 1e-4, "CLS and MEAN pooling must differ on varied hidden states: diff=$diff")
+    }
+
+    @Test
+    fun encode_clsPooling_ignoresAttentionMask() {
+        val cfg = config()
+        val rt = createBertEncoderRuntime(cfg, syntheticTensors(cfg), ctx, pooling = BertPooling.CLS)
+        val plain = rt.encode(intArrayOf(1, 2, 0))
+        val masked = rt.encode(intArrayOf(1, 2, 0), attentionMask = intArrayOf(1, 1, 0))
+        for (i in plain.indices) {
+            assertTrue(abs(plain[i] - masked[i]) < 1e-6f, "CLS pooling must not depend on the mask")
+        }
+    }
 }

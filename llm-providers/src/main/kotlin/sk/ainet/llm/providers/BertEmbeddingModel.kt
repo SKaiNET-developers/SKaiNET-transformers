@@ -10,7 +10,6 @@ import sk.ainet.data.source.DataSourceException
 import sk.ainet.data.source.DataSourceRequest
 import sk.ainet.data.source.JvmDataSourceResolver
 import sk.ainet.io.JvmRandomAccessSource
-import sk.ainet.io.safetensors.SafeTensorsParametersLoader
 import sk.ainet.llm.api.EmbeddingModel
 import sk.ainet.models.bert.BertConfigParser
 import sk.ainet.models.bert.BertExecutionMode
@@ -59,6 +58,10 @@ public object BertEmbeddingModel {
      * @param mode eager [BertExecutionMode.DIRECT] (default) or traced/fused
      *   [BertExecutionMode.OPTIMIZED]
      * @param modelId reported via [EmbeddingModel] response metadata
+     * @param prefixes query/document instruction prefixes for retrieval-tuned
+     *   models; local snapshots carry no repo id to look up in
+     *   [EmbeddingModelProfiles], so pass them explicitly (or use
+     *   [fromHuggingFace], which applies the profile automatically)
      */
     @JvmStatic
     @JvmOverloads
@@ -67,6 +70,7 @@ public object BertEmbeddingModel {
         ctx: ExecutionContext = PooledExecutionContext(DirectCpuExecutionContext()),
         mode: BertExecutionMode = BertExecutionMode.DIRECT,
         modelId: String? = modelDir.fileName?.toString(),
+        prefixes: EmbeddingPrefixes = EmbeddingPrefixes.NONE,
     ): EmbeddingModel {
         val weightsFile = resolveWeightsFile(modelDir)
         val denseWeights = modelDir.resolve("2_Dense").resolve("model.safetensors")
@@ -79,23 +83,32 @@ public object BertEmbeddingModel {
             if (denseConfig.exists()) denseConfig.readText() else null,
         )
 
+        val poolingConfig = modelDir.resolve("1_Pooling").resolve("config.json")
+        val pooling = BertConfigParser.parsePooling(
+            if (poolingConfig.exists()) poolingConfig.readText() else null,
+        )
+
         val tokenizer = loadTokenizer(modelDir)
 
+        // FloatSafeTensorsLoader (not the engine's SafeTensorsParametersLoader):
+        // BGE-style checkpoints persist an I64 `embeddings.position_ids` buffer
+        // that the engine loader can't skip and our index-free encoder never needs.
         val loaders = buildList {
-            add(SafeTensorsParametersLoader(sourceProvider = { JvmRandomAccessSource.open(weightsFile.toString()) }))
+            add(FloatSafeTensorsLoader(sourceProvider = { JvmRandomAccessSource.open(weightsFile.toString()) }))
             if (denseWeights.exists()) {
-                add(SafeTensorsParametersLoader(sourceProvider = { JvmRandomAccessSource.open(denseWeights.toString()) }))
+                add(FloatSafeTensorsLoader(sourceProvider = { JvmRandomAccessSource.open(denseWeights.toString()) }))
             }
         }
 
         val tensors = runBlocking { BertNetworkLoader.loadWeightTensors(loaders, ctx, sk.ainet.lang.types.FP32::class) }
-        val runtime = createBertEncoderRuntime(config, tensors, ctx, mode = mode)
+        val runtime = createBertEncoderRuntime(config, tensors, ctx, mode = mode, pooling = pooling)
 
-        return SkaiNetEmbeddingModel(
+        val model: EmbeddingModel = SkaiNetEmbeddingModel(
             runtime = runtime,
             tokenizer = tokenizer,
             modelId = modelId,
         )
+        return if (prefixes == EmbeddingPrefixes.NONE) model else PrefixedEmbeddingModel(model, prefixes)
     }
 
     /**
@@ -116,7 +129,10 @@ public object BertEmbeddingModel {
         mode: BertExecutionMode = BertExecutionMode.DIRECT,
     ): EmbeddingModel {
         val modelDir = downloadSnapshot(repoId, revision)
-        return fromSafeTensors(modelDir, ctx, mode, modelId = repoId)
+        return fromSafeTensors(
+            modelDir, ctx, mode, modelId = repoId,
+            prefixes = EmbeddingModelProfiles.forRepo(repoId),
+        )
     }
 
     // ------------------------------------------------------------------
@@ -128,6 +144,7 @@ public object BertEmbeddingModel {
     private val OPTIONAL_FILES = listOf(
         "vocab.txt",
         "tokenizer.json",
+        "1_Pooling/config.json",
         "2_Dense/config.json",
         "2_Dense/model.safetensors",
     )

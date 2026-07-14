@@ -6,6 +6,7 @@ public final class sk/ainet/models/bert/BertConfigParser {
 	public static final field INSTANCE Lsk/ainet/models/bert/BertConfigParser;
 	public final fun parse (Ljava/lang/String;Ljava/lang/String;)Lsk/ainet/models/bert/BertModelConfig;
 	public static synthetic fun parse$default (Lsk/ainet/models/bert/BertConfigParser;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lsk/ainet/models/bert/BertModelConfig;
+	public final fun parsePooling (Ljava/lang/String;)Lsk/ainet/models/bert/BertPooling;
 }
 
 public final class sk/ainet/models/bert/BertEmbeddings : sk/ainet/lang/nn/Module, sk/ainet/lang/nn/topology/ModuleParameters {
@@ -17,8 +18,8 @@ public final class sk/ainet/models/bert/BertEmbeddings : sk/ainet/lang/nn/Module
 }
 
 public final class sk/ainet/models/bert/BertEncoderRuntime {
-	public fun <init> (Lsk/ainet/lang/nn/Module;Lsk/ainet/models/bert/BertModelConfig;Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/models/bert/BertExecutionMode;)V
-	public synthetic fun <init> (Lsk/ainet/lang/nn/Module;Lsk/ainet/models/bert/BertModelConfig;Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/models/bert/BertExecutionMode;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lsk/ainet/lang/nn/Module;Lsk/ainet/models/bert/BertModelConfig;Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/models/bert/BertExecutionMode;Lsk/ainet/models/bert/BertPooling;)V
+	public synthetic fun <init> (Lsk/ainet/lang/nn/Module;Lsk/ainet/models/bert/BertModelConfig;Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/models/bert/BertExecutionMode;Lsk/ainet/models/bert/BertPooling;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun compile (I)Ljava/util/List;
 	public static synthetic fun compile$default (Lsk/ainet/models/bert/BertEncoderRuntime;IILjava/lang/Object;)Ljava/util/List;
 	public final fun encode ([I[I)[F
@@ -71,6 +72,14 @@ public final class sk/ainet/models/bert/BertNetworkLoader {
 	public static final field PROJECTION_WEIGHT Ljava/lang/String;
 	public final fun loadWeightTensors (Ljava/util/List;Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun normalizeTensorNames (Ljava/util/List;)Ljava/util/List;
+}
+
+public final class sk/ainet/models/bert/BertPooling : java/lang/Enum {
+	public static final field CLS Lsk/ainet/models/bert/BertPooling;
+	public static final field MEAN Lsk/ainet/models/bert/BertPooling;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lsk/ainet/models/bert/BertPooling;
+	public static fun values ()[Lsk/ainet/models/bert/BertPooling;
 }
 
 public final class sk/ainet/models/bert/HuggingFaceTokenizer : sk/ainet/apps/llm/Tokenizer {

@@ -117,6 +117,9 @@ public abstract interface class sk/ainet/llm/api/EmbeddingModel : java/lang/Auto
 	public fun close ()V
 	public fun embed (Ljava/lang/String;)[F
 	public fun embed (Ljava/util/List;)Ljava/util/List;
+	public fun embedDocument (Ljava/lang/String;)[F
+	public fun embedDocuments (Ljava/util/List;)Ljava/util/List;
+	public fun embedQuery (Ljava/lang/String;)[F
 	public abstract fun getDimensions ()I
 }
 
