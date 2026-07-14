@@ -19,6 +19,7 @@ import sk.ainet.lang.tensor.div
 import sk.ainet.lang.tensor.matmul
 import sk.ainet.lang.tensor.mean
 import sk.ainet.lang.tensor.plus
+import sk.ainet.lang.tensor.reshape
 import sk.ainet.lang.tensor.sqrt
 import sk.ainet.lang.tensor.sum
 import sk.ainet.lang.tensor.t
@@ -34,6 +35,20 @@ public enum class BertExecutionMode {
 
     /** Trace the encoder into an optimized ComputeGraph and execute the graph. */
     OPTIMIZED,
+}
+
+/**
+ * Sentence-pooling strategy applied by [BertEncoderRuntime.encode] on top of
+ * the encoder's hidden states — the sentence-transformers `1_Pooling` module.
+ * Pooling stays outside the traced graph, so the choice has no effect on the
+ * OPTIMIZED path or the StableHLO export.
+ */
+public enum class BertPooling {
+    /** Mask-weighted mean over token positions (LEAF, E5, MiniLM). */
+    MEAN,
+
+    /** Hidden state of the first token — `[CLS]` (BGE, GTE). */
+    CLS,
 }
 
 /**
@@ -61,6 +76,7 @@ public class BertEncoderRuntime<T : DType>(
     private val projectionWeight: Tensor<T, Float>? = null,
     private val projectionBias: Tensor<T, Float>? = null,
     private val mode: BertExecutionMode = BertExecutionMode.DIRECT,
+    private val pooling: BertPooling = BertPooling.MEAN,
 ) {
 
     /** Output dimensionality of [encode]: projection out-features when present, else hidden size. */
@@ -79,32 +95,37 @@ public class BertEncoderRuntime<T : DType>(
     }
 
     /**
-     * Encode tokens into a single embedding vector: forward → mean pooling
-     * (mask-weighted when [attentionMask] is given) → optional dense
-     * projection → L2 normalization.
+     * Encode tokens into a single embedding vector: forward → pooling
+     * ([BertPooling.MEAN], mask-weighted when [attentionMask] is given, or
+     * [BertPooling.CLS]) → optional dense projection → L2 normalization.
      *
      * @param tokenIds token IDs including `[CLS]` and `[SEP]`
-     * @param attentionMask 1 for real tokens, 0 for padding; affects pooling only
+     * @param attentionMask 1 for real tokens, 0 for padding; affects MEAN pooling only
      * @return normalized vector of size [dimensions]
      */
     public fun encode(tokenIds: IntArray, attentionMask: IntArray? = null): FloatArray {
         val hiddenStates = forward(tokenIds)
         val seqLen = tokenIds.size
 
-        var pooled = if (attentionMask != null) {
-            require(attentionMask.size == seqLen) {
-                "BertEncoderRuntime: attentionMask size ${attentionMask.size} != tokenIds size $seqLen"
+        var pooled = when (pooling) {
+            BertPooling.CLS ->
+                // First row of [L, hidden] — the [CLS] position — as a [hidden] vector.
+                ctx.ops.narrow(hiddenStates, 0, 0, 1).reshape(Shape(config.hiddenSize))
+            BertPooling.MEAN -> if (attentionMask != null) {
+                require(attentionMask.size == seqLen) {
+                    "BertEncoderRuntime: attentionMask size ${attentionMask.size} != tokenIds size $seqLen"
+                }
+                val maskTensor = ctx.fromFloatArray<T, Float>(
+                    Shape(seqLen, 1), dtype,
+                    FloatArray(seqLen) { attentionMask[it].toFloat() }
+                )
+                val masked = hiddenStates * maskTensor
+                val summed = masked.sum(dim = 0)
+                val count = attentionMask.sumOf { it }.toFloat().coerceAtLeast(1f)
+                summed / count
+            } else {
+                hiddenStates.mean(dim = 0)
             }
-            val maskTensor = ctx.fromFloatArray<T, Float>(
-                Shape(seqLen, 1), dtype,
-                FloatArray(seqLen) { attentionMask[it].toFloat() }
-            )
-            val masked = hiddenStates * maskTensor
-            val summed = masked.sum(dim = 0)
-            val count = attentionMask.sumOf { it }.toFloat().coerceAtLeast(1f)
-            summed / count
-        } else {
-            hiddenStates.mean(dim = 0)
         }
 
         if (projectionWeight != null) {
@@ -295,6 +316,7 @@ public inline fun <reified T : DType> createBertEncoderRuntime(
     resolver: WeightNameResolver = BertSafeTensorsNameResolver(),
     mode: BertExecutionMode = BertExecutionMode.DIRECT,
     debug: Boolean = false,
+    pooling: BertPooling = BertPooling.MEAN,
 ): BertEncoderRuntime<T> {
     val model = bertNetwork<T, Float>(config)
 
@@ -337,5 +359,6 @@ public inline fun <reified T : DType> createBertEncoderRuntime(
         projectionWeight = projectionWeight,
         projectionBias = projectionBias,
         mode = mode,
+        pooling = pooling,
     )
 }

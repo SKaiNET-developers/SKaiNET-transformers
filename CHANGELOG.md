@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **BGE embedding models** (`BAAI/bge-small-en-v1.5` and siblings) run on the BERT DSL path:
+  - **CLS pooling.** `BertPooling { MEAN, CLS }` on `BertEncoderRuntime` /
+    `createBertEncoderRuntime`; auto-detected from the sentence-transformers
+    `1_Pooling/config.json` (absent file → `MEAN`, unsupported max/sqrt-len modes rejected
+    loudly). Pooling stays outside the traced graph — OPTIMIZED mode and StableHLO export
+    are unaffected.
+  - **Query/document asymmetry.** `EmbeddingModel` gains `embedQuery` / `embedDocument` /
+    `embedDocuments` (defaults delegate to `embed` — additive, existing consumers untouched).
+    `PrefixedEmbeddingModel` + `EmbeddingModelProfiles` apply retrieval instruction prefixes
+    per repo id (E5 `query: `/`passage: `, BGE query instruction); `fromHuggingFace` wires
+    them automatically, `fromSafeTensors` accepts explicit `prefixes`.
+  - **Integer checkpoint buffers no longer break loads.** BGE-style snapshots persist an
+    I64 `embeddings.position_ids` buffer; the interim `FloatSafeTensorsLoader` skips
+    non-float buffers (the index-free encoder never needs them). Drop when the engine's
+    loader gains a tensor filter ([SKaiNET#822](https://github.com/SKaiNET-developers/SKaiNET/issues/822)).
+  - Design + traceable plan: `docs/specs/embedding-model-coverage.md` (E5 multilingual
+    follows in Phase 2 — Unigram tokenizer).
+
 ## [0.36.0] — 2026-07-12
 
 Ships against **SKaiNET engine 0.36.0**. Headline: **BERT is now completely defined on the DSL
