@@ -18,6 +18,7 @@ import sk.ainet.lang.tensor.t
 import sk.ainet.lang.tensor.times
 import sk.ainet.lang.tensor.unsqueeze
 import sk.ainet.lang.types.DType
+import kotlin.math.pow
 import kotlin.reflect.KClass
 
 /**
@@ -100,33 +101,70 @@ public class T5Runtime<T : DType>(
      * token ids (excluding the decoder start token, up to and including EOS or [maxLength]).
      */
     public fun generate(encoderMemory: Tensor<T, Float>, maxLength: Int = 128): IntArray {
-        val decLayers = weights.decoderLayers
-            ?: error("T5Runtime.generate: weights were loaded without a decoder")
-        val bias = decoderBias ?: error("T5Runtime.generate: no decoder relative bias")
+        weights.decoderLayers ?: error("T5Runtime.generate: weights were loaded without a decoder")
 
         val generated = ArrayList<Int>(maxLength)
         val decoderIds = ArrayList<Int>(maxLength + 1)
         decoderIds.add(cfg.decoderStartTokenId)
 
         while (generated.size < maxLength) {
-            val curLen = decoderIds.size
-            var h = embed(decoderIds.toIntArray())
-            val selfBias = biasTensor(bias.compute(curLen, curLen, causal = true), curLen, curLen)
-            for (layer in decLayers) {
-                val sa = attention(rmsNorm(h, layer.selfAttnNorm), null, layer.selfAttn, selfBias)
-                h = h + sa
-                val ca = attention(rmsNorm(h, layer.crossAttnNorm), encoderMemory, layer.crossAttn, null)
-                h = h + ca
-                val ff = feedForward(rmsNorm(h, layer.ffNorm), layer.ff)
-                h = h + ff
-            }
-            val normed = rmsNorm(h, weights.decoderFinalNorm!!)
-            val nextId = argmaxLastRowLogits(normed, curLen)
-            generated.add(nextId)
-            if (nextId == cfg.eosTokenId) break
-            decoderIds.add(nextId)
+            val logits = decoderLastLogits(encoderMemory, decoderIds.toIntArray())
+            var best = 0
+            for (i in 1 until logits.size) if (logits[i] > logits[best]) best = i
+            generated.add(best)
+            if (best == cfg.eosTokenId) break
+            decoderIds.add(best)
         }
         return generated.toIntArray()
+    }
+
+    /**
+     * Beam-search decode conditioned on [encoderMemory]. Returns up to [numBeams] complete
+     * sequences (each excluding the decoder start token), ordered best-first by
+     * length-normalized log-probability (`score / genLen^lengthPenalty`, HF's convention;
+     * `lengthPenalty = 1.0` = mean token log-prob). `numBeams <= 1` falls back to [generate].
+     *
+     * Like the greedy path this recomputes the full decoder per step per beam (no KV cache),
+     * so cost scales ~linearly with [numBeams]; keep it small (2–8) for the vec2text sizes.
+     */
+    public fun generateBeam(
+        encoderMemory: Tensor<T, Float>,
+        numBeams: Int,
+        maxLength: Int = 128,
+        lengthPenalty: Double = 1.0,
+    ): List<IntArray> {
+        if (numBeams <= 1) return listOf(generate(encoderMemory, maxLength))
+        weights.decoderLayers ?: error("T5Runtime.generateBeam: weights were loaded without a decoder")
+
+        var beams = listOf(BeamHyp(intArrayOf(cfg.decoderStartTokenId), 0.0, finished = false))
+        val finished = ArrayList<BeamHyp>()
+
+        repeat(maxLength) {
+            val candidates = ArrayList<BeamHyp>(beams.size * numBeams)
+            for (b in beams) {
+                val logProbs = logSoftmax(decoderLastLogits(encoderMemory, b.ids))
+                for (t in topKIndices(logProbs, numBeams)) {
+                    candidates.add(BeamHyp(b.ids + t, b.score + logProbs[t], finished = t == cfg.eosTokenId))
+                }
+            }
+            candidates.sortByDescending { normalizedScore(it, lengthPenalty) }
+            val active = ArrayList<BeamHyp>(numBeams)
+            for (b in candidates.take(numBeams)) if (b.finished) finished.add(b) else active.add(b)
+            beams = active
+            if (beams.isEmpty() || finished.size >= numBeams) return@repeat
+        }
+
+        return (finished + beams)
+            .sortedByDescending { normalizedScore(it, lengthPenalty) }
+            .take(numBeams)
+            .map { it.ids.copyOfRange(1, it.ids.size) } // drop the decoder start token
+    }
+
+    private class BeamHyp(val ids: IntArray, val score: Double, val finished: Boolean)
+
+    private fun normalizedScore(b: BeamHyp, lengthPenalty: Double): Double {
+        val genLen = (b.ids.size - 1).coerceAtLeast(1)
+        return b.score / genLen.toDouble().pow(lengthPenalty)
     }
 
     // ---- building blocks --------------------------------------------------
@@ -188,17 +226,51 @@ public class T5Runtime<T : DType>(
     private fun biasTensor(flat: FloatArray, lq: Int, lk: Int): Tensor<T, Float> =
         ctx.fromFloatArray(Shape(cfg.numHeads, lq, lk), dtype, flat)
 
-    /** Scale the last hidden row by `d_model^-0.5`, project to vocab, and argmax. */
-    private fun argmaxLastRowLogits(hidden: Tensor<T, Float>, curLen: Int): Int {
-        val lastRow = hidden.narrow(dim = 0, start = curLen - 1, length = 1) // [1, dModel]
-        val scale = 1.0f / kotlin.math.sqrt(cfg.dModel.toFloat())
-        val logits = (lastRow * scale).matmul(weights.shared.t())           // [1, vocab]
-        val arr = logits.data.copyToFloatArray()
-        var best = 0
-        var bestVal = arr[0]
-        for (i in 1 until arr.size) {
-            if (arr[i] > bestVal) { bestVal = arr[i]; best = i }
+    /**
+     * Run the decoder stack over [decoderIds] (including the start token) attending to
+     * [encoderMemory], and return the **last position's** vocab logits `[vocab]` as a
+     * FloatArray (after the `d_model^-0.5` tied-embedding scaling). Shared by greedy and
+     * beam decoding.
+     */
+    private fun decoderLastLogits(encoderMemory: Tensor<T, Float>, decoderIds: IntArray): FloatArray {
+        val decLayers = weights.decoderLayers!!
+        val bias = decoderBias!!
+        val curLen = decoderIds.size
+        var h = embed(decoderIds)
+        val selfBias = biasTensor(bias.compute(curLen, curLen, causal = true), curLen, curLen)
+        for (layer in decLayers) {
+            val sa = attention(rmsNorm(h, layer.selfAttnNorm), null, layer.selfAttn, selfBias)
+            h = h + sa
+            val ca = attention(rmsNorm(h, layer.crossAttnNorm), encoderMemory, layer.crossAttn, null)
+            h = h + ca
+            val ff = feedForward(rmsNorm(h, layer.ffNorm), layer.ff)
+            h = h + ff
         }
-        return best
+        val normed = rmsNorm(h, weights.decoderFinalNorm!!)
+        val lastRow = normed.narrow(dim = 0, start = curLen - 1, length = 1) // [1, dModel]
+        val scale = 1.0f / kotlin.math.sqrt(cfg.dModel.toFloat())
+        return (lastRow * scale).matmul(weights.shared.t()).data.copyToFloatArray() // [vocab]
+    }
+
+    /** Numerically-stable log-softmax of a logits FloatArray → per-index log-probability. */
+    private fun logSoftmax(logits: FloatArray): DoubleArray {
+        var max = logits[0]
+        for (l in logits) if (l > max) max = l
+        var sum = 0.0
+        for (l in logits) sum += kotlin.math.exp((l - max).toDouble())
+        val logDenom = kotlin.math.ln(sum) + max
+        return DoubleArray(logits.size) { logits[it] - logDenom }
+    }
+
+    /** Indices of the [k] largest entries of [scores] (unordered), via a linear top-k scan. */
+    private fun topKIndices(scores: DoubleArray, k: Int): IntArray {
+        val idx = IntArray(k) { -1 }
+        val vals = DoubleArray(k) { Double.NEGATIVE_INFINITY }
+        for (i in scores.indices) {
+            var minSlot = 0
+            for (j in 1 until k) if (vals[j] < vals[minSlot]) minSlot = j
+            if (scores[i] > vals[minSlot]) { vals[minSlot] = scores[i]; idx[minSlot] = i }
+        }
+        return idx
     }
 }

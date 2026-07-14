@@ -41,7 +41,19 @@ public class CorrectorModel<T : DType>(
         hypothesisEmbedding: Tensor<T, Float>,
         hypothesisIds: IntArray,
         maxLength: Int = 128,
-    ): IntArray {
+    ): IntArray = correctBeam(targetEmbedding, hypothesisEmbedding, hypothesisIds, numBeams = 1, maxLength = maxLength).first()
+
+    /**
+     * Beam-search variant returning up to [numBeams] refined candidates, best-first
+     * (token-level beam over the T5 decoder). `numBeams = 1` is plain greedy.
+     */
+    public fun correctBeam(
+        targetEmbedding: Tensor<T, Float>,
+        hypothesisEmbedding: Tensor<T, Float>,
+        hypothesisIds: IntArray,
+        numBeams: Int,
+        maxLength: Int = 128,
+    ): List<IntArray> {
         val diff = targetEmbedding - hypothesisEmbedding
         val pTarget = weights.transform1.project(targetEmbedding)      // [R, d]
         val pHyp = weights.transform3.project(hypothesisEmbedding)     // [R, d]
@@ -55,6 +67,6 @@ public class CorrectorModel<T : DType>(
         )
         val normed = layerNorm.forward(inputsEmbeds, ctx)
         val memory = t5.encode(normed)
-        return t5.generate(memory, maxLength)
+        return t5.generateBeam(memory, numBeams, maxLength)
     }
 }
