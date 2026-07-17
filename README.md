@@ -90,8 +90,8 @@ Honest status — see the project-status note at the top of this README.
 | **Qwen 2 / 3** | DSL + loaders present; runs through the shared decoder path. Early; Qwen3 RoPE / QK-norm fixes landed in 0.23.2. |
 | **Gemma 2 / 3 / 3n** | DSL + loaders present (Gemma 4 via the SafeTensors path); has the most test coverage, but not verified end-to-end. |
 | **Apertus** | DSL + loaders present; declared end-to-end in 0.23.1, still early. |
-| **BERT** | Sentence embeddings on the DSL path (`bertNetwork()` + `BertEncoderRuntime`, eager or traced/fused) — verified against sentence-transformers on MongoDB/mdbr-leaf. One-call `BertEmbeddingModel.fromHuggingFace(...)` with built-in Hub download. No text generation, no tool calling. |
-| **T5 / GTR** | Encoder-decoder runtime (hand-coded, batch 1, no KV cache) + `GtrEmbedder`, powering the **vec2text** embedding-inversion pipeline — verified with a real-weights gtr-base round-trip test. |
+| **BERT** | Sentence embeddings on the DSL path (`bertNetwork()` + `BertEncoderRuntime`, eager or traced/fused) — verified against sentence-transformers on MongoDB/mdbr-leaf. One-call `BertEmbeddingModel.fromHuggingFace(...)` with built-in Hub download; MEAN or CLS pooling and retrieval prefixes cover LEAF, BGE and E5-style models. No text generation, no tool calling. |
+| **T5 / GTR** | Encoder-decoder runtime (hand-coded, batch 1, no KV cache) + `GtrEmbedder`, powering the **vec2text** embedding-inversion pipeline, with greedy and beam-search decoding — verified with a real-weights gtr-base round-trip test. |
 | **Voxtral** | TTS / voice; architecture code only — no runtime facade or CLI yet. |
 
 ### Near term
@@ -106,9 +106,33 @@ Honest status — see the project-status note at the top of this README.
 
 ## Current release
 
-The current release is **0.36.0** (against **SKaiNET 0.36.0**) — **BERT is now completely
-defined in the SKaiNET NN DSL**, and the deprecated hand-coded eager BERT stack is **removed
-(BREAKING)** in the same release:
+The current release is **0.36.1** (against **SKaiNET 0.36.0**) — a patch on 0.36.0 with two
+additions, both purely additive for existing consumers.
+
+**BGE embedding models** (`BAAI/bge-small-en-v1.5` and siblings) now run on the BERT DSL path:
+
+- **CLS pooling** — `BertPooling { MEAN, CLS }`, auto-detected from the sentence-transformers
+  `1_Pooling/config.json`. Pooling stays outside the traced graph, so OPTIMIZED mode and
+  StableHLO export are unaffected.
+- **Query/document asymmetry** — `EmbeddingModel` gains `embedQuery` / `embedDocument` /
+  `embedDocuments`, and `PrefixedEmbeddingModel` applies the per-model retrieval instruction
+  prefixes (E5 `query: `/`passage: `, BGE query instruction) that these models need to score
+  correctly. `fromHuggingFace` wires them automatically.
+- Design notes: [embedding-model-coverage](docs/specs/embedding-model-coverage.md).
+
+**Beam search** for the T5 decoder and the vec2text inversion loop — vec2text's main quality lever:
+
+- `T5Runtime.generateBeam(...)` does token-level beam over the decoder, returning candidates
+  best-first by length-normalized log-probability.
+- `Vec2TextInverter.invert(..., sequenceBeamWidth, tokenBeams)` adds a sequence-level beam that
+  keeps several hypotheses across correction rounds, ranked by cosine similarity to the target
+  embedding.
+- Both are **off by default** — width 1 keeps the existing greedy behaviour, so this is a
+  drop-in upgrade. On the round-trip test's example sentence, one correction step with beam
+  (sequence width 3, token beams 3) improves cosine **0.765 → 0.818** over greedy.
+
+It builds on **0.36.0**, in which **BERT became completely defined in the SKaiNET NN DSL** and the
+deprecated hand-coded eager BERT stack was **removed (BREAKING)**:
 
 - `bertNetwork()` is a numerically complete `tokens → hidden-states` encoder: the new
   `BertEmbeddings` module adds the absolute-position and token-type embeddings the DSL definition
@@ -126,12 +150,12 @@ defined in the SKaiNET NN DSL**, and the deprecated hand-coded eager BERT stack 
   [CHANGELOG](CHANGELOG.md) and the
   [BERT-as-DSL explanation](docs/modules/ROOT/pages/explanation/bert-dsl.adoc).
 
-0.36.0 also adds a **T5 encoder-decoder** runtime (`llm-inference/t5`) with `GtrEmbedder`, and a
-**vec2text embedding-inversion** pipeline (`llm-inference/vec2text`) that iteratively reconstructs
-text from a GTR embedding — verified end-to-end against real
-`sentence-transformers/gtr-t5-base` weights.
+0.36.0 also added the **T5 encoder-decoder** runtime (`llm-inference/t5`) with `GtrEmbedder`, and
+the **vec2text embedding-inversion** pipeline (`llm-inference/vec2text`) that iteratively
+reconstructs text from a GTR embedding — verified end-to-end against real
+`sentence-transformers/gtr-t5-base` weights. That is the pipeline 0.36.1's beam search extends.
 
-It builds on **0.35.0**, which added **FunctionGemma** self-compiled from the SKaiNET NN DSL: a
+Both build on **0.35.0**, which added **FunctionGemma** self-compiled from the SKaiNET NN DSL: a
 one-dependency function-calling sLLM (`skainet-transformers-runtime-kgemma`) with an eager one-line
 API (`FunctionGemma.fromGguf(gguf).call("turn the light on")` → `ToolCall(set_lights, {state="on"})`,
 runs anywhere on CPU, no iree) **and** a no-Python compiled edge export
@@ -164,7 +188,7 @@ The recommended way to consume is via the BOM. It pins every published `skainet-
 
 ```kotlin
 dependencies {
-    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.36.0"))
+    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.36.1"))
 
     // Versions resolved from the BOM:
     implementation("sk.ainet.transformers:skainet-transformers-core")

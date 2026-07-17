@@ -112,7 +112,7 @@ The goal is to extend the DSL to support these patterns over time.
 
 |T5 / GTR (vec2text)
 |_none_
-|Hand-coded encoder-decoder (`T5Runtime`); relative-position bias and the per-step decode loop are not DSL-expressible yet
+|Hand-coded encoder-decoder (`T5Runtime`, greedy + beam decode); relative-position bias and the per-step decode loop are not DSL-expressible yet
 
 |Voxtral
 |`voxtralBackboneNetwork()`
