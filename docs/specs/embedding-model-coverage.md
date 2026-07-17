@@ -75,14 +75,14 @@ Gitflow: `feature/*` → `develop` → `release/x.y.z` → tag (publishes to Mav
 
 | ID | Work item | Repo / branch | Release | Status |
 |---|---|---|---|---|
-| E5BGE-0 | This design doc | SK-tr `feature/embedding-pooling-profiles` | 0.37.0 | in progress |
-| E5BGE-1 | `BertPooling` (MEAN/CLS) + `1_Pooling` detection + tests | SK-tr, same branch | 0.37.0 | in progress |
-| E5BGE-2 | SPI `embedQuery`/`embedDocument` + `PrefixedEmbeddingModel` + profiles | SK-tr, same branch | 0.37.0 | in progress |
-| E5BGE-3 | BGE end-to-end verification (CLS, 384 dims, prefix) + smoke entry | SK-tr, same branch | 0.37.0 | pending |
-| E5BGE-4 | Unigram tokenizer spike → placement decision | SK-tr (or engine per CP-3) | 0.38.0 | pending |
-| E5BGE-5 | Unigram impl + multilingual parity + special-token generalization | per CP-3 | 0.38.0 | pending |
-| E5BGE-6 | E5 end-to-end verification + docs + benchmark matrix entry | SK-tr | 0.38.0 | pending |
-| E5BGE-7 | leaf-cli: `embedQuery`/`embedDocument` wiring + dim recorded in index | SK-leaf `feature/*` → `develop` | after 0.37.0 | pending |
+| E5BGE-0 | This design doc | SK-tr `feature/embedding-pooling-profiles` | 0.36.1 | done |
+| E5BGE-1 | `BertPooling` (MEAN/CLS) + `1_Pooling` detection + tests | SK-tr, same branch | 0.36.1 | done |
+| E5BGE-2 | SPI `embedQuery`/`embedDocument` + `PrefixedEmbeddingModel` + profiles | SK-tr, same branch | 0.36.1 | done |
+| E5BGE-3 | BGE end-to-end verification (CLS, 384 dims, prefix) + smoke entry | SK-tr, same branch | 0.36.1 | pending |
+| E5BGE-4 | Unigram tokenizer spike → placement decision | SK-tr (or engine per CP-3) | next release | pending |
+| E5BGE-5 | Unigram impl + multilingual parity + special-token generalization | per CP-3 | next release | pending |
+| E5BGE-6 | E5 end-to-end verification + docs + benchmark matrix entry | SK-tr | next release | pending |
+| E5BGE-7 | leaf-cli: `embedQuery`/`embedDocument` wiring + dim recorded in index | SK-leaf `feature/*` → `develop` | after 0.36.1 | pending |
 
 ## Checkpoints (upstream-change gates)
 
@@ -90,14 +90,15 @@ Gitflow: `feature/*` → `develop` → `release/x.y.z` → tag (publishes to Mav
   pooling/prefix unit tests pass. *Engine changes required: none.*
 - **CP-2 — BGE verified** (E5BGE-3): `fromHuggingFace("BAAI/bge-small-en-v1.5")`
   produces 384-dim CLS-pooled embeddings; parity vs sentence-transformers reference
-  vectors; PR to `develop`; ship as **0.37.0**. *Gate: confirm no engine release is on
+  vectors; PR to `develop`; ship as **0.36.1**. *Gate: confirm no engine release is on
   the critical path — if anything surfaced, stop and file engine issues first.*
   **Gate outcome (2026-07-14):** one engine gap surfaced — `SafeTensorsParametersLoader`
   cannot skip BGE's persisted I64 `embeddings.position_ids` buffer
   ([SKaiNET#822](https://github.com/SKaiNET-developers/SKaiNET/issues/822)). Bridged by
   the interim `FloatSafeTensorsLoader` in llm-providers (permute-handler pattern from
   0.36.0: local, documented, dropped when the engine fix ships). **No engine release on
-  the 0.37.0 critical path.**
+  the 0.36.1 critical path** — which is why this ships as a patch on the 0.36.0 engine line
+  rather than as 0.37.0.
 - **CP-3 — Tokenizer placement decision** (E5BGE-4): spike Unigram-from-tokenizer.json;
   measure normalizer drift on a multilingual corpus. **Decision recorded here**:
   transformers-side vs engine-side. *This is the explicit "are upstream-engine changes

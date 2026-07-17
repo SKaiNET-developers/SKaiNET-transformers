@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.36.1] — 2026-07-17
+
+Patch on **0.36.0** (same SKaiNET engine 0.36.0). Two additions: **BGE embedding models** on the
+BERT DSL path (CLS pooling + retrieval prefixes), and **beam search** for the T5 decoder and the
+vec2text inversion loop. Both are additive — existing consumers are untouched, and the vec2text
+greedy path is unchanged when both beam widths are 1.
+
 ### Added
 
 - **BGE embedding models** (`BAAI/bge-small-en-v1.5` and siblings) run on the BERT DSL path:
@@ -28,6 +35,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     loader gains a tensor filter ([SKaiNET#822](https://github.com/SKaiNET-developers/SKaiNET/issues/822)).
   - Design + traceable plan: `docs/specs/embedding-model-coverage.md` (E5 multilingual
     follows in Phase 2 — Unigram tokenizer).
+- **Token-level beam search on the T5 decoder.** `T5Runtime.generateBeam(memory, numBeams,
+  maxLength, lengthPenalty)` returns up to `numBeams` sequences, best-first by length-normalized
+  log-probability. It shares a new `decoderLastLogits()` step with greedy `generate`, and adds
+  `logSoftmax` plus linear top-k helpers. There is still no KV cache, so decode cost scales
+  roughly linearly with `numBeams`.
+- **Sequence-level beam search across correction rounds.** `Vec2TextInverter.invert(...,
+  sequenceBeamWidth, tokenBeams)` and `invertEmbedding()` keep `beamWidth` hypotheses between
+  correction steps, ranked by cosine similarity to the target embedding — the oracle the beam
+  exploits. `InversionModel.invertBeam` / `CorrectorModel.correctBeam` expose the top-N candidates
+  from each stage.
+- Verified end-to-end on real gtr-base weights: at one correction step, beam (sequence width 3,
+  token beams 3) improves cosine **0.765 → 0.818** over greedy on the round-trip test's example
+  sentence, with a visibly closer reconstruction. Covered by `Vec2TextRoundTripTest`
+  (`invert_beamBeatsGreedy`), which skips unless `VEC2TEXT_MODELS_DIR` is set.
 
 ## [0.36.0] — 2026-07-12
 
@@ -788,6 +809,7 @@ Version-aligned with **SKaiNET 0.21.0**.
 Last published transformers release before the engine-aligned version line.
 See `git log v0.16.0..0.18.0` for details.
 
+[0.36.1]: https://github.com/SKaiNET-developers/SKaiNET-transformers/releases/tag/0.36.1
 [0.36.0]: https://github.com/SKaiNET-developers/SKaiNET-transformers/releases/tag/0.36.0
 [0.31.0]: https://github.com/SKaiNET-developers/SKaiNET-transformers/releases/tag/0.31.0
 [0.30.0]: https://github.com/SKaiNET-developers/SKaiNET-transformers/releases/tag/0.30.0
