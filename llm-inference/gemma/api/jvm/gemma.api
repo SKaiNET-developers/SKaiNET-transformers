@@ -768,6 +768,9 @@ public final class sk/ainet/models/gemma/GemmaModel : sk/ainet/lang/nn/Module {
 	public static final field Companion Lsk/ainet/models/gemma/GemmaModel$Companion;
 	public fun <init> (Lsk/ainet/lang/nn/layers/EmbeddingAdapter;Lsk/ainet/models/gemma/PerLayerEmbedding;Ljava/util/List;Lsk/ainet/lang/nn/normalization/RMSNormalization;Lsk/ainet/lang/nn/transformer/VoidDense;Lkotlin/reflect/KClass;FFLjava/lang/String;)V
 	public synthetic fun <init> (Lsk/ainet/lang/nn/layers/EmbeddingAdapter;Lsk/ainet/models/gemma/PerLayerEmbedding;Ljava/util/List;Lsk/ainet/lang/nn/normalization/RMSNormalization;Lsk/ainet/lang/nn/transformer/VoidDense;Lkotlin/reflect/KClass;FFLjava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun buildRopeCosSin (ILsk/ainet/context/ExecutionContext;)Lsk/ainet/models/gemma/GemmaModel$RopeCosSin;
+	public final fun forwardPrefill (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/context/ExecutionContext;)Lsk/ainet/models/gemma/GemmaModel$GemmaPrefillOutput;
+	public final fun forwardWithPast (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/models/gemma/GemmaModel$RopeCosSin;Ljava/util/List;Ljava/util/List;Lsk/ainet/context/ExecutionContext;)Lsk/ainet/models/gemma/GemmaModel$GemmaWithPastOutput;
 	public final fun getBlocks ()Ljava/util/List;
 	public final fun getDtype ()Lkotlin/reflect/KClass;
 	public final fun getEmbedScale ()F
@@ -782,6 +785,28 @@ public final class sk/ainet/models/gemma/GemmaModel : sk/ainet/lang/nn/Module {
 
 public final class sk/ainet/models/gemma/GemmaModel$Companion {
 	public final fun findHookIn (Ljava/util/List;)Lsk/ainet/models/gemma/PerLayerInputBlockHook;
+}
+
+public final class sk/ainet/models/gemma/GemmaModel$GemmaPrefillOutput {
+	public fun <init> (Lsk/ainet/lang/tensor/Tensor;Ljava/util/List;Ljava/util/List;)V
+	public final fun getLogits ()Lsk/ainet/lang/tensor/Tensor;
+	public final fun getSelfK ()Ljava/util/List;
+	public final fun getSelfV ()Ljava/util/List;
+}
+
+public final class sk/ainet/models/gemma/GemmaModel$GemmaWithPastOutput {
+	public fun <init> (Lsk/ainet/lang/tensor/Tensor;Ljava/util/List;Ljava/util/List;)V
+	public final fun getLogits ()Lsk/ainet/lang/tensor/Tensor;
+	public final fun getSelfK ()Ljava/util/List;
+	public final fun getSelfV ()Ljava/util/List;
+}
+
+public final class sk/ainet/models/gemma/GemmaModel$RopeCosSin {
+	public fun <init> (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;)V
+	public final fun getCosGlobal ()Lsk/ainet/lang/tensor/Tensor;
+	public final fun getCosSliding ()Lsk/ainet/lang/tensor/Tensor;
+	public final fun getSinGlobal ()Lsk/ainet/lang/tensor/Tensor;
+	public final fun getSinSliding ()Lsk/ainet/lang/tensor/Tensor;
 }
 
 public final class sk/ainet/models/gemma/GemmaNetworkDefKt {
