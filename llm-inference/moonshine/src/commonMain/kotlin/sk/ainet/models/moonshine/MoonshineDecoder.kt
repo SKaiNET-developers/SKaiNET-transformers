@@ -55,8 +55,9 @@ import kotlin.reflect.KClass
  * leaks per-layer self K/V as dangling outputs. seq ≥ 2 traces cleanly (general SDPA
  * path). Exporting the KV-cached decode graphs must disable the fast path for tracing.
  *
- * Build with `BF16` so the DSL→StableHLO export keeps bf16 weights at the matmul (the
- * Torq NPU requirement); param ids are layer-qualified for by-name weight loading.
+ * **dtype-portable**, like the encoder: pass `FP32` for portable host/GPU builds, `BF16` for the Torq
+ * NPU (where weights must stay bf16 at the matmul). bf16 is a *target choice*, not a model property —
+ * see this module's `README.md`. Param ids are layer-qualified for by-name weight loading.
  */
 
 /** One Moonshine decoder layer: causal self-attn → cross-attn(memory) → GELU MLP, all pre-norm. */
