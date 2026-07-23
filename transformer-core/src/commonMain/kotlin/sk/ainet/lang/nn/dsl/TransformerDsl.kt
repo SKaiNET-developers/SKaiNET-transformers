@@ -80,6 +80,7 @@ public class AttentionImpl<T : DType, V>(
     private val bias: Boolean,
     private val id: String,
     private val slidingWindow: Int? = null,
+    private val rightContext: Int = 0,
     private val kClass: kotlin.reflect.KClass<T>? = null,
 ) : ATTENTION<T, V> {
 
@@ -143,6 +144,7 @@ public class AttentionImpl<T : DType, V>(
             kvCache = kvCacheModule,
             explicitHeadDim = if (needsExplicitHeadDim) explicitHeadDim else null,
             slidingWindow = slidingWindow,
+            rightContext = rightContext,
             dtype = kClass
         )
     }
@@ -195,6 +197,7 @@ public fun <T : DType, V> StageImpl<T, V>.multiHeadAttention(
     bias: Boolean = false,
     id: String = "",
     slidingWindow: Int? = null,
+    rightContext: Int = 0,
     content: ATTENTION<T, V>.() -> Unit = {}
 ) {
     val attnName = getDefaultName(id, "MultiHeadAttention", modules.size)
@@ -212,6 +215,7 @@ public fun <T : DType, V> StageImpl<T, V>.multiHeadAttention(
         bias = bias,
         id = attnName,
         slidingWindow = slidingWindow,
+        rightContext = rightContext,
         kClass = kClass,
     )
     impl.content()
@@ -293,6 +297,7 @@ public fun <T : DType, V> NeuralNetworkDslImpl<T, V>.multiHeadAttention(
     bias: Boolean = false,
     id: String = "",
     slidingWindow: Int? = null,
+    rightContext: Int = 0,
     content: ATTENTION<T, V>.() -> Unit = {}
 ) {
     val attnName = getDefaultName(id, "MultiHeadAttention", modules.size)
@@ -307,6 +312,7 @@ public fun <T : DType, V> NeuralNetworkDslImpl<T, V>.multiHeadAttention(
         bias = bias,
         id = attnName,
         slidingWindow = slidingWindow,
+        rightContext = rightContext,
         kClass = kClass,
     )
     impl.content()
