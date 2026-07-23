@@ -7,6 +7,125 @@ version line is kept in lock-step with the underlying SKaiNET engine
 The format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [0.36.1] — 2026-07-17
+
+Patch on **0.36.0** (same SKaiNET engine 0.36.0). Two additions: **BGE embedding models** on the
+BERT DSL path (CLS pooling + retrieval prefixes), and **beam search** for the T5 decoder and the
+vec2text inversion loop. Both are additive — existing consumers are untouched, and the vec2text
+greedy path is unchanged when both beam widths are 1.
+
+### Added
+
+- **BGE embedding models** (`BAAI/bge-small-en-v1.5` and siblings) run on the BERT DSL path:
+  - **CLS pooling.** `BertPooling { MEAN, CLS }` on `BertEncoderRuntime` /
+    `createBertEncoderRuntime`; auto-detected from the sentence-transformers
+    `1_Pooling/config.json` (absent file → `MEAN`, unsupported max/sqrt-len modes rejected
+    loudly). Pooling stays outside the traced graph — OPTIMIZED mode and StableHLO export
+    are unaffected.
+  - **Query/document asymmetry.** `EmbeddingModel` gains `embedQuery` / `embedDocument` /
+    `embedDocuments` (defaults delegate to `embed` — additive, existing consumers untouched).
+    `PrefixedEmbeddingModel` + `EmbeddingModelProfiles` apply retrieval instruction prefixes
+    per repo id (E5 `query: `/`passage: `, BGE query instruction); `fromHuggingFace` wires
+    them automatically, `fromSafeTensors` accepts explicit `prefixes`.
+  - **Integer checkpoint buffers no longer break loads.** BGE-style snapshots persist an
+    I64 `embeddings.position_ids` buffer; the interim `FloatSafeTensorsLoader` skips
+    non-float buffers (the index-free encoder never needs them). Drop when the engine's
+    loader gains a tensor filter ([SKaiNET#822](https://github.com/SKaiNET-developers/SKaiNET/issues/822)).
+  - Design + traceable plan: `docs/specs/embedding-model-coverage.md` (E5 multilingual
+    follows in Phase 2 — Unigram tokenizer).
+- **Token-level beam search on the T5 decoder.** `T5Runtime.generateBeam(memory, numBeams,
+  maxLength, lengthPenalty)` returns up to `numBeams` sequences, best-first by length-normalized
+  log-probability. It shares a new `decoderLastLogits()` step with greedy `generate`, and adds
+  `logSoftmax` plus linear top-k helpers. There is still no KV cache, so decode cost scales
+  roughly linearly with `numBeams`.
+- **Sequence-level beam search across correction rounds.** `Vec2TextInverter.invert(...,
+  sequenceBeamWidth, tokenBeams)` and `invertEmbedding()` keep `beamWidth` hypotheses between
+  correction steps, ranked by cosine similarity to the target embedding — the oracle the beam
+  exploits. `InversionModel.invertBeam` / `CorrectorModel.correctBeam` expose the top-N candidates
+  from each stage.
+- Verified end-to-end on real gtr-base weights: at one correction step, beam (sequence width 3,
+  token beams 3) improves cosine **0.765 → 0.818** over greedy on the round-trip test's example
+  sentence, with a visibly closer reconstruction. Covered by `Vec2TextRoundTripTest`
+  (`invert_beamBeatsGreedy`), which skips unless `VEC2TEXT_MODELS_DIR` is set.
+
+## [0.36.0] — 2026-07-12
+
+Ships against **SKaiNET engine 0.36.0**. Headline: **BERT is now completely defined on the DSL
+path** — the legacy hand-coded eager stack is removed (**BREAKING**, see *Removed*), and sentence
+embeddings get a one-call factory with built-in Hugging Face Hub download. Also new: a **T5
+encoder-decoder** runtime and a **vec2text embedding-inversion** pipeline (invert GTR embeddings
+back to text). Downstream impact:
+indexing the leaf-cli reference corpus (56 chunks) drops from 676.9 s to 44.5 s (~15×) with
+identical embeddings.
+
+### Added
+
+- **BERT sentence embeddings completed on the DSL path.** `bertNetwork()` is now a numerically
+  complete `tokens → hidden-states` encoder: the new `BertEmbeddings` module adds absolute-position
+  and token-type embeddings (index-free `narrow`-based lookups, single-segment) that the DSL
+  definition previously omitted. New `BertEncoderRuntime` executes it eagerly (**DIRECT**, default)
+  or as a traced, optimized **ComputeGraph** (**OPTIMIZED**, shape-specialized per sequence length
+  with an LRU cache) and adds masked mean pooling, the optional sentence-transformers `2_Dense`
+  projection, and L2 normalization on top of the pure encoder graph. The encoder trace lowers to
+  StableHLO (gather / dot_general / SDPA preserved) — export is gate-tested; IREE *execution* of the
+  exported module stays out of scope for now. Verified against the PyTorch-validated legacy runtime
+  on real MongoDB/mdbr-leaf-mt (hidden-state parity ≤ 2.2e-6) and DIRECT-vs-OPTIMIZED bit-exact.
+- **One-call embedding factory with built-in Hugging Face download.**
+  `BertEmbeddingModel.fromHuggingFace("MongoDB/mdbr-leaf-mt")` (llm-providers) downloads the
+  snapshot via the engine's `skainet-data-source` (`hf://` URIs, `HF_TOKEN`-aware) into
+  `~/.cache/skainet/models/`, streamed with `.part` + atomic rename, offline-safe after the first
+  run; `fromSafeTensors(dir)` loads a local snapshot, auto-detecting weights, config, tokenizer
+  (`vocab.txt` → `tokenizer.json`), and the `2_Dense/` head. `kbert-cli` accepts an HF repo id
+  directly: `kbert MongoDB/mdbr-leaf-mt "query" "doc"`.
+- `BertConfigParser` — shared `config.json` (+ `2_Dense/config.json` → `projectionDim`) parser,
+  consolidating the copies previously living in `KBertJava` and downstream apps.
+- **T5 encoder-decoder runtime** (`llm-inference/t5`, `sk.ainet.models.t5`). Hand-coded in the
+  direct tensor-ops style (per-head attention via narrow/matmul/softmax, batch 1, no KV cache —
+  the greedy decoder recomputes the stack per step), handling T5's specifics: no 1/√d attention
+  scaling, learned relative-position bias (`T5RelativeBias`, block-0 table shared per stack,
+  none in cross-attention), RMSNorm-style T5LayerNorm, un-gated ReLU FFN, tied embeddings with
+  `d_model^-0.5` logit scaling. Includes `GtrEmbedder` — GTR sentence embeddings exactly as
+  vec2text consumes them (raw T5 encoder + mean pooling; deliberately no Dense projection and no
+  L2 normalization) — with a parity test against real `sentence-transformers/gtr-t5-base` weights.
+- **vec2text embedding inversion** (`llm-inference/vec2text`, `sk.ainet.models.vec2text`).
+  Port of vec2text's greedy corrector loop (`sequence_beam_width = 1`): `InversionModel`
+  produces an initial hypothesis from a target GTR embedding, then `CorrectorModel` iteratively
+  re-embeds and corrects it, early-stopping when the cosine score plateaus — `Vec2TextInverter`
+  returns the best reconstruction plus the full step trace. Verified with an end-to-end
+  round-trip test on real gtr-base weights.
+
+### Fixed
+
+- **BERT post-norm residual wiring.** The single-block-per-layer `bertNetwork()` definition wired the
+  FFN residual to the pre-LayerNorm value — the transformer blocks' residual rule fits pre-norm
+  decoder stacks, but BERT is post-norm. Each encoder layer is now two blocks (`attn` / `ffn`) so
+  every residual segment starts at the correct value.
+- **Bias-free `2_Dense` projection heads were silently dropped.** The legacy eager runtime required
+  projection weight *and* bias; LEAF models ship `bias=false`, so it skipped the projection entirely
+  (returning 384-dim vectors while advertising 1024). `BertEncoderRuntime` applies bias-free
+  projections; `KBertJava` now picks up `2_Dense/` heads it previously ignored.
+- **Graph replay dropped `permute` axes.** The ComputeGraph executor's builtin dispatch replayed
+  `permute` as a plain last-two-dims transpose, breaking every multi-token attention trace —
+  single-token decode never hit it. Fixed upstream in engine 0.36.0
+  ([SKaiNET#803](https://github.com/SKaiNET-developers/SKaiNET/pull/803)), which this release
+  consumes; the interim axes-aware `permute` handler in `LLMFusedOpHandlers` (never in a published
+  release) is removed again.
+
+### Removed
+
+- **BREAKING: the deprecated hand-coded BERT stack is gone** — `BertRuntime`, `BertRuntimeWeights`,
+  `BertLayerWeights`, `loadBertWeights`, `BertWeightMapper`, `BertTensorNames`, `BertIngestion`, and
+  `BertNetworkLoader.fromRuntimeWeights`. Migrate to `createBertEncoderRuntime(config, tensors, ctx)`
+  (tensors from `BertNetworkLoader.loadWeightTensors`) or, one level up, to
+  `BertEmbeddingModel.fromSafeTensors(...)` / `fromHuggingFace(...)`. `SkaiNetEmbeddingModel`'s
+  constructor now takes `BertEncoderRuntime`; `KBertJava` / `KBertSession` keep their method surface
+  (`loadSafeTensors` / `encode` / `similarity`) with the constructor type changing. `BertModelConfig`
+  and `MDBR_LEAF_IR_CONFIG` moved to `BertConfig.kt` (same package — imports unaffected). The
+  `docs/optimizable-LLM-NNs-DAG.md` reference in the old deprecation pointed at a document that never
+  existed; the real migration guide is `explanation/dsl-vs-handcoded.adoc`.
+
 ## [0.35.0] — 2026-07-09
 
 Ships against **SKaiNET engine 0.35.0**, whose new `argMax` op this release uses to fold the LLM
@@ -690,6 +809,8 @@ Version-aligned with **SKaiNET 0.21.0**.
 Last published transformers release before the engine-aligned version line.
 See `git log v0.16.0..0.18.0` for details.
 
+[0.36.1]: https://github.com/SKaiNET-developers/SKaiNET-transformers/releases/tag/0.36.1
+[0.36.0]: https://github.com/SKaiNET-developers/SKaiNET-transformers/releases/tag/0.36.0
 [0.31.0]: https://github.com/SKaiNET-developers/SKaiNET-transformers/releases/tag/0.31.0
 [0.30.0]: https://github.com/SKaiNET-developers/SKaiNET-transformers/releases/tag/0.30.0
 [0.28.1]: https://github.com/SKaiNET-developers/SKaiNET-transformers/releases/tag/0.28.1

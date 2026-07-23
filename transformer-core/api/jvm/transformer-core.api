@@ -225,6 +225,13 @@ public final class sk/ainet/lang/nn/transformer/PaddedSharedPositionalKVCache : 
 	public fun update (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/context/ExecutionContext;)Lkotlin/Pair;
 }
 
+public final class sk/ainet/lang/nn/transformer/PhaseProfile {
+	public static final field INSTANCE Lsk/ainet/lang/nn/transformer/PhaseProfile;
+	public final fun report ()Ljava/lang/String;
+	public final fun reset ()V
+	public final fun time (Ljava/lang/String;Lkotlin/jvm/functions/Function0;)Ljava/lang/Object;
+}
+
 public final class sk/ainet/lang/nn/transformer/PositionalKVCache : sk/ainet/lang/nn/transformer/KVCache {
 	public fun <init> (IIILjava/lang/String;)V
 	public synthetic fun <init> (IIILjava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
@@ -313,6 +320,14 @@ public final class sk/ainet/lang/nn/transformer/SwiGLUFFN : sk/ainet/lang/nn/Mod
 	public fun getModules ()Ljava/util/List;
 	public fun getName ()Ljava/lang/String;
 	public fun getParams ()Ljava/util/List;
+}
+
+public class sk/ainet/lang/nn/transformer/TransformerBlock : sk/ainet/lang/nn/Module {
+	public fun <init> (Ljava/util/List;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/util/List;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun getModules ()Ljava/util/List;
+	public fun getName ()Ljava/lang/String;
+	protected fun onForward (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/context/ExecutionContext;)Lsk/ainet/lang/tensor/Tensor;
 }
 
 public final class sk/ainet/lang/nn/transformer/VoidDense : sk/ainet/lang/nn/Module, sk/ainet/lang/nn/topology/ModuleParameters {

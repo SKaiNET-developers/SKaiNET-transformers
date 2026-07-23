@@ -108,7 +108,11 @@ The goal is to extend the DSL to support these patterns over time.
 
 |BERT
 |`bertNetwork()`
-|`BertRuntime` deprecated
+|DSL-only: `BertEncoderRuntime` (eager + traced graph); legacy runtime removed
+
+|T5 / GTR (vec2text)
+|_none_
+|Hand-coded encoder-decoder (`T5Runtime`, greedy + beam decode); relative-position bias and the per-step decode loop are not DSL-expressible yet
 
 |Voxtral
 |`voxtralBackboneNetwork()`

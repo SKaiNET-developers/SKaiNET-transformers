@@ -20,6 +20,20 @@ public interface EmbeddingModel : AutoCloseable {
     public fun embed(texts: List<String>): List<FloatArray> =
         call(EmbeddingRequest(texts)).embeddings.sortedBy { it.index }.map { it.vector }
 
+    /**
+     * Embed a *search query*. Retrieval-tuned models embed queries and
+     * documents asymmetrically (instruction prefixes — E5's `query: `, BGE's
+     * `Represent this sentence for searching relevant passages: `); models
+     * without that distinction inherit this default, which is plain [embed].
+     */
+    public fun embedQuery(text: String): FloatArray = embed(text)
+
+    /** Embed a *document / passage* for indexing. See [embedQuery]. */
+    public fun embedDocument(text: String): FloatArray = embed(text)
+
+    /** Batch [embedDocument], vectors in input order. */
+    public fun embedDocuments(texts: List<String>): List<FloatArray> = embed(texts)
+
     /** Output vector dimensionality. */
     public val dimensions: Int
 

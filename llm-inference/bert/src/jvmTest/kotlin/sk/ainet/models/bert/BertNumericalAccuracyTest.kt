@@ -266,8 +266,8 @@ class BertNumericalAccuracyTest {
         val loader = SafeTensorsParametersLoader(
             sourceProvider = { JvmRandomAccessSource.open(mainSafetensors.toString()) }
         )
-        val weights = loadBertWeights(loader, ctx, FP32::class, encoderConfig)
-        val runtime = BertRuntime(ctx, weights, FP32::class)
+        val tensors = BertNetworkLoader.loadWeightTensors(listOf(loader), ctx, FP32::class)
+        val runtime = createBertEncoderRuntime(encoderConfig, tensors, ctx)
 
         for (input in reference.inputs) {
             val tokenIds = input.inputIds.toIntArray()
@@ -319,18 +319,19 @@ class BertNumericalAccuracyTest {
                 sourceProvider = { JvmRandomAccessSource.open(denseSafetensors.toString()) }
             )
         )
-        val weights = loadBertWeights(loaders, ctx, FP32::class, config)
-        val runtime = BertRuntime(ctx, weights, FP32::class)
+        val tensors = BertNetworkLoader.loadWeightTensors(loaders, ctx, FP32::class)
+        val runtime = createBertEncoderRuntime(config, tensors, ctx)
 
         val embeddings = mutableListOf<List<Float>>()
 
         for (input in reference.inputs) {
             val tokenIds = input.inputIds.toIntArray()
             val attentionMask = input.attentionMask.toIntArray()
-            val tokenTypeIds = input.tokenTypeIds.toIntArray()
 
-            val embedding = runtime.encode(tokenIds, attentionMask, tokenTypeIds)
-            val actual = embedding.toFloatList()
+            // Reference inputs are single-segment (token_type_ids all zero),
+            // which is exactly what the DSL network encodes.
+            check(input.tokenTypeIds.all { it == 0 }) { "reference input is not single-segment" }
+            val actual = runtime.encode(tokenIds, attentionMask).toList()
             embeddings.add(actual)
 
             assertEquals(

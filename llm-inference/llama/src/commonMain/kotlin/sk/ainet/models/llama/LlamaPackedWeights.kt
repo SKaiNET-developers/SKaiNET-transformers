@@ -32,35 +32,63 @@ public fun convertLlamaWeightsPacked(
     val quantTypes = typed.quantTypes
     if (quantTypes.isEmpty()) return weights
 
+    // Memory: drain the SOURCE map as we convert (P1). The streaming loader builds
+    // `tensors` as a LinkedHashMap, so we can `remove` each raw tensor right after
+    // packing it — its bytes become GC-eligible immediately instead of the whole raw
+    // model staying resident alongside the whole packed model. That load-time doubling
+    // (~3.2 GB peak for TinyLlama Q4_K) is what OOM-kills the 2 GB board; draining keeps
+    // peak ≈ packed-so-far + the one tensor in flight. Falls back to non-destructive if
+    // the map is somehow immutable (correctness unchanged, just no memory win).
+    @Suppress("UNCHECKED_CAST")
+    val src = typed.tensors as? MutableMap<String, Tensor<DType, Any>>
+    val names = typed.tensors.keys.toList()
+
     val newTensors = linkedMapOf<String, Tensor<DType, Any>>()
-    for ((name, tensor) in typed.tensors) {
-        val qt = quantTypes[name]
-        newTensors[name] = when {
-            qt == null -> tensor // not quantized (norms, f32)
-            else -> {
-                val shape = logicalShapeFor(name, typed.metadata)
-                if (shape == null) {
-                    tensor // unknown 2-D layout — leave as-is
-                } else {
-                    val bytes = extractRawBytes(tensor.data)
-                    // token_embd is gathered (row lookup) → must be FP32. Other matrices (incl.
-                    // output/lm_head) stay packed and run the in-kernel matmul.
-                    val isEmbed = name == LlamaTensorNames.TOKEN_EMBEDDINGS
-                    val packed = if (!isEmbed) packLlamaKQuant<FP32>(bytes, qt, shape) else null
-                    when {
-                        packed != null -> {
-                            @Suppress("UNCHECKED_CAST")
-                            ctx.fromData(packed as TensorData<FP32, Float>, FP32::class) as Tensor<DType, Any>
-                        }
-                        isEmbed -> dequantNoTranspose(bytes, qt, shape, ctx)
-                        else -> dequantTransposed(bytes, qt, shape, ctx)
-                    }
-                }
-            }
-        }
+    for (name in names) {
+        val tensor = src?.remove(name) ?: typed.tensors.getValue(name)
+        // qt == null (norms/f32) or already-packed (streaming fused path leaves them out of
+        // quantTypes) → packLlamaTensor returns the tensor unchanged (idempotent).
+        newTensors[name] = packLlamaTensor(name, tensor, quantTypes[name], typed.metadata, ctx)
+        // Reclaim this tensor's transient copies (raw source + extractRawBytes + relayout input)
+        // before moving on — on Kotlin/Native they otherwise accumulate uncollected and blow up
+        // peak RSS. No-op on the JVM. Paired with the source-map drain above.
+        gcCollectHint()
     }
     @Suppress("UNCHECKED_CAST")
     return DecoderGgufWeights(typed.metadata, newTensors, typed.quantTypes) as DecoderGgufWeights<*, *>
+}
+
+/**
+ * Convert ONE raw NATIVE_OPTIMIZED tensor to its DSL-consumed form: Q4_K/Q5_K/Q6_K/Q8_0 matmul
+ * weights → heap-packed `Q*BlockTensorData`; `token_embd` → FP32 `[vocab, embed]` (gathered);
+ * other quantized-without-a-packed-kernel → FP32 transposed `[out, in]`.
+ *
+ * Shared by [convertLlamaWeightsPacked] (post-load pass, non-streaming) and the streaming loader's
+ * fused load+pack path. Idempotent: `qt == null` or an unknown 2-D layout returns [tensor] as-is,
+ * so packing the same map twice (or a map of already-packed tensors) is a no-op.
+ */
+internal fun packLlamaTensor(
+    name: String,
+    tensor: Tensor<DType, Any>,
+    qt: GGMLQuantizationType?,
+    metadata: LlamaModelMetadata,
+    ctx: ExecutionContext,
+): Tensor<DType, Any> {
+    if (qt == null) return tensor // not quantized (norms, f32), or already packed
+    val shape = logicalShapeFor(name, metadata) ?: return tensor // unknown 2-D layout — leave as-is
+    val bytes = extractRawBytes(tensor.data)
+    // token_embd is gathered (row lookup) → must be FP32. Other matrices (incl. output/lm_head)
+    // stay packed and run the in-kernel matmul.
+    val isEmbed = name == LlamaTensorNames.TOKEN_EMBEDDINGS
+    val packed = if (!isEmbed) packLlamaKQuant<FP32>(bytes, qt, shape) else null
+    return when {
+        packed != null -> {
+            @Suppress("UNCHECKED_CAST")
+            ctx.fromData(packed as TensorData<FP32, Float>, FP32::class) as Tensor<DType, Any>
+        }
+        isEmbed -> dequantNoTranspose(bytes, qt, shape, ctx)
+        else -> dequantTransposed(bytes, qt, shape, ctx)
+    }
 }
 
 /** Dequant to FP32 in natural `[rows, cols]` order (embeddings — gathered, not matmul'd). */

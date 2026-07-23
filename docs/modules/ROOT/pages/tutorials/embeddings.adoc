@@ -6,7 +6,7 @@ This tutorial walks through producing dense vector embeddings for text — the k
 == Prerequisites
 
 * JDK 21+ (Java 25 preferred for the Vector API)
-* A BERT-family GGUF model on disk, e.g. `all-MiniLM-L6-v2.gguf` (384 dims, ~80 MB) or any sentence-transformers model converted to GGUF
+* Nothing else — models download from the Hugging Face Hub on first use and are cached under `~/.cache/skainet/models/` (or point at a local sentence-transformers SafeTensors snapshot)
 
 == From the CLI
 
@@ -15,15 +15,15 @@ The fastest way to verify embeddings work end-to-end:
 [source,bash]
 ----
 ./gradlew :llm-apps:kbert-cli:run \
-  --args="all-MiniLM-L6-v2.gguf 'The quick brown fox jumps over the lazy dog'"
+  --args="MongoDB/mdbr-leaf-mt 'The quick brown fox jumps over the lazy dog'"
 ----
 
-Or with a document for similarity:
+Or with a document for similarity (a local snapshot directory works in place of the repo id):
 
 [source,bash]
 ----
 ./gradlew :llm-apps:kbert-cli:run \
-  --args="all-MiniLM-L6-v2.gguf 'pangram' 'A pangram is a sentence that contains every letter of the alphabet.'"
+  --args="MongoDB/mdbr-leaf-mt 'pangram' 'A pangram is a sentence that contains every letter of the alphabet.'"
 ----
 
 == From Kotlin / Java — `EmbeddingModel` SPI
@@ -40,24 +40,20 @@ public interface EmbeddingModel : AutoCloseable {
 }
 ----
 
-Adapter wiring `BertRuntime` to the SPI lives in `llm-providers/SkaiNetEmbeddingModel.kt`:
+The one-call factory in `llm-providers/BertEmbeddingModel.kt` builds the whole stack — DSL network (`bertNetwork()`), weight mapping, tokenizer, encoder runtime — behind the SPI:
 
 [source,kotlin]
 ----
-import sk.ainet.llm.providers.SkaiNetEmbeddingModel
-import sk.ainet.models.bert.BertIngestion
+import sk.ainet.llm.providers.BertEmbeddingModel
 
-val ingestion = BertIngestion<FP32>(ctx = ctx, dtype = FP32::class)
-val weights = ingestion.loadGguf { JvmRandomAccessSource.open("all-MiniLM-L6-v2.gguf") }
-val runtime = BertRuntime(ctx, weights, FP32::class)
-val tokenizer = HuggingFaceTokenizer.fromGguf(weights.metadata)
+// Straight from the Hugging Face Hub (downloads + caches on first use;
+// picks up HF_TOKEN for gated repos):
+val model: EmbeddingModel = BertEmbeddingModel.fromHuggingFace("MongoDB/mdbr-leaf-mt")
 
-val model: EmbeddingModel = SkaiNetEmbeddingModel(
-    runtime = runtime,
-    tokenizer = tokenizer,
-    dimensions = weights.metadata.embeddingLength,
-    modelId = "all-MiniLM-L6-v2",
-)
+// Or from a local sentence-transformers snapshot directory
+// (auto-detects config.json, vocab.txt / tokenizer.json, model.safetensors,
+// and the optional 2_Dense/ projection head):
+val local: EmbeddingModel = BertEmbeddingModel.fromSafeTensors(Path.of("/models/mdbr-leaf-mt"))
 
 // Single text — convenience overload.
 val vector: FloatArray = model.embed("The quick brown fox")
@@ -84,16 +80,23 @@ fun cosine(a: FloatArray, b: FloatArray): Float {
 
 == From Java
 
-`KBertJava` exposes the same surface for pure-Java consumers:
+`BertEmbeddingModel` is `@JvmStatic` throughout, and `KBertJava` offers a smaller session-style surface for pure-Java consumers:
 
 [source,java]
 ----
+import sk.ainet.llm.api.EmbeddingModel;
+import sk.ainet.llm.providers.BertEmbeddingModel;
+
+EmbeddingModel model = BertEmbeddingModel.fromHuggingFace("MongoDB/mdbr-leaf-mt");
+float[] vector = model.embed("The quick brown fox");
+
+// Or the session facade over a local snapshot:
 import sk.ainet.models.bert.java.KBertJava;
 import sk.ainet.models.bert.java.KBertSession;
 
-try (KBertSession session = KBertJava.loadGGUF(Path.of("all-MiniLM-L6-v2.gguf"))) {
-    float[] vector = session.embed("The quick brown fox");
-    System.out.println("dim=" + vector.length);
+try (KBertSession session = KBertJava.loadSafeTensors(Path.of("/models/mdbr-leaf-mt"))) {
+    float[] v = session.encode("The quick brown fox");
+    float sim = session.similarity("query text", "document text");
 }
 ----
 
@@ -110,5 +113,7 @@ For the BERT entry, the script computes embeddings for the prompt and the docume
 
 == What's Next
 
+* xref:tutorials/getting-started-leaf.adoc[Getting Started with LEAF] — a model-focused walkthrough with a complete semantic-search example.
+* xref:explanation/bert-dsl.adoc[BERT Completely Defined in the DSL] — how the encoder behind this API is defined, executed, and exported.
 * xref:explanation/embeddings.adoc[How embeddings work — pooling, normalization, dimensionality] — the deeper "why".
 * xref:tutorials/getting-started-java.adoc[Getting Started for Java Developers] — the analogous Java surface for chat / tool calling.

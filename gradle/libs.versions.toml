@@ -1,12 +1,12 @@
 [versions]
-skainet = "0.35.0"
-agp = "9.2.1"
+skainet = "0.36.0"
+agp = "9.3.0"
 jacksonDatabind = "2.22.1"
 jsonSchemaValidator = "3.0.6"
 jsonSchemaValidatorVersion = "0.5.5"
 junit = "4.13.2"
-junitJupiter = "6.1.1"
-kotlin = "2.3.21"
+junitJupiter = "6.1.2"
+kotlin = "2.4.0"
 kotlinxCoroutines = "1.11.0"
 kotlinBrowser = "0.5.0"
 android-minSdk = "24"
@@ -14,7 +14,7 @@ android-compileSdk = "36"
 kotlinxSerializationJson = "1.11.0"
 ktorClientCore = "3.5.1"
 ktorClientPlugins = "3.1.1"
-logbackClassic = "1.5.37"
+logbackClassic = "1.5.38"
 kover = "0.9.8"
 binaryCompatibilityValidator = "0.18.1"
 ksp = "2.3.6"
@@ -99,6 +99,8 @@ skainet-io-core = { module = "sk.ainet.core:skainet-io-core" }
 skainet-io-gguf = { module = "sk.ainet.core:skainet-io-gguf" }
 skainet-io-iree-params = { module = "sk.ainet.core:skainet-io-iree-params" }
 skainet-io-safetensors = { module = "sk.ainet.core:skainet-io-safetensors" }
+# URI-backed data sources (hf:// downloads) — BertEmbeddingModel.fromHuggingFace
+skainet-data-source = { module = "sk.ainet.core:skainet-data-source" }
 
 [plugins]
 androidLibrary = { id = "com.android.library", version.ref = "agp" }
@@ -116,4 +118,4 @@ dokka = { id = "org.jetbrains.dokka", version.ref = "dokka" }
 
 skainet-docs = { id = "sk.ainet.documentation" }
 kotlinx-benchmark = { id = "org.jetbrains.kotlinx.benchmark", version.ref = "kotlinxBenchmark" }
-shadow = { id = "com.gradleup.shadow", version = "9.5.1" }
+shadow = { id = "com.gradleup.shadow", version = "9.6.0" }

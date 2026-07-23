@@ -1,5 +1,3 @@
-@file:Suppress("DEPRECATION")
-
 package sk.ainet.llm.providers
 
 import sk.ainet.apps.llm.Tokenizer
@@ -9,21 +7,21 @@ import sk.ainet.llm.api.EmbeddingModel
 import sk.ainet.llm.api.EmbeddingRequest
 import sk.ainet.llm.api.EmbeddingResponse
 import sk.ainet.llm.api.Usage
-import sk.ainet.models.bert.BertRuntime
+import sk.ainet.models.bert.BertEncoderRuntime
 
 /**
- * Adapts a BERT-style encoder runtime (`BertRuntime`) + `Tokenizer` to the neutral
- * [EmbeddingModel] SPI.
+ * Adapts a [BertEncoderRuntime] + [Tokenizer] to the neutral [EmbeddingModel] SPI.
  *
- * The runtime already does mean pooling + L2 normalization internally, so the
- * adapter is little more than a tensor-to-FloatArray copy.
+ * The runtime already does mean pooling, the optional sentence-transformers
+ * projection, and L2 normalization internally, so the adapter is little more
+ * than tokenize → encode.
  *
  * **Threading:** Like [SkaiNetChatModel], a single instance is **not** thread-safe.
  */
 public class SkaiNetEmbeddingModel<T : DType>(
-    private val runtime: BertRuntime<T>,
+    private val runtime: BertEncoderRuntime<T>,
     private val tokenizer: Tokenizer,
-    public override val dimensions: Int,
+    public override val dimensions: Int = runtime.dimensions,
     private val modelId: String? = null,
 ) : EmbeddingModel {
 
@@ -32,9 +30,7 @@ public class SkaiNetEmbeddingModel<T : DType>(
         val embeddings = request.inputs.mapIndexed { idx, text ->
             val tokens = tokenizer.encode(text)
             totalPromptTokens += tokens.size
-            val tensor = runtime.encode(tokens)
-            val vector = tensor.data.copyToFloatArray()
-            Embedding(index = idx, vector = vector)
+            Embedding(index = idx, vector = runtime.encode(tokens))
         }
         return EmbeddingResponse(
             embeddings = embeddings,

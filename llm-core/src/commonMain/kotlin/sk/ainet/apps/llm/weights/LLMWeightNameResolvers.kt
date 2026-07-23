@@ -159,13 +159,22 @@ public class BertSafeTensorsNameResolver : WeightNameResolver {
         val pathParts = modulePath.split("/").drop(1)
         val moduleName = pathParts.lastOrNull() ?: return null
         val layerPart = pathParts.firstOrNull { it.startsWith("encoder.layer.") }
-        val layerNum = layerPart?.removePrefix("encoder.layer.")?.toIntOrNull()
+        // Layer blocks may carry a sub-block suffix ("encoder.layer.3.attn") —
+        // the layer number is the first segment after the prefix.
+        val layerNum = layerPart?.removePrefix("encoder.layer.")?.substringBefore('.')?.toIntOrNull()
         val layerPrefix = if (layerNum != null) "bert.encoder.layer.$layerNum" else null
         val inEmbeddings = pathParts.any { it == "embeddings" }
 
         return when {
             moduleName == "word_embeddings" && inEmbeddings ->
                 "bert.embeddings.word_embeddings.weight"
+
+            // BertEmbeddings' own additive tables: the module path ends at
+            // "embeddings"; the param name carries the table identity.
+            paramName.endsWith("position_embeddings.weight") && inEmbeddings ->
+                "bert.embeddings.position_embeddings.weight"
+            paramName.endsWith("token_type_embeddings.weight") && inEmbeddings ->
+                "bert.embeddings.token_type_embeddings.weight"
 
             moduleName == "LayerNorm" && inEmbeddings && paramName.endsWith(".weight") ->
                 "bert.embeddings.LayerNorm.weight"

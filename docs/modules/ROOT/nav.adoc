@@ -6,6 +6,7 @@
 * xref:tutorials/tool-calling.adoc[Tool Calling with Any Model]
 * xref:tutorials/llama3-tool-calling.adoc[Llama 3 / 3.1 / 3.2 Tool Calling]
 * xref:tutorials/embeddings.adoc[Embeddings — Getting Started]
+* xref:tutorials/getting-started-leaf.adoc[Getting Started with LEAF]
 * xref:tutorials/smoke-tests.adoc[Running Smoke Tests]
 
 .How-to Guides
@@ -26,6 +27,7 @@
 .Explanation
 * xref:explanation/pipeline-design.adoc[Pipeline Design Decisions]
 * xref:explanation/dsl-vs-handcoded.adoc[DSL Networks vs Hand-Coded Runtimes]
+* xref:explanation/bert-dsl.adoc[BERT Completely Defined in the DSL]
 * xref:explanation/tokenizer-internals.adoc[Tokenizer Internals]
 * xref:explanation/weight-quantization.adoc[Weight Quantization and Numeric Representation]
 * xref:explanation/embeddings.adoc[How Embeddings Work]

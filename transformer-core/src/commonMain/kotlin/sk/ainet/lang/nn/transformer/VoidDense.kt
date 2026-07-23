@@ -65,7 +65,7 @@ public class VoidDense<T : DType, V>(
         val weight = params[0].value
         // linearProject handles both [out, in] (stock checkpoint layout) and
         // [in, out] (pre-transposed for quantized NATIVE_OPTIMIZED loads).
-        val projected = linearProject(ops, input, weight)
+        val projected = PhaseProfile.time("lm_head") { linearProject(ops, input, weight) }
         if (!addBias) return projected
         // Faithful bias term: `projected + bias`, broadcast over the leading dims.
         val bias = params[1].value

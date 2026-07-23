@@ -1,6 +1,6 @@
 package sk.ainet.models.moonshine
 
-import sk.ainet.apps.llm.HybridTransformerBlock
+import sk.ainet.lang.nn.transformer.TransformerBlock
 import sk.ainet.lang.nn.DefaultNeuralNetworkExecutionContext
 import sk.ainet.lang.nn.Module
 import sk.ainet.lang.nn.activations.GELU
@@ -75,7 +75,7 @@ public fun <T : DType, V> moonshineEncoder(
         stage.modules += VoidDense<T, V>("enc.$layer.ffn_down", dim, cfg.ffnDim, dtype, addBias = true)
         stage.residual()
 
-        dsl.modules += HybridTransformerBlock(stage.modules.toList(), name = "enc.$layer")
+        dsl.modules += TransformerBlock(stage.modules.toList(), name = "enc.$layer")
     }
 
     dsl.layerNorm(intArrayOf(dim), eps.toDouble(), id = "enc_out_norm")
