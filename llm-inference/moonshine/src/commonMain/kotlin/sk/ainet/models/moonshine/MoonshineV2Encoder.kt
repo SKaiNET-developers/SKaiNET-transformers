@@ -23,22 +23,24 @@ import kotlin.reflect.KClass
  *    `rightContext = 0` are strictly causal (latency-bounding "(16,0)" layers); layers with
  *    `rightContext > 0` add a small future context ("(16,4)" layers).
  *
- * CONFIRMED (2026-07-24) against the real model — `moonshine-voice` `medium-streaming`
- * `streaming_config.json` (obtain via `uv run moonshine-voice download --stt --language en`): the pipeline is
- * frontend → encoder → **adapter** → cross_kv + decoder_kv (exactly as authored). Real medium dims:
- * `encoder_dim=768, depth=14, nheads=10, head_dim=64, decoder_dim=640, vocab_size=32768`. The (16,4)
- * lookahead layers are the **first + last two** encoder layers ((16,0) intermediate) — fixed in
- * [rightContextForLayer] below (was a trailing-layers guess). The numeric defaults here stay a small
- * placeholder pending the **tiny-streaming** `streaming_config.json` (the SL2610-scale variant) and ONNX
- * confirmation of the encoder head geometry (note `encoder_dim` 768 ≠ `nheads×head_dim` 640 — the encoder
- * uses a projection or a distinct head config). `vocab_size` is confirmed below.
+ * CONFIRMED (2026-07-24) against the real **tiny-streaming** model (the SL2610-scale variant), obtained via
+ * `uv run moonshine-voice download` + the float ONNX graphs at
+ * `download.moonshine.ai/model/tiny-streaming-en/{float,quantized}/`. The pipeline is
+ * frontend → encoder → **adapter** → cross_kv + decoder_kv (exactly as authored). The defaults below are the
+ * real tiny numbers from `streaming_config.json` + the encoder ONNX:
+ * `encoder_dim=320, depth=6, nheads=8, head_dim=40 (8×40=320), vocab_size=32768`, and the FFN width read
+ * from the graph (`blocks.N.ff.project_in` = 1280 = 4×dim). Attention is **bias-free and position-free**
+ * (the graph has no RoPE — only a scalar 1/√d scale), and the encoder LayerNorms are **scale-only (no bias)**.
+ * The (16,4) lookahead layers are the **first + last two** encoder layers ((16,0) intermediate) — see
+ * [rightContextForLayer]. (medium-streaming is larger — `encoder_dim=768, depth=14, nheads=10, head_dim=64`,
+ * where `encoder_dim 768 ≠ nheads×head_dim 640`; tiny is clean/consistent, so it's the demo target.)
  */
 public data class MoonshineV2Config(
-    val dim: Int = 288,
-    val encoderLayers: Int = 6,
-    val nHeads: Int = 8,
-    val headDim: Int = 36,          // 8 * 36 = 288
-    val ffnDim: Int = 1152,         // 4 * dim (v2 FFN width not in streaming_config.json — confirm via ONNX)
+    val dim: Int = 320,             // tiny-streaming encoder_dim
+    val encoderLayers: Int = 6,     // tiny-streaming depth
+    val nHeads: Int = 8,            // tiny-streaming nheads
+    val headDim: Int = 40,          // 8 * 40 = 320 (tiny-streaming head_dim)
+    val ffnDim: Int = 1280,         // 4 * dim — confirmed from the encoder ONNX (blocks.N.ff.project_in = 1280)
     val vocabSize: Int = 32768,     // confirmed: real v2 vocab_size
     val layerNormEps: Float = 1e-5f,
     /** Left context: frames back each query attends to (inclusive). The paper's "16". */
