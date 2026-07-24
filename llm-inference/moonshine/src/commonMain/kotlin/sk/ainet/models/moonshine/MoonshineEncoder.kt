@@ -23,10 +23,13 @@ import kotlin.reflect.KClass
  * Each layer is pre-norm:  x + Attn(LN(x));  x + MLP(LN(x))  with
  * non-causal RoPE self-attention (no bias) and a plain GELU MLP (up→gelu→down).
  *
- * The network is parameterized on the element type [T]; build it with `BF16` so
- * the DSL→StableHLO export keeps bf16 weights at the matmul — the Torq NPU
- * requirement proven in the demo's `docs/torq-npu-weight-crash.md` (fp32 weights
- * crash the torq compiler's `getWeightMemoryFormat`).
+ * The network is **dtype-portable**: it is parameterized on the element type [T], so the SAME
+ * graph lowers to any IREE target. Choose the dtype to match the target, not the model:
+ *   - `FP32` — portable host/GPU builds (llvm-cpu AVX, CUDA/Vulkan). The recommended default for reuse.
+ *   - `BF16` — the Torq NPU, where the weights must stay bf16 AT THE matmul (fp32 weights crash the
+ *     torq compiler's `getWeightMemoryFormat`, proven in the demo's `docs/torq-npu-weight-crash.md`).
+ * So bf16 is a **target choice**, not a property of this model — see this module's `README.md` for the
+ * standalone-reuse + multi-target story.
  */
 public fun <T : DType, V> moonshineEncoder(
     cfg: MoonshineConfig,
