@@ -23,31 +23,41 @@ import kotlin.reflect.KClass
  *    `rightContext = 0` are strictly causal (latency-bounding "(16,0)" layers); layers with
  *    `rightContext > 0` add a small future context ("(16,4)" layers).
  *
- * NOTE: the exact v2-tiny hyperparameters (dim/layers/heads, per-layer window & lookahead) and the
- * adapter layer are not yet confirmed against a released v2 checkpoint — the defaults below follow the
- * paper's described (16,4)/(16,0) scheme and reuse v1-tiny's width. Verify + bake once weights exist.
+ * CONFIRMED (2026-07-24) against the real model — `moonshine-voice` `medium-streaming`
+ * `streaming_config.json` (obtain via `uv run moonshine-voice download --stt --language en`): the pipeline is
+ * frontend → encoder → **adapter** → cross_kv + decoder_kv (exactly as authored). Real medium dims:
+ * `encoder_dim=768, depth=14, nheads=10, head_dim=64, decoder_dim=640, vocab_size=32768`. The (16,4)
+ * lookahead layers are the **first + last two** encoder layers ((16,0) intermediate) — fixed in
+ * [rightContextForLayer] below (was a trailing-layers guess). The numeric defaults here stay a small
+ * placeholder pending the **tiny-streaming** `streaming_config.json` (the SL2610-scale variant) and ONNX
+ * confirmation of the encoder head geometry (note `encoder_dim` 768 ≠ `nheads×head_dim` 640 — the encoder
+ * uses a projection or a distinct head config). `vocab_size` is confirmed below.
  */
 public data class MoonshineV2Config(
     val dim: Int = 288,
     val encoderLayers: Int = 6,
     val nHeads: Int = 8,
     val headDim: Int = 36,          // 8 * 36 = 288
-    val ffnDim: Int = 1152,         // 4 * dim
+    val ffnDim: Int = 1152,         // 4 * dim (v2 FFN width not in streaming_config.json — confirm via ONNX)
+    val vocabSize: Int = 32768,     // confirmed: real v2 vocab_size
     val layerNormEps: Float = 1e-5f,
     /** Left context: frames back each query attends to (inclusive). The paper's "16". */
     val slidingWindow: Int = 16,
-    /** Right context (bounded lookahead) for the non-causal layers. The paper's "4". */
+    /** Right context (bounded lookahead) for the edge layers. The paper's "4" (the (16,4) layers). */
     val lookahead: Int = 4,
     /**
-     * Number of trailing layers that are strictly causal ("(16,0)") to bound the finalized-state
-     * latency. The earlier layers use `lookahead` right-context ("(16,4)"). Confirm the exact pattern
-     * against the v2 checkpoint.
+     * Number of layers **at each end** that use bounded lookahead ("(16,4)"); the intermediate layers are
+     * strictly causal ("(16,0)"). The v2 paper + real model: the **first two AND last two** encoder layers
+     * are (16,4). (Was previously a wrong "trailing layers" guess.)
      */
-    val causalTailLayers: Int = 1,
+    val lookaheadEdgeLayers: Int = 2,
 ) {
-    /** Right context for [layer]: 0 (causal) for the trailing [causalTailLayers], else [lookahead]. */
+    /**
+     * Right context for [layer]: [lookahead] for the first / last [lookaheadEdgeLayers] layers, else 0 —
+     * matching the v2 paper ((16,4) on the first + last two encoder layers; (16,0) intermediate).
+     */
     public fun rightContextForLayer(layer: Int): Int =
-        if (layer >= encoderLayers - causalTailLayers) 0 else lookahead
+        if (layer < lookaheadEdgeLayers || layer >= encoderLayers - lookaheadEdgeLayers) lookahead else 0
 }
 
 /**
