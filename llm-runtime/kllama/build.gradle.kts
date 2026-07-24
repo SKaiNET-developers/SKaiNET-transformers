@@ -65,7 +65,9 @@ kotlin {
             implementation(project(":llm-inference:llama"))
             implementation(project(":llm-inference:qwen"))
             implementation(project(":llm-agent"))
-            implementation(project(":llm-core"))
+            // api, not implementation: GenerationConfig.prefillStrategy exposes
+            // llm-core's PrefillStrategy in a public signature (see #226).
+            api(project(":llm-core"))
             implementation(libs.skainet.lang.core)
             implementation(libs.skainet.compile.core)
             implementation(libs.skainet.backend.cpu)

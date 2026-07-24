@@ -368,10 +368,45 @@ public class RoPE<T : DType, V>(
     }
 
     /**
-     * Interleaved full-head RoPE with cos/sin supplied as TENSORS (already sign-baked,
-     * pair-repeated `[seqLen, headDim]` per [buildInterleavedCosSin]) rather than derived from a
-     * compile-time position — so the position can be a runtime graph input. Numerically identical
-     * to [forward]; the rotation runs in f32.
+     * Build the sign-baked, half-repeated cos/sin tables `[seqLen, headDim]` for split-half
+     * (NEOX / HF) RoPE at [position] — the SPLIT_HALF analogue of [buildInterleavedCosSin].
+     *
+     * Split-half pairs `dim_i` with `dim_{i + headDim/2}`; the rotation is
+     * `out = x * cosFull + swapHalves(x) * sinFull` where `swapHalves(x)` concatenates the
+     * second half then the first half (see [applySplitHalfRotation]). The rotation's sign is
+     * folded into the FIRST-half lane of sin (negated) so no separate negate node is needed —
+     * matching HF `apply_rotary_pos_emb` with `rotate_half`. Tail pairs `i >= halfRotary`
+     * (partial rotary) pass through with `cos=1, sin=0`; for FunctionGemma (`partialRotary=1.0`)
+     * every pair rotates.
+     *
+     * Public so a runtime that feeds cos/sin as graph INPUTS (the gemma `decoder_with_past`,
+     * whose decode position is a runtime value) can produce byte-identical tables host-side and
+     * pass them to [forwardWithCosSin]. Numerically identical to [applyRoPESplitHalfFull] /
+     * [applyRoPESplitHalf] at the same position (both read the same `cosTable`/`sinTable`).
+     */
+    public fun buildSplitHalfCosSin(position: Int, seqLen: Int): Pair<FloatArray, FloatArray> {
+        val half = headDim / 2
+        val cosFull = FloatArray(seqLen * headDim)
+        val sinFull = FloatArray(seqLen * headDim)
+        for (s in 0 until seqLen) {
+            val pos = position + s
+            for (i in 0 until half) {
+                val c = if (i < halfRotary) cosTable[pos * halfRotary + i] else 1.0f
+                val sn = if (i < halfRotary) sinTable[pos * halfRotary + i] else 0.0f
+                cosFull[s * headDim + i] = c
+                cosFull[s * headDim + half + i] = c
+                sinFull[s * headDim + i] = -sn
+                sinFull[s * headDim + half + i] = sn
+            }
+        }
+        return cosFull to sinFull
+    }
+
+    /**
+     * RoPE with cos/sin supplied as TENSORS (sign-baked, per-mode layout: [buildInterleavedCosSin]
+     * for INTERLEAVED, [buildSplitHalfCosSin] for SPLIT_HALF) rather than derived from a
+     * compile-time position — so the position can be a runtime graph input. Routes by [mode] so
+     * callers stay mode-agnostic. Numerically identical to [forward]; the rotation runs in f32.
      */
     public fun forwardWithCosSin(
         input: Tensor<T, V>,
@@ -385,7 +420,10 @@ public class RoPE<T : DType, V>(
         @Suppress("UNCHECKED_CAST")
         val sinF: Tensor<FP32, V> = if (sinFull.dtype == FP32::class) sinFull as Tensor<FP32, V> else ops.convert(sinFull, FP32)
         return sk.ainet.lang.nn.hooks.withForwardHooks(ctx, this, input) {
-            applyInterleavedRotation(input, cosF, sinF, ctx)
+            when (mode) {
+                RoPEMode.SPLIT_HALF -> applySplitHalfRotation(input, cosF, sinF, ctx)
+                RoPEMode.INTERLEAVED -> applyInterleavedRotation(input, cosF, sinF, ctx)
+            }
         }
     }
 
@@ -423,6 +461,38 @@ public class RoPE<T : DType, V>(
             ops.concat(listOf(ops.unsqueeze(odd, rank), ops.unsqueeze(even, rank)), dim = rank),
             input.shape,
         )
+        val outF = ops.add(ops.multiply(xF, cosTensor), ops.multiply(swapped, sinTensor))
+        val modelDtype: DType = if (input.dtype == FP16::class) FP16 else BF16
+        @Suppress("UNCHECKED_CAST")
+        return if (isF32) outF as Tensor<T, V> else ops.convert(outF, modelDtype) as Tensor<T, V>
+    }
+
+    /**
+     * The position-independent split-half rotation `out = x * cos_full + swapHalves(x) * sin_full`.
+     * `swapHalves(x)` concatenates the second half then the first half of the feature axis; the
+     * rotation's sign lives in `sin_full` (first-half lane negated by [buildSplitHalfCosSin]) so no
+     * negate node is needed. This is the SPLIT_HALF (NEOX / HF `rotate_half`) analogue of
+     * [applyInterleavedRotation] — numerically identical to [applyRoPESplitHalfFull] and (for the
+     * partial case) [applyRoPESplitHalf], but with cos/sin fed in so the position is a runtime
+     * value. cos/sin are `[seqLen, headDim]`, broadcasting over the leading dims.
+     */
+    private fun applySplitHalfRotation(
+        input: Tensor<T, V>,
+        cosTensor: Tensor<FP32, V>,
+        sinTensor: Tensor<FP32, V>,
+        ctx: ExecutionContext,
+    ): Tensor<T, V> {
+        val ops = ctx.ops
+        val rank = input.rank
+        require(input.shape[rank - 1] == headDim) { "RoPE input last dim (${input.shape[rank - 1]}) != headDim ($headDim)" }
+        val half = headDim / 2
+        val featureAxis = rank - 1
+        val isF32 = input.dtype == FP32::class
+        @Suppress("UNCHECKED_CAST")
+        val xF: Tensor<FP32, V> = if (isF32) input as Tensor<FP32, V> else ops.convert(input, FP32)
+        val first = ops.narrow(xF, featureAxis, 0, half)
+        val second = ops.narrow(xF, featureAxis, half, half)
+        val swapped = ops.concat(listOf(second, first), dim = featureAxis)
         val outF = ops.add(ops.multiply(xF, cosTensor), ops.multiply(swapped, sinTensor))
         val modelDtype: DType = if (input.dtype == FP16::class) FP16 else BF16
         @Suppress("UNCHECKED_CAST")

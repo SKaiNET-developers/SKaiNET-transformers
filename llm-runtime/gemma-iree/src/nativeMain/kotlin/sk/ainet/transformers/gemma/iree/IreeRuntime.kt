@@ -24,6 +24,11 @@ import platform.posix.popen
 public class IreeRuntime(
     private val ireeBin: String = "iree-run-module",
     private val device: String = "local-task",
+    // When set, emit `--task_topology_group_count=N` so the local-task HAL
+    // spreads work over N worker groups (= N cores). Default null keeps IREE's
+    // auto-topology; the board driver (GemmaDecoder) passes the A55 core count.
+    // Gated so a board that rejects the flag can be reverted without recompiling.
+    private val taskTopologyGroupCount: Int? = null,
 ) {
     public data class Result(val exitCode: Int, val stdout: String) {
         val ok: Boolean get() = exitCode == 0
@@ -46,11 +51,43 @@ public class IreeRuntime(
         val args = buildList {
             add(ireeBin)
             add("--device=$device")
+            taskTopologyGroupCount?.let { add("--task_topology_group_count=$it") }
             if (parameterMode != null) add("--parameter_mode=$parameterMode")
             add("--module=$module")
             add("--function=$function")
             for ((scope, path) in parameters) add("--parameters=$scope=$path")
             for (i in inputs) add("--input=$i")
+        }
+        return exec(args)
+    }
+
+    /**
+     * File-I/O invoke for the KV-cache 2-graph decode (many large tensor I/O per step). Each entry of
+     * [inputSpecs] is a full `--input=` value — either a literal (`"1xi32=262146"`, `"24xi32=2,887,…"`)
+     * or a raw-bin file (`"1x1x7x256xf32=@/tmp/k0.bin"`); each [outputFiles] path becomes `--output=@path`
+     * (raw little-endian bytes). Weights bind via [parameters] + [parameterMode] like [invoke].
+     *
+     * NOTE: assumes the board `iree-run-module` writes `--output=@file` as RAW bytes (as the Torq ASR
+     * path does). If it instead writes NumPy, strip the npy header on read. Confirm on first board run.
+     */
+    public fun invokeFiles(
+        module: String,
+        function: String,
+        inputSpecs: List<String>,
+        outputFiles: List<String>,
+        parameters: Map<String, String> = emptyMap(),
+        parameterMode: String? = "file",
+    ): Result {
+        val args = buildList {
+            add(ireeBin)
+            add("--device=$device")
+            taskTopologyGroupCount?.let { add("--task_topology_group_count=$it") }
+            if (parameterMode != null) add("--parameter_mode=$parameterMode")
+            add("--module=$module")
+            add("--function=$function")
+            for ((scope, path) in parameters) add("--parameters=$scope=$path")
+            for (spec in inputSpecs) add("--input=$spec")
+            for (f in outputFiles) add("--output=@$f")
         }
         return exec(args)
     }
@@ -74,6 +111,7 @@ public class IreeRuntime(
     ): IntArray? {
         val args = buildList {
             add(ireeBin); add("--device=$device")
+            taskTopologyGroupCount?.let { add("--task_topology_group_count=$it") }
             if (parameterMode != null) add("--parameter_mode=$parameterMode")
             add("--module=$module"); add("--function=$function")
             for ((s, p) in parameters) add("--parameters=$s=$p")

@@ -27,8 +27,12 @@ public final class sk/ainet/apps/kgemma/FunctionGemma$Turn {
 
 public final class sk/ainet/apps/kgemma/FunctionGemmaExport {
 	public static final field INSTANCE Lsk/ainet/apps/kgemma/FunctionGemmaExport;
-	public final fun export (Ljava/lang/String;Ljava/lang/String;IFZ)Lsk/ainet/apps/kgemma/FunctionGemmaExport$Result;
-	public static synthetic fun export$default (Lsk/ainet/apps/kgemma/FunctionGemmaExport;Ljava/lang/String;Ljava/lang/String;IFZILjava/lang/Object;)Lsk/ainet/apps/kgemma/FunctionGemmaExport$Result;
+	public final fun export (Ljava/lang/String;Ljava/lang/String;IFZZ)Lsk/ainet/apps/kgemma/FunctionGemmaExport$Result;
+	public static synthetic fun export$default (Lsk/ainet/apps/kgemma/FunctionGemmaExport;Ljava/lang/String;Ljava/lang/String;IFZZILjava/lang/Object;)Lsk/ainet/apps/kgemma/FunctionGemmaExport$Result;
+	public final fun exportPrefill (Ljava/lang/String;Ljava/lang/String;IFZ)Ljava/lang/String;
+	public static synthetic fun exportPrefill$default (Lsk/ainet/apps/kgemma/FunctionGemmaExport;Ljava/lang/String;Ljava/lang/String;IFZILjava/lang/Object;)Ljava/lang/String;
+	public final fun exportWithPast (Ljava/lang/String;Ljava/lang/String;IZFZ)Ljava/lang/String;
+	public static synthetic fun exportWithPast$default (Lsk/ainet/apps/kgemma/FunctionGemmaExport;Ljava/lang/String;Ljava/lang/String;IZFZILjava/lang/Object;)Ljava/lang/String;
 }
 
 public final class sk/ainet/apps/kgemma/FunctionGemmaExport$Result {

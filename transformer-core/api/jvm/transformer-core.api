@@ -254,6 +254,7 @@ public final class sk/ainet/lang/nn/transformer/RoPE : sk/ainet/lang/nn/Module {
 	public fun <init> (IIFLsk/ainet/lang/nn/transformer/RoPEMode;Lsk/ainet/lang/nn/transformer/RoPEScaling;FFZLjava/lang/String;)V
 	public synthetic fun <init> (IIFLsk/ainet/lang/nn/transformer/RoPEMode;Lsk/ainet/lang/nn/transformer/RoPEScaling;FFZLjava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun buildInterleavedCosSin (II)Lkotlin/Pair;
+	public final fun buildSplitHalfCosSin (II)Lkotlin/Pair;
 	public final fun forward (Lsk/ainet/lang/tensor/Tensor;ILsk/ainet/context/ExecutionContext;)Lsk/ainet/lang/tensor/Tensor;
 	public final fun forwardWithCosSin (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/context/ExecutionContext;)Lsk/ainet/lang/tensor/Tensor;
 	public final fun getFreqDenomRotaryDim ()Z
@@ -319,6 +320,14 @@ public final class sk/ainet/lang/nn/transformer/SwiGLUFFN : sk/ainet/lang/nn/Mod
 	public fun getModules ()Ljava/util/List;
 	public fun getName ()Ljava/lang/String;
 	public fun getParams ()Ljava/util/List;
+}
+
+public class sk/ainet/lang/nn/transformer/TransformerBlock : sk/ainet/lang/nn/Module {
+	public fun <init> (Ljava/util/List;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/util/List;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun getModules ()Ljava/util/List;
+	public fun getName ()Ljava/lang/String;
+	protected fun onForward (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/context/ExecutionContext;)Lsk/ainet/lang/tensor/Tensor;
 }
 
 public final class sk/ainet/lang/nn/transformer/VoidDense : sk/ainet/lang/nn/Module, sk/ainet/lang/nn/topology/ModuleParameters {

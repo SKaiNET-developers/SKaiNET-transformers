@@ -173,7 +173,9 @@ tasks.register<JavaExec>("exportFunctionGemma") {
     dependsOn(jvmMainComp.compileTaskProvider)
     classpath = jvmMainComp.output.allOutputs + jvmMainComp.runtimeDependencyFiles
     mainClass.set("sk.ainet.apps.kgemma.FunctionGemmaExportMainKt")
-    listOf("GEMMA_GGUF", "GEMMA_OUT_DIR", "GEN_SEQ", "PARTIAL_ROTARY", "GEMMA_DTYPE").forEach { k ->
+    // GEMMA_GRAPH selects the graph(s): redecode (default) | prefill | with_past | all.
+    // GEMMA_QUANT=int8 quantizes the 2D matmul weights (Phase 5).
+    listOf("GEMMA_GGUF", "GEMMA_OUT_DIR", "GEN_SEQ", "PARTIAL_ROTARY", "GEMMA_DTYPE", "GEMMA_GRAPH", "GEMMA_QUANT").forEach { k ->
         System.getenv(k)?.let { environment(k, it) }
     }
 }

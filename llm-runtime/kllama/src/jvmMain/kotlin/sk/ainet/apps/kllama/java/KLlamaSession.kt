@@ -52,7 +52,8 @@ public class KLlamaSession(
             maxTokens = config.maxTokens,
             eosTokenId = eosTokenId,
             temperature = config.temperature,
-            decode = { tokenizer.decode(it) }
+            decode = { tokenizer.decode(it) },
+            prefillStrategy = config.prefillStrategy
         )
         return result.text
     }
@@ -75,7 +76,8 @@ public class KLlamaSession(
             eosTokenId = eosTokenId,
             temperature = config.temperature,
             onToken = { tokenId -> tokenConsumer.accept(tokenizer.decode(tokenId)) },
-            decode = { tokenizer.decode(it) }
+            decode = { tokenizer.decode(it) },
+            prefillStrategy = config.prefillStrategy
         )
         return result.text
     }
