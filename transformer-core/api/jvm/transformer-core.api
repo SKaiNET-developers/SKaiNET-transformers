@@ -10,8 +10,8 @@ public final class sk/ainet/lang/nn/dsl/ATTENTION$DefaultImpls {
 }
 
 public final class sk/ainet/lang/nn/dsl/AttentionImpl : sk/ainet/lang/nn/dsl/ATTENTION {
-	public fun <init> (Lsk/ainet/context/ExecutionContext;IIIZZZDLjava/lang/Float;ZZLjava/lang/String;Ljava/lang/Integer;Lkotlin/reflect/KClass;)V
-	public synthetic fun <init> (Lsk/ainet/context/ExecutionContext;IIIZZZDLjava/lang/Float;ZZLjava/lang/String;Ljava/lang/Integer;Lkotlin/reflect/KClass;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lsk/ainet/context/ExecutionContext;IIIZZZDLjava/lang/Float;ZZLjava/lang/String;Ljava/lang/Integer;ILkotlin/reflect/KClass;)V
+	public synthetic fun <init> (Lsk/ainet/context/ExecutionContext;IIIZZZDLjava/lang/Float;ZZLjava/lang/String;Ljava/lang/Integer;ILkotlin/reflect/KClass;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun create ()Lsk/ainet/lang/nn/transformer/MultiHeadAttention;
 	public fun getExecutionContext ()Lsk/ainet/context/ExecutionContext;
 	public fun kvCache (III)V
@@ -28,10 +28,10 @@ public final class sk/ainet/lang/nn/dsl/TransformerDslKt {
 	public static final fun geGluFFN (Lsk/ainet/lang/nn/dsl/StageImpl;IILjava/lang/String;)V
 	public static synthetic fun geGluFFN$default (Lsk/ainet/lang/nn/dsl/NeuralNetworkDslImpl;IILjava/lang/String;ILjava/lang/Object;)V
 	public static synthetic fun geGluFFN$default (Lsk/ainet/lang/nn/dsl/StageImpl;IILjava/lang/String;ILjava/lang/Object;)V
-	public static final fun multiHeadAttention (Lsk/ainet/lang/nn/dsl/NeuralNetworkDslImpl;IIIZZFZLjava/lang/String;Ljava/lang/Integer;Lkotlin/jvm/functions/Function1;)V
-	public static final fun multiHeadAttention (Lsk/ainet/lang/nn/dsl/StageImpl;IIIZZZFLjava/lang/Float;ZZLjava/lang/String;Ljava/lang/Integer;Lkotlin/jvm/functions/Function1;)V
-	public static synthetic fun multiHeadAttention$default (Lsk/ainet/lang/nn/dsl/NeuralNetworkDslImpl;IIIZZFZLjava/lang/String;Ljava/lang/Integer;Lkotlin/jvm/functions/Function1;ILjava/lang/Object;)V
-	public static synthetic fun multiHeadAttention$default (Lsk/ainet/lang/nn/dsl/StageImpl;IIIZZZFLjava/lang/Float;ZZLjava/lang/String;Ljava/lang/Integer;Lkotlin/jvm/functions/Function1;ILjava/lang/Object;)V
+	public static final fun multiHeadAttention (Lsk/ainet/lang/nn/dsl/NeuralNetworkDslImpl;IIIZZFZLjava/lang/String;Ljava/lang/Integer;ILkotlin/jvm/functions/Function1;)V
+	public static final fun multiHeadAttention (Lsk/ainet/lang/nn/dsl/StageImpl;IIIZZZFLjava/lang/Float;ZZLjava/lang/String;Ljava/lang/Integer;ILkotlin/jvm/functions/Function1;)V
+	public static synthetic fun multiHeadAttention$default (Lsk/ainet/lang/nn/dsl/NeuralNetworkDslImpl;IIIZZFZLjava/lang/String;Ljava/lang/Integer;ILkotlin/jvm/functions/Function1;ILjava/lang/Object;)V
+	public static synthetic fun multiHeadAttention$default (Lsk/ainet/lang/nn/dsl/StageImpl;IIIZZZFLjava/lang/Float;ZZLjava/lang/String;Ljava/lang/Integer;ILkotlin/jvm/functions/Function1;ILjava/lang/Object;)V
 	public static final fun residual (Lsk/ainet/lang/nn/dsl/NeuralNetworkDslImpl;)V
 	public static final fun residual (Lsk/ainet/lang/nn/dsl/StageImpl;)V
 	public static final fun rmsNorm (Lsk/ainet/lang/nn/dsl/NeuralNetworkDslImpl;IFLjava/lang/String;Z)V
@@ -166,8 +166,8 @@ public final class sk/ainet/lang/nn/transformer/LinearProjectionKt {
 }
 
 public final class sk/ainet/lang/nn/transformer/MultiHeadAttention : sk/ainet/lang/nn/Module, sk/ainet/lang/nn/topology/ModuleParameters {
-	public fun <init> (IIIZZZDLjava/lang/Float;ZZLjava/lang/String;Lsk/ainet/lang/nn/transformer/RoPE;Lsk/ainet/lang/nn/transformer/KVCache;Ljava/lang/Integer;Ljava/lang/Integer;Lkotlin/reflect/KClass;)V
-	public synthetic fun <init> (IIIZZZDLjava/lang/Float;ZZLjava/lang/String;Lsk/ainet/lang/nn/transformer/RoPE;Lsk/ainet/lang/nn/transformer/KVCache;Ljava/lang/Integer;Ljava/lang/Integer;Lkotlin/reflect/KClass;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (IIIZZZDLjava/lang/Float;ZZLjava/lang/String;Lsk/ainet/lang/nn/transformer/RoPE;Lsk/ainet/lang/nn/transformer/KVCache;Ljava/lang/Integer;Ljava/lang/Integer;ILkotlin/reflect/KClass;)V
+	public synthetic fun <init> (IIIZZZDLjava/lang/Float;ZZLjava/lang/String;Lsk/ainet/lang/nn/transformer/RoPE;Lsk/ainet/lang/nn/transformer/KVCache;Ljava/lang/Integer;Ljava/lang/Integer;ILkotlin/reflect/KClass;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun forward (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/context/ExecutionContext;)Lsk/ainet/lang/tensor/Tensor;
 	public final fun forwardWithKV (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/context/ExecutionContext;)Lsk/ainet/lang/nn/transformer/AttentionKV;
 	public final fun getAttentionScale ()Ljava/lang/Float;
@@ -188,6 +188,7 @@ public final class sk/ainet/lang/nn/transformer/MultiHeadAttention : sk/ainet/la
 	public final fun getQkNorm ()Z
 	public final fun getQkNormEps ()D
 	public final fun getQkNormUnitOffset ()Z
+	public final fun getRightContext ()I
 	public final fun getRope ()Lsk/ainet/lang/nn/transformer/RoPE;
 	public final fun getSlidingWindow ()Ljava/lang/Integer;
 	public final fun getVNormNoScale ()Z
