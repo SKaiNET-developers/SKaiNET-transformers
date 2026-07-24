@@ -5,7 +5,6 @@ import sk.ainet.lang.nn.Module
 import sk.ainet.lang.nn.hooks.withForwardHooks
 import sk.ainet.lang.nn.layers.Embedding
 import sk.ainet.lang.nn.layers.EmbeddingAdapter
-import sk.ainet.lang.nn.normalization.LayerNormalization
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.tensor.VoidOpsTensor
@@ -16,18 +15,20 @@ import kotlin.reflect.KClass
 
 /**
  * Moonshine **v2 adapter** — bridges the **position-free** v2 encoder to the **position-aware** decoder by
- * injecting a learned absolute positional embedding, then normalizing (Moonshine v2 paper: "an adapter layer
- * bridges the position-free encoder to a position-aware decoder by injecting learned positional embeddings").
+ * injecting a learned absolute positional embedding (Moonshine v2 paper: "an adapter layer bridges the
+ * position-free encoder to a position-aware decoder by injecting learned positional embeddings").
  *
  * ```
- *   adapted[b, t, :] = LayerNorm( encoderMemory[b, t, :] + posEmbed[t, :] )
+ *   adapted[b, t, :] = encoderMemory[b, t, :] + posEmbed[posOffset + t, :]
  * ```
  *
  * The decoder's cross-attention then consumes `adapted` exactly as it consumes v1's RoPE encoder memory
  * (`MoonshineDecoderLayer.forward(input, encoderMemory, ctx)`), so no decoder change is needed.
  *
- * NOTE: the exact adapter form is not yet confirmed against a released v2 checkpoint — the paper names a
- * learned positional embedding; a projection or gating may also be present. Verify + bake once weights exist.
+ * CONFIRMED (2026-07-24) against the real **tiny-streaming** `adapter.onnx`: the graph is a plain
+ * `Gather + Add` (a `Range` from `pos_offset` selects the positional rows) with the single learned tensor
+ * `pos_embed.weight [maxFrames, dim]` (`maxFrames = 4096`). There is **no LayerNorm** — an earlier draft
+ * added one; removed here to match the real model. Streaming feeds absolute frame indices as [positions].
  * dtype-portable like the encoder/decoder (the element type flows through).
  */
 public class MoonshineV2Adapter<T : DType, V>(
@@ -52,14 +53,7 @@ public class MoonshineV2Adapter<T : DType, V>(
         ),
     )
 
-    private val norm = LayerNormalization<T, V>(
-        normalizedShape = intArrayOf(dim),
-        eps = cfg.layerNormEps.toDouble(),
-        name = "v2_adapter.norm",
-        dtype = dtype,
-    )
-
-    override val modules: List<Module<T, V>> = listOf(posEmbed, norm)
+    override val modules: List<Module<T, V>> = listOf(posEmbed)
 
     /**
      * [encoderMemory] = position-free encoder output `[·, frames, dim]`;
@@ -74,7 +68,7 @@ public class MoonshineV2Adapter<T : DType, V>(
         val mem = encoderMemory.bind(ctx)
         return withForwardHooks(ctx, this, mem) {
             val pos = posEmbed.forward(positions, ctx)             // [·, frames, dim]
-            norm.forward(ctx.ops.add(mem, pos), ctx)
+            ctx.ops.add(mem, pos)                                 // no LayerNorm (matches the real adapter)
         }
     }
 

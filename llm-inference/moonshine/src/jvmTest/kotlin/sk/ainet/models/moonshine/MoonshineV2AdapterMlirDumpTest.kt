@@ -16,7 +16,7 @@ import kotlin.test.Test
 import kotlin.test.assertTrue
 
 /**
- * Traces the Moonshine **v2 adapter** (learned positional embedding + norm) to StableHLO — the P6 structure
+ * Traces the Moonshine **v2 adapter** (learned positional embedding add, no norm) to StableHLO — the P6 structure
  * milestone for the encoder→decoder bridge. Proves the two-input forward (encoder memory + frame positions)
  * builds and lowers. Portable FP32 by default; numeric validation vs a v2 reference needs a v2 checkpoint.
  */
