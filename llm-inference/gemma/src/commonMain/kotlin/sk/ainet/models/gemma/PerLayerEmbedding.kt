@@ -3,6 +3,7 @@ package sk.ainet.models.gemma
 import kotlin.math.sqrt
 import sk.ainet.context.ExecutionContext
 import sk.ainet.lang.nn.Module
+import sk.ainet.lang.nn.RowDequantSource
 import sk.ainet.lang.nn.normalization.RMSNormalization
 import sk.ainet.lang.nn.topology.ModuleParameter
 import sk.ainet.lang.nn.topology.ModuleParameters
