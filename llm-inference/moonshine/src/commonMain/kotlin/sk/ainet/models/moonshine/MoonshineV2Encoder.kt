@@ -53,6 +53,18 @@ public data class MoonshineV2Config(
      * are (16,4). (Was previously a wrong "trailing layers" guess.)
      */
     val lookaheadEdgeLayers: Int = 2,
+    // --- decoder (see [moonshineV2Decoder]) — confirmed against tiny-streaming decoder_kv.onnx ---
+    /** Decoder depth (`decoder_kv` has 6 layers; = encoder depth here). */
+    val decoderLayers: Int = 6,
+    /** RoPE base for the decoder self-attention. */
+    val ropeBase: Float = 10000.0f,
+    /**
+     * Partial-rotary factor: `rotaryDim = headDim * factor`. The real decoder's `rotary.inv_freq` has 16
+     * entries ⇒ rotaryDim=32; `32 / headDim(40) = 0.8` (the trailing 8 head dims pass through, as in v1).
+     */
+    val partialRotaryFactor: Float = 0.8f,
+    /** Decoder RoPE table size (max decode positions). */
+    val maxDecodeTokens: Int = 512,
 ) {
     /**
      * Right context for [layer]: [lookahead] for the first / last [lookaheadEdgeLayers] layers, else 0 —
