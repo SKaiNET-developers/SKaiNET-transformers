@@ -59,6 +59,7 @@ class MoonshineV2EncoderBakeTest {
         println("v2 encoder MLIR entry args after embedConstants: $argCount")
         assertTrue(mlir.contains("stablehlo.constant"), "baked weights should fold to constants")
         assertEquals(1, argCount, "only the features input should remain as an arg")
+        writeMlirIfRequested("moonshine-v2-encoder.mlir", mlir)
 
         // ---- adapter: the single learned pos_embed table bakes (maxFrames from the checkpoint) ----
         val maxFrames = System.getenv("ADP_MAX_FRAMES")?.toInt() ?: 4096
@@ -67,6 +68,35 @@ class MoonshineV2EncoderBakeTest {
         val bakedAda = bakeV2EncoderWeights(adapter, src, FP32::class, ctx2 as ExecutionContext)
         assertEquals(countParams(adapter), bakedAda, "every v2 adapter param must bake")
         println("BAKED $bakedAda v2 adapter params (pos_embed [$maxFrames, ${cfg.dim}])")
+
+        // trace the baked adapter (memory + positions -> position-aware memory); fold pos_embed to a constant.
+        val memory = voidF32(Shape(1, frames, cfg.dim))
+        val positions = voidF32(Shape(1, frames))
+        val adaTape = ctx2.record {
+            val ct = (this as DefaultGraphExecutionContext).currentTape ?: error("no tape")
+            Execution.tapeStack.pushTape(ct)
+            try {
+                adapter.forward(memory, positions, this as ExecutionContext)
+            } finally {
+                Execution.tapeStack.popTape()
+            }
+        }.first
+        val adaGraph = (adaTape as DefaultExecutionTape).toComputeGraph(
+            synthesizeExternalInputs = true,
+            embedConstants = true,
+        )
+        val adaMlir = sk.ainet.compile.hlo.toStableHlo(adaGraph, "moonshine_v2_adapter").content
+        assertTrue(adaMlir.contains("stablehlo.constant"), "baked pos_embed should fold to a constant")
+        writeMlirIfRequested("moonshine-v2-adapter.mlir", adaMlir)
+    }
+
+    /** Write [mlir] to `$MOONSHINE_V2_MLIR_OUT/<name>` when that dir env is set (for the vmfb compile step). */
+    private fun writeMlirIfRequested(name: String, mlir: String) {
+        val dir = System.getenv("MOONSHINE_V2_MLIR_OUT") ?: return
+        val out = java.io.File(dir, name)
+        out.parentFile?.mkdirs()
+        out.writeText(mlir)
+        println("WROTE_MLIR ${out.absolutePath} (${mlir.lines().size} lines)")
     }
 
     private fun countParams(m: sk.ainet.lang.nn.Module<*, *>): Int =
