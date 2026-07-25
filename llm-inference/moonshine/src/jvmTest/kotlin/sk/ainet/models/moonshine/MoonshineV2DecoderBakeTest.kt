@@ -62,10 +62,42 @@ class MoonshineV2DecoderBakeTest {
         assertTrue(mlir.contains("stablehlo.constant"), "baked weights should fold to constants")
         assertEquals(2, argCount, "only inputs_embeds + encoder memory should remain as args")
 
-        System.getenv("MOONSHINE_V2_DEC_MLIR_OUT")?.let {
-            val out = java.io.File(it); out.parentFile?.mkdirs(); out.writeText(mlir)
-            println("WROTE_MLIR ${out.absolutePath} (${mlir.lines().size} lines)")
+        write("MOONSHINE_V2_DEC_MLIR_OUT", mlir)
+
+        // KV-cached two-graph export (the v2 decode contract), from the same baked model:
+        //  PREFILL   embeds+memory → logits + per-layer self/cross K/V (the cross_kv + prefill graph)
+        //  WITH_PAST token+cos/sin+caches → logits + extended self K/V (the decoder_kv step)
+        val L = cfg.decoderLayers; val nh = cfg.nHeads; val hd = cfg.headDim
+        traceGraph("moonshine_v2_decoder_prefill", "MOONSHINE_V2_DEC_PREFILL_OUT") { c ->
+            dec.forwardPrefill(voidF32(Shape(1, seq, cfg.dim)), voidF32(Shape(1, frames, cfg.dim)), c)
         }
+        traceGraph("moonshine_v2_decoder_with_past", "MOONSHINE_V2_DEC_WITHPAST_OUT") { c ->
+            val past = System.getenv("DEC_PAST")?.toInt() ?: 1
+            dec.forwardWithPast(
+                voidF32(Shape(1, 1, cfg.dim)), voidF32(Shape(1, hd)), voidF32(Shape(1, hd)),
+                List(L) { voidF32(Shape(1, nh, past, hd)) }, List(L) { voidF32(Shape(1, nh, past, hd)) },
+                List(L) { voidF32(Shape(1, nh, frames, hd)) }, List(L) { voidF32(Shape(1, nh, frames, hd)) }, c,
+            )
+        }
+    }
+
+    /** Trace a decode graph on the already-baked model with `embedConstants` (weights fold), then write it. */
+    private fun traceGraph(fn: String, envOut: String, body: (ExecutionContext) -> Unit) {
+        if (System.getenv(envOut) == null) return
+        val ctx = DefaultGraphExecutionContext.tape(baseOps = VoidTensorOps())
+        val tape = ctx.record {
+            val ct = (this as DefaultGraphExecutionContext).currentTape ?: error("no tape")
+            Execution.tapeStack.pushTape(ct)
+            try { body(this as ExecutionContext) } finally { Execution.tapeStack.popTape() }
+        }.first
+        val graph = (tape as DefaultExecutionTape).toComputeGraph(synthesizeExternalInputs = true, embedConstants = true)
+        write(envOut, sk.ainet.compile.hlo.toStableHlo(graph, fn).content)
+    }
+
+    private fun write(envOut: String, mlir: String) {
+        val path = System.getenv(envOut) ?: return
+        val out = java.io.File(path); out.parentFile?.mkdirs(); out.writeText(mlir)
+        println("WROTE_MLIR ${out.absolutePath} (${mlir.lines().size} lines)")
     }
 
     private fun countParams(m: sk.ainet.lang.nn.Module<*, *>): Int =
