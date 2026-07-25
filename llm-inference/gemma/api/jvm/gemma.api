@@ -895,7 +895,7 @@ public final class sk/ainet/models/gemma/GemmaPackedWeightsKt {
 	public static final fun convertGemmaWeightsPacked (Lsk/ainet/models/gemma/Gemma4Weights;Lsk/ainet/context/ExecutionContext;)Lsk/ainet/models/gemma/Gemma4Weights;
 }
 
-public final class sk/ainet/models/gemma/GemmaPerLayerTokenEmbedTensorData : sk/ainet/lang/tensor/data/TensorData, sk/ainet/models/gemma/RowDequantSource {
+public final class sk/ainet/models/gemma/GemmaPerLayerTokenEmbedTensorData : sk/ainet/lang/nn/RowDequantSource, sk/ainet/lang/tensor/data/TensorData {
 	public fun <init> (Lsk/ainet/lang/tensor/Shape;Lsk/ainet/io/gguf/GGMLQuantizationType;[B)V
 	public fun copyToFloatArray ()[F
 	public fun dequantRow (I)[F
@@ -982,11 +982,7 @@ public final class sk/ainet/models/gemma/PerLayerInputBlockHook : sk/ainet/lang/
 	public final fun setPerLayerInput (Lsk/ainet/lang/tensor/Tensor;)V
 }
 
-public abstract interface class sk/ainet/models/gemma/RowDequantSource {
-	public abstract fun dequantRow (I)[F
-}
-
-public final class sk/ainet/models/gemma/SafeTensorsPerLayerTokenEmbedTensorData : sk/ainet/lang/tensor/data/TensorData, sk/ainet/models/gemma/RowDequantSource {
+public final class sk/ainet/models/gemma/SafeTensorsPerLayerTokenEmbedTensorData : sk/ainet/lang/nn/RowDequantSource, sk/ainet/lang/tensor/data/TensorData {
 	public fun <init> (Lsk/ainet/lang/tensor/Shape;Ljava/lang/foreign/MemorySegment;Ljava/lang/String;)V
 	public fun copyToFloatArray ()[F
 	public fun dequantRow (I)[F

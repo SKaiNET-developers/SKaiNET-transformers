@@ -2,6 +2,7 @@ package sk.ainet.lang.nn.layers
 
 import sk.ainet.context.ExecutionContext
 import sk.ainet.lang.nn.DualModule
+import sk.ainet.lang.nn.RowDequantSource
 import sk.ainet.lang.nn.topology.ModuleNode
 import sk.ainet.lang.nn.topology.ModuleParameter
 import sk.ainet.lang.nn.topology.ModuleParameters
@@ -98,7 +99,48 @@ public class Embedding<OutT : DType, V>(
         // Fallback to weight.ops for backwards compatibility when ctx has no ops.
         val ops = ctx.ops
         return sk.ainet.lang.nn.hooks.withForwardHooks(ctx, this, input) {
-            forwardImpl(weight, ops, input)
+            val data = weight.data
+            if (data is RowDequantSource) {
+                forwardRowDequant(data, input, ctx)
+            } else {
+                forwardImpl(weight, ops, input)
+            }
+        }
+    }
+
+    /**
+     * Gather path for weights kept in a packed/encoded form that cannot be
+     * materialised as a single dense [FloatArray] (a [RowDequantSource]: e.g. a
+     * Q8_0 `token_embd` table that would inflate ~4× to FP32). Only the few rows
+     * actually addressed this step are dequantised — one [RowDequantSource.dequantRow]
+     * per index — so peak memory stays at the packed footprint rather than the
+     * full FP32 expansion.
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun forwardRowDequant(
+        source: RowDequantSource,
+        input: Tensor<Int32, V>,
+        ctx: ExecutionContext
+    ): Tensor<OutT, V> {
+        val vol = input.volume
+        val buf = FloatArray(vol * embeddingDim)
+        for (i in 0 until vol) {
+            val index = (input.data[i] as Number).toInt()
+            if (index < 0 || index >= numEmbeddings) {
+                throw IndexOutOfRangeException(
+                    "Embedding($name): index $index out of range [0, $numEmbeddings)"
+                )
+            }
+            // paddingIdx rows stay zero (buf is zero-initialised).
+            if (paddingIdx != null && index == paddingIdx) continue
+            source.dequantRow(index).copyInto(buf, i * embeddingDim)
+        }
+        val dtype = (params[0] as ModuleParameter.WeightParameter<OutT, V>).value.dtype
+        val flat = ctx.fromFloatArray<OutT, V>(Shape(vol, embeddingDim), dtype, buf)
+        return when (input.rank) {
+            1 -> flat
+            2 -> ctx.ops.reshape(flat, Shape(input.shape[0], input.shape[1], embeddingDim))
+            else -> error("Embedding($name): input shape ${input.shape} not supported; expected [L] or [N, L]")
         }
     }
 
