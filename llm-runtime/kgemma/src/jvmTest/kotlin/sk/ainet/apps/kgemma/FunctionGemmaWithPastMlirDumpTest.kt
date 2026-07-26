@@ -10,20 +10,17 @@ import kotlin.test.assertTrue
  * the KEY open question — does the tracer produce a clean DYNAMIC self-cache seq dim (`1x1x?x256`)
  * so one board vmfb serves every decode position, or must we fall back to fixed-pad / sentinel-regex.
  *
- * Self-skips without the GGUF. Run with:
- *   ./gradlew -PuseLocalSkainet=true -PkgemmaTestMaxHeap=12g \
+ * Skips without the GGUF or with too small a heap. 12g is the module default heap — override
+ * with -PkgemmaTestMaxHeap. Run with:
+ *   ./gradlew -PuseLocalSkainet=true \
  *     :llm-runtime:kgemma:jvmTest --tests "*FunctionGemmaWithPastMlirDumpTest*"
  */
 class FunctionGemmaWithPastMlirDumpTest {
-    private val gguf = System.getenv("GEMMA_GGUF")
-        ?: "/home/miso/projects/coral/SKaiNET-embedded/sl2610-function-calling/models/functiongemma-physical-ai-v10-Q5_K_M.gguf"
+    private val gguf = FunctionGemmaFixture.gguf
 
     @Test
     fun emits_with_past_graph_and_probes_dynamic_dim() {
-        if (!File(gguf).exists()) {
-            println("SKIP FunctionGemmaWithPastMlirDumpTest: GGUF not present at $gguf")
-            return
-        }
+        FunctionGemmaFixture.assumeRealCheckpointRunnable()
         val outDir = File(System.getProperty("java.io.tmpdir"), "gemma-wp-dump").absolutePath
 
         // Static probe (fixed past=7): the per-layer cache seq dim should appear concretely (1x1x7x256).
