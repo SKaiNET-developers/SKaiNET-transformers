@@ -11,20 +11,17 @@ import kotlin.test.assertTrue
  * archive halves vs bf16 (a real RAM win on the 1.9 GB board). (iree-compile acceptance + numeric
  * quality of per-row int8 from Q5_K + the actual speed are on-board.)
  *
- * Self-skips without the GGUF. Run with:
- *   ./gradlew -PuseLocalSkainet=true -PkgemmaTestMaxHeap=12g \
+ * Skips without the GGUF or with too small a heap. 12g is the module default heap — override
+ * with -PkgemmaTestMaxHeap. Run with:
+ *   ./gradlew -PuseLocalSkainet=true \
  *     :llm-runtime:kgemma:jvmTest --tests "*FunctionGemmaInt8QuantTest*"
  */
 class FunctionGemmaInt8QuantTest {
-    private val gguf = System.getenv("GEMMA_GGUF")
-        ?: "/home/miso/projects/coral/SKaiNET-embedded/sl2610-function-calling/models/functiongemma-physical-ai-v10-Q5_K_M.gguf"
+    private val gguf = FunctionGemmaFixture.gguf
 
     @Test
     fun int8_quant_emits_i8_weights_and_halves_archive() {
-        if (!File(gguf).exists()) {
-            println("SKIP FunctionGemmaInt8QuantTest: GGUF not present at $gguf")
-            return
-        }
+        FunctionGemmaFixture.assumeRealCheckpointRunnable()
         val out = File(System.getProperty("java.io.tmpdir"), "gemma-int8").absolutePath
         val r = FunctionGemmaExport.export(gguf, out, seq = 16, quantizeInt8 = true)
         val mlir = File(out, "gemma-gen.mlir").readText()
