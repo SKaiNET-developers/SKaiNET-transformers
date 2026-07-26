@@ -43,8 +43,14 @@ public data class MoonshineV2Config(
     val ffnDim: Int = 1280,         // 4 * dim — confirmed from the encoder ONNX (blocks.N.ff.project_in = 1280)
     val vocabSize: Int = 32768,     // confirmed: real v2 vocab_size
     val layerNormEps: Float = 1e-5f,
-    /** Left context: frames back each query attends to (inclusive). The paper's "16". */
-    val slidingWindow: Int = 16,
+    /**
+     * Left context window. CORRECTED to 17 (2026-07-26) after a direct DSL-vmfb-vs-onnxruntime comparison:
+     * the real encoder's attention band is `-4 ≤ (i−j) ≤ 16` i.e. `j ∈ [i−16, i+4]` (extracted from the ONNX
+     * mask: `GreaterOrEqual/LessOrEqual` on `i−j`). The DSL's `buildSlidingWindowMask` band is `[q−w+1, q+r]`,
+     * so reaching `i−16` needs `w = 17` (16 gave `j ≥ i−15`, an off-by-one → cos 0.991 not 1.0). With `w=17`
+     * the numpy reimplementation of this encoder matches onnxruntime **cos = 1.000000** (bit-exact).
+     */
+    val slidingWindow: Int = 17,
     /** Right context (bounded lookahead) for the edge layers. The paper's "4" (the (16,4) layers). */
     val lookahead: Int = 4,
     /**
