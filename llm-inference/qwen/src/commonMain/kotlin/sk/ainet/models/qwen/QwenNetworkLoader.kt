@@ -16,6 +16,7 @@ import sk.ainet.models.llama.LlamaModelMetadata
 import sk.ainet.models.llama.DecoderSafeTensorsLoader
 import sk.ainet.models.llama.DecoderGgufWeightLoader
 import sk.ainet.models.llama.DecoderGgufWeights
+import sk.ainet.models.llama.DECODER_NARROW_KEEP_NATIVE
 import kotlin.jvm.JvmName
 
 /**
@@ -53,8 +54,9 @@ public class QwenNetworkLoader @PublishedApi internal constructor(
 
     /** See [LlamaNetworkLoader.withDtypePolicy]. */
     public fun withDtypePolicy(policy: DTypePolicy): QwenNetworkLoader {
-        val allowBf16 = weightsProvider is WeightsProvider.SafeTensors
-        DTypePolicyValidation.validate(policy, "QwenNetworkLoader.withDtypePolicy", allowBf16Require = allowBf16)
+        DTypePolicyValidation.validate(
+            policy, "QwenNetworkLoader.withDtypePolicy", keepNative = DECODER_NARROW_KEEP_NATIVE,
+        )
         this.dtypePolicy = policy
         return this
     }
@@ -135,7 +137,8 @@ public class QwenNetworkLoader @PublishedApi internal constructor(
                 val loader = DecoderGgufWeightLoader(
                     wp.sourceProvider,
                     quantPolicy = wp.quantPolicy,
-                    acceptedArchitectures = QWEN_ARCHITECTURES
+                    acceptedArchitectures = QWEN_ARCHITECTURES,
+                    dtypePolicy = dtypePolicy,
                 )
                 loader.loadToMap<T, V>(ctx)
             }
@@ -143,7 +146,8 @@ public class QwenNetworkLoader @PublishedApi internal constructor(
                 val loader = DecoderGgufWeightLoader(
                     wp.randomAccessProvider,
                     quantPolicy = wp.quantPolicy,
-                    acceptedArchitectures = QWEN_ARCHITECTURES
+                    acceptedArchitectures = QWEN_ARCHITECTURES,
+                    dtypePolicy = dtypePolicy,
                 )
                 loader.loadToMapStreaming<T, V>(ctx)
             }

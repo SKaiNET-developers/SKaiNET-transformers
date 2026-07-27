@@ -9,6 +9,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Requires **SKaiNET engine 0.38.0** (narrow-float codec, `Fp16DenseTensorData`, FP16 matmul
+kernels, codec-driven dispatch — engine PR #886).
+
+### Added
+
+- **FP16 KEEP_NATIVE on the SafeTensors path.** `DecoderSafeTensorsLoader` gains the F16 arm
+  that BF16 has had since 0.25.0: with a `DTypePolicy` admitting FP16 (`Require(FP16)`,
+  `Prefer(FP16)`, or `OneOf` containing FP16) it stops widening F16 tensors and wraps the
+  on-disk 2-bytes-per-element buffer in `Fp16DenseTensorData`. The arm was missing only
+  because no such storage type existed. `DefaultCpuOpsJvm` matches `NarrowFloatTensorData`
+  and picks the kernel by codec, so an F16 checkpoint now stays near its on-disk footprint
+  instead of inflating ~2× as FP32. Covers LLaMA, Qwen, and Voxtral, which share this loader.
+- **Narrow-float KEEP_NATIVE on the GGUF path — `DTypePolicy` is honored there at all now.**
+  `DecoderGgufWeightLoader` accepts a `dtypePolicy` and keeps F16 / BF16 source tensors packed
+  instead of widening every one to FP32. `LlamaNetworkLoader`, `QwenNetworkLoader`, and
+  `VoxtralNetworkLoader` plumb the policy attached via `withDtypePolicy` down into it; before
+  this the GGUF branches constructed the loader without the policy and silently ignored it.
+  This is the KEEP_NATIVE GGUF path the 0.25.0 notes parked, and it is what makes
+  `Require(BF16)` real on GGUF.
+
+  The packed path mirrors the FP32 path's layout handling exactly: for rank 2 it swaps the
+  shape to `[cols, rows]` and **moves no bytes**. GGUF header dims are reversed relative to the
+  logical row-major shape, so the "column-major → row-major" step is a reinterpretation, not a
+  permutation (`DequantOps.transposeColumnMajorToRowMajor` returns its input unchanged). An
+  actual element transpose here would have handed the matmul kernel a silently transposed
+  weight matrix. The result is genuinely zero-copy — the on-disk buffer becomes the storage.
+
+### Changed
+
+- **`DTypePolicyValidation` capability model is per-format.** `validate(policy, loaderName,
+  keepNative: Set<DType>)` replaces the BF16-only `allowBf16Require: Boolean` (kept as a
+  `@Deprecated` overload). A caller declares which narrow-float formats its chain actually
+  hands through packed, and a `Require` naming one is accepted only by a chain that can honor
+  it. The boolean could express neither "keeps FP16 but not BF16" nor the empty case.
+
+  The two formats are tracked separately and never interchangeably: `Require(BF16)` still
+  widens F16 sources, and vice versa. Both are 2 bytes per element, so mis-tagging F16 bytes as
+  BF16 decodes to plausible-looking garbage rather than throwing. `DTypePolicyValidation
+  .keepsNative(policy, native)` is the single decision point both loader chains share, mirroring
+  the engine's `mapPolicyToNarrow` / `keepsNative`.
+- **`Require(FP16)` is now accepted** by `LlamaNetworkLoader`, `QwenNetworkLoader`, and
+  `VoxtralNetworkLoader` (both GGUF and SafeTensors), and **`Require(BF16)` is now accepted on
+  their GGUF paths**. Both previously threw.
+- **Binary-breaking (source-compatible): `DecoderGgufWeightLoader` constructors** gain a
+  trailing `dtypePolicy: DTypePolicy = DTypePolicy.Any`, which changes their JVM descriptors.
+  Kotlin and Java callers compile unchanged; already-compiled callers must be rebuilt.
+  Behaviour with the default is identical to before.
+
+### Fixed
+
+- **`GemmaNetworkLoader` and `ApertusNetworkLoader` no longer accept a `Require(BF16)` they
+  ignore.** Both have their own weight chains (`Gemma4WeightLoader` /
+  `Gemma4SafeTensorsWeightLoader`, `ApertusWeightLoader` / `ApertusSingleSafeTensorsLoader`)
+  which widen every narrow float to FP32 and have no KEEP_NATIVE path. Their SafeTensors
+  entrypoints nevertheless passed `allowBf16Require = true`, so `Require(BF16)` validated and
+  was then silently disregarded at load — the exact failure the eager validator exists to
+  prevent. They now declare `keepNative = emptySet()` and reject it. **Callers relying on the
+  old acceptance must switch to `Prefer(BF16)`** (a soft constraint, which still passes) until
+  those chains grow a KEEP_NATIVE path.
+
 ## [0.36.1] — 2026-07-17
 
 Patch on **0.36.0** (same SKaiNET engine 0.36.0). Two additions: **BGE embedding models** on the
