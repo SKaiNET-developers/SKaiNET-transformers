@@ -5,10 +5,8 @@ import sk.ainet.apps.llm.OptimizedLLMRuntime
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
 import sk.ainet.io.RandomAccessSource
-import sk.ainet.lang.tensor.Shape
-import sk.ainet.lang.tensor.data.Fp16DenseTensorData
+import sk.ainet.lang.tensor.data.NarrowFloatInputMajorTensorData
 import sk.ainet.lang.tensor.data.NarrowFloatTensorData
-import sk.ainet.lang.tensor.data.TensorData
 import sk.ainet.lang.tensor.t
 import sk.ainet.lang.types.BF16
 import sk.ainet.lang.types.DTypePolicy
@@ -22,6 +20,7 @@ import java.nio.file.Files
 import kotlin.math.abs
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 /**
@@ -40,14 +39,13 @@ import kotlin.test.assertTrue
  * values already round-tripped through the codec, so the widened path and the packed path decode
  * the same numbers. [TOLERANCE] covers float accumulation-order differences.
  *
- * **What this does NOT prove.** It does not show that the narrow-float matmul kernel runs. On this
- * chain it does not — see [`narrow weights are materialized to FP32 before matmul`], which pins
- * why. The logits below are bit-identical rather than merely close, because both runs ultimately
- * execute the same FP32 SGEMM; only the moment of decoding differs. [TOLERANCE] stays non-zero so
- * the test keeps passing if a real narrow kernel is ever wired in and shifts accumulation order.
- *
- * The KEEP_NATIVE arm applies to *every* tensor in the file, so this does cover embedding gather
+ * The KEEP_NATIVE arm applies to *every* tensor in the file, so this also covers embedding gather
  * and the RMSNorm weight multiply reading through packed storage.
+ *
+ * Since engine #888 the matmul weights are relaid input-major at load, so the per-forward
+ * transpose is a zero-copy view and the narrow kernel genuinely runs — see
+ * [`matmul weights survive the per-forward transpose still packed`] for that property, and
+ * [`gathered and rank-1 tensors stay row-major`] for the tensors deliberately left alone.
  *
  * [`the parity check would catch a codec mix-up`] is the guard that keeps the tolerance honest.
  *
@@ -64,12 +62,17 @@ class DecoderNarrowFloatForwardParityTest {
     private val seqLen = 32
 
     /**
-     * Absolute logit tolerance. Today both paths converge on the same FP32 SGEMM and agree to the
-     * bit, so this is slack for a future narrow kernel whose accumulation order would differ.
-     * Sized to swallow that and nothing more — the codec mix-up guard measures the margin actually
-     * available and fails if this ever grows large enough to hide a real defect.
+     * Absolute logit tolerance. The two paths now run genuinely different kernels — the narrow
+     * SGEMM against the FP32 one — so they no longer agree bit-for-bit; the measured divergence
+     * is ~7e-9, a couple of ULPs of accumulation-order difference. This sits three orders of
+     * magnitude above that for headroom on other vector widths, and three below the ~1e-2 a codec
+     * mix-up produces. The mix-up guard asserts that margin rather than assuming it.
+     *
+     * Before the input-major relayout landed, these paths *were* bit-identical, because the
+     * per-forward transpose widened the weight and both ended up in the same FP32 SGEMM. A return
+     * to exact equality here would mean the narrow kernel has stopped running.
      */
-    private val TOLERANCE = 1e-4f
+    private val TOLERANCE = 1e-5f
 
     private val metadata = LlamaModelMetadata(
         architecture = "llama",
@@ -181,14 +184,10 @@ class DecoderNarrowFloatForwardParityTest {
 
     // -------------------------------------------------------------- the runs
 
-    /** Load under [policy] and forward [tokens] in order, returning the logits of the last step. */
-    private fun forwardLogits(
-        file: File,
-        policy: DTypePolicy,
-        tokens: IntArray,
-        onWeights: (DecoderGgufWeights<FP32, Float>) -> Unit = {},
-    ): FloatArray {
-        val ctx = DirectCpuExecutionContext()
+    private val ctx = DirectCpuExecutionContext()
+
+    /** Load the synthesized model under [policy]. */
+    private fun loadWeights(file: File, policy: DTypePolicy): DecoderGgufWeights<FP32, Float> {
         val loader = DecoderSafeTensorsLoader(
             ctx = ctx,
             dtype = FP32::class,
@@ -197,7 +196,17 @@ class DecoderNarrowFloatForwardParityTest {
             dtypePolicy = policy,
         )
         val provider: () -> RandomAccessSource = { JvmRandomAccessSource.open(file) }
-        val weights = loader.loadToMap(provider)
+        return loader.loadToMap(provider)
+    }
+
+    /** Load under [policy] and forward [tokens] in order, returning the logits of the last step. */
+    private fun forwardLogits(
+        file: File,
+        policy: DTypePolicy,
+        tokens: IntArray,
+        onWeights: (DecoderGgufWeights<FP32, Float>) -> Unit = {},
+    ): FloatArray {
+        val weights = loadWeights(file, policy)
         onWeights(weights)
 
         val runtime = OptimizedLLMRuntime(
@@ -294,45 +303,70 @@ class DecoderNarrowFloatForwardParityTest {
     }
 
     @Test
-    fun `narrow weights are materialized to FP32 before matmul`() {
-        // Documents the gap between "weights stay packed at rest" and "the narrow kernel runs",
-        // and explains why the parity tests above come out bit-identical instead of merely close.
-        //
-        // SafeTensors stores projections as [out, in]. `LlamaRuntime.linearProject` therefore
-        // calls `w.t()` before the matmul, and transpose has no narrow-float implementation — it
-        // decodes to a plain FP32 dense buffer. Meanwhile `DefaultCpuOpsJvm.chooseQuantizedMatmul`
-        // only engages when the weight is already [in, out]. So on this chain the packed data is
-        // widened on *every* forward, and the FP16/BF16 SGEMM kernels are never reached.
-        //
-        // The saving that survives is at-rest memory. The cost is a per-token decode plus a
-        // transpose allocation. Anyone wiring up the kernel for real has to remove the `.t()` —
-        // when they do, this test should be updated, and the parity tests will start exercising
-        // the kernel path they were written for.
-        val ctx = DirectCpuExecutionContext()
-        val outFeatures = ffDim
-        val inFeatures = dim
-        val values = quantizeFp16(randn(outFeatures * inFeatures, seed = 5))
-
-        @Suppress("UNCHECKED_CAST")
-        val packed = ctx.fromData(
-            Fp16DenseTensorData(Shape(outFeatures, inFeatures), encodeFp16(values))
-                as TensorData<FP32, Float>,
-            FP32::class,
+    fun `matmul weights survive the per-forward transpose still packed`() {
+        // The property the whole feature rests on. Weights arrive [out, in]; `Linear.onForward`
+        // transposes before every matmul. Before engine #888 that transpose widened the tensor
+        // elementwise, so the narrow kernel was unreachable and KEEP_NATIVE was slower than not
+        // using it. The loader now relays matmul weights input-major, which makes the transpose a
+        // zero-copy view — this asserts the weight is still narrow on the far side of it.
+        val file = writeModel(
+            buildHfWeights().map { (n, s, v) -> Triple(n, s, quantizeFp16(v)) },
+            declaredDtype = "F16",
+            encode = ::encodeFp16,
         )
-        assertTrue(packed.data is NarrowFloatTensorData, "precondition: weight starts packed")
+        val weights = loadWeights(file, DTypePolicy.Require(FP16))
 
-        val transposed = packed.t()
+        val ffnGate = weights.tensors[LlamaTensorNames.ffnGate(0)]
+            ?: error("missing ffn_gate")
         assertTrue(
-            transposed.data !is NarrowFloatTensorData,
-            "transpose is expected to widen today; if this now stays packed, the narrow matmul " +
-                "kernel may finally be reachable — revisit the KDoc on this class",
+            ffnGate.data is NarrowFloatInputMajorTensorData,
+            "a matmul weight must be relaid input-major, got ${ffnGate.data::class.simpleName}",
         )
 
-        // ...and the layout the fast path actually requires is the opposite one.
+        val transposed = ffnGate.t()
+        assertTrue(
+            transposed.data is NarrowFloatTensorData,
+            "transpose widened the weight — the narrow kernel is unreachable again",
+        )
         assertEquals(
-            inFeatures, transposed.shape[0],
-            "after t() the weight is [in, out] — the orientation chooseQuantizedMatmul wants, " +
-                "but by then it is no longer narrow",
+            dim, transposed.shape[0],
+            "after t() the weight must be [in, out], the orientation chooseQuantizedMatmul wants",
+        )
+        assertSame(
+            (ffnGate.data as NarrowFloatTensorData).packedData,
+            (transposed.data as NarrowFloatTensorData).packedData,
+            "the transpose must not copy — a copy per forward is the cost being removed",
+        )
+    }
+
+    @Test
+    fun `gathered and rank-1 tensors stay row-major`() {
+        // The counterpart to the test above, and the one that would catch over-applying the
+        // relayout. The token embedding is gathered by row, so input-major storage would stride
+        // exactly the reads it serves; norms are rank-1 and never transposed at all.
+        val file = writeModel(
+            buildHfWeights().map { (n, s, v) -> Triple(n, s, quantizeFp16(v)) },
+            declaredDtype = "F16",
+            encode = ::encodeFp16,
+        )
+        val weights = loadWeights(file, DTypePolicy.Require(FP16))
+
+        val embedding = weights.tensors[LlamaTensorNames.TOKEN_EMBEDDINGS]
+            ?: error("missing token_embd")
+        assertTrue(
+            embedding.data is NarrowFloatTensorData,
+            "the embedding should still be packed — only its layout differs",
+        )
+        assertTrue(
+            embedding.data !is NarrowFloatInputMajorTensorData,
+            "the gathered embedding must stay row-major",
+        )
+
+        val norm = weights.tensors[LlamaTensorNames.attnNorm(0)] ?: error("missing attn_norm")
+        assertEquals(1, norm.shape.rank, "precondition: norms are rank-1")
+        assertTrue(
+            norm.data !is NarrowFloatInputMajorTensorData,
+            "a rank-1 norm must never be relaid — the input-major type rejects rank != 2",
         )
     }
 

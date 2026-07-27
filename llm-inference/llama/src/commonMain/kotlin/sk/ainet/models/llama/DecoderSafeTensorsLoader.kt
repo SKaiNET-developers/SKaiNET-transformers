@@ -13,10 +13,14 @@ import sk.ainet.io.safetensors.StreamingSafeTensorInfo
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.Tensor
 import sk.ainet.apps.llm.DTypePolicyValidation
-import sk.ainet.lang.tensor.data.Bf16DenseTensorData
-import sk.ainet.lang.tensor.data.Fp16DenseTensorData
+import sk.ainet.lang.tensor.data.NarrowFloatDenseTensorData
+import sk.ainet.lang.tensor.data.NarrowFloatInputMajorTensorData
+import sk.ainet.lang.tensor.data.NarrowFloatTensorData
 import sk.ainet.lang.tensor.data.TensorData
 import sk.ainet.lang.types.BF16
+import sk.ainet.lang.types.Bf16Codec
+import sk.ainet.lang.types.Fp16Codec
+import sk.ainet.lang.types.NarrowFloatCodec
 import sk.ainet.lang.types.DType
 import sk.ainet.lang.types.DTypePolicy
 import sk.ainet.lang.types.FP16
@@ -33,9 +37,9 @@ import kotlin.reflect.KClass
  * - Q4 + .qb companion tensor dequantization to FP32
  * - BF16/F16 dequantization to FP32 (default)
  * - **Narrow-float KEEP_NATIVE** when [dtypePolicy] admits BF16 or F16
- *   (SKaiNET 0.38.0): constructs a [Bf16DenseTensorData] / [Fp16DenseTensorData]-backed
- *   tensor so the narrow-float matmul kernel routes via `DefaultCpuOpsJvm`
- *   without a 2× memory blow-up.
+ *   (SKaiNET 0.38.0): keeps the on-disk 2-bytes-per-element buffer so the narrow-float
+ *   matmul kernel can run without a 2× memory blow-up. Matmul weights are relaid
+ *   input-major so the per-forward transpose is free — see [narrowData].
  * - Shape normalization ([1, dim] norms → [dim])
  * - Tied word embeddings (output.weight = token_embd.weight)
  *
@@ -111,7 +115,7 @@ public class DecoderSafeTensorsLoader<T : DType>(
                             // physical encoding — the get/set surface still
                             // returns Float. Mirrors the
                             // `GemmaMemSegConverter` pattern for Q4/Q8.
-                            val data = Bf16DenseTensorData.fromRawBytes(targetShape, bytes)
+                            val data = narrowData(canonicalName, targetShape, bytes, Bf16Codec)
                             @Suppress("UNCHECKED_CAST")
                             ctx.fromData(data as TensorData<T, Float>, dtype) as Tensor<T, Float>
                         } else {
@@ -129,7 +133,7 @@ public class DecoderSafeTensorsLoader<T : DType>(
                             // to the BF16 decode would not throw — it would produce
                             // plausible-looking wrong numbers. The codec carried by
                             // `Fp16DenseTensorData` is what keeps the dispatch honest.
-                            val data = Fp16DenseTensorData.fromRawBytes(targetShape, bytes)
+                            val data = narrowData(canonicalName, targetShape, bytes, Fp16Codec)
                             @Suppress("UNCHECKED_CAST")
                             ctx.fromData(data as TensorData<T, Float>, dtype) as Tensor<T, Float>
                         } else {
@@ -175,6 +179,40 @@ public class DecoderSafeTensorsLoader<T : DType>(
      */
     public fun load(randomAccessProvider: () -> RandomAccessSource): LlamaRuntimeWeights<T> {
         return LlamaWeightMapper.map(loadToMap(randomAccessProvider))
+    }
+
+    /**
+     * Build the KEEP_NATIVE storage for one narrow-float tensor, choosing its byte layout.
+     *
+     * Matmul weights are relaid **input-major** ([NarrowFloatInputMajorTensorData]). Weights are
+     * stored `[out, in]` but the narrow matmul dispatch needs `[in, out]`, so `Linear.onForward`
+     * transposes on every forward pass. A row-major narrow tensor has no fast transpose — it
+     * widens elementwise through boxed `get()`, which measured 206 ms for a 2048×2048 projection
+     * and 4.4 s for 4096×11008, *per weight per token*. Relaying once at load makes that transpose
+     * a zero-copy view (engine issue #888), which is what lets the narrow kernel actually run.
+     *
+     * Two kinds of tensor stay row-major:
+     *
+     *  - **Rank-1 norms.** Never transposed, never matmul'd — relaying them is undefined and
+     *    [NarrowFloatInputMajorTensorData] rejects rank ≠ 2 outright.
+     *  - **The token embedding.** Gathered by row, not multiplied. Input-major storage strides
+     *    those row reads, so relaying it would trade a win we don't get for a loss we would.
+     *    Note this also covers tied embeddings: `output.weight` aliases `token_embd`, so in the
+     *    tied case the output projection stays row-major too and forgoes the transpose win. That
+     *    is deliberate — one shared buffer cannot be optimal for both access patterns.
+     */
+    private fun narrowData(
+        canonicalName: String,
+        shape: Shape,
+        bytes: ByteArray,
+        codec: NarrowFloatCodec,
+    ): NarrowFloatTensorData {
+        val isGatheredEmbedding = canonicalName == LlamaTensorNames.TOKEN_EMBEDDINGS
+        return if (shape.rank == 2 && !isGatheredEmbedding) {
+            NarrowFloatInputMajorTensorData.fromRowMajor(shape, bytes, codec)
+        } else {
+            NarrowFloatDenseTensorData(shape, bytes, codec)
+        }
     }
 
     /**

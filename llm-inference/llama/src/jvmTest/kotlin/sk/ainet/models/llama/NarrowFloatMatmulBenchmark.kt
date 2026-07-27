@@ -6,6 +6,7 @@ import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.tensor.data.Bf16DenseTensorData
 import sk.ainet.lang.tensor.data.DenseFloatArrayTensorData
 import sk.ainet.lang.tensor.data.Fp16DenseTensorData
+import sk.ainet.lang.tensor.data.NarrowFloatInputMajorTensorData
 import sk.ainet.lang.tensor.data.NarrowFloatTensorData
 import sk.ainet.lang.tensor.data.TensorData
 import sk.ainet.lang.tensor.matmul
@@ -26,56 +27,57 @@ import kotlin.test.assertTrue
  *
  * ### What it answers
  *
- * `DecoderNarrowFloatForwardParityTest` established that KEEP_NATIVE is numerically correct but
- * that the FP16/BF16 SGEMM kernels are never reached: both `Linear.onForward` and
- * `LlamaRuntime.linearProject` call `w.t()`, transpose has no narrow-float arm and widens to a
- * dense FP32 buffer, and `DefaultCpuOpsJvm.chooseQuantizedMatmul` only engages for `[in, out]`
- * weights. Wiring the kernel up means a byte relayout at load plus a lazy-transpose arm in the
- * engine — the pattern the K-quants already use. That is only worth doing if the kernel actually
- * wins, so this measures three things at realistic projection sizes:
+ * Originally: is reaching the narrow-float kernel worth the layout work? It was — the answer
+ * became engine issue #888, and this now doubles as the regression guard for that fix.
  *
- *  - **fp32**       — dense FP32 SGEMM. The baseline, and what runs today after the widening.
- *  - **fp16/bf16**  — weight handed over already `[in, out]`, so `chooseQuantizedMatmul` dispatches
- *                     to the narrow kernel. This is the best case the layout work could unlock.
- *  - **transpose**  — narrow weight in the real `[out, in]` orientation, `.t()` then matmul. This
- *                     is what production does per token today, and shows what the widening costs.
+ * Columns:
+ *
+ *  - **fp32**        — dense FP32 SGEMM. The baseline.
+ *  - **fp16/bf16**   — weight handed over already `[in, out]`, so `chooseQuantizedMatmul`
+ *                      dispatches to the narrow kernel. The ceiling.
+ *  - **t()row-maj**  — row-major narrow weight in the real `[out, in]` orientation, `.t()` then
+ *                      matmul. The pre-#888 path: transpose widens it elementwise through boxed
+ *                      `get()`. Still measured, because row-major narrow tensors deliberately
+ *                      keep this behaviour — only the input-major type may be reinterpreted.
+ *  - **t()in-maj**   — same weight relaid input-major at load, so `.t()` is a zero-copy view.
+ *                      What the loader produces for matmul weights now. Should match the direct
+ *                      `fp16`/`bf16` columns; any gap means the transpose is copying again.
  *
  * Dispatch is guaranteed by construction rather than observed: `chooseQuantizedMatmul` requires an
  * FP32 rank-2 input, a rank-2 weight, and `weight.shape[0] == input.shape[1]`. [checkDispatchable]
- * asserts exactly that before timing, so a silent fallback to the generic path cannot be mistaken
- * for a fast kernel.
+ * asserts exactly that before timing, and the input-major weight is asserted to still be narrow
+ * after `.t()`, so a silent fallback to the generic path cannot be mistaken for a fast kernel.
  *
- * ### Baseline, 2026-07-27
+ * ### Baseline, 2026-07-27 (engine 0.38.0-SNAPSHOT with the #888 fix)
  *
- * Intel i7-9750H (AVX2, no AVX-512), 12 threads, OpenJDK 21.0.11, engine 0.38.0-SNAPSHOT.
- * Median ms per call:
+ * Intel i7-9750H (AVX2, no AVX-512), 12 threads, OpenJDK 21.0.11. Median ms per call:
  *
  * ```
- * shape          batch      fp32      fp16      bf16   transpose
- * q_proj  1B         1     3.210    18.601     1.591     206.458
- * q_proj  1B        16    16.449   297.873    11.125     215.698
- * q_proj  8B         1    40.335    73.793    21.472    1318.772
- * q_proj  8B        16    95.954  1166.224    66.227    1358.200
- * ffn_up  8B         1   111.922   197.337    60.372    4367.357
- * ffn_up  8B        16   272.889  3146.712   186.360    4511.455
- * ffn_down 8B        1   109.242   198.977    57.749    2195.538
- * ffn_down 8B       16   274.547  3172.639   177.142    2363.605
+ * shape          batch      fp32       fp16      bf16   t()row-maj  t()in-maj  t()in-maj
+ *                                                           (fp16)     (fp16)     (bf16)
+ * q_proj  1B         1     3.219     18.421     1.521      209.514     18.530      1.499
+ * q_proj  1B        16    16.402    298.912    10.720      224.442    300.323     11.033
+ * q_proj  8B         1    41.016     73.822    21.423     1368.664     74.180     21.254
+ * q_proj  8B        16    98.640   1182.081    67.116     1394.869   1182.299     67.735
+ * ffn_up  8B         1   110.393    199.491    58.476     4465.222    199.678     58.007
+ * ffn_up  8B        16   273.756   3200.778   183.782     4591.961   3201.357    184.874
+ * ffn_down 8B        1   111.234    199.131    58.412     2295.821    201.194     58.759
+ * ffn_down 8B       16   263.774   3191.621   181.348     2397.454   3201.594    180.597
  * ```
  *
  * Three conclusions:
  *
- *  1. **BF16 beats FP32 by 1.5–2.1x everywhere.** At batch 1 the matmul is memory-bandwidth bound,
- *     so halving the weight bytes roughly halves the time. This is the case for doing the layout
- *     work.
- *  2. **FP16 is 2–18x slower, pinned at ~0.5 GFLOP/s regardless of shape or batch** — the signature
- *     of being compute-bound on the decode. Both Panama kernels fill a scratch lane array scalar-wise
- *     before the vector FMA, but BF16's decode is three integer ops while `Fp16Codec.decode` is a
- *     branchy `when` with a subnormal renormalization loop. The fix is engine-side and independent
- *     of layout: use `Float.float16ToFloat` (a JDK 20+ intrinsic) or a branch-free decode.
- *  3. **The `transpose` column is the alarming one.** 0.2–4.5 *seconds* for one projection, because
- *     the generic transpose walks a narrow tensor element by element through `get()`. That is the
- *     path production takes today, per weight, per token. KEEP_NATIVE is not merely un-accelerated
- *     right now — at real model sizes it is unusably slow.
+ *  1. **The relayout removes the transpose cost entirely.** `t()in-maj` matches the direct column
+ *     to within noise at every size, so the zero-copy view holds. Against the old path that is
+ *     4465 ms → 58 ms for `ffn_up` BF16 at batch 1, a 77x reduction, and 209 ms → 1.5 ms for
+ *     `q_proj 1B`. Before this, KEEP_NATIVE was unusably slow at real model sizes.
+ *  2. **BF16 beats FP32 by 1.5–2.1x.** At batch 1 the matmul is memory-bandwidth bound, so halving
+ *     the weight bytes roughly halves the time. This is the win the feature exists for.
+ *  3. **FP16 is still 2–18x slower than FP32**, pinned near 0.5 GFLOP/s regardless of shape or
+ *     batch — compute-bound on the decode, not on layout. Both Panama kernels fill a scratch lane
+ *     array scalar-wise before the vector FMA, but BF16's decode is three integer ops while
+ *     `Fp16Codec.decode` is a branchy `when` with a subnormal renormalization loop. Tracked
+ *     separately as engine issue #887; until it lands, prefer BF16 for speed.
  */
 class NarrowFloatMatmulBenchmark {
 
@@ -161,14 +163,20 @@ class NarrowFloatMatmulBenchmark {
         val ctx = DirectCpuExecutionContext()
         println()
         println("narrow-float matmul vs fp32 SGEMM   (median of timed samples)")
-        println("weight layout [in, out]; 'transpose' is the [out, in] + .t() path production uses today")
+        println("direct columns take the weight already [in, out]; t() columns transpose [out, in] first")
         println()
         println(
-            "%-13s %6s %11s %11s %11s %11s   %s".format(
-                "shape", "batch", "fp32", "fp16", "bf16", "transpose", "verdict",
+            "%-13s %6s %10s %10s %10s %12s %11s %11s   %s".format(
+                "shape", "batch", "fp32", "fp16", "bf16",
+                "t()row-maj", "t()in-maj", "t()in-maj", "verdict",
             ),
         )
-        println("-".repeat(96))
+        println(
+            "%-13s %6s %10s %10s %10s %12s %11s %11s".format(
+                "", "", "", "", "", "(fp16)", "(fp16)", "(bf16)",
+            ),
+        )
+        println("-".repeat(118))
 
         for ((label, inF, outF) in shapes) {
             val raw = weights(inF * outF, seed = inF + outF)
@@ -195,10 +203,28 @@ class NarrowFloatMatmulBenchmark {
                 Bf16DenseTensorData(Shape(inF, outF), bf16Bytes) as TensorData<FP32, Float>,
                 FP32::class,
             )
-            // The production orientation: [out, in], transposed on every call.
+            // The production orientation: [out, in], transposed on every call. Row-major, so the
+            // transpose falls to the generic elementwise path — what production did before #888.
             @Suppress("UNCHECKED_CAST")
             val wFp16Transposed = ctx.fromData(
                 Fp16DenseTensorData(Shape(outF, inF), fp16Bytes) as TensorData<FP32, Float>,
+                FP32::class,
+            )
+            // Same [out, in] orientation, but relaid input-major at load, so `.t()` is a
+            // zero-copy view and the weight reaches the kernel still packed. What the loader
+            // produces for matmul weights now.
+            @Suppress("UNCHECKED_CAST")
+            val wFp16InputMajor = ctx.fromData(
+                NarrowFloatInputMajorTensorData.fromRowMajor(
+                    Shape(outF, inF), fp16Bytes, Fp16Codec,
+                ) as TensorData<FP32, Float>,
+                FP32::class,
+            )
+            @Suppress("UNCHECKED_CAST")
+            val wBf16InputMajor = ctx.fromData(
+                NarrowFloatInputMajorTensorData.fromRowMajor(
+                    Shape(outF, inF), bf16Bytes, Bf16Codec,
+                ) as TensorData<FP32, Float>,
                 FP32::class,
             )
 
@@ -214,6 +240,15 @@ class NarrowFloatMatmulBenchmark {
                 val fp16Ns = measure { x.matmul(wFp16) }
                 val bf16Ns = measure { x.matmul(wBf16) }
                 val transposeNs = measure { x.matmul(wFp16Transposed.t()) }
+                val inMajFp16Ns = measure { x.matmul(wFp16InputMajor.t()) }
+                val inMajBf16Ns = measure { x.matmul(wBf16InputMajor.t()) }
+
+                // The relaid weight must still be packed after `.t()`, or the two columns below
+                // are just re-measuring the generic path under a different name.
+                assertTrue(
+                    wBf16InputMajor.t().data is NarrowFloatTensorData,
+                    "$label: input-major weight widened on transpose — engine #888 arm missing?",
+                )
 
                 // Sanity: the narrow kernel must agree with the FP32 baseline, or the timing is
                 // measuring something that isn't a correct matmul.
@@ -234,26 +269,20 @@ class NarrowFloatMatmulBenchmark {
                 }
 
                 println(
-                    "%-13s %6d %9.3fms %9.3fms %9.3fms %9.3fms   %s".format(
+                    "%-13s %6d %8.3fms %8.3fms %8.3fms %10.3fms %9.3fms %9.3fms   %s".format(
                         label, batch,
-                        fp32Ns / 1e6, fp16Ns / 1e6, bf16Ns / 1e6, transposeNs / 1e6,
+                        fp32Ns / 1e6, fp16Ns / 1e6, bf16Ns / 1e6,
+                        transposeNs / 1e6, inMajFp16Ns / 1e6, inMajBf16Ns / 1e6,
                         verdict,
-                    ),
-                )
-                println(
-                    "%-13s %6s %9.1fGF %9.1fGF %9.1fGF %9s".format(
-                        "", "",
-                        gflops(batch, inF, outF, fp32Ns),
-                        gflops(batch, inF, outF, fp16Ns),
-                        gflops(batch, inF, outF, bf16Ns),
-                        "",
                     ),
                 )
             }
         }
 
         println()
-        println("weight bytes at rest: fp32 = 2x narrow. The 'transpose' column is the per-call cost")
-        println("of the widening that happens today, and is what the layout work would remove.")
+        println("weight bytes at rest: fp32 = 2x narrow.")
+        println("t()row-maj is the pre-#888 path: a row-major narrow weight widened elementwise on")
+        println("every transpose. t()in-maj is the same weight relaid input-major at load, so the")
+        println("transpose is a zero-copy view and the packed weight reaches the kernel.")
     }
 }

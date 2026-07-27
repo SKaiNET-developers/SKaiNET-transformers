@@ -4,14 +4,14 @@ import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
 import sk.ainet.io.RandomAccessSource
 import sk.ainet.lang.tensor.Tensor
-import sk.ainet.lang.tensor.data.Bf16TensorData
 import sk.ainet.lang.tensor.data.FloatArrayTensorData
-import sk.ainet.lang.tensor.data.Fp16DenseTensorData
+import sk.ainet.lang.tensor.data.NarrowFloatInputMajorTensorData
 import sk.ainet.lang.tensor.data.NarrowFloatTensorData
 import sk.ainet.lang.types.BF16
 import sk.ainet.lang.types.DTypePolicy
 import sk.ainet.lang.types.FP16
 import sk.ainet.lang.types.FP32
+import sk.ainet.lang.types.Bf16Codec
 import sk.ainet.lang.types.Fp16Codec
 import java.io.File
 import java.nio.ByteBuffer
@@ -26,12 +26,15 @@ import kotlin.test.assertTrue
  * Pins the narrow-float KEEP_NATIVE behaviour of [DecoderSafeTensorsLoader] — the
  * transformer-repo counterpart of the engine's `SafeTensorsParametersLoaderFp16PolicyTest`.
  *
- * The BF16 arm has existed since 0.25.0; the F16 arm landed with engine 0.38.0's
- * `Fp16DenseTensorData`. What matters here is that the loader resolves the two formats
- * **independently**: both are 2 bytes per element, so routing F16 bytes through the BF16 decode
- * would not throw — it would quietly produce wrong numbers. These tests assert the packed bytes
- * survive verbatim, decode bit-identically to the widening path, and that neither policy leaks
- * into the other format.
+ * The BF16 arm has existed since 0.25.0; the F16 arm landed with engine 0.38.0. What matters here
+ * is that the loader resolves the two formats **independently**: both are 2 bytes per element, so
+ * routing F16 bytes through the BF16 decode would not throw — it would quietly produce wrong
+ * numbers. These tests assert the tensors stay packed, decode bit-identically to the widening
+ * path, and that neither policy leaks into the other format.
+ *
+ * They also pin the layout split introduced with engine #888: matmul weights are relaid
+ * input-major so their per-forward transpose is free, while gathered tensors — the token
+ * embedding — stay row-major and keep their on-disk bytes verbatim.
  *
  * Files are synthesized in-test; no model downloads are involved.
  */
@@ -130,27 +133,53 @@ class DecoderSafeTensorsLoaderNarrowFloatTest {
     }
 
     @Test
-    fun `Require(FP16) keeps the on-disk F16 bytes verbatim`() {
+    fun `Require(FP16) keeps a matmul weight packed, relaid input-major`() {
         val onDisk = fp32ToFp16Bytes(values)
         val file = writeSafeTensors(listOf(Triple(hfName, "F16", onDisk)), 2, 4)
 
         val weight = load(file, DTypePolicy.Require(FP16))[canonical] ?: error("missing $canonical")
+        val data = weight.data
 
+        assertTrue(data is NarrowFloatTensorData, "must be recognizable to narrow dispatch")
         assertTrue(
-            weight.data is Fp16DenseTensorData,
-            "KEEP_NATIVE must produce Fp16DenseTensorData, got ${weight.data::class.simpleName}",
+            data is NarrowFloatInputMajorTensorData,
+            "a matmul weight must be relaid input-major so its per-forward transpose is free " +
+                "(engine #888), got ${data::class.simpleName}",
         )
-        assertTrue(weight.data is NarrowFloatTensorData, "must be recognizable to narrow dispatch")
-        assertTrue(
-            weight.data !is Bf16TensorData,
-            "an F16 tensor must never be mistaken for BF16 — the bit layouts differ",
+        assertEquals(
+            Fp16Codec, (data as NarrowFloatTensorData).codec,
+            "an F16 tensor must never be decoded as BF16 — the bit layouts differ",
         )
-        // Byte-for-byte identity proves no widening pass ran.
+        // No widening pass ran: still 2 bytes per element, and the values round-trip. The bytes
+        // are permuted rather than verbatim now, so the value check is what proves preservation.
+        assertEquals(values.size * 2, data.packedData.size, "must stay 2 bytes per element")
         assertContentEquals(
-            onDisk, (weight.data as Fp16DenseTensorData).packedData,
-            "KEEP_NATIVE must preserve on-disk F16 bytes verbatim",
+            values, data.copyToFloatArray(),
+            "the relayout must permute bytes without changing what the tensor holds",
         )
-        assertEquals(values.size * 2, (weight.data as Fp16DenseTensorData).packedData.size)
+    }
+
+    @Test
+    fun `the gathered embedding keeps its on-disk bytes verbatim`() {
+        // The embedding is read by row, so it is deliberately left row-major — which means it is
+        // also the tensor where byte-for-byte identity with the file still holds.
+        val onDisk = fp32ToFp16Bytes(values)
+        val file = writeSafeTensors(
+            listOf(Triple("model.embed_tokens.weight", "F16", onDisk)), 2, 4,
+        )
+
+        val embedding = load(file, DTypePolicy.Require(FP16))[LlamaTensorNames.TOKEN_EMBEDDINGS]
+            ?: error("missing token_embd")
+
+        assertTrue(embedding.data is NarrowFloatTensorData, "must stay packed")
+        assertTrue(
+            embedding.data !is NarrowFloatInputMajorTensorData,
+            "a gathered tensor must not be relaid — input-major storage strides its row reads",
+        )
+        assertContentEquals(
+            onDisk, (embedding.data as NarrowFloatTensorData).packedData,
+            "the row-major path must preserve on-disk bytes verbatim",
+        )
     }
 
     @Test
@@ -188,22 +217,26 @@ class DecoderSafeTensorsLoaderNarrowFloatTest {
 
         // Require(FP16): F16 stays packed, BF16 widens — it cannot be re-encoded as F16.
         val a = load(file, DTypePolicy.Require(FP16))
-        assertTrue(a[f16Canonical]!!.data is Fp16DenseTensorData, "F16 should be packed")
+        assertEquals(
+            Fp16Codec, (a[f16Canonical]!!.data as NarrowFloatTensorData).codec, "F16 should be packed",
+        )
         assertTrue(a[bf16Canonical]!!.data is FloatArrayTensorData<*>, "BF16 should be widened")
 
         // ...and the mirror image.
         val b = load(file, DTypePolicy.Require(BF16))
         assertTrue(b[f16Canonical]!!.data is FloatArrayTensorData<*>, "F16 should be widened")
-        assertTrue(b[bf16Canonical]!!.data is Bf16TensorData, "BF16 should be packed")
+        assertEquals(
+            Bf16Codec, (b[bf16Canonical]!!.data as NarrowFloatTensorData).codec, "BF16 should be packed",
+        )
     }
 
     @Test
     fun `Prefer and OneOf reach the same KEEP_NATIVE path as Require`() {
         val file = writeSafeTensors(listOf(Triple(hfName, "F16", fp32ToFp16Bytes(values))), 2, 4)
 
-        assertTrue(load(file, DTypePolicy.Prefer(FP16))[canonical]!!.data is Fp16DenseTensorData)
+        assertTrue(load(file, DTypePolicy.Prefer(FP16))[canonical]!!.data is NarrowFloatTensorData)
         assertTrue(
-            load(file, DTypePolicy.OneOf(setOf(FP32, FP16)))[canonical]!!.data is Fp16DenseTensorData,
+            load(file, DTypePolicy.OneOf(setOf(FP32, FP16)))[canonical]!!.data is NarrowFloatTensorData,
         )
         // A soft policy naming neither narrow format leaves the widening default in place.
         assertTrue(load(file, DTypePolicy.Prefer(FP32))[canonical]!!.data is FloatArrayTensorData<*>)
