@@ -72,11 +72,16 @@ class MoonshineV2DecoderBakeTest {
             dec.forwardPrefill(voidF32(Shape(1, seq, cfg.dim)), voidF32(Shape(1, frames, cfg.dim)), c)
         }
         traceGraph("moonshine_v2_decoder_with_past", "MOONSHINE_V2_DEC_WITHPAST_OUT") { c ->
-            val past = System.getenv("DEC_PAST")?.toInt() ?: 1
+            // MOONSHINE_V2_TRUE_DYNAMIC=1 traces the self-cache seq dim (grows per decode step) AND the
+            // cross-cache frames dim (varies per utterance) as Dim.DYNAMIC, so ONE compiled vmfb serves
+            // every decode position and every encoder length. Requires the dynamic-safe tracer + emitter.
+            val trueDynamic = System.getenv("MOONSHINE_V2_TRUE_DYNAMIC") == "1"
+            val past = if (trueDynamic) sk.ainet.lang.tensor.Dim.DYNAMIC else (System.getenv("DEC_PAST")?.toInt() ?: 1)
+            val framesDim = if (trueDynamic) sk.ainet.lang.tensor.Dim.DYNAMIC else frames
             dec.forwardWithPast(
                 voidF32(Shape(1, 1, cfg.dim)), voidF32(Shape(1, hd)), voidF32(Shape(1, hd)),
                 List(L) { voidF32(Shape(1, nh, past, hd)) }, List(L) { voidF32(Shape(1, nh, past, hd)) },
-                List(L) { voidF32(Shape(1, nh, frames, hd)) }, List(L) { voidF32(Shape(1, nh, frames, hd)) }, c,
+                List(L) { voidF32(Shape(1, nh, framesDim, hd)) }, List(L) { voidF32(Shape(1, nh, framesDim, hd)) }, c,
             )
         }
     }
