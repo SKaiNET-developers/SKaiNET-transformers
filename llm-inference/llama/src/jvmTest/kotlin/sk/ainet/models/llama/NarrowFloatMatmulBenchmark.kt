@@ -28,7 +28,8 @@ import kotlin.test.assertTrue
  * ### What it answers
  *
  * Originally: is reaching the narrow-float kernel worth the layout work? It was — the answer
- * became engine issue #888, and this now doubles as the regression guard for that fix.
+ * became engine issue #888, and this now doubles as the regression guard for that fix and for
+ * #887, the FP16 kernel gap it exposed next.
  *
  * Columns:
  *
@@ -48,36 +49,48 @@ import kotlin.test.assertTrue
  * asserts exactly that before timing, and the input-major weight is asserted to still be narrow
  * after `.t()`, so a silent fallback to the generic path cannot be mistaken for a fast kernel.
  *
- * ### Baseline, 2026-07-27 (engine 0.38.0-SNAPSHOT with the #888 fix)
+ * ### Baseline, 2026-07-30 (engine develop with #888, #887 and the BF16 amortization all merged)
  *
  * Intel i7-9750H (AVX2, no AVX-512), 12 threads, OpenJDK 21.0.11. Median ms per call:
  *
  * ```
  * shape          batch      fp32       fp16      bf16   t()row-maj  t()in-maj  t()in-maj
  *                                                           (fp16)     (fp16)     (bf16)
- * q_proj  1B         1     3.219     18.421     1.521      209.514     18.530      1.499
- * q_proj  1B        16    16.402    298.912    10.720      224.442    300.323     11.033
- * q_proj  8B         1    41.016     73.822    21.423     1368.664     74.180     21.254
- * q_proj  8B        16    98.640   1182.081    67.116     1394.869   1182.299     67.735
- * ffn_up  8B         1   110.393    199.491    58.476     4465.222    199.678     58.007
- * ffn_up  8B        16   273.756   3200.778   183.782     4591.961   3201.357    184.874
- * ffn_down 8B        1   111.234    199.131    58.412     2295.821    201.194     58.759
- * ffn_down 8B       16   263.774   3191.621   181.348     2397.454   3201.594    180.597
+ * q_proj  1B         1     5.352      3.129     1.513      212.110      3.051      1.529
+ * q_proj  1B        16    16.556     10.716     9.261      218.329     10.498      9.187
+ * q_proj  8B         1    40.002     26.276    20.951     1373.229     26.626     20.975
+ * q_proj  8B        16    95.454     58.566    53.329     1417.367     59.053     53.533
+ * ffn_up  8B         1   108.667     71.156    57.428     4389.079     72.150     57.153
+ * ffn_up  8B        16   271.129    159.255   143.489     4506.450    155.102    139.751
+ * ffn_down 8B        1   107.462     70.868    56.134     2216.040     70.862     55.819
+ * ffn_down 8B       16   263.130    155.509   141.947     2383.415    155.820    143.709
  * ```
  *
- * Three conclusions:
+ * `q_proj 1B` at batch 1 is the shortest measurement here and the noisiest: its FP32 sample came
+ * out at 5.35 ms against a 3.09–3.22 ms cluster in repeat runs, so read that row's ratios with
+ * suspicion. The other seven are stable across runs.
+ *
+ * Four conclusions:
  *
  *  1. **The relayout removes the transpose cost entirely.** `t()in-maj` matches the direct column
  *     to within noise at every size, so the zero-copy view holds. Against the old path that is
- *     4465 ms → 58 ms for `ffn_up` BF16 at batch 1, a 77x reduction, and 209 ms → 1.5 ms for
+ *     4389 ms → 57 ms for `ffn_up` BF16 at batch 1, a 77x reduction, and 212 ms → 1.5 ms for
  *     `q_proj 1B`. Before this, KEEP_NATIVE was unusably slow at real model sizes.
- *  2. **BF16 beats FP32 by 1.5–2.1x.** At batch 1 the matmul is memory-bandwidth bound, so halving
- *     the weight bytes roughly halves the time. This is the win the feature exists for.
- *  3. **FP16 is still 2–18x slower than FP32**, pinned near 0.5 GFLOP/s regardless of shape or
- *     batch — compute-bound on the decode, not on layout. Both Panama kernels fill a scratch lane
- *     array scalar-wise before the vector FMA, but BF16's decode is three integer ops while
- *     `Fp16Codec.decode` is a branchy `when` with a subnormal renormalization loop. Tracked
- *     separately as engine issue #887; until it lands, prefer BF16 for speed.
+ *  2. **Both narrow formats now beat FP32** — BF16 by 1.8–1.9x, FP16 by 1.5–1.7x — at every shape
+ *     and both batch sizes. Halving the weight bytes is most of it.
+ *  3. **FP16 trails BF16 by only 10–24%**, which is the cost of its dequant: BF16 is one shift,
+ *     binary16 needs rebiasing and gradual underflow. It used to trail by 2–18x, and the cause was
+ *     not the decode at all — `NativeKernelProvider` carried `matmulBf16` but no `matmulFp16`, so
+ *     BF16 ran the native FFM kernel at priority 100 while FP16 silently cascaded to the JVM
+ *     Panama kernel at 50. Head to head the two Panama kernels are within ~15% of each other.
+ *     Fixed by #887; the lesson is that a dtype benchmarking far off its siblings is more likely
+ *     served by a different provider than by a worse kernel.
+ *  4. **These kernels are compute-bound at batch 16, not bandwidth-bound.** Both native kernels
+ *     now tile `j` and read B once per matmul instead of once per row of A, cutting B traffic 16x
+ *     at m=16 — and that bought only 9–19%. Whatever is left is the FMA chain, so the next real
+ *     win is a blocked microkernel or `bfdot`/`bfmmla` on ARMv8.6-A+, not more layout work.
+ *     At m=1 both kernels deliberately keep the straight i-p-j pass: there is nothing to amortize,
+ *     and tiling cost 15% there.
  */
 class NarrowFloatMatmulBenchmark {
 
