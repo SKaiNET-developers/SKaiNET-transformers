@@ -23,13 +23,13 @@ class DTypePolicyValidationTest {
     private val bothNarrow = setOf(BF16, FP16)
 
     @Test
-    fun `Require(FP32) is always accepted — every chain produces FP32`() {
+    fun `Require FP32 is always accepted — every chain produces FP32`() {
         DTypePolicyValidation.validate(DTypePolicy.Require(FP32), "test", keepNative = emptySet())
         DTypePolicyValidation.validate(DTypePolicy.Require(FP32), "test", keepNative = bothNarrow)
     }
 
     @Test
-    fun `soft policies never raise, whatever they name`() {
+    fun `soft policies never raise whatever they name`() {
         for (keepNative in listOf(emptySet(), bothNarrow)) {
             DTypePolicyValidation.validate(DTypePolicy.Any, "test", keepNative)
             DTypePolicyValidation.validate(DTypePolicy.Prefer(BF16), "test", keepNative)
