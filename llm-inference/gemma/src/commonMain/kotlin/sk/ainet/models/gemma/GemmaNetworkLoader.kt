@@ -41,8 +41,11 @@ public class GemmaNetworkLoader @PublishedApi internal constructor(
 
     /** See [sk.ainet.models.llama.LlamaNetworkLoader.withDtypePolicy]. */
     public fun withDtypePolicy(policy: DTypePolicy): GemmaNetworkLoader {
-        val allowBf16 = weightsProvider is WeightsProvider.SafeTensorsIndex
-        DTypePolicyValidation.validate(policy, "GemmaNetworkLoader.withDtypePolicy", allowBf16Require = allowBf16)
+        // Gemma has its own weight chain (`Gemma4WeightLoader` / `Gemma4SafeTensorsWeightLoader`),
+        // which widens every narrow float to FP32 — it has no KEEP_NATIVE path yet, unlike the
+        // shared decoder chain LLaMA/Qwen/Voxtral use. So it promises nothing and `Require(BF16)`
+        // is rejected rather than accepted-and-ignored.
+        DTypePolicyValidation.validate(policy, "GemmaNetworkLoader.withDtypePolicy", keepNative = emptySet())
         this.dtypePolicy = policy
         return this
     }

@@ -19,10 +19,10 @@ public final class sk/ainet/models/llama/DecoderGgufMemSegConverterKt {
 
 public final class sk/ainet/models/llama/DecoderGgufWeightLoader {
 	public static final field Dequant Lsk/ainet/models/llama/DecoderGgufWeightLoader$Dequant;
-	public fun <init> (Lkotlin/jvm/functions/Function0;Lsk/ainet/io/model/QuantPolicy;Ljava/util/Set;)V
-	public synthetic fun <init> (Lkotlin/jvm/functions/Function0;Lsk/ainet/io/model/QuantPolicy;Ljava/util/Set;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public fun <init> (Lkotlin/jvm/functions/Function0;ZLsk/ainet/io/model/QuantPolicy;Ljava/util/Set;)V
-	public synthetic fun <init> (Lkotlin/jvm/functions/Function0;ZLsk/ainet/io/model/QuantPolicy;Ljava/util/Set;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lkotlin/jvm/functions/Function0;Lsk/ainet/io/model/QuantPolicy;Ljava/util/Set;Lsk/ainet/lang/types/DTypePolicy;)V
+	public synthetic fun <init> (Lkotlin/jvm/functions/Function0;Lsk/ainet/io/model/QuantPolicy;Ljava/util/Set;Lsk/ainet/lang/types/DTypePolicy;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lkotlin/jvm/functions/Function0;ZLsk/ainet/io/model/QuantPolicy;Ljava/util/Set;Lsk/ainet/lang/types/DTypePolicy;)V
+	public synthetic fun <init> (Lkotlin/jvm/functions/Function0;ZLsk/ainet/io/model/QuantPolicy;Ljava/util/Set;Lsk/ainet/lang/types/DTypePolicy;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun load (Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;Lkotlin/jvm/functions/Function2;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun loadStreaming (Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;Lkotlin/jvm/functions/Function2;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun loadToMap (Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
@@ -46,6 +46,10 @@ public final class sk/ainet/models/llama/DecoderGgufWeights {
 	public final fun getTensors ()Ljava/util/Map;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/models/llama/DecoderNarrowFloatSupportKt {
+	public static final fun getDECODER_NARROW_KEEP_NATIVE ()Ljava/util/Set;
 }
 
 public final class sk/ainet/models/llama/DecoderSafeTensorsLoader {

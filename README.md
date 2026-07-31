@@ -368,6 +368,12 @@ See `llm-test/llm-test-java/src/test/java/.../KLlamaJavaToolCallingTest.java` fo
 
 ## What's new in 0.25.0
 
+> **Superseded (unreleased, engine 0.38.0).** The narrow-float limits described below are gone:
+> the GGUF chain now honors `DTypePolicy` and keeps F16/BF16 packed, `Require(FP16)` is accepted
+> alongside `Require(BF16)`, and the two formats are resolved independently. Conversely, Gemma
+> and Apertus now *reject* `Require(BF16)` — their own weight chains never honored it. See the
+> `[Unreleased]` section of [CHANGELOG.md](CHANGELOG.md).
+
 - **`DTypePolicy` on every `*NetworkLoader.fromGguf` / `.fromSafeTensors`
   entry.** A sealed `DTypePolicy` type (`Any | Require | Prefer | OneOf`,
   upstream of SKaiNET 0.25.0) is now accepted on every loader companion in

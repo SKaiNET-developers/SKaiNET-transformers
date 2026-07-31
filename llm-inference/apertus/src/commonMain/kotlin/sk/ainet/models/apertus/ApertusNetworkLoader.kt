@@ -40,8 +40,9 @@ public class ApertusNetworkLoader @PublishedApi internal constructor(
 
     /** See [sk.ainet.models.llama.LlamaNetworkLoader.withDtypePolicy]. */
     public fun withDtypePolicy(policy: DTypePolicy): ApertusNetworkLoader {
-        val allowBf16 = weightsProvider is WeightsProvider.SafeTensorsSingle
-        DTypePolicyValidation.validate(policy, "ApertusNetworkLoader.withDtypePolicy", allowBf16Require = allowBf16)
+        // As Gemma: `ApertusWeightLoader` / `ApertusSingleSafeTensorsLoader` widen every narrow
+        // float to FP32, so this loader keeps nothing packed and promises nothing.
+        DTypePolicyValidation.validate(policy, "ApertusNetworkLoader.withDtypePolicy", keepNative = emptySet())
         this.dtypePolicy = policy
         return this
     }

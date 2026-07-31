@@ -2,6 +2,7 @@ package sk.ainet.models.llama
 
 import kotlinx.io.Source
 import kotlinx.io.buffered
+import sk.ainet.apps.llm.DTypePolicyValidation
 import sk.ainet.context.ExecutionContext
 import sk.ainet.io.RandomAccessSource
 import sk.ainet.io.gguf.GGMLQuantizationType
@@ -15,7 +16,13 @@ import sk.ainet.io.gguf.dequant.DequantOps
 import sk.ainet.io.model.QuantPolicy
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.Tensor
+import sk.ainet.lang.tensor.data.Bf16DenseTensorData
+import sk.ainet.lang.tensor.data.Fp16DenseTensorData
+import sk.ainet.lang.tensor.data.NarrowFloatTensorData
+import sk.ainet.lang.tensor.data.TensorData
+import sk.ainet.lang.types.BF16
 import sk.ainet.lang.types.DType
+import sk.ainet.lang.types.DTypePolicy
 import sk.ainet.lang.types.FP16
 import sk.ainet.lang.types.FP32
 import sk.ainet.lang.types.Int8
@@ -76,8 +83,20 @@ public class DecoderGgufWeightLoader private constructor(
     private val randomAccessProvider: (() -> RandomAccessSource)?,
     private val loadTensorData: Boolean = true,
     private val quantPolicy: QuantPolicy = QuantPolicy.RAW_BYTES,
-    private val acceptedArchitectures: Set<String> = setOf("llama")
+    private val acceptedArchitectures: Set<String> = setOf("llama"),
+    private val dtypePolicy: DTypePolicy = DTypePolicy.Any,
 ) {
+    /**
+     * Keep `F16` source tensors in their on-disk 2-bytes-per-element layout instead of widening
+     * them to FP32. Resolved from [dtypePolicy] exactly as the engine's
+     * `StreamingGgufParametersLoader.keepsNative` does, so a policy carried down from
+     * `LlamaNetworkLoader.withDtypePolicy` means the same thing on both sides.
+     */
+    private val keepF16Native: Boolean = DTypePolicyValidation.keepsNative(dtypePolicy, FP16)
+
+    /** As [keepF16Native], for `BF16` sources. Resolved independently — see [keepsNarrowNative]. */
+    private val keepBf16Native: Boolean = DTypePolicyValidation.keepsNative(dtypePolicy, BF16)
+
     /**
      * Primary constructor for sequential Source-based loading.
      * Loads entire file into memory - suitable for models under 2GB.
@@ -85,18 +104,22 @@ public class DecoderGgufWeightLoader private constructor(
      * @param acceptedArchitectures GGUF architecture strings accepted by this loader.
      *   Defaults to `setOf("llama")`. Consumers loading compatible architectures
      *   (e.g. Qwen, Mistral) pass their own set — no changes needed here.
+     * @param dtypePolicy narrow-float handling. Default [DTypePolicy.Any] widens F16/BF16
+     *   sources to FP32; a policy naming BF16 or FP16 keeps that format packed.
      */
     public constructor(
         sourceProvider: () -> Source,
         loadTensorData: Boolean = true,
         quantPolicy: QuantPolicy = QuantPolicy.RAW_BYTES,
-        acceptedArchitectures: Set<String> = setOf("llama")
+        acceptedArchitectures: Set<String> = setOf("llama"),
+        dtypePolicy: DTypePolicy = DTypePolicy.Any,
     ) : this(
         sourceProvider = sourceProvider,
         randomAccessProvider = null,
         loadTensorData = loadTensorData,
         quantPolicy = quantPolicy,
-        acceptedArchitectures = acceptedArchitectures
+        acceptedArchitectures = acceptedArchitectures,
+        dtypePolicy = dtypePolicy,
     )
 
     /**
@@ -111,13 +134,15 @@ public class DecoderGgufWeightLoader private constructor(
     public constructor(
         randomAccessProvider: () -> RandomAccessSource,
         quantPolicy: QuantPolicy = QuantPolicy.RAW_BYTES,
-        acceptedArchitectures: Set<String> = setOf("llama")
+        acceptedArchitectures: Set<String> = setOf("llama"),
+        dtypePolicy: DTypePolicy = DTypePolicy.Any,
     ) : this(
         sourceProvider = null,
         randomAccessProvider = randomAccessProvider,
         loadTensorData = true,  // Ignored for streaming
         quantPolicy = quantPolicy,
-        acceptedArchitectures = acceptedArchitectures
+        acceptedArchitectures = acceptedArchitectures,
+        dtypePolicy = dtypePolicy,
     )
 
     /**
@@ -574,12 +599,16 @@ public class DecoderGgufWeightLoader private constructor(
                         require(dtype == FP32::class || dtype == FP16::class) {
                             "Dequantizing ${st.tensorType} requires dtype FP32 or FP16; got ${dtype.simpleName}"
                         }
-                        val floats = when (st.tensorType) {
-                            GGMLQuantizationType.F16 -> dequantF16FromBytes(bytes)
-                            GGMLQuantizationType.BF16 -> dequantBF16FromBytes(bytes)
-                            else -> error("Unreachable")
+                        if (keepsNarrowNative(st.tensorType, dtype)) {
+                            createNarrowTensor(ctx, dtype, shape, bytes, st.tensorType)
+                        } else {
+                            val floats = when (st.tensorType) {
+                                GGMLQuantizationType.F16 -> dequantF16FromBytes(bytes)
+                                GGMLQuantizationType.BF16 -> dequantBF16FromBytes(bytes)
+                                else -> error("Unreachable")
+                            }
+                            createTensor(ctx, dtype, shape, floats)
                         }
-                        createTensor(ctx, dtype, shape, floats)
                     }
                 }
             }
@@ -904,6 +933,62 @@ public class DecoderGgufWeightLoader private constructor(
         }
     }
 
+    /**
+     * Whether a GGUF tensor of [tensorType] should keep its on-disk 16-bit bytes.
+     *
+     * KEEP_NATIVE is restricted to `dtype == FP32` — that is the declared dtype the packed
+     * tensor presents to consumers (`get` decodes to `Float`), matching the SafeTensors path.
+     * An explicit `FP16::class` request is a storage-format ask for the FP32-array path and is
+     * left on the widening route rather than silently reinterpreted.
+     */
+    internal fun <T : DType> keepsNarrowNative(tensorType: GGMLQuantizationType, dtype: KClass<T>): Boolean =
+        dtype == FP32::class && when (tensorType) {
+            GGMLQuantizationType.F16 -> keepF16Native
+            GGMLQuantizationType.BF16 -> keepBf16Native
+            else -> false
+        }
+
+    /**
+     * Wrap packed 16-bit GGUF bytes as a narrow-float tensor — the KEEP_NATIVE counterpart of
+     * [createTensor], and it must mirror that function's layout handling exactly.
+     *
+     * For rank 2 that means swapping the shape to `[cols, rows]` and **moving no bytes**.
+     * GGUF's header dims are reversed relative to the logical row-major shape, so the
+     * column-major → row-major step is a reinterpretation, not a permutation — which is why
+     * `DequantOps.transposeColumnMajorToRowMajor` returns its input untouched and
+     * [createTensor] only rebuilds the `Shape`. Doing an actual element transpose here would
+     * hand the matmul kernel a silently transposed weight matrix.
+     *
+     * The result is genuinely zero-copy: the on-disk buffer becomes the tensor's storage.
+     */
+    @Suppress("UNCHECKED_CAST")
+    internal fun <T : DType, V> createNarrowTensor(
+        ctx: ExecutionContext,
+        dtype: KClass<T>,
+        originalShape: Shape,
+        bytes: ByteArray,
+        tensorType: GGMLQuantizationType,
+    ): Tensor<T, V> {
+        val shape = if (originalShape.rank == 2) {
+            Shape(originalShape[1], originalShape[0])
+        } else {
+            originalShape
+        }
+
+        val required = shape.volume * NarrowFloatTensorData.BYTES_PER_ELEMENT
+        require(bytes.size >= required) {
+            "Narrow-float buffer of ${bytes.size} bytes is short of the $required bytes needed " +
+                "for a ${shape.dimensions.toList()} $tensorType tensor"
+        }
+
+        val data = when (tensorType) {
+            GGMLQuantizationType.F16 -> Fp16DenseTensorData.fromRawBytes(shape, bytes)
+            GGMLQuantizationType.BF16 -> Bf16DenseTensorData.fromRawBytes(shape, bytes)
+            else -> error("createNarrowTensor called with non-narrow type $tensorType")
+        }
+        return ctx.fromData(data as TensorData<T, Float>, dtype) as Tensor<T, V>
+    }
+
     private fun <T : DType, V> readerTensorToTensor(
         ctx: ExecutionContext,
         dtype: KClass<T>,
@@ -937,12 +1022,18 @@ public class DecoderGgufWeightLoader private constructor(
                             "Dequantizing ${rt.tensorType} requires dtype FP32 or FP16; got ${dtype.simpleName}"
                         }
                         val raw = if (rt.data.isEmpty()) reader.materialize(rt) else rt.data
-                        val floats = when (rt.tensorType) {
-                            GGMLQuantizationType.F16 -> dequantF16(raw)
-                            GGMLQuantizationType.BF16 -> dequantBF16(raw)
-                            else -> error("Unsupported native type ${rt.tensorType}")
+                        if (keepsNarrowNative(rt.tensorType, dtype)) {
+                            createNarrowTensor(
+                                ctx, dtype, shape, DequantOps.toByteArray(raw, rt.name), rt.tensorType,
+                            )
+                        } else {
+                            val floats = when (rt.tensorType) {
+                                GGMLQuantizationType.F16 -> dequantF16(raw)
+                                GGMLQuantizationType.BF16 -> dequantBF16(raw)
+                                else -> error("Unsupported native type ${rt.tensorType}")
+                            }
+                            createTensor(ctx, dtype, shape, floats)
                         }
-                        createTensor(ctx, dtype, shape, floats)
                     }
                 }
             }

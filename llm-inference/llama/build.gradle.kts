@@ -81,4 +81,7 @@ kotlin {
 tasks.withType<Test>().configureEach {
     jvmArgs("--enable-preview", "--add-modules", "jdk.incubator.vector", "-XX:MaxDirectMemorySize=12g")
     maxHeapSize = "6g"
+    // Opt-in gate for NarrowFloatMatmulBenchmark, which is a measurement rather than a test and
+    // stays skipped unless explicitly requested. Gradle does not forward -D to the test JVM.
+    System.getProperty("skainet.bench.narrow")?.let { systemProperty("skainet.bench.narrow", it) }
 }

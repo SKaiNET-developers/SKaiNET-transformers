@@ -18,13 +18,14 @@ import sk.ainet.lang.types.Int8
  *   - the default value is [DTypePolicy.Any];
  *   - `withDtypePolicy(Require(FP32))` always succeeds (it's the loader's
  *     native output dtype);
- *   - `withDtypePolicy(Require(BF16))` succeeds **only** for SafeTensors-
- *     backed loaders — the GGUF path mirrors the engine's eager rejection
- *     in `StreamingGgufParametersLoader.validatePolicy()` because the
- *     transformer-repo GGUF chain still dequants BF16 to FP32;
- *   - `withDtypePolicy(Require(FP16))` / `Require(Int8)` etc. always
- *     reject — the loader doesn't fabricate dtypes the source files
- *     don't carry.
+ *   - `withDtypePolicy(Require(BF16))` and `Require(FP16)` succeed on
+ *     **both** paths as of engine 0.38.0: `DecoderSafeTensorsLoader` and
+ *     `DecoderGgufWeightLoader` each keep narrow-float sources in their
+ *     on-disk 2-bytes-per-element layout (see
+ *     [DECODER_NARROW_KEEP_NATIVE]). Before that, GGUF rejected BF16 and
+ *     both paths rejected FP16 for want of an `Fp16DenseTensorData`;
+ *   - `withDtypePolicy(Require(Int8))` etc. still reject — the loader
+ *     doesn't fabricate dtypes the source files don't carry;
  *   - `Prefer` / `OneOf` arms never raise (they're soft constraints).
  *
  * No model files are read — these tests only construct loader instances
@@ -69,29 +70,27 @@ class LlamaNetworkLoaderDTypePolicyTest {
     }
 
     @Test
-    fun `Require(BF16) is accepted on SafeTensors but rejected on GGUF`() {
+    fun `Require(BF16) is accepted on both GGUF and SafeTensors paths`() {
         val safetensors = LlamaNetworkLoader.fromSafeTensors(
             metadata = anyMetadata, randomAccessProvider = noopRandomAccessProvider,
         ).withDtypePolicy(DTypePolicy.Require(BF16))
         assertEquals(DTypePolicy.Require(BF16), safetensors.dtypePolicy)
 
-        assertFailsWith<IllegalArgumentException> {
-            LlamaNetworkLoader.fromGguf(sourceProvider = noopSourceProvider)
-                .withDtypePolicy(DTypePolicy.Require(BF16))
-        }
+        val gguf = LlamaNetworkLoader.fromGguf(sourceProvider = noopSourceProvider)
+            .withDtypePolicy(DTypePolicy.Require(BF16))
+        assertEquals(DTypePolicy.Require(BF16), gguf.dtypePolicy)
     }
 
     @Test
-    fun `Require(FP16) is rejected on both paths`() {
-        assertFailsWith<IllegalArgumentException> {
-            LlamaNetworkLoader.fromGguf(sourceProvider = noopSourceProvider)
-                .withDtypePolicy(DTypePolicy.Require(FP16))
-        }
-        assertFailsWith<IllegalArgumentException> {
-            LlamaNetworkLoader.fromSafeTensors(
-                metadata = anyMetadata, randomAccessProvider = noopRandomAccessProvider,
-            ).withDtypePolicy(DTypePolicy.Require(FP16))
-        }
+    fun `Require(FP16) is accepted on both GGUF and SafeTensors paths`() {
+        val gguf = LlamaNetworkLoader.fromGguf(sourceProvider = noopSourceProvider)
+            .withDtypePolicy(DTypePolicy.Require(FP16))
+        assertEquals(DTypePolicy.Require(FP16), gguf.dtypePolicy)
+
+        val safetensors = LlamaNetworkLoader.fromSafeTensors(
+            metadata = anyMetadata, randomAccessProvider = noopRandomAccessProvider,
+        ).withDtypePolicy(DTypePolicy.Require(FP16))
+        assertEquals(DTypePolicy.Require(FP16), safetensors.dtypePolicy)
     }
 
     @Test
