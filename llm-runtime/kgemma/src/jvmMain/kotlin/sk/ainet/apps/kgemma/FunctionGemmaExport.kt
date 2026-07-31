@@ -241,7 +241,17 @@ public object FunctionGemmaExport {
         // Trace at a CONCRETE length so `concat` shape-inference is valid (a `-1` placeholder
         // mis-infers `-1 + 1 = 0` → broken `1x1x0x256` output caches). For the dynamic graph we
         // trace at the sentinel prime and relax it to `?` after emit (see relaxSeqDimToDynamic).
-        val pastDim = if (dynamicPast) SENTINEL_PAST else past
+        // GEMMA_TRUE_DYNAMIC=1: thread a real dynamic extent (Dim.DYNAMIC) straight through the trace
+        // instead of the sentinel-prime + post-emit text-relax. Requires the dynamic-safe tracer (concat
+        // and reshape propagate a dynamic dim) and the dynamic-safe emitter (dynamic_broadcast_in_dim);
+        // no text-relax needed. Verified to iree-compile the with_past graph (vs the sentinel path, which
+        // does not). Kept env-gated so the default export path is unchanged until the core release lands.
+        val trueDynamic = System.getenv("GEMMA_TRUE_DYNAMIC") == "1"
+        val pastDim = when {
+            !dynamicPast -> past
+            trueDynamic -> sk.ainet.lang.tensor.Dim.DYNAMIC
+            else -> SENTINEL_PAST
+        }
 
         val tokenId = voidF32(Shape(1))
         val cosG = voidF32(Shape(1, headDim)); val sinG = voidF32(Shape(1, headDim))
@@ -273,7 +283,7 @@ public object FunctionGemmaExport {
             .createBasic(ConstantMaterializationPolicy.ExternalAlways(scope = "model"))
             .convert(graph, "gemma_with_past")
         var mlir = if (bf16) rewriteGlobalsToBf16(module.content) else module.content
-        if (dynamicPast) mlir = relaxSeqDimToDynamic(mlir)
+        if (dynamicPast && !trueDynamic) mlir = relaxSeqDimToDynamic(mlir)
         File(outDir).apply { mkdirs() }
         File(outDir, "gemma-with-past.mlir").writeText(mlir)
         mlir

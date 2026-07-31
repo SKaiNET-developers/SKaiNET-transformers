@@ -222,6 +222,7 @@ public class MultiHeadAttention<T : DType, V>(
         input: Tensor<T, V>,
         encoderMemory: Tensor<T, V>?,
         ctx: ExecutionContext,
+        crossMask: Tensor<T, V>? = null,
     ): AttentionKV<T, V> {
         val boundInput = input.bind(ctx)
         return if (encoderMemory == null) {
@@ -231,7 +232,7 @@ public class MultiHeadAttention<T : DType, V>(
                 "MultiHeadAttention.forwardWithKV: cross-attention supports neither kvCache nor slidingWindow."
             }
             val boundMemory = encoderMemory.bind(ctx)
-            attentionImpl(qInput = boundInput, kvInput = boundMemory, isCrossAttention = true, ctx = ctx)
+            attentionImpl(qInput = boundInput, kvInput = boundMemory, isCrossAttention = true, ctx = ctx, crossMask = crossMask)
         }
     }
 
@@ -271,6 +272,7 @@ public class MultiHeadAttention<T : DType, V>(
         kvInput: Tensor<T, V>,
         isCrossAttention: Boolean,
         ctx: ExecutionContext,
+        crossMask: Tensor<T, V>? = null,
     ): AttentionKV<T, V> {
         val ops = ctx.ops
         val scale = attentionScale ?: (1.0f / sqrt(headDim.toFloat()))
@@ -434,12 +436,14 @@ public class MultiHeadAttention<T : DType, V>(
         // ordering between decoder query positions and encoder memory frames.
         val useCausalPath = !isCrossAttention && causal && slidingMask == null
 
-        // Scaled dot-product attention
+        // Scaled dot-product attention. `crossMask` (additive, e.g. [1,1,1,seqKV]) masks padded encoder-memory
+        // frames when the cross cache is fixed-max-padded (streaming) — used only on the cross path, where
+        // slidingMask is guaranteed null.
         val attnOut = ops.scaledDotProductAttention(
             query = qBatched,
             key = kBatched,
             value = vBatched,
-            mask = slidingMask,
+            mask = slidingMask ?: crossMask,
             scale = scale,
             causal = useCausalPath
         )

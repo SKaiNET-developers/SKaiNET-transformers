@@ -177,11 +177,12 @@ public class MoonshineDecoderLayer<T : DType, V>(
         input: Tensor<T, V>,
         encoderMemory: Tensor<T, V>,
         ctx: ExecutionContext,
+        crossMask: Tensor<T, V>? = null,
     ): MoonshineLayerKV<T, V> {
         val ops = ctx.ops
         val selfKV = selfAttn.forwardWithKV(selfNorm.forward(input, ctx), null, ctx)
         val afterSelf = ops.add(input, selfKV.output)
-        val crossKV = crossAttn.forwardWithKV(crossNorm.forward(afterSelf, ctx), encoderMemory, ctx)
+        val crossKV = crossAttn.forwardWithKV(crossNorm.forward(afterSelf, ctx), encoderMemory, ctx, crossMask)
         val afterCross = ops.add(afterSelf, crossKV.output)
         val h = mlpFc1.forward(mlpNorm.forward(afterCross, ctx), ctx)
         val lastDim = h.rank - 1
@@ -212,6 +213,7 @@ public class MoonshineDecoderLayer<T : DType, V>(
         crossKIn: Tensor<T, V>,
         crossVIn: Tensor<T, V>,
         ctx: ExecutionContext,
+        crossMask: Tensor<T, V>? = null,
     ): MoonshinePastKV<T, V> {
         val ops = ctx.ops
         // --- self-attention: project, RoPE@runtime-position (cos/sin fed in), append + attend ---
@@ -224,7 +226,7 @@ public class MoonshineDecoderLayer<T : DType, V>(
         val afterSelf = ops.add(input, sdpaMerge(selfAttn, q, fullK, fullV, ctx))
         // --- cross-attention: project Q only, attend over the CACHED cross K/V ---
         val cq = projHeads(crossAttn, crossNorm.forward(afterSelf, ctx), 0, ctx)
-        val afterCross = ops.add(afterSelf, sdpaMerge(crossAttn, cq, crossKIn, crossVIn, ctx))
+        val afterCross = ops.add(afterSelf, sdpaMerge(crossAttn, cq, crossKIn, crossVIn, ctx, crossMask))
         // --- gated SiLU MLP ---
         val h = mlpFc1.forward(mlpNorm.forward(afterCross, ctx), ctx)
         val ld = h.rank - 1
@@ -240,12 +242,13 @@ public class MoonshineDecoderLayer<T : DType, V>(
     }
 
     // SDPA over cached K/V then output projection. q [nHeads,1,headDim]; k/v [1,nHeads,S,headDim].
-    private fun sdpaMerge(mha: MultiHeadAttention<T, V>, q: Tensor<T, V>, k: Tensor<T, V>, v: Tensor<T, V>, ctx: ExecutionContext): Tensor<T, V> {
+    private fun sdpaMerge(mha: MultiHeadAttention<T, V>, q: Tensor<T, V>, k: Tensor<T, V>, v: Tensor<T, V>, ctx: ExecutionContext, mask: Tensor<T, V>? = null): Tensor<T, V> {
         val ops = ctx.ops
         val o = ops.scaledDotProductAttention(
             query = ops.unsqueeze(q, 0), key = k, value = v,
-            mask = null, scale = 1f / sqrt(mha.headDim.toFloat()), causal = false,
-        ) // [1, nHeads, 1, headDim]; single query attends to all cached positions → no mask needed
+            mask = mask, scale = 1f / sqrt(mha.headDim.toFloat()), causal = false,
+        ) // [1, nHeads, 1, headDim]; single query attends to all cached positions. `mask` (additive,
+          // [1,1,1,S]) masks padded cross-memory frames when the cross cache is fixed-max-padded (streaming).
         val merged = ops.reshape(ops.squeeze(o, 0), Shape(1, mha.nHeads * mha.headDim)) // [1, qDim]
         return linearProject(ops, merged, mha.params[3].value) // o_proj (bias=false)
     }
@@ -326,6 +329,7 @@ public class MoonshineDecoderModel<T : DType, V>(
         inputsEmbeds: Tensor<T, V>,
         encoderMemory: Tensor<T, V>,
         ctx: ExecutionContext,
+        crossMask: Tensor<T, V>? = null,
     ): MoonshinePrefillOutput<T, V> {
         val ops = ctx.ops
         val memory = encoderMemory.bind(ctx)
@@ -335,7 +339,7 @@ public class MoonshineDecoderModel<T : DType, V>(
         val crossK = ArrayList<Tensor<T, V>>(layers.size)
         val crossV = ArrayList<Tensor<T, V>>(layers.size)
         for (layer in layers) {
-            val kv = layer.forwardWithKV(h, memory, ctx)
+            val kv = layer.forwardWithKV(h, memory, ctx, crossMask)
             h = kv.out
             // add the batch dim so the exported shapes match the board's [1, nHeads, ·, headDim].
             selfK += ops.unsqueeze(kv.selfK, 0)
@@ -362,13 +366,14 @@ public class MoonshineDecoderModel<T : DType, V>(
         crossKIn: List<Tensor<T, V>>,
         crossVIn: List<Tensor<T, V>>,
         ctx: ExecutionContext,
+        crossMask: Tensor<T, V>? = null,
     ): MoonshineWithPastOutput<T, V> {
         val ops = ctx.ops
         var h = tokenEmbed.bind(ctx)
         val nsk = ArrayList<Tensor<T, V>>(layers.size)
         val nsv = ArrayList<Tensor<T, V>>(layers.size)
         for ((i, layer) in layers.withIndex()) {
-            val r = layer.forwardWithPast(h, ropeCos, ropeSin, selfKIn[i], selfVIn[i], crossKIn[i], crossVIn[i], ctx)
+            val r = layer.forwardWithPast(h, ropeCos, ropeSin, selfKIn[i], selfVIn[i], crossKIn[i], crossVIn[i], ctx, crossMask)
             h = r.out
             // The extended cache also feeds this layer's SDPA, so it is not a graph sink. Route the
             // exported copy through a shape-preserving reshape so it becomes a distinct output node
