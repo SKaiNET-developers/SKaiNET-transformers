@@ -106,30 +106,36 @@ Honest status — see the project-status note at the top of this README.
 
 ## Current release
 
-The current release is **0.36.1** (against **SKaiNET 0.36.0**) — a patch on 0.36.0 with two
-additions, both purely additive for existing consumers.
+The current release is **0.38.0** (against **SKaiNET 0.38.0**) — the release that completes the
+**Moonshine v2 streaming ASR entirely in the SKaiNET NN DSL** and adds **narrow-float weights**.
 
-**BGE embedding models** (`BAAI/bge-small-en-v1.5` and siblings) now run on the BERT DSL path:
+**Moonshine v2 — the whole pipeline is now DSL-authored and self-compiled** (DSL → StableHLO → IREE,
+no vendor neural binaries) in `skainet-transformers-inference-moonshine`: the **audio frontend**
+(CMVN → asinh → filterbank → SiLU → two causal `Conv1d`), the position-free sliding-window
+**encoder**, the learned-positional-embedding **adapter**, and the KV-cache **decoder**. The last
+vendor-ONNX graph — the frontend — is gone.
 
-- **CLS pooling** — `BertPooling { MEAN, CLS }`, auto-detected from the sentence-transformers
-  `1_Pooling/config.json`. Pooling stays outside the traced graph, so OPTIMIZED mode and
-  StableHLO export are unaffected.
-- **Query/document asymmetry** — `EmbeddingModel` gains `embedQuery` / `embedDocument` /
-  `embedDocuments`, and `PrefixedEmbeddingModel` applies the per-model retrieval instruction
-  prefixes (E5 `query: `/`passage: `, BGE query instruction) that these models need to score
-  correctly. `fromHuggingFace` wires them automatically.
-- Design notes: [embedding-model-coverage](docs/specs/embedding-model-coverage.md).
+- **Streaming decode over a growing cache.** The decoder exports **true-dynamic** KV-cache graphs
+  (`Dim.DYNAMIC`), so one compiled artifact serves every autoregressive position instead of a fixed
+  re-decode. A **fixed-max-pad cross-attention mask** lets one prefill + one `with_past` pair serve
+  any encoder-memory length ≤ MAX. `transformer-core`'s `MultiHeadAttention` gains an optional
+  trailing `crossMask` (default null — byte-identical for existing callers).
 
-**Beam search** for the T5 decoder and the vec2text inversion loop — vec2text's main quality lever:
+**Narrow-float `KEEP_NATIVE` weights** — keep FP16/BF16 packed on the SafeTensors and GGUF paths
+instead of widening to FP32 at load (half the weight bytes at rest), and relay matmul weights
+input-major so the per-forward `.t()` becomes a zero-copy view: **BF16 1.8–1.9×, FP16 1.5–1.7×** over
+FP32, and a 4.4 s-per-projection widening on `ffn_up` 8B removed. Wired across
+llama/qwen/gemma/apertus/voxtral through the `DTypePolicyValidation` policy surface.
 
-- `T5Runtime.generateBeam(...)` does token-level beam over the decoder, returning candidates
-  best-first by length-normalized log-probability.
-- `Vec2TextInverter.invert(..., sequenceBeamWidth, tokenBeams)` adds a sequence-level beam that
-  keeps several hypotheses across correction rounds, ranked by cosine similarity to the target
-  embedding.
-- Both are **off by default** — width 1 keeps the existing greedy behaviour, so this is a
-  drop-in upgrade. On the round-trip test's example sentence, one correction step with beam
-  (sequence width 3, token beams 3) improves cosine **0.765 → 0.818** over greedy.
+**Gemma** now **row-dequants the packed `token_embd`** in the shared `Embedding`, cutting host memory
+at load.
+
+This is the first release on **SKaiNET engine 0.38.0**, which ships first-class dynamic tensor shapes
+(`Dim`) — the capability the true-dynamic decode export is built on.
+
+It builds on **0.36.1**, which added **BGE embedding models** on the BERT DSL path (CLS pooling +
+retrieval prefixes) and **beam search** for the T5 decoder and the vec2text inversion loop — both
+additive, drop-in for existing consumers.
 
 It builds on **0.36.0**, in which **BERT became completely defined in the SKaiNET NN DSL** and the
 deprecated hand-coded eager BERT stack was **removed (BREAKING)**:
@@ -188,7 +194,7 @@ The recommended way to consume is via the BOM. It pins every published `skainet-
 
 ```kotlin
 dependencies {
-    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.36.1"))
+    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.38.0"))
 
     // Versions resolved from the BOM:
     implementation("sk.ainet.transformers:skainet-transformers-core")

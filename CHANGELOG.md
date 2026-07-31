@@ -9,11 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Requires **SKaiNET engine 0.38.0** (narrow-float codec, `Fp16DenseTensorData`, FP16 matmul
-kernels, codec-driven dispatch — engine PR #886).
+## [0.38.0] — 2026-07-31
+
+Ships against **SKaiNET engine 0.38.0**, which adds first-class dynamic tensor shapes (`Dim`) plus
+the narrow-float codec (`Fp16DenseTensorData`, FP16 matmul kernels, codec-driven dispatch — engine
+PR #886). Two headlines: **Moonshine v2 streaming ASR authored end-to-end in the SKaiNET NN DSL**
+(the last vendor-ONNX graph is gone) and **narrow-float `KEEP_NATIVE` weights** across the LLM loaders.
 
 ### Added
 
+- **Moonshine v2 — the complete streaming pipeline in the NN DSL**, self-compiled DSL → StableHLO →
+  IREE with no vendor neural binaries (`skainet-transformers-inference-moonshine`):
+  - **Audio frontend** (`MoonshineV2Frontend`): CMVN → `asinh` compression → filterbank matmul →
+    SiLU → two causal `Conv1d(k5,s2)` — the last vendor-ONNX graph, now DSL-authored (bit-exact vs
+    `frontend.onnx`, cos > 0.999).
+  - **Encoder** (position-free sliding-window local attention) and **adapter** (learned absolute
+    positional embedding, pos-embed add only) bridging the position-free memory to the decoder.
+  - **Decoder** authored in the DSL, reusing the shared KV-cache decoder.
+- **True-dynamic KV-cache decode graphs.** `MOONSHINE_V2_TRUE_DYNAMIC` / `GEMMA_TRUE_DYNAMIC` trace
+  the cache seq dim as a real dynamic extent (`Dim.DYNAMIC`), so one compiled vmfb serves every
+  autoregressive position instead of a fixed-shape re-decode. Requires engine 0.38.0's `Dim`.
+- **Fixed-max-pad cross-attention mask** for streaming decode: pad the encoder memory to a fixed MAX
+  and mask the padding, so one prefill + one `with_past` pair serve any encoder length ≤ MAX while the
+  self-cache stays dynamic (growing). `transformer-core`'s `MultiHeadAttention` gains an optional
+  trailing `crossMask` (default `null` → byte-identical for existing callers).
+- **Gemma row-dequant of the packed `token_embd`** in the shared `Embedding`, cutting host memory at
+  load.
 - **FP16 KEEP_NATIVE on the SafeTensors path.** `DecoderSafeTensorsLoader` gains the F16 arm
   that BF16 has had since 0.25.0: with a `DTypePolicy` admitting FP16 (`Require(FP16)`,
   `Prefer(FP16)`, or `OneOf` containing FP16) it stops widening F16 tensors and wraps the
@@ -68,6 +89,9 @@ kernels, codec-driven dispatch — engine PR #886).
   prevent. They now declare `keepNative = emptySet()` and reject it. **Callers relying on the
   old acceptance must switch to `Prefer(BF16)`** (a soft constraint, which still passes) until
   those chains grow a KEEP_NATIVE path.
+- Moonshine v2 encoder sliding-window off-by-one (was cos 0.991 vs ONNX); the v2 config is set to the
+  real tiny-streaming dims; the adapter is pos-embed add only (no LayerNorm).
+- kgemma heavy-trace test heap raised to 12 g, with honest skips.
 
 ## [0.36.1] — 2026-07-17
 
@@ -869,6 +893,7 @@ Version-aligned with **SKaiNET 0.21.0**.
 Last published transformers release before the engine-aligned version line.
 See `git log v0.16.0..0.18.0` for details.
 
+[0.38.0]: https://github.com/SKaiNET-developers/SKaiNET-transformers/releases/tag/0.38.0
 [0.36.1]: https://github.com/SKaiNET-developers/SKaiNET-transformers/releases/tag/0.36.1
 [0.36.0]: https://github.com/SKaiNET-developers/SKaiNET-transformers/releases/tag/0.36.0
 [0.31.0]: https://github.com/SKaiNET-developers/SKaiNET-transformers/releases/tag/0.31.0
