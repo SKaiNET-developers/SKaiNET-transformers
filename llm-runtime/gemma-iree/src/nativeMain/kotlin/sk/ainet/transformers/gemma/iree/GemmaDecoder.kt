@@ -1,8 +1,12 @@
 package sk.ainet.transformers.gemma.iree
 
+import kotlin.time.TimeSource
+import kotlinx.cinterop.ExperimentalForeignApi
+import kotlinx.cinterop.toKString
 import kotlinx.io.buffered
 import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
+import platform.posix.getenv
 import sk.ainet.apps.llm.tokenizer.GGUFTokenizer
 
 /**
@@ -17,7 +21,7 @@ import sk.ainet.apps.llm.tokenizer.GGUFTokenizer
  * that OOM the board's result formatter); causal masking makes padding to [seq]
  * safe as the sequence grows.
  */
-@OptIn(kotlin.native.runtime.NativeRuntimeApi::class)
+@OptIn(kotlin.native.runtime.NativeRuntimeApi::class, ExperimentalForeignApi::class)
 public class GemmaDecoder(
     private val vmfb: String,
     private val irpa: String,
@@ -25,7 +29,19 @@ public class GemmaDecoder(
     private val seq: Int = 24,
     ireeBin: String = "iree-run-module",
 ) {
-    private val rt = IreeRuntime(ireeBin = ireeBin)
+    // Number of local-task worker groups (= cores). The SL2610 has 2 A55 cores,
+    // so default to 2; override/disable via GEMMA_TASK_GROUPS (0 or empty = let
+    // IREE auto-pick, i.e. drop the flag — the escape hatch if the board rejects it).
+    private val taskGroups: Int? =
+        (getenv("GEMMA_TASK_GROUPS")?.toKString()?.trim()?.toIntOrNull() ?: 2).takeIf { it > 0 }
+
+    // Per-step latency profiling; set VOICECC_PROFILE=1 to print a `[perf]`
+    // timing breakdown (Phase-0 perf harness). Safe on this driver's stdout —
+    // token parsing reads the iree-run-module SUBPROCESS pipe, not our stdout.
+    private val profile: Boolean =
+        getenv("VOICECC_PROFILE")?.toKString()?.let { it == "1" || it.equals("true", true) } ?: false
+
+    private val rt = IreeRuntime(ireeBin = ireeBin, taskTopologyGroupCount = taskGroups)
 
     /** The model's output for one prompt. */
     public data class Generation(
@@ -58,11 +74,15 @@ public class GemmaDecoder(
             return Generation("(skipped: prompt ${ptoks.size} tokens > ${seq - 4})", emptyList())
         }
 
-        platform.posix.system("sync; echo 3 > /proc/sys/vm/drop_caches 2>/dev/null")
+        // NOTE: no `drop_caches` here. Dropping the page cache forced a COLD mmap
+        // of the 831MB irpa on every re-decode step; keeping it warm across steps
+        // is exactly what we want (the re-spawn already re-mmaps, but from cache).
         val buf = IntArray(seq) { if (it < ptoks.size) ptoks[it] else 0 }
         val gen = mutableListOf<Int>()
         var step = 0
+        val genStart = if (profile) TimeSource.Monotonic.markNow() else null
         while (ptoks.size + step < seq) {
+            val t0 = if (profile) TimeSource.Monotonic.markNow() else null
             val r = rt.invoke(
                 vmfb, "gemma",
                 listOf("1x${seq}xi32=" + buf.joinToString(",")),
@@ -70,11 +90,17 @@ public class GemmaDecoder(
             )
             val arr = IreeRuntime.parseIntResult(r.stdout) ?: break
             val next = arr[ptoks.size - 1 + step]
+            if (t0 != null) println("[perf] gemma step $step: ${t0.elapsedNow().inWholeMilliseconds} ms")
             if (next == eos) break
             gen.add(next)
             if (next == eot) break
             buf[ptoks.size + step] = next
             step++
+        }
+        if (genStart != null) {
+            val total = genStart.elapsedNow().inWholeMilliseconds
+            val n = if (gen.isNotEmpty()) gen.size else 1
+            println("[perf] gemma total: $total ms, ${gen.size} tokens, ${total / n} ms/token")
         }
 
         // reload tokenizer (gen subprocess has exited, RAM freed) to detokenize

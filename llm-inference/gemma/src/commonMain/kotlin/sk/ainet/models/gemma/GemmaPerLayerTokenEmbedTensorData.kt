@@ -3,6 +3,7 @@ package sk.ainet.models.gemma
 import sk.ainet.io.gguf.GGMLQuantizationType
 import sk.ainet.io.gguf.GGML_QUANT_SIZES
 import sk.ainet.io.gguf.dequant.DequantOps
+import sk.ainet.lang.nn.RowDequantSource
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.data.TensorData
 import sk.ainet.lang.types.DType

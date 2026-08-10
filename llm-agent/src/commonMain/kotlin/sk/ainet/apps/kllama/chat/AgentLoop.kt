@@ -3,6 +3,7 @@ package sk.ainet.apps.kllama.chat
 import kotlin.random.Random
 import sk.ainet.apps.kllama.agent.GenerateResult
 import sk.ainet.apps.llm.InferenceRuntime
+import sk.ainet.apps.llm.PrefillStrategy
 import sk.ainet.apps.kllama.agent.generateUntilStop
 import sk.ainet.lang.types.DType
 
@@ -13,12 +14,19 @@ import sk.ainet.lang.types.DType
  * @param maxTokensPerRound Maximum tokens to generate in each round.
  * @param temperature Sampling temperature.
  * @param random Random generator for sampling.
+ * @param prefillStrategy How each round's prompt is ingested. The agent loop
+ *   re-renders and re-processes the FULL conversation every round, so on
+ *   CPU-only runtimes prefill dominates round latency —
+ *   [PrefillStrategy.Batched] typically cuts it 3–10× on long chat
+ *   templates. Default stays [PrefillStrategy.Autoregressive] for unchanged
+ *   behavior.
  */
 public data class AgentConfig @kotlin.jvm.JvmOverloads constructor(
     val maxToolRounds: Int = 5,
     val maxTokensPerRound: Int = 512,
     val temperature: Float = 0.7f,
-    val random: Random = Random.Default
+    val random: Random = Random.Default,
+    val prefillStrategy: PrefillStrategy = PrefillStrategy.Autoregressive
 )
 
 /**
@@ -125,7 +133,8 @@ public class AgentLoop<T : DType>(
                 random = config.random,
                 onToken = { tokenId -> listener?.onToken(decode(tokenId)) },
                 decode = decode,
-                onPrefill = { done, total -> listener?.onPrefillProgress(done, total) }
+                onPrefill = { done, total -> listener?.onPrefillProgress(done, total) },
+                prefillStrategy = config.prefillStrategy
             )
 
             lastResponse = result.text
@@ -247,7 +256,8 @@ public class AgentLoop<T : DType>(
                 random = config.random,
                 onToken = { tokenId -> listener?.onToken(decode(tokenId)) },
                 decode = decode,
-                onPrefill = { done, total -> listener?.onPrefillProgress(done, total) }
+                onPrefill = { done, total -> listener?.onPrefillProgress(done, total) },
+                prefillStrategy = config.prefillStrategy
             )
 
             lastResponse = result.text

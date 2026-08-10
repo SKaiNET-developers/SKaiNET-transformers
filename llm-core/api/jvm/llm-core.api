@@ -1,6 +1,9 @@
 public final class sk/ainet/apps/llm/DTypePolicyValidation {
 	public static final field INSTANCE Lsk/ainet/apps/llm/DTypePolicyValidation;
+	public final fun keepsNative (Lsk/ainet/lang/types/DTypePolicy;Lsk/ainet/lang/types/DType;)Z
+	public final fun validate (Lsk/ainet/lang/types/DTypePolicy;Ljava/lang/String;Ljava/util/Set;)V
 	public final fun validate (Lsk/ainet/lang/types/DTypePolicy;Ljava/lang/String;Z)V
+	public static synthetic fun validate$default (Lsk/ainet/apps/llm/DTypePolicyValidation;Lsk/ainet/lang/types/DTypePolicy;Ljava/lang/String;Ljava/util/Set;ILjava/lang/Object;)V
 }
 
 public abstract class sk/ainet/apps/llm/DecoderRuntime : sk/ainet/apps/llm/InferenceRuntime {

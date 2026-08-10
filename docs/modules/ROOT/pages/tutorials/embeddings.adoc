@@ -113,5 +113,7 @@ For the BERT entry, the script computes embeddings for the prompt and the docume
 
 == What's Next
 
+* xref:tutorials/getting-started-leaf.adoc[Getting Started with LEAF] — a model-focused walkthrough with a complete semantic-search example.
+* xref:explanation/bert-dsl.adoc[BERT Completely Defined in the DSL] — how the encoder behind this API is defined, executed, and exported.
 * xref:explanation/embeddings.adoc[How embeddings work — pooling, normalization, dimensionality] — the deeper "why".
 * xref:tutorials/getting-started-java.adoc[Getting Started for Java Developers] — the analogous Java surface for chat / tool calling.

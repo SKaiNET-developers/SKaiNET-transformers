@@ -67,11 +67,11 @@ public class LlamaNetworkLoader @PublishedApi internal constructor(
     }
 
     /**
-     * Declarative dtype policy attached via [withDtypePolicy]. SKaiNET 0.25.0
-     * `DTypePolicy` is a forward-compat hook here — the value is validated
-     * eagerly but the underlying `DecoderGgufWeightLoader` /
-     * `DecoderSafeTensorsLoader` chain does not yet honor it per-tensor.
-     * Default [DTypePolicy.Any] preserves the adaptive behaviour.
+     * Declarative dtype policy attached via [withDtypePolicy]. Honored per-tensor by both
+     * chains as of engine 0.38.0: a policy naming BF16 or FP16 keeps source tensors of
+     * *that* format in their on-disk 2-bytes-per-element layout, in
+     * `DecoderSafeTensorsLoader` and in `DecoderGgufWeightLoader` alike.
+     * Default [DTypePolicy.Any] widens every narrow float to FP32.
      */
     public var dtypePolicy: DTypePolicy = DTypePolicy.Any
         private set
@@ -82,8 +82,9 @@ public class LlamaNetworkLoader @PublishedApi internal constructor(
      * not deep inside the load loop.
      */
     public fun withDtypePolicy(policy: DTypePolicy): LlamaNetworkLoader {
-        val allowBf16 = weightsProvider is WeightsProvider.SafeTensors
-        DTypePolicyValidation.validate(policy, "LlamaNetworkLoader.withDtypePolicy", allowBf16Require = allowBf16)
+        DTypePolicyValidation.validate(
+            policy, "LlamaNetworkLoader.withDtypePolicy", keepNative = DECODER_NARROW_KEEP_NATIVE,
+        )
         this.dtypePolicy = policy
         return this
     }
@@ -138,11 +139,15 @@ public class LlamaNetworkLoader @PublishedApi internal constructor(
     ): Module<T, V> {
         val weights: DecoderGgufWeights<T, V> = when (val wp = weightsProvider) {
             is WeightsProvider.GgufSource -> {
-                val loader = DecoderGgufWeightLoader(wp.sourceProvider, quantPolicy = wp.quantPolicy)
+                val loader = DecoderGgufWeightLoader(
+                    wp.sourceProvider, quantPolicy = wp.quantPolicy, dtypePolicy = dtypePolicy,
+                )
                 loader.loadToMap<T, V>(ctx)
             }
             is WeightsProvider.GgufRandomAccess -> {
-                val loader = DecoderGgufWeightLoader(wp.randomAccessProvider, quantPolicy = wp.quantPolicy)
+                val loader = DecoderGgufWeightLoader(
+                    wp.randomAccessProvider, quantPolicy = wp.quantPolicy, dtypePolicy = dtypePolicy,
+                )
                 loader.loadToMapStreaming<T, V>(ctx)
             }
             is WeightsProvider.SafeTensors -> {

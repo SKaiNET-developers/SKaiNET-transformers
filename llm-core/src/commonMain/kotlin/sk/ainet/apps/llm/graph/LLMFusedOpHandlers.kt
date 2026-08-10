@@ -20,39 +20,6 @@ public object LLMFusedOpHandlers {
         ComputeGraphExecutor.registerFusedOp("fused_rms_norm", RmsNormHandler)
         ComputeGraphExecutor.registerFusedOp("fused_swiglu_ffn", SwiGluFFNHandler)
         ComputeGraphExecutor.registerFusedOp("fused_qkv_proj", QKVProjHandler)
-        ComputeGraphExecutor.registerFusedOp("permute", PermuteHandler)
-    }
-
-    /**
-     * Replays `permute` with its recorded `axes` parameter.
-     *
-     * Works around the executor's builtin dispatch (engine ≤ 0.35.0), which
-     * replays "permute" as a plain last-two-dims [TensorOps.transpose] and
-     * silently drops the axes — wrong for any rank-3 permutation like MHA's
-     * heads/sequence swap `[1, 0, 2]` on multi-token (encoder / prefill)
-     * traces. Single-token decode never hits it (the seqLen-1 shortcut
-     * reshapes instead), which is why generation paths didn't surface this.
-     * Remove once the engine's builtin honors `axes`.
-     */
-    private object PermuteHandler : FusedOpHandler<DType, Any> {
-        override fun execute(
-            ops: TensorOps,
-            inputs: List<Tensor<DType, Any>>,
-            params: Map<String, Any>
-        ): List<Tensor<DType, Any>> {
-            val axesParam = params["axes"] ?: params["dims"]
-            val axes = when (axesParam) {
-                is IntArray -> axesParam
-                is List<*> -> axesParam.mapNotNull { (it as? Number)?.toInt() }.toIntArray()
-                else -> null
-            }
-            return if (axes != null && axes.size == inputs[0].rank) {
-                listOf(ops.permute(inputs[0], axes))
-            } else {
-                // No usable axes recorded — preserve the executor's legacy behavior.
-                listOf(ops.transpose(inputs[0]))
-            }
-        }
     }
 
     private object RmsNormHandler : FusedOpHandler<DType, Any> {

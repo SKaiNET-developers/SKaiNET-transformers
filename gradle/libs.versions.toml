@@ -1,21 +1,21 @@
 [versions]
 skainet = "0.38.0"
-agp = "9.2.1"
+agp = "9.3.1"
 jacksonDatabind = "2.22.1"
 jsonSchemaValidator = "3.0.6"
 jsonSchemaValidatorVersion = "0.5.5"
 junit = "4.13.2"
-junitJupiter = "6.1.1"
+junitJupiter = "6.1.2"
 kotlin = "2.4.10"
 kotlinxCoroutines = "1.11.0"
 kotlinBrowser = "0.5.0"
 android-minSdk = "24"
 android-compileSdk = "36"
 kotlinxSerializationJson = "1.11.0"
-ktorClientCore = "3.5.1"
+ktorClientCore = "3.5.2"
 ktorClientPlugins = "3.1.1"
-logbackClassic = "1.5.37"
-kover = "0.9.8"
+logbackClassic = "1.6.1"
+kover = "0.9.9"
 binaryCompatibilityValidator = "0.18.1"
 ksp = "2.3.6"
 kotlinpoet = "2.3.0"
@@ -26,7 +26,7 @@ kotlinxCli = "0.3.6"
 kotlinxBenchmark = "0.4.17"
 kotlinxIo = "0.9.1"
 pbandk = "0.16.0"
-kotest = "6.2.2"
+kotest = "6.2.3"
 
 [libraries]
 jackson-databind = { module = "com.fasterxml.jackson.core:jackson-databind", version.ref = "jacksonDatabind" }
@@ -118,4 +118,4 @@ dokka = { id = "org.jetbrains.dokka", version.ref = "dokka" }
 
 skainet-docs = { id = "sk.ainet.documentation" }
 kotlinx-benchmark = { id = "org.jetbrains.kotlinx.benchmark", version.ref = "kotlinxBenchmark" }
-shadow = { id = "com.gradleup.shadow", version = "9.5.1" }
+shadow = { id = "com.gradleup.shadow", version = "9.6.1" }

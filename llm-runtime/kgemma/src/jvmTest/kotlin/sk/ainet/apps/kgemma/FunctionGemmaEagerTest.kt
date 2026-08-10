@@ -1,26 +1,22 @@
 package sk.ainet.apps.kgemma
 
-import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
  * Integration: the one-line EAGER FunctionGemma facade transcribes an instruction into a tool call
- * by running gemmaNetwork() on the CPU (no iree). Self-skips without the GGUF. Run with:
- *   ./gradlew -PuseLocalSkainet=true -PkgemmaTestMaxHeap=12g \
+ * by running gemmaNetwork() on the CPU (no iree). Skips without the GGUF or with too small a heap.
+ * 12g is the module default heap — override with -PkgemmaTestMaxHeap. Run with:
+ *   ./gradlew -PuseLocalSkainet=true \
  *     :llm-runtime:kgemma:jvmTest --tests "*FunctionGemmaEagerTest*"
  */
 class FunctionGemmaEagerTest {
-    private val gguf = System.getenv("GEMMA_GGUF")
-        ?: "/home/miso/projects/coral/SKaiNET-embedded/sl2610-function-calling/models/functiongemma-physical-ai-v10-Q5_K_M.gguf"
+    private val gguf = FunctionGemmaFixture.gguf
 
     @Test
     fun eager_call_turn_the_light_on() {
-        if (!File(gguf).exists()) {
-            println("SKIP FunctionGemmaEagerTest: GGUF not present at $gguf")
-            return
-        }
+        FunctionGemmaFixture.assumeRealCheckpointRunnable()
         val fg = FunctionGemma.fromGguf(gguf)
         val turn = fg.call("turn the light on")
         println("EAGER text='${turn.text}' calls=${turn.calls}")

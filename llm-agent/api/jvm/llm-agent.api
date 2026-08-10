@@ -1,6 +1,6 @@
 public final class sk/ainet/apps/kllama/agent/GenerateExtensionsKt {
-	public static final fun generateUntilStop (Lsk/ainet/apps/llm/InferenceRuntime;[IIIFLkotlin/random/Random;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function2;)Lsk/ainet/apps/kllama/agent/GenerateResult;
-	public static synthetic fun generateUntilStop$default (Lsk/ainet/apps/llm/InferenceRuntime;[IIIFLkotlin/random/Random;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function2;ILjava/lang/Object;)Lsk/ainet/apps/kllama/agent/GenerateResult;
+	public static final fun generateUntilStop (Lsk/ainet/apps/llm/InferenceRuntime;[IIIFLkotlin/random/Random;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function2;Lsk/ainet/apps/llm/PrefillStrategy;)Lsk/ainet/apps/kllama/agent/GenerateResult;
+	public static synthetic fun generateUntilStop$default (Lsk/ainet/apps/llm/InferenceRuntime;[IIIFLkotlin/random/Random;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function2;Lsk/ainet/apps/llm/PrefillStrategy;ILjava/lang/Object;)Lsk/ainet/apps/kllama/agent/GenerateResult;
 	public static final fun sampleFromLogits (Lsk/ainet/lang/tensor/Tensor;FLkotlin/random/Random;)I
 	public static synthetic fun sampleFromLogits$default (Lsk/ainet/lang/tensor/Tensor;FLkotlin/random/Random;ILjava/lang/Object;)I
 }
@@ -26,16 +26,19 @@ public final class sk/ainet/apps/kllama/chat/AgentConfig {
 	public fun <init> (II)V
 	public fun <init> (IIF)V
 	public fun <init> (IIFLkotlin/random/Random;)V
-	public synthetic fun <init> (IIFLkotlin/random/Random;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (IIFLkotlin/random/Random;Lsk/ainet/apps/llm/PrefillStrategy;)V
+	public synthetic fun <init> (IIFLkotlin/random/Random;Lsk/ainet/apps/llm/PrefillStrategy;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()I
 	public final fun component2 ()I
 	public final fun component3 ()F
 	public final fun component4 ()Lkotlin/random/Random;
-	public final fun copy (IIFLkotlin/random/Random;)Lsk/ainet/apps/kllama/chat/AgentConfig;
-	public static synthetic fun copy$default (Lsk/ainet/apps/kllama/chat/AgentConfig;IIFLkotlin/random/Random;ILjava/lang/Object;)Lsk/ainet/apps/kllama/chat/AgentConfig;
+	public final fun component5 ()Lsk/ainet/apps/llm/PrefillStrategy;
+	public final fun copy (IIFLkotlin/random/Random;Lsk/ainet/apps/llm/PrefillStrategy;)Lsk/ainet/apps/kllama/chat/AgentConfig;
+	public static synthetic fun copy$default (Lsk/ainet/apps/kllama/chat/AgentConfig;IIFLkotlin/random/Random;Lsk/ainet/apps/llm/PrefillStrategy;ILjava/lang/Object;)Lsk/ainet/apps/kllama/chat/AgentConfig;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getMaxTokensPerRound ()I
 	public final fun getMaxToolRounds ()I
+	public final fun getPrefillStrategy ()Lsk/ainet/apps/llm/PrefillStrategy;
 	public final fun getRandom ()Lkotlin/random/Random;
 	public final fun getTemperature ()F
 	public fun hashCode ()I
@@ -350,6 +353,24 @@ public final class sk/ainet/apps/kllama/chat/ResolutionResult {
 	public final fun getReason ()Ljava/lang/String;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/apps/kllama/chat/SmolLMChatTemplate : sk/ainet/apps/kllama/chat/ChatTemplate {
+	public fun <init> ()V
+	public fun apply (Ljava/util/List;Ljava/util/List;Z)Ljava/lang/String;
+	public fun containsToolCall (Ljava/lang/String;)Z
+	public fun parseThinkingBlocks (Ljava/lang/String;)Ljava/util/List;
+	public fun parseToolCalls (Ljava/lang/String;)Ljava/util/List;
+	public fun stripThinking (Ljava/lang/String;)Ljava/lang/String;
+}
+
+public final class sk/ainet/apps/kllama/chat/SmolLMToolCallingSupport : sk/ainet/apps/kllama/chat/ToolCallingSupport {
+	public fun <init> ()V
+	public fun createChatTemplate ()Lsk/ainet/apps/kllama/chat/ChatTemplate;
+	public fun getFamily ()Ljava/lang/String;
+	public fun parseToolCalls (Ljava/lang/String;)Ljava/util/List;
+	public fun supports (Lsk/ainet/apps/kllama/chat/ModelMetadata;)Z
+	public fun toolCallingMode (Lsk/ainet/apps/kllama/chat/ModelMetadata;)Lsk/ainet/apps/kllama/chat/ToolCallingMode;
 }
 
 public abstract interface class sk/ainet/apps/kllama/chat/Tool {

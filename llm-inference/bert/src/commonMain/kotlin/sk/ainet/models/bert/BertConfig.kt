@@ -67,4 +67,23 @@ public object BertConfigParser {
             projectionDim = projectionDim,
         )
     }
+
+    /**
+     * Parses a sentence-transformers `1_Pooling/config.json` into a
+     * [BertPooling] mode. `pooling_mode_cls_token: true` selects
+     * [BertPooling.CLS]; everything else (including `null` for snapshots
+     * without the file) falls back to [BertPooling.MEAN] — the pre-existing
+     * behavior. Max and sqrt-len pooling are rejected explicitly rather than
+     * silently mis-pooled.
+     */
+    public fun parsePooling(poolingConfigJson: String?): BertPooling {
+        if (poolingConfigJson == null) return BertPooling.MEAN
+        fun flag(key: String) =
+            Regex("\"$key\"\\s*:\\s*(true|false)").find(poolingConfigJson)?.groupValues?.get(1) == "true"
+
+        require(!flag("pooling_mode_max_tokens") && !flag("pooling_mode_mean_sqrt_len_tokens")) {
+            "Unsupported pooling mode in 1_Pooling/config.json (max / mean_sqrt_len)"
+        }
+        return if (flag("pooling_mode_cls_token")) BertPooling.CLS else BertPooling.MEAN
+    }
 }

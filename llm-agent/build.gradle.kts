@@ -45,7 +45,10 @@ kotlin {
         commonMain.dependencies {
             implementation(project.dependencies.platform(project(":llm-bom")))
             implementation(libs.skainet.lang.core)
-            implementation(project(":llm-core"))
+            // api, not implementation: AgentConfig.prefillStrategy exposes
+            // llm-core's PrefillStrategy in a public signature — consumers
+            // must be able to resolve it (see #226).
+            api(project(":llm-core"))
             implementation(libs.kotlinx.serialization.json)
         }
 

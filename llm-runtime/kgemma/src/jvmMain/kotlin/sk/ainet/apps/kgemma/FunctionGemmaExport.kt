@@ -19,6 +19,7 @@ import sk.ainet.lang.tensor.ops.VoidTensorOps
 import sk.ainet.lang.tensor.storage.BufferHandle
 import sk.ainet.lang.types.FP32
 import sk.ainet.models.gemma.Gemma4WeightLoader
+import sk.ainet.models.gemma.GemmaModel
 import sk.ainet.models.gemma.GemmaNetworkLoader
 import sk.ainet.tape.Execution
 import java.io.BufferedOutputStream
@@ -60,6 +61,13 @@ public object FunctionGemmaExport {
         seq: Int = 24,
         partialRotary: Float = 1.0f,
         bf16: Boolean = true,
+        // Phase-5 perf: quantize the big 2D matmul weights to per-row (per-output-channel) symmetric
+        // int8 in the compiled graph — `tensor<AxBxi8>` global + a `tensor<Axf32>` scale, dequant'd in
+        // graph (`convert i8->f32` × broadcast(scale)) into the f32 matmul. Halves the irpa vs bf16
+        // (831->~415 MiB — a real RAM win on the 1.9 GB board) + halves weight-read traffic (1 B/elem).
+        // Norms/1-D globals stay bf16 (sensitive). Done in the safetensors writer + a text rewrite (NOT a
+        // graph pass — no OOM). Off by default; numeric quality (per-row int8 from Q5_K) + speed are on-board.
+        quantizeInt8: Boolean = false,
     ): Result = runBlocking {
         val ctx = DirectCpuExecutionContext.create()
         val weights = Gemma4WeightLoader(
@@ -115,6 +123,23 @@ public object FunctionGemmaExport {
 
         val out = File(outDir).apply { mkdirs() }
         val ext = module.externalParameters
+
+        // ---- Phase-5 int8 weight-only quantized export ----
+        if (quantizeInt8) {
+            val quantShapes = parseQuantWeightShapes(module.content)   // key -> (rows, cols) for 2D weights
+            val mlirQ = rewriteGlobalsToInt8(module.content, quantShapes)
+            val mlirFileQ = File(out, "gemma-gen.mlir").apply { writeText(mlirQ) }
+            val stFileQ = File(out, "gemma.safetensors")
+            val bytes = writeQuantizedSafetensors(ext, quantShapes, stFileQ)
+            return@runBlocking Result(
+                mlirPath = mlirFileQ.absolutePath,
+                safetensorsPath = stFileQ.absolutePath,
+                externalParamCount = ext.size + quantShapes.size,   // + one scale per quantized weight
+                weightMiB = bytes / (1024 * 1024),
+                seq = seq,
+            )
+        }
+
         val mlir = if (bf16) rewriteGlobalsToBf16(module.content) else module.content
         val mlirFile = File(out, "gemma-gen.mlir").apply { writeText(mlir) }
 
@@ -169,6 +194,185 @@ public object FunctionGemmaExport {
         )
     }
 
+    /**
+     * KV-cache `decoder_with_past` graph: trace ONE new-token step of `GemmaModel.forwardWithPast`
+     * (past K/V + per-base RoPE cos/sin as graph INPUTS) ending in the DSL argMax tail, and emit
+     * StableHLO `func @gemma_with_past`. This is the second board graph — driven in a loop after the
+     * prefill graph, it processes 1 token/step instead of re-running the whole seq (the KV-cache win).
+     *
+     * I/O (per-layer): inputs `token[1]i32`, per-RoPE-base `cos/sin[1,256]`, and the 18 past self-K/V
+     * `[1,nKV,?,headDim]`; outputs the 18 extended self-K/V + `token'[1]i32`. NOTE: the exact input arg
+     * order and the output K-vs-V order are TRACE-DERIVED and MUST be confirmed against the compiled
+     * vmfb on first board run (see docs/GEMMA-KV-BOARD-LOOP.md) — do not assume K-before-V.
+     *
+     * KV tensor shape: pass [dynamicPast]=true for one vmfb that serves EVERY decode position via a
+     * dynamic (`1x{nKV}x?x{headDim}`) self-cache seq dim. We do NOT trace with a `-1` placeholder — the
+     * tracer's concat shape-inference computes `-1 + 1 = 0` and emits broken `1x1x0x256` OUTPUT caches.
+     * Instead we trace at a concrete **sentinel prime** ([SENTINEL_PAST]) so `concat` infers correctly
+     * (`sentinel → sentinel+1`), then regex-relax both dims to `?` — leaving `iree-compile llvm-cpu` to
+     * do the real dynamic-concat shape inference. [dynamicPast]=false emits a fixed [past] length (static
+     * probe / fixed-pad fallback). Weights share the prefill graph's "model" irpa scope (no safetensors here).
+     *
+     * Returns the emitted MLIR text (also written to `<outDir>/gemma-with-past.mlir`).
+     */
+    public fun exportWithPast(
+        gguf: String,
+        outDir: String,
+        past: Int = 1,
+        dynamicPast: Boolean = true,
+        partialRotary: Float = 1.0f,
+        bf16: Boolean = true,
+    ): String = runBlocking {
+        val ctx = DirectCpuExecutionContext.create()
+        val weights = Gemma4WeightLoader(
+            randomAccessProvider = { JvmRandomAccessSource.open(gguf) },
+            quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
+        ).loadToMapStreaming<FP32, Float>(ctx, FP32::class)
+        val md = weights.metadata
+        val patched = weights.copy(
+            metadata = md.copy(ropeParametersFull = md.ropeParametersFull.copy(partialRotaryFactor = partialRotary)),
+        )
+        @Suppress("UNCHECKED_CAST")
+        val model = GemmaNetworkLoader.fromWeights(ctx, patched, FP32::class) as GemmaModel<FP32, Float>
+
+        val nLayers = md.blockCount
+        val headDim = md.getHeadDim(0)
+        val nKV = md.kvHeadCount
+        // Trace at a CONCRETE length so `concat` shape-inference is valid (a `-1` placeholder
+        // mis-infers `-1 + 1 = 0` → broken `1x1x0x256` output caches). For the dynamic graph we
+        // trace at the sentinel prime and relax it to `?` after emit (see relaxSeqDimToDynamic).
+        // GEMMA_TRUE_DYNAMIC=1: thread a real dynamic extent (Dim.DYNAMIC) straight through the trace
+        // instead of the sentinel-prime + post-emit text-relax. Requires the dynamic-safe tracer (concat
+        // and reshape propagate a dynamic dim) and the dynamic-safe emitter (dynamic_broadcast_in_dim);
+        // no text-relax needed. Verified to iree-compile the with_past graph (vs the sentinel path, which
+        // does not). Kept env-gated so the default export path is unchanged until the core release lands.
+        val trueDynamic = System.getenv("GEMMA_TRUE_DYNAMIC") == "1"
+        val pastDim = when {
+            !dynamicPast -> past
+            trueDynamic -> sk.ainet.lang.tensor.Dim.DYNAMIC
+            else -> SENTINEL_PAST
+        }
+
+        val tokenId = voidF32(Shape(1))
+        val cosG = voidF32(Shape(1, headDim)); val sinG = voidF32(Shape(1, headDim))
+        val cosS = voidF32(Shape(1, headDim)); val sinS = voidF32(Shape(1, headDim))
+        val selfKIn = List(nLayers) { voidF32(Shape(1, nKV, pastDim, headDim)) }
+        val selfVIn = List(nLayers) { voidF32(Shape(1, nKV, pastDim, headDim)) }
+
+        val tapeCtx = DefaultGraphExecutionContext.tape(baseOps = VoidTensorOps())
+        val tape = tapeCtx.record {
+            val ct = (this as DefaultGraphExecutionContext).currentTape ?: error("no tape")
+            Execution.tapeStack.pushTape(ct)
+            try {
+                val ectx = this as ExecutionContext
+                val out = model.forwardWithPast(
+                    tokenId, GemmaModel.RopeCosSin(cosG, sinG, cosS, sinS), selfKIn, selfVIn, ectx,
+                )
+                // token output: argMax over [1, vocab] -> [1] i32 (small-int board contract).
+                ectx.ops.argMax(out.logits, dim = -1)
+                // out.selfK / out.selfV are terminal (identity reshape) -> graph K/V outputs.
+            } finally {
+                Execution.tapeStack.popTape()
+            }
+        }.first
+
+        val graph = (tape as DefaultExecutionTape).toComputeGraph(
+            synthesizeExternalInputs = true, embedConstants = true,
+        )
+        val module = StableHloConverterFactory
+            .createBasic(ConstantMaterializationPolicy.ExternalAlways(scope = "model"))
+            .convert(graph, "gemma_with_past")
+        var mlir = if (bf16) rewriteGlobalsToBf16(module.content) else module.content
+        if (dynamicPast && !trueDynamic) mlir = relaxSeqDimToDynamic(mlir)
+        File(outDir).apply { mkdirs() }
+        File(outDir, "gemma-with-past.mlir").writeText(mlir)
+        mlir
+    }
+
+    /**
+     * Sentinel prime the with_past self-cache is traced at. Chosen well above the graph's SSA node
+     * count (so `%v7919` can't collide) and unlike any real model dim (256/640/vocab/…), so relaxing
+     * its two derived seq dims (`sentinel` = past, `sentinel+1` = past+1) to `?` is collision-free.
+     */
+    private const val SENTINEL_PAST = 7919
+
+    /** Relax the sentinel-traced self-cache seq dims (`sentinel`, `sentinel+1`, and any derived
+     *  attention-score seq dim) to a dynamic `?`, so the compiled vmfb serves every decode position.
+     *  The sentinel only ever appears as an interior tensor dim (`x7919x` / `x7920x`), never as an SSA
+     *  index, so the textual replace is safe. */
+    private fun relaxSeqDimToDynamic(mlir: String): String =
+        mlir.replace("x${SENTINEL_PAST}x", "x?x")
+            .replace("x${SENTINEL_PAST + 1}x", "x?x")
+
+    /**
+     * KV-cache PREFILL graph: trace `GemmaModel.forwardPrefill` over a FIXED [seq]-length prompt and
+     * emit StableHLO `func @gemma_prefill` returning the per-position argMax token ids PLUS the
+     * per-layer initial self K/V (`1x{nKV}x{seq}x{headDim}`) that seed the with_past decode loop.
+     *
+     * Fixed seq (not dynamic) is deliberate: the seq dim pervades the prefill graph (leading dims the
+     * with_past sentinel-relax can't reach), and a fixed prefill is simpler. The prompt is zero-padded
+     * to [seq]; causal masking keeps the real positions `[0, P)` from attending the padding, so the
+     * board runtime slices the emitted K/V to `[1, nKV, P, headDim]` before the decode loop (the
+     * padding positions' K/V are discarded). Reads the first token at position `P-1`. Runs ONCE per
+     * generation. Weights share the with_past graph's "model" irpa scope.
+     */
+    public fun exportPrefill(
+        gguf: String,
+        outDir: String,
+        seq: Int = 24,
+        partialRotary: Float = 1.0f,
+        bf16: Boolean = true,
+    ): String = runBlocking {
+        val ctx = DirectCpuExecutionContext.create()
+        val weights = Gemma4WeightLoader(
+            randomAccessProvider = { JvmRandomAccessSource.open(gguf) },
+            quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
+        ).loadToMapStreaming<FP32, Float>(ctx, FP32::class)
+        val md = weights.metadata
+        val patched = weights.copy(
+            metadata = md.copy(ropeParametersFull = md.ropeParametersFull.copy(partialRotaryFactor = partialRotary)),
+        )
+        @Suppress("UNCHECKED_CAST")
+        val model = GemmaNetworkLoader.fromWeights(ctx, patched, FP32::class) as GemmaModel<FP32, Float>
+
+        val tokens = voidF32(Shape(seq))   // [seq] token ids -> `{seq}xi32` graph input
+
+        val tapeCtx = DefaultGraphExecutionContext.tape(baseOps = VoidTensorOps())
+        val tape = tapeCtx.record {
+            val ct = (this as DefaultGraphExecutionContext).currentTape ?: error("no tape")
+            Execution.tapeStack.pushTape(ct)
+            try {
+                val ectx = this as ExecutionContext
+                val out = model.forwardPrefill(tokens, ectx)
+                ectx.ops.argMax(out.logits, dim = -1)   // [seq] i32 token ids (board reads position P-1)
+                // out.selfK / out.selfV are terminal -> per-layer initial K/V outputs.
+            } finally {
+                Execution.tapeStack.popTape()
+            }
+        }.first
+
+        val graph = (tape as DefaultExecutionTape).toComputeGraph(
+            synthesizeExternalInputs = true, embedConstants = true,
+        )
+        val module = StableHloConverterFactory
+            .createBasic(ConstantMaterializationPolicy.ExternalAlways(scope = "model"))
+            .convert(graph, "gemma_prefill")
+        val mlir = if (bf16) rewriteGlobalsToBf16(module.content) else module.content
+        File(outDir).apply { mkdirs() }
+        File(outDir, "gemma-prefill.mlir").writeText(mlir)
+        mlir
+    }
+
+    private fun voidF32(shape: Shape): sk.ainet.lang.tensor.Tensor<FP32, Float> =
+        VoidOpsTensor(
+            object : TensorData<FP32, Float> {
+                override val shape = shape
+                override fun get(vararg indices: Int): Float = 0.0f
+                override fun set(vararg indices: Int, value: Float) {}
+            },
+            FP32::class,
+        )
+
     /** f32 weight `util.global`s -> bf16 + a `stablehlo.convert bf16->f32` on each load (compute stays f32). */
     private fun rewriteGlobalsToBf16(mlir: String): String {
         var m = mlir
@@ -183,5 +387,148 @@ public object FunctionGemmaExport {
                     "    $ssa = stablehlo.convert ${ssa}_h : (tensor<${shape}xbf16>) -> tensor<${shape}xf32>"
             }
         return m
+    }
+
+    /** The 2-D matmul weight globals (`tensor<rows x cols x f32>`, both > 1) to quantize to int8.
+     *  1-D / `1xN` globals (RMSNorm gains, scalars) are excluded — small and precision-sensitive. */
+    private fun parseQuantWeightShapes(mlir: String): Map<String, Pair<Int, Int>> {
+        val re = Regex("""util\.global private @(\w+) = #flow\.parameter\.named<"[^"]*"::"[^"]*"> : tensor<(\d+)x(\d+)xf32>""")
+        val map = LinkedHashMap<String, Pair<Int, Int>>()
+        for (m in re.findAll(mlir)) {
+            val g = m.groupValues[1]
+            val rows = m.groupValues[2].toInt()
+            val cols = m.groupValues[3].toInt()
+            if (rows > 1 && cols > 1) map[g] = rows to cols
+        }
+        return map
+    }
+
+    /**
+     * Quantized weight globals -> `tensor<rows x cols x i8>` + a per-row `tensor<rows x f32>` scale
+     * global, dequant'd in graph (`convert i8->f32` then multiply by broadcast(scale, dims=[0])); every
+     * OTHER float global -> bf16 + convert (norms). Compute stays f32.
+     */
+    private fun rewriteGlobalsToInt8(mlir: String, quant: Map<String, Pair<Int, Int>>): String {
+        var m = mlir
+        // DECLS
+        m = Regex("""util\.global private @(\w+) = (#flow\.parameter\.named<"([^"]*)"::"([^"]*)"> : tensor<[0-9x]*x)f32>""")
+            .replace(m) { r ->
+                val g = r.groupValues[1]
+                val declPrefix = r.groupValues[2]   // '#flow...named<...> : tensor<SHAPEx' (trailing x kept)
+                val scope = r.groupValues[3]
+                val key = r.groupValues[4]
+                val qs = quant[g]
+                if (qs != null) {
+                    "util.global private @$g = ${declPrefix}i8>\n" +
+                        "  util.global private @${g}_scale = #flow.parameter.named<\"$scope\"::\"${key}_scale\"> : tensor<${qs.first}xf32>"
+                } else {
+                    "util.global private @$g = ${declPrefix}bf16>"
+                }
+            }
+        // LOADS
+        m = Regex("""(%\w+) = util\.global\.load @(\w+) : tensor<([0-9x]*)xf32>""")
+            .replace(m) { r ->
+                val ssa = r.groupValues[1]
+                val g = r.groupValues[2]
+                val shape = r.groupValues[3]
+                val qs = quant[g]
+                if (qs != null) {
+                    "${ssa}_q = util.global.load @$g : tensor<${shape}xi8>\n" +
+                        "    ${ssa}_s = util.global.load @${g}_scale : tensor<${qs.first}xf32>\n" +
+                        "    ${ssa}_f = stablehlo.convert ${ssa}_q : (tensor<${shape}xi8>) -> tensor<${shape}xf32>\n" +
+                        "    ${ssa}_sb = stablehlo.broadcast_in_dim ${ssa}_s, dims = [0] : (tensor<${qs.first}xf32>) -> tensor<${shape}xf32>\n" +
+                        "    $ssa = stablehlo.multiply ${ssa}_f, ${ssa}_sb : tensor<${shape}xf32>"
+                } else {
+                    "${ssa}_h = util.global.load @$g : tensor<${shape}xbf16>\n" +
+                        "    $ssa = stablehlo.convert ${ssa}_h : (tensor<${shape}xbf16>) -> tensor<${shape}xf32>"
+                }
+            }
+        return m
+    }
+
+    private fun leF32(d: ByteArray, o: Int): Float {
+        val b = (d[o].toInt() and 0xFF) or ((d[o + 1].toInt() and 0xFF) shl 8) or
+            ((d[o + 2].toInt() and 0xFF) shl 16) or ((d[o + 3].toInt() and 0xFF) shl 24)
+        return Float.fromBits(b)
+    }
+
+    private fun putF32Le(d: ByteArray, o: Int, v: Float) {
+        val b = v.toRawBits()
+        d[o] = (b and 0xFF).toByte(); d[o + 1] = ((b ushr 8) and 0xFF).toByte()
+        d[o + 2] = ((b ushr 16) and 0xFF).toByte(); d[o + 3] = ((b ushr 24) and 0xFF).toByte()
+    }
+
+    /**
+     * Write the int8 quantized safetensors: each quant weight as per-row symmetric int8
+     * (`scale[r] = max|W[r,:]| / 127`) + its `[rows]` f32 scale; every other external as bf16 (norms).
+     * Streams per-weight (no full-archive buffer). Returns the total file size in bytes.
+     */
+    private fun writeQuantizedSafetensors(
+        ext: List<sk.ainet.compile.hlo.ExternalParameterRef>,
+        quant: Map<String, Pair<Int, Int>>,
+        stFile: File,
+    ): Long {
+        // Header pass — analytic sizes (weight i8 rows*cols, scale f32 rows*4, or bf16 n*2).
+        var off = 0L
+        val hdr = StringBuilder("{")
+        var first = true
+        fun add(key: String, dtype: String, shape: String, len: Long) {
+            if (!first) hdr.append(","); first = false
+            hdr.append("\"$key\":{\"dtype\":\"$dtype\",\"shape\":[$shape],\"data_offsets\":[$off,${off + len}]}")
+            off += len
+        }
+        for (e in ext) {
+            val n = e.source.sizeInBytes / 4
+            val qs = quant[e.key]
+            if (qs != null) {
+                add(e.key, "I8", "${qs.first},${qs.second}", (qs.first.toLong() * qs.second))
+                add("${e.key}_scale", "F32", "${qs.first}", qs.first.toLong() * 4)
+            } else {
+                add(e.key, "BF16", "$n", n.toLong() * 2)
+            }
+        }
+        hdr.append("}")
+        val headerBytes = hdr.toString().encodeToByteArray()
+
+        BufferedOutputStream(FileOutputStream(stFile), 1 shl 20).use { os ->
+            os.write(ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN).putLong(headerBytes.size.toLong()).array())
+            os.write(headerBytes)
+            for (e in ext) {
+                val src = e.source as BufferHandle.Owned
+                val data = src.data
+                val base = src.offset
+                val qs = quant[e.key]
+                if (qs != null) {
+                    val (rows, cols) = qs
+                    val q = ByteArray(rows * cols)
+                    val sb = ByteArray(rows * 4)
+                    for (r in 0 until rows) {
+                        val rowBase = base + r * cols * 4
+                        var mx = 0f
+                        for (c in 0 until cols) { val a = kotlin.math.abs(leF32(data, rowBase + c * 4)); if (a > mx) mx = a }
+                        val s = if (mx > 0f) mx / 127f else 1f
+                        putF32Le(sb, r * 4, s)
+                        val inv = if (s != 0f) 1f / s else 0f
+                        for (c in 0 until cols) {
+                            var qi = kotlin.math.round(leF32(data, rowBase + c * 4) * inv).toInt()
+                            if (qi > 127) qi = 127 else if (qi < -127) qi = -127
+                            q[r * cols + c] = qi.toByte()
+                        }
+                    }
+                    os.write(q)
+                    os.write(sb)
+                } else {
+                    val n = src.sizeInBytes.toInt() / 4
+                    val ob = ByteArray(n * 2)
+                    for (j in 0 until n) {
+                        val bf = Bf16TensorData.floatToBf16Bits(leF32(data, base + j * 4))
+                        ob[j * 2] = (bf and 0xFF).toByte()
+                        ob[j * 2 + 1] = ((bf ushr 8) and 0xFF).toByte()
+                    }
+                    os.write(ob)
+                }
+            }
+        }
+        return 8L + headerBytes.size + off
     }
 }

@@ -46,6 +46,12 @@ kotlin {
         }
     }
 
+    // Library-only Apple targets: no CLI executable, consumers link the klib
+    // into their app (#271). The JVM-only deps (compile-hlo, gemma-iree,
+    // llm-providers, …) are confined to jvmMain, so commonMain is iOS-clean.
+    iosArm64()
+    iosSimulatorArm64()
+
     jvm {
         mainRun {
             mainClass.set("sk.ainet.apps.kgemma.cli.MainKt")
@@ -134,26 +140,55 @@ kotlin {
         }
         val linuxMain by creating { dependsOn(nativeMain) }
         val macosMain by creating { dependsOn(nativeMain) }
+        val iosMain by creating { dependsOn(nativeMain) }
         val linuxX64Main by getting { dependsOn(linuxMain) }
         val linuxArm64Main by getting { dependsOn(linuxMain) }
         val macosArm64Main by getting { dependsOn(macosMain) }
+        val iosArm64Main by getting { dependsOn(iosMain) }
+        val iosSimulatorArm64Main by getting { dependsOn(iosMain) }
     }
 }
 
 tasks.withType<Test>().configureEach {
-    // Gemma4E2BToolCallSmokeTest dequantizes Q4_K → FP32 into MemorySegment-backed
-    // direct memory (~20 GB for E2B). JDK 21 caps direct memory at ≈ -Xmx by
-    // default, so bumping just the heap also lifts the direct cap — but we set
-    // both explicitly to document intent. The 4g defaults keep the fast suite
-    // cheap; real-checkpoint runs override, e.g.
+    // HEAP — why 12g and not the root-wide 8192m (see the root build.gradle.kts).
+    //
+    // The real-checkpoint FunctionGemma-270M tests (FunctionGemmaExportTest, …EagerTest,
+    // …Int8QuantTest, …WithPastCpuTest, …WithPastMlirDumpTest) dequantize Q5_K → FP32 and
+    // trace the whole model. Measured from the emitted MLIR: 324 weight globals totalling
+    // 436,111,680 float elements = 1.62 GiB FP32 (832 MiB as bf16 on disk, matching the
+    // 872,248,326-byte gemma.safetensors). `t0` and `t2044` are BOTH 262153x640 — the tied
+    // vocab embedding is materialized twice and is 77% of the archive on its own.
+    //
+    // Peak *live* heap is ~4.3 GiB because up to three near-simultaneous FP32 copies coexist:
+    //   (1) the loader's dequantized weights,
+    //   (2) TraceToGraphBuilder.extractFloatArray's `buffer.copyOf()`,
+    //   (3) the BufferHandle.Owned ByteArrays behind module.externalParameters.
+    // 4g cannot hold the live set at all; 8g is ~55% occupancy (G1 thrash); 12g is ~36%.
+    // Mirrors :llm-inference:gemma, which defaults to 12g for the same model and reason.
+    //
+    // Costs CI nothing: -Xmx is a PROT_NONE virtual reservation, not RSS, and with no -Xms
+    // the JVM commits ~256 MB initially — these tests abort in microseconds on the absent
+    // checkpoint. Reducing the copies (narrow dense storage; dedup of the tied embedding)
+    // is tracked upstream; once that lands this override can be deleted outright.
+    //
+    // DIRECT MEMORY — kept only so the two knobs stay symmetric; these tests do not use it.
+    // DirectCpuExecutionContext.create() defaults to the on-heap DenseTensorDataFactory,
+    // JvmRandomAccessSource reads via FileChannel into heap ByteArrays (no mmap, no
+    // allocateDirect), and the safetensors writer uses ByteBuffer.allocate. Since JDK 8 the
+    // default MaxDirectMemorySize already equals -Xmx, so this flag documents intent rather
+    // than enforcing anything. NOTE: MemorySegment tensors (Arena.ofAuto, used by
+    // Gemma4E2BToolCallSmokeTest and the CLI) are NOT charged against MaxDirectMemorySize at
+    // all — only ByteBuffer.allocateDirect is. The previous comment here claimed otherwise.
+    //
+    // Heavier real-checkpoint runs still override, e.g.
     //   -PkgemmaTestMaxHeap=24g -PkgemmaTestMaxDirect=32g
-    val maxDirect = (findProperty("kgemmaTestMaxDirect") as? String) ?: "4g"
+    val maxDirect = (findProperty("kgemmaTestMaxDirect") as? String) ?: "12g"
     jvmArgs(
         "--enable-preview",
         "--add-modules", "jdk.incubator.vector",
         "-XX:MaxDirectMemorySize=$maxDirect",
     )
-    maxHeapSize = (findProperty("kgemmaTestMaxHeap") as? String) ?: "4g"
+    maxHeapSize = (findProperty("kgemmaTestMaxHeap") as? String) ?: "12g"
 }
 
 tasks.withType<JavaExec>().configureEach {
@@ -173,7 +208,9 @@ tasks.register<JavaExec>("exportFunctionGemma") {
     dependsOn(jvmMainComp.compileTaskProvider)
     classpath = jvmMainComp.output.allOutputs + jvmMainComp.runtimeDependencyFiles
     mainClass.set("sk.ainet.apps.kgemma.FunctionGemmaExportMainKt")
-    listOf("GEMMA_GGUF", "GEMMA_OUT_DIR", "GEN_SEQ", "PARTIAL_ROTARY", "GEMMA_DTYPE").forEach { k ->
+    // GEMMA_GRAPH selects the graph(s): redecode (default) | prefill | with_past | all.
+    // GEMMA_QUANT=int8 quantizes the 2D matmul weights (Phase 5).
+    listOf("GEMMA_GGUF", "GEMMA_OUT_DIR", "GEN_SEQ", "PARTIAL_ROTARY", "GEMMA_DTYPE", "GEMMA_GRAPH", "GEMMA_QUANT").forEach { k ->
         System.getenv(k)?.let { environment(k, it) }
     }
 }

@@ -105,6 +105,15 @@ public class MultiHeadAttention<T : DType, V>(
      * by Gemma 4 local-attention layers. Null = no windowing.
      */
     public val slidingWindow: Int? = null,
+    /**
+     * Bounded lookahead (right context) for a windowed attention band, in tokens.
+     * With [slidingWindow] = w and rightContext = r, query at absolute position q attends
+     * to keys in `[q - w + 1, q + r]` — a **local bidirectional** band. `r = 0` is the
+     * classic causal left-only window (Gemma). `r > 0` makes the window non-causal
+     * (bounded lookahead), as used by streaming encoders (e.g. Moonshine v2's (16,4)/(16,0)
+     * layers). Only meaningful when [slidingWindow] is set; default 0 preserves prior behavior.
+     */
+    public val rightContext: Int = 0,
     // Logical element type prescribed by the DSL. When provided, placeholder
     // (void) projection/bias weights carry it instead of erasing to Object — so
     // the module can be traced to a graph (and StableHLO) before weights load.
@@ -112,12 +121,20 @@ public class MultiHeadAttention<T : DType, V>(
 ) : Module<T, V>(), ModuleParameters<T, V> {
 
     init {
+        require(rightContext >= 0) { "MultiHeadAttention: rightContext must be >= 0, got $rightContext" }
         if (slidingWindow != null) {
             require(slidingWindow > 0) {
                 "MultiHeadAttention: slidingWindow must be > 0 when set, got $slidingWindow"
             }
-            require(causal) {
-                "MultiHeadAttention: slidingWindow currently requires causal=true (non-causal windowed attention not supported)"
+            // A left-only window (rightContext == 0) is causal by construction. A bounded-lookahead
+            // window (rightContext > 0) is a local *bidirectional* band, so causal=false is expected there.
+            require(causal || rightContext > 0) {
+                "MultiHeadAttention: a left-only sliding window requires causal=true; for a bounded-lookahead " +
+                    "(non-causal) window set rightContext > 0"
+            }
+        } else {
+            require(rightContext == 0) {
+                "MultiHeadAttention: rightContext is only meaningful with slidingWindow set, got $rightContext"
             }
         }
     }
@@ -205,6 +222,7 @@ public class MultiHeadAttention<T : DType, V>(
         input: Tensor<T, V>,
         encoderMemory: Tensor<T, V>?,
         ctx: ExecutionContext,
+        crossMask: Tensor<T, V>? = null,
     ): AttentionKV<T, V> {
         val boundInput = input.bind(ctx)
         return if (encoderMemory == null) {
@@ -214,7 +232,7 @@ public class MultiHeadAttention<T : DType, V>(
                 "MultiHeadAttention.forwardWithKV: cross-attention supports neither kvCache nor slidingWindow."
             }
             val boundMemory = encoderMemory.bind(ctx)
-            attentionImpl(qInput = boundInput, kvInput = boundMemory, isCrossAttention = true, ctx = ctx)
+            attentionImpl(qInput = boundInput, kvInput = boundMemory, isCrossAttention = true, ctx = ctx, crossMask = crossMask)
         }
     }
 
@@ -254,6 +272,7 @@ public class MultiHeadAttention<T : DType, V>(
         kvInput: Tensor<T, V>,
         isCrossAttention: Boolean,
         ctx: ExecutionContext,
+        crossMask: Tensor<T, V>? = null,
     ): AttentionKV<T, V> {
         val ops = ctx.ops
         val scale = attentionScale ?: (1.0f / sqrt(headDim.toFloat()))
@@ -411,18 +430,20 @@ public class MultiHeadAttention<T : DType, V>(
         val seqKV = kBatched.shape[2]
         val slidingMask = slidingWindow?.let {
             require(!isCrossAttention) { "slidingWindow + cross-attention is not supported" }
-            buildSlidingCausalMask(qSeqLen, seqKV, it, ctx, qBatched.dtype)
+            buildSlidingWindowMask(qSeqLen, seqKV, it, rightContext, ctx, qBatched.dtype)
         }
         // Cross-attention never applies a causal mask — there's no temporal
         // ordering between decoder query positions and encoder memory frames.
         val useCausalPath = !isCrossAttention && causal && slidingMask == null
 
-        // Scaled dot-product attention
+        // Scaled dot-product attention. `crossMask` (additive, e.g. [1,1,1,seqKV]) masks padded encoder-memory
+        // frames when the cross cache is fixed-max-padded (streaming) — used only on the cross path, where
+        // slidingMask is guaranteed null.
         val attnOut = ops.scaledDotProductAttention(
             query = qBatched,
             key = kBatched,
             value = vBatched,
-            mask = slidingMask,
+            mask = slidingMask ?: crossMask,
             scale = scale,
             causal = useCausalPath
         )
@@ -535,10 +556,11 @@ public class MultiHeadAttention<T : DType, V>(
      * Assumes keys are laid out in ascending absolute position order (true for
      * [AppendKVCache] and [SlidingWindowKVCache] with the trailing tail).
      */
-    private fun buildSlidingCausalMask(
+    private fun buildSlidingWindowMask(
         seqQ: Int,
         seqKV: Int,
         window: Int,
+        rightContext: Int,
         ctx: ExecutionContext,
         dtype: KClass<T>
     ): Tensor<T, V> {
@@ -547,9 +569,11 @@ public class MultiHeadAttention<T : DType, V>(
         val qAbsOffset = seqKV - seqQ
         for (qi in 0 until seqQ) {
             val absQ = qAbsOffset + qi
-            val lowerExclusive = absQ - window
+            // Local band: [absQ - window + 1, absQ + rightContext]. rightContext == 0 → causal left window.
+            val lower = absQ - window + 1
+            val upper = absQ + rightContext
             for (ki in 0 until seqKV) {
-                val allowed = ki in (lowerExclusive + 1)..absQ
+                val allowed = ki in lower..upper
                 data[qi * seqKV + ki] = if (allowed) 0f else neg
             }
         }

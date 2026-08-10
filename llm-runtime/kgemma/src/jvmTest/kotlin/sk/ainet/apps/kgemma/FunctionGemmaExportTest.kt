@@ -7,20 +7,17 @@ import kotlin.test.assertTrue
 /**
  * Integration: run the real FunctionGemma-270M compiled export and assert the emitted
  * StableHLO is the gemma-gen contract with the DSL argMax tail + bf16 externals.
- * Self-skips when the GGUF checkpoint isn't present (CI). Run with:
- *   ./gradlew -PuseLocalSkainet=true -PkgemmaTestMaxHeap=12g \
+ * Skips (JUnit assumption) when the GGUF checkpoint isn't present (CI) or the heap is too small.
+ * 12g is the module default heap — override with -PkgemmaTestMaxHeap. Run with:
+ *   ./gradlew -PuseLocalSkainet=true \
  *     :llm-runtime:kgemma:jvmTest --tests "*FunctionGemmaExportTest*"
  */
 class FunctionGemmaExportTest {
-    private val gguf = System.getenv("GEMMA_GGUF")
-        ?: "/home/miso/projects/coral/SKaiNET-embedded/sl2610-function-calling/models/functiongemma-physical-ai-v10-Q5_K_M.gguf"
+    private val gguf = FunctionGemmaFixture.gguf
 
     @Test
     fun exports_gemma_gen_mlir_with_argmax_tail_and_bf16_externals() {
-        if (!File(gguf).exists()) {
-            println("SKIP FunctionGemmaExportTest: GGUF not present at $gguf")
-            return
-        }
+        FunctionGemmaFixture.assumeRealCheckpointRunnable()
         val outDir = File(System.getProperty("java.io.tmpdir"), "fgemma-export").absolutePath
         val r = FunctionGemmaExport.export(gguf = gguf, outDir = outDir, seq = 24, bf16 = true)
         println("EXPORT extParams=${r.externalParamCount} weightMiB=${r.weightMiB} mlir=${r.mlirPath}")

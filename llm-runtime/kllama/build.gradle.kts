@@ -47,6 +47,14 @@ kotlin {
         }
     }
 
+    // Library-only Apple targets: no CLI executable, consumers link the klib
+    // into their app. src/iosMain (the registerPlatformBackends actual) existed
+    // before these targets did and was silently dead code — this module sets
+    // kotlin.mpp.applyDefaultHierarchyTemplate=false, so the source set must be
+    // wired by hand below (#271).
+    iosArm64()
+    iosSimulatorArm64()
+
     jvm()
 
     js {
@@ -65,7 +73,9 @@ kotlin {
             implementation(project(":llm-inference:llama"))
             implementation(project(":llm-inference:qwen"))
             implementation(project(":llm-agent"))
-            implementation(project(":llm-core"))
+            // api, not implementation: GenerationConfig.prefillStrategy exposes
+            // llm-core's PrefillStrategy in a public signature (see #226).
+            api(project(":llm-core"))
             implementation(libs.skainet.lang.core)
             implementation(libs.skainet.compile.core)
             implementation(libs.skainet.backend.cpu)
@@ -111,9 +121,12 @@ kotlin {
         }
         val linuxMain by creating { dependsOn(nativeMain) }
         val macosMain by creating { dependsOn(nativeMain) }
+        val iosMain by creating { dependsOn(nativeMain) }
         val linuxX64Main by getting { dependsOn(linuxMain) }
         val linuxArm64Main by getting { dependsOn(linuxMain) }
         val macosArm64Main by getting { dependsOn(macosMain) }
+        val iosArm64Main by getting { dependsOn(iosMain) }
+        val iosSimulatorArm64Main by getting { dependsOn(iosMain) }
     }
 }
 

@@ -11,6 +11,156 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **iOS artifacts for the runtime facades.** `llm-runtime/kllama` and `llm-runtime/kgemma` now
+  declare `iosArm64` + `iosSimulatorArm64` and publish the corresponding klibs. kllama's
+  `src/iosMain` (the `registerPlatformBackends` actual) predated the targets and was silently dead —
+  these modules set `kotlin.mpp.applyDefaultHierarchyTemplate=false`, so the `iosMain` source set is
+  now wired by hand (`iosMain → nativeMain`, mirroring `llm-core`). All commonMain dependencies of
+  both modules already published iOS. No CLI executables are declared for the Apple targets —
+  consumers link the klib into their app. Closes
+  [#271](https://github.com/SKaiNET-developers/SKaiNET-transformers/issues/271).
+- **Supported-targets matrix in the README.** A module-vs-target table (derived from each module's
+  `build.gradle.kts`) replaces the "where applicable" hand-wave, so which artifact runs on iOS /
+  Android / Wasm is now documented rather than discoverable only by browsing Maven Central
+  ([#271](https://github.com/SKaiNET-developers/SKaiNET-transformers/issues/271)).
+
+## [0.38.0] — 2026-07-31
+
+Ships against **SKaiNET engine 0.38.0**, which adds first-class dynamic tensor shapes (`Dim`) plus
+the narrow-float codec (`Fp16DenseTensorData`, FP16 matmul kernels, codec-driven dispatch — engine
+PR #886). Two headlines: **Moonshine v2 streaming ASR authored end-to-end in the SKaiNET NN DSL**
+(the last vendor-ONNX graph is gone) and **narrow-float `KEEP_NATIVE` weights** across the LLM loaders.
+
+### Added
+
+- **Moonshine v2 — the complete streaming pipeline in the NN DSL**, self-compiled DSL → StableHLO →
+  IREE with no vendor neural binaries (`skainet-transformers-inference-moonshine`):
+  - **Audio frontend** (`MoonshineV2Frontend`): CMVN → `asinh` compression → filterbank matmul →
+    SiLU → two causal `Conv1d(k5,s2)` — the last vendor-ONNX graph, now DSL-authored (bit-exact vs
+    `frontend.onnx`, cos > 0.999).
+  - **Encoder** (position-free sliding-window local attention) and **adapter** (learned absolute
+    positional embedding, pos-embed add only) bridging the position-free memory to the decoder.
+  - **Decoder** authored in the DSL, reusing the shared KV-cache decoder.
+- **True-dynamic KV-cache decode graphs.** `MOONSHINE_V2_TRUE_DYNAMIC` / `GEMMA_TRUE_DYNAMIC` trace
+  the cache seq dim as a real dynamic extent (`Dim.DYNAMIC`), so one compiled vmfb serves every
+  autoregressive position instead of a fixed-shape re-decode. Requires engine 0.38.0's `Dim`.
+- **Fixed-max-pad cross-attention mask** for streaming decode: pad the encoder memory to a fixed MAX
+  and mask the padding, so one prefill + one `with_past` pair serve any encoder length ≤ MAX while the
+  self-cache stays dynamic (growing). `transformer-core`'s `MultiHeadAttention` gains an optional
+  trailing `crossMask` (default `null` → byte-identical for existing callers).
+- **Gemma row-dequant of the packed `token_embd`** in the shared `Embedding`, cutting host memory at
+  load.
+- **FP16 KEEP_NATIVE on the SafeTensors path.** `DecoderSafeTensorsLoader` gains the F16 arm
+  that BF16 has had since 0.25.0: with a `DTypePolicy` admitting FP16 (`Require(FP16)`,
+  `Prefer(FP16)`, or `OneOf` containing FP16) it stops widening F16 tensors and wraps the
+  on-disk 2-bytes-per-element buffer in `Fp16DenseTensorData`. The arm was missing only
+  because no such storage type existed. `DefaultCpuOpsJvm` matches `NarrowFloatTensorData`
+  and picks the kernel by codec, so an F16 checkpoint now stays near its on-disk footprint
+  instead of inflating ~2× as FP32. Covers LLaMA, Qwen, and Voxtral, which share this loader.
+- **Narrow-float KEEP_NATIVE on the GGUF path — `DTypePolicy` is honored there at all now.**
+  `DecoderGgufWeightLoader` accepts a `dtypePolicy` and keeps F16 / BF16 source tensors packed
+  instead of widening every one to FP32. `LlamaNetworkLoader`, `QwenNetworkLoader`, and
+  `VoxtralNetworkLoader` plumb the policy attached via `withDtypePolicy` down into it; before
+  this the GGUF branches constructed the loader without the policy and silently ignored it.
+  This is the KEEP_NATIVE GGUF path the 0.25.0 notes parked, and it is what makes
+  `Require(BF16)` real on GGUF.
+
+  The packed path mirrors the FP32 path's layout handling exactly: for rank 2 it swaps the
+  shape to `[cols, rows]` and **moves no bytes**. GGUF header dims are reversed relative to the
+  logical row-major shape, so the "column-major → row-major" step is a reinterpretation, not a
+  permutation (`DequantOps.transposeColumnMajorToRowMajor` returns its input unchanged). An
+  actual element transpose here would have handed the matmul kernel a silently transposed
+  weight matrix. The result is genuinely zero-copy — the on-disk buffer becomes the storage.
+
+### Changed
+
+- **`DTypePolicyValidation` capability model is per-format.** `validate(policy, loaderName,
+  keepNative: Set<DType>)` replaces the BF16-only `allowBf16Require: Boolean` (kept as a
+  `@Deprecated` overload). A caller declares which narrow-float formats its chain actually
+  hands through packed, and a `Require` naming one is accepted only by a chain that can honor
+  it. The boolean could express neither "keeps FP16 but not BF16" nor the empty case.
+
+  The two formats are tracked separately and never interchangeably: `Require(BF16)` still
+  widens F16 sources, and vice versa. Both are 2 bytes per element, so mis-tagging F16 bytes as
+  BF16 decodes to plausible-looking garbage rather than throwing. `DTypePolicyValidation
+  .keepsNative(policy, native)` is the single decision point both loader chains share, mirroring
+  the engine's `mapPolicyToNarrow` / `keepsNative`.
+- **`Require(FP16)` is now accepted** by `LlamaNetworkLoader`, `QwenNetworkLoader`, and
+  `VoxtralNetworkLoader` (both GGUF and SafeTensors), and **`Require(BF16)` is now accepted on
+  their GGUF paths**. Both previously threw.
+- **Binary-breaking (source-compatible): `DecoderGgufWeightLoader` constructors** gain a
+  trailing `dtypePolicy: DTypePolicy = DTypePolicy.Any`, which changes their JVM descriptors.
+  Kotlin and Java callers compile unchanged; already-compiled callers must be rebuilt.
+  Behaviour with the default is identical to before.
+
+### Fixed
+
+- **`GemmaNetworkLoader` and `ApertusNetworkLoader` no longer accept a `Require(BF16)` they
+  ignore.** Both have their own weight chains (`Gemma4WeightLoader` /
+  `Gemma4SafeTensorsWeightLoader`, `ApertusWeightLoader` / `ApertusSingleSafeTensorsLoader`)
+  which widen every narrow float to FP32 and have no KEEP_NATIVE path. Their SafeTensors
+  entrypoints nevertheless passed `allowBf16Require = true`, so `Require(BF16)` validated and
+  was then silently disregarded at load — the exact failure the eager validator exists to
+  prevent. They now declare `keepNative = emptySet()` and reject it. **Callers relying on the
+  old acceptance must switch to `Prefer(BF16)`** (a soft constraint, which still passes) until
+  those chains grow a KEEP_NATIVE path.
+- Moonshine v2 encoder sliding-window off-by-one (was cos 0.991 vs ONNX); the v2 config is set to the
+  real tiny-streaming dims; the adapter is pos-embed add only (no LayerNorm).
+- kgemma heavy-trace test heap raised to 12 g, with honest skips.
+
+## [0.36.1] — 2026-07-17
+
+Patch on **0.36.0** (same SKaiNET engine 0.36.0). Two additions: **BGE embedding models** on the
+BERT DSL path (CLS pooling + retrieval prefixes), and **beam search** for the T5 decoder and the
+vec2text inversion loop. Both are additive — existing consumers are untouched, and the vec2text
+greedy path is unchanged when both beam widths are 1.
+
+### Added
+
+- **BGE embedding models** (`BAAI/bge-small-en-v1.5` and siblings) run on the BERT DSL path:
+  - **CLS pooling.** `BertPooling { MEAN, CLS }` on `BertEncoderRuntime` /
+    `createBertEncoderRuntime`; auto-detected from the sentence-transformers
+    `1_Pooling/config.json` (absent file → `MEAN`, unsupported max/sqrt-len modes rejected
+    loudly). Pooling stays outside the traced graph — OPTIMIZED mode and StableHLO export
+    are unaffected.
+  - **Query/document asymmetry.** `EmbeddingModel` gains `embedQuery` / `embedDocument` /
+    `embedDocuments` (defaults delegate to `embed` — additive, existing consumers untouched).
+    `PrefixedEmbeddingModel` + `EmbeddingModelProfiles` apply retrieval instruction prefixes
+    per repo id (E5 `query: `/`passage: `, BGE query instruction); `fromHuggingFace` wires
+    them automatically, `fromSafeTensors` accepts explicit `prefixes`.
+  - **Integer checkpoint buffers no longer break loads.** BGE-style snapshots persist an
+    I64 `embeddings.position_ids` buffer; the interim `FloatSafeTensorsLoader` skips
+    non-float buffers (the index-free encoder never needs them). Drop when the engine's
+    loader gains a tensor filter ([SKaiNET#822](https://github.com/SKaiNET-developers/SKaiNET/issues/822)).
+  - Design + traceable plan: `docs/specs/embedding-model-coverage.md` (E5 multilingual
+    follows in Phase 2 — Unigram tokenizer).
+- **Token-level beam search on the T5 decoder.** `T5Runtime.generateBeam(memory, numBeams,
+  maxLength, lengthPenalty)` returns up to `numBeams` sequences, best-first by length-normalized
+  log-probability. It shares a new `decoderLastLogits()` step with greedy `generate`, and adds
+  `logSoftmax` plus linear top-k helpers. There is still no KV cache, so decode cost scales
+  roughly linearly with `numBeams`.
+- **Sequence-level beam search across correction rounds.** `Vec2TextInverter.invert(...,
+  sequenceBeamWidth, tokenBeams)` and `invertEmbedding()` keep `beamWidth` hypotheses between
+  correction steps, ranked by cosine similarity to the target embedding — the oracle the beam
+  exploits. `InversionModel.invertBeam` / `CorrectorModel.correctBeam` expose the top-N candidates
+  from each stage.
+- Verified end-to-end on real gtr-base weights: at one correction step, beam (sequence width 3,
+  token beams 3) improves cosine **0.765 → 0.818** over greedy on the round-trip test's example
+  sentence, with a visibly closer reconstruction. Covered by `Vec2TextRoundTripTest`
+  (`invert_beamBeatsGreedy`), which skips unless `VEC2TEXT_MODELS_DIR` is set.
+
+## [0.36.0] — 2026-07-12
+
+Ships against **SKaiNET engine 0.36.0**. Headline: **BERT is now completely defined on the DSL
+path** — the legacy hand-coded eager stack is removed (**BREAKING**, see *Removed*), and sentence
+embeddings get a one-call factory with built-in Hugging Face Hub download. Also new: a **T5
+encoder-decoder** runtime and a **vec2text embedding-inversion** pipeline (invert GTR embeddings
+back to text). Downstream impact:
+indexing the leaf-cli reference corpus (56 chunks) drops from 676.9 s to 44.5 s (~15×) with
+identical embeddings.
+
+### Added
+
 - **BERT sentence embeddings completed on the DSL path.** `bertNetwork()` is now a numerically
   complete `tokens → hidden-states` encoder: the new `BertEmbeddings` module adds absolute-position
   and token-type embeddings (index-free `narrow`-based lookups, single-segment) that the DSL
@@ -30,6 +180,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   directly: `kbert MongoDB/mdbr-leaf-mt "query" "doc"`.
 - `BertConfigParser` — shared `config.json` (+ `2_Dense/config.json` → `projectionDim`) parser,
   consolidating the copies previously living in `KBertJava` and downstream apps.
+- **T5 encoder-decoder runtime** (`llm-inference/t5`, `sk.ainet.models.t5`). Hand-coded in the
+  direct tensor-ops style (per-head attention via narrow/matmul/softmax, batch 1, no KV cache —
+  the greedy decoder recomputes the stack per step), handling T5's specifics: no 1/√d attention
+  scaling, learned relative-position bias (`T5RelativeBias`, block-0 table shared per stack,
+  none in cross-attention), RMSNorm-style T5LayerNorm, un-gated ReLU FFN, tied embeddings with
+  `d_model^-0.5` logit scaling. Includes `GtrEmbedder` — GTR sentence embeddings exactly as
+  vec2text consumes them (raw T5 encoder + mean pooling; deliberately no Dense projection and no
+  L2 normalization) — with a parity test against real `sentence-transformers/gtr-t5-base` weights.
+- **vec2text embedding inversion** (`llm-inference/vec2text`, `sk.ainet.models.vec2text`).
+  Port of vec2text's greedy corrector loop (`sequence_beam_width = 1`): `InversionModel`
+  produces an initial hypothesis from a target GTR embedding, then `CorrectorModel` iteratively
+  re-embeds and corrects it, early-stopping when the cosine score plateaus — `Vec2TextInverter`
+  returns the best reconstruction plus the full step trace. Verified with an end-to-end
+  round-trip test on real gtr-base weights.
 
 ### Fixed
 
@@ -42,9 +206,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (returning 384-dim vectors while advertising 1024). `BertEncoderRuntime` applies bias-free
   projections; `KBertJava` now picks up `2_Dense/` heads it previously ignored.
 - **Graph replay dropped `permute` axes.** The ComputeGraph executor's builtin dispatch replayed
-  `permute` as a plain last-two-dims transpose; `LLMFusedOpHandlers` registers an axes-aware
-  `permute` handler (the registry precedes the builtin), fixing every multi-token attention trace —
-  single-token decode never hit it. Remove once the engine executor honors `axes` upstream.
+  `permute` as a plain last-two-dims transpose, breaking every multi-token attention trace —
+  single-token decode never hit it. Fixed upstream in engine 0.36.0
+  ([SKaiNET#803](https://github.com/SKaiNET-developers/SKaiNET/pull/803)), which this release
+  consumes; the interim axes-aware `permute` handler in `LLMFusedOpHandlers` (never in a published
+  release) is removed again.
 
 ### Removed
 
@@ -742,6 +908,9 @@ Version-aligned with **SKaiNET 0.21.0**.
 Last published transformers release before the engine-aligned version line.
 See `git log v0.16.0..0.18.0` for details.
 
+[0.38.0]: https://github.com/SKaiNET-developers/SKaiNET-transformers/releases/tag/0.38.0
+[0.36.1]: https://github.com/SKaiNET-developers/SKaiNET-transformers/releases/tag/0.36.1
+[0.36.0]: https://github.com/SKaiNET-developers/SKaiNET-transformers/releases/tag/0.36.0
 [0.31.0]: https://github.com/SKaiNET-developers/SKaiNET-transformers/releases/tag/0.31.0
 [0.30.0]: https://github.com/SKaiNET-developers/SKaiNET-transformers/releases/tag/0.30.0
 [0.28.1]: https://github.com/SKaiNET-developers/SKaiNET-transformers/releases/tag/0.28.1

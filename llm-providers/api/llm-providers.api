@@ -9,7 +9,42 @@ public final class sk/ainet/llm/providers/BertEmbeddingModel {
 	public static final fun fromSafeTensors (Ljava/nio/file/Path;Lsk/ainet/context/ExecutionContext;)Lsk/ainet/llm/api/EmbeddingModel;
 	public static final fun fromSafeTensors (Ljava/nio/file/Path;Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/bert/BertExecutionMode;)Lsk/ainet/llm/api/EmbeddingModel;
 	public static final fun fromSafeTensors (Ljava/nio/file/Path;Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/bert/BertExecutionMode;Ljava/lang/String;)Lsk/ainet/llm/api/EmbeddingModel;
-	public static synthetic fun fromSafeTensors$default (Ljava/nio/file/Path;Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/bert/BertExecutionMode;Ljava/lang/String;ILjava/lang/Object;)Lsk/ainet/llm/api/EmbeddingModel;
+	public static final fun fromSafeTensors (Ljava/nio/file/Path;Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/bert/BertExecutionMode;Ljava/lang/String;Lsk/ainet/llm/providers/EmbeddingPrefixes;)Lsk/ainet/llm/api/EmbeddingModel;
+	public static synthetic fun fromSafeTensors$default (Ljava/nio/file/Path;Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/bert/BertExecutionMode;Ljava/lang/String;Lsk/ainet/llm/providers/EmbeddingPrefixes;ILjava/lang/Object;)Lsk/ainet/llm/api/EmbeddingModel;
+}
+
+public final class sk/ainet/llm/providers/EmbeddingModelProfiles {
+	public static final field INSTANCE Lsk/ainet/llm/providers/EmbeddingModelProfiles;
+	public final fun apply (Lsk/ainet/llm/api/EmbeddingModel;Ljava/lang/String;)Lsk/ainet/llm/api/EmbeddingModel;
+	public final fun forRepo (Ljava/lang/String;)Lsk/ainet/llm/providers/EmbeddingPrefixes;
+}
+
+public final class sk/ainet/llm/providers/EmbeddingPrefixes {
+	public static final field Companion Lsk/ainet/llm/providers/EmbeddingPrefixes$Companion;
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;)Lsk/ainet/llm/providers/EmbeddingPrefixes;
+	public static synthetic fun copy$default (Lsk/ainet/llm/providers/EmbeddingPrefixes;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lsk/ainet/llm/providers/EmbeddingPrefixes;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getDocument ()Ljava/lang/String;
+	public final fun getQuery ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/llm/providers/EmbeddingPrefixes$Companion {
+	public final fun getNONE ()Lsk/ainet/llm/providers/EmbeddingPrefixes;
+}
+
+public final class sk/ainet/llm/providers/PrefixedEmbeddingModel : sk/ainet/llm/api/EmbeddingModel {
+	public fun <init> (Lsk/ainet/llm/api/EmbeddingModel;Lsk/ainet/llm/providers/EmbeddingPrefixes;)V
+	public fun call (Lsk/ainet/llm/api/EmbeddingRequest;)Lsk/ainet/llm/api/EmbeddingResponse;
+	public fun close ()V
+	public fun embedDocument (Ljava/lang/String;)[F
+	public fun embedDocuments (Ljava/util/List;)Ljava/util/List;
+	public fun embedQuery (Ljava/lang/String;)[F
+	public fun getDimensions ()I
 }
 
 public final class sk/ainet/llm/providers/SkaiNetChatModel : sk/ainet/llm/api/StreamingChatModel {

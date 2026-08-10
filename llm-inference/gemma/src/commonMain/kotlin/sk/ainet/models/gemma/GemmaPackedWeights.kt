@@ -2,6 +2,7 @@ package sk.ainet.models.gemma
 
 import sk.ainet.context.ExecutionContext
 import sk.ainet.io.gguf.GGMLQuantizationType
+import sk.ainet.io.gguf.GGML_QUANT_SIZES
 import sk.ainet.io.gguf.dequant.DequantOps
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.Tensor
@@ -72,7 +73,17 @@ public fun convertGemmaWeightsPacked(
     return Gemma4Weights(typed.metadata, newTensors, typed.quantTypes, typed.logicalShapes) as Gemma4Weights<*, *>
 }
 
-/** Dequant to FP32 in natural `[rows, cols]` order (embeddings — gathered, not matmul'd). */
+/**
+ * Wrap the gathered token-embedding table (gathered by row, not matmul'd).
+ *
+ * For row-sliceable quant layouts the table stays **packed** as a
+ * [GemmaPerLayerTokenEmbedTensorData] ([RowDequantSource]): [Embedding] dequants
+ * only the one row per token it actually looks up at decode time. For
+ * FunctionGemma the Q8_0 `token_embd` is ~178 MB packed vs ~0.67 GB FP32 — the
+ * difference between completing decode and OOMing the 1.9 GB board. Layouts we
+ * can't row-slice (row width not block-aligned, unknown block size) fall back to
+ * a full FP32 dequant.
+ */
 @Suppress("UNCHECKED_CAST")
 private fun dequantNoTranspose(
     bytes: ByteArray,
@@ -80,11 +91,19 @@ private fun dequantNoTranspose(
     shape: Shape,
     ctx: ExecutionContext,
 ): Tensor<DType, Any> {
+    val block = GGML_QUANT_SIZES[qt]
+    if (block != null && shape.rank == 2 && shape[1] % block.first == 0) {
+        return ctx.fromData(
+            GemmaPerLayerTokenEmbedTensorData(shape, qt, bytes) as TensorData<FP32, Float>,
+            FP32::class,
+        ) as Tensor<DType, Any>
+    }
+    // Fallback for non-row-sliceable layouts: materialise FP32. Wrap the dequant
+    // array directly (no-copy) rather than ctx.fromFloatArray, which routes
+    // through BufferHandleFactory.owned and allocates a second full-size buffer —
+    // for a 262k×640 FP32 token_embd (~0.67 GB) that transient double is itself
+    // enough to OOM the 1.9 GB board.
     val floats = DequantOps.dequantFromBytes(bytes, qt, shape.volume)
-    // Wrap the dequant array directly (no-copy) rather than ctx.fromFloatArray,
-    // which routes through BufferHandleFactory.owned and allocates a second
-    // full-size buffer — for the 262k×640 FP32 token_embd (~0.67 GB) that
-    // transient double is itself enough to OOM the 1.9 GB board.
     return ctx.fromData(DenseFloatArrayTensorData<FP32>(shape, floats), FP32::class) as Tensor<DType, Any>
 }
 

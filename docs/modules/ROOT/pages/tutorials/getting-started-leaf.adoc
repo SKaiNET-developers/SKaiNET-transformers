@@ -1,0 +1,156 @@
+= Getting Started with LEAF
+:description: Load MongoDB's LEAF embedding models in one call and build semantic search on the JVM — no Python, no server.
+
+https://huggingface.co/MongoDB/mdbr-leaf-ir[LEAF^] is MongoDB's family of compact BERT-style
+embedding models for retrieval workloads. At ~23M parameters (6 layers, hidden size 384) a LEAF
+model loads in seconds, runs comfortably on CPU, and is small enough to embed in a desktop app,
+a CLI, or an Android service — which makes it a natural first model for SKaiNET Transformers'
+embedding stack.
+
+Two variants are published:
+
+[cols="1,1,2"]
+|===
+|Model |Output dimensions |Tuned for
+
+|`MongoDB/mdbr-leaf-ir`
+|768
+|Information retrieval — query/document search, RAG indexing
+
+|`MongoDB/mdbr-leaf-mt`
+|1024
+|Multi-task — retrieval plus classification, clustering, similarity
+|===
+
+Both ship a bias-free sentence-transformers `2_Dense` projection head that maps the 384-dim
+encoder output to the advertised dimensionality. The runtime applies it automatically (since
+0.36.0 — earlier releases silently skipped bias-free heads and returned raw 384-dim vectors).
+
+== Prerequisites
+
+* JDK 21+ (Java 25 preferred for the Vector API)
+* The `llm-providers` artifact (via the BOM):
+
+[source,kotlin]
+----
+dependencies {
+    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.36.0"))
+    implementation("sk.ainet.transformers:skainet-transformers-providers")
+}
+----
+
+No model setup is needed — the factory downloads the snapshot from the Hugging Face Hub on
+first use and caches it under `~/.cache/skainet/models/` (offline-safe afterwards; set
+`HF_TOKEN` for gated repos).
+
+== One call to a model
+
+[source,kotlin]
+----
+import sk.ainet.llm.providers.BertEmbeddingModel
+
+BertEmbeddingModel.fromHuggingFace("MongoDB/mdbr-leaf-ir").use { model ->
+    println(model.dimensions)                        // 768
+    val v: FloatArray = model.embed("What is a pangram?")
+}
+----
+
+The returned `EmbeddingModel` (the provider-neutral SPI from `llm-api`) hides the whole stack:
+tokenizer, the DSL-defined encoder (`bertNetwork()`), masked mean pooling, the `2_Dense`
+projection, and L2 normalization. Vectors come out unit-length, so cosine similarity is just a
+dot product.
+
+Already have a local snapshot (for example from `huggingface-cli download`)? Point at the
+directory instead — `config.json`, the tokenizer (`vocab.txt` or `tokenizer.json`),
+`model.safetensors`, and the optional `2_Dense/` head are auto-detected:
+
+[source,kotlin]
+----
+val model = BertEmbeddingModel.fromSafeTensors(Path.of("/models/mdbr-leaf-ir"))
+----
+
+== Semantic search in 30 lines
+
+Index a handful of documents, then rank them against a query:
+
+[source,kotlin]
+----
+import sk.ainet.llm.providers.BertEmbeddingModel
+
+fun dot(a: FloatArray, b: FloatArray): Float {
+    var s = 0f
+    for (i in a.indices) s += a[i] * b[i]
+    return s   // vectors are L2-normalized — this IS the cosine similarity
+}
+
+fun main() {
+    BertEmbeddingModel.fromHuggingFace("MongoDB/mdbr-leaf-ir").use { model ->
+        val documents = listOf(
+            "A pangram is a sentence that contains every letter of the alphabet.",
+            "The Eiffel Tower is located on the Champ de Mars in Paris.",
+            "Kotlin Multiplatform shares code between JVM, Native, and JS targets.",
+        )
+
+        // Index: one batched call, response order matches request order.
+        val index: List<FloatArray> = model.embed(documents)
+
+        // Query
+        val query = model.embed("sentence with all 26 letters")
+        documents.zip(index)
+            .sortedByDescending { (_, v) -> dot(query, v) }
+            .forEach { (doc, v) -> println("%.4f  %s".format(dot(query, v), doc)) }
+    }
+}
+----
+
+The pangram document wins by a wide margin. Swap the in-memory list for a vector store and this
+is the indexing side of a RAG pipeline — see
+https://github.com/michalharakal/SK-leaf[SK-leaf^] for a complete CLI (index + ask) built on
+exactly this API.
+
+== From Java
+
+`BertEmbeddingModel` is `@JvmStatic` throughout:
+
+[source,java]
+----
+import sk.ainet.llm.api.EmbeddingModel;
+import sk.ainet.llm.providers.BertEmbeddingModel;
+
+try (EmbeddingModel model = BertEmbeddingModel.fromHuggingFace("MongoDB/mdbr-leaf-ir")) {
+    float[] vector = model.embed("The quick brown fox");
+}
+----
+
+For a session-style surface (`encode` / `similarity`) see `KBertJava` in
+xref:tutorials/embeddings.adoc[Embeddings — Getting Started].
+
+== From the CLI
+
+`kbert-cli` accepts a Hub repo id (or a local snapshot directory) directly:
+
+[source,bash]
+----
+./gradlew :llm-apps:kbert-cli:run \
+  --args="MongoDB/mdbr-leaf-ir 'pangram' 'A pangram is a sentence that contains every letter of the alphabet.'"
+----
+
+It prints the embeddings' dimensionality and the query/document cosine similarity.
+
+== Performance notes
+
+* The default execution mode is `DIRECT` (eager) — the primary, well-trodden JVM path. As of
+  0.36.0 it runs the DSL-defined encoder; indexing the SK-leaf reference corpus (56 chunks)
+  dropped from 676.9 s to 44.5 s (~15×) versus the removed legacy runtime, with identical
+  embeddings.
+* `BertEncoderRuntime` also offers an `OPTIMIZED` mode that executes a traced, fused
+  ComputeGraph (bit-exact vs `DIRECT`, shape-specialized per sequence length) — see
+  xref:explanation/bert-dsl.adoc[BERT Completely Defined in the DSL].
+* For the fastest matmuls on the JVM, add the native FFM CPU backend
+  (`sk.ainet.core:skainet-backend-native-cpu`) — it is auto-discovered when present.
+
+== What's Next
+
+* xref:tutorials/embeddings.adoc[Embeddings — Getting Started] — the SPI-level tutorial (batching, `EmbeddingRequest`, Java session facade).
+* xref:explanation/bert-dsl.adoc[BERT Completely Defined in the DSL] — how the encoder is built, executed, and exported.
+* xref:explanation/embeddings.adoc[How Embeddings Work] — pooling, normalization, dimensionality.

@@ -17,6 +17,7 @@ import sk.ainet.models.llama.LlamaModelMetadata
 import sk.ainet.models.llama.DecoderSafeTensorsLoader
 import sk.ainet.models.llama.DecoderGgufWeightLoader
 import sk.ainet.models.llama.DecoderGgufWeights
+import sk.ainet.models.llama.DECODER_NARROW_KEEP_NATIVE
 import kotlin.jvm.JvmName
 import kotlin.reflect.KClass
 
@@ -80,8 +81,9 @@ public class VoxtralNetworkLoader @PublishedApi internal constructor(
 
     /** See [sk.ainet.models.llama.LlamaNetworkLoader.withDtypePolicy]. */
     public fun withDtypePolicy(policy: DTypePolicy): VoxtralNetworkLoader {
-        val allowBf16 = weightsProvider is WeightsProvider.SafeTensors
-        DTypePolicyValidation.validate(policy, "VoxtralNetworkLoader.withDtypePolicy", allowBf16Require = allowBf16)
+        DTypePolicyValidation.validate(
+            policy, "VoxtralNetworkLoader.withDtypePolicy", keepNative = DECODER_NARROW_KEEP_NATIVE,
+        )
         this.dtypePolicy = policy
         return this
     }
@@ -162,11 +164,15 @@ public class VoxtralNetworkLoader @PublishedApi internal constructor(
     ): DecoderGgufWeights<T, V> {
         return when (val wp = weightsProvider) {
             is WeightsProvider.GgufSource -> {
-                val loader = DecoderGgufWeightLoader(wp.sourceProvider, quantPolicy = wp.quantPolicy)
+                val loader = DecoderGgufWeightLoader(
+                    wp.sourceProvider, quantPolicy = wp.quantPolicy, dtypePolicy = dtypePolicy,
+                )
                 loader.loadToMap<T, V>(ctx)
             }
             is WeightsProvider.GgufRandomAccess -> {
-                val loader = DecoderGgufWeightLoader(wp.randomAccessProvider, quantPolicy = wp.quantPolicy)
+                val loader = DecoderGgufWeightLoader(
+                    wp.randomAccessProvider, quantPolicy = wp.quantPolicy, dtypePolicy = dtypePolicy,
+                )
                 loader.loadToMapStreaming<T, V>(ctx)
             }
             is WeightsProvider.SafeTensors -> {

@@ -50,7 +50,7 @@ Use the version shown in this README as the source of truth for first-run snippe
 - **Native CPU performance.** Auto-discovers SKaiNET's priority-100 FFM (Foreign Function & Memory) native kernel provider when present (4–6× faster Q4_K matmul, 1.5–1.8× faster FP32 SGEMM vs the priority-50 Panama Vector path; Linux x86_64 / macOS ARM64 / Windows x86_64 in the published JAR — no manual setup).
 - **Tool calling (experimental).** Family-specific chat templates and tool-call parsers (Llama 3, Qwen, Gemma, Apertus, ChatML/Hermes) and a Java surface (`KLlamaJava`, `JavaTools.definition`, `JavaAgentLoop`) exist, but tool calling is **not reliable yet** — it may fail to trigger or parse even when plain generation works.
 - **GGUF + SafeTensors loading.** Streaming reader for any model size; `NATIVE_OPTIMIZED` quant policy keeps weights in their packed SIMD-friendly form.
-- **Kotlin Multiplatform.** JVM, Android, Kotlin/Native (Linux x64/ARM64, macOS ARM64, iOS arm64/sim arm64), JS, Wasm targets where applicable.
+- **Kotlin Multiplatform.** JVM, Android, Kotlin/Native (Linux x64/ARM64, macOS ARM64, iOS arm64/sim arm64), JS, Wasm targets — see the [supported targets matrix](#supported-targets) for exactly which module publishes which target.
 
 ## Roadmap
 
@@ -74,9 +74,11 @@ flowchart LR
     HLO --> Native["Native code"]
 ```
 
-Today every model family runs through the **eager JVM path**. The StableHLO /
-native path is shared with the engine and not yet wired for full transformer
-models.
+The **eager JVM path** is the primary way every model family runs today. The
+StableHLO / native path is shared with the engine and wired for the first
+families: FunctionGemma exports a compiled edge build (0.35.0), and the BERT
+encoder traces to an optimized ComputeGraph and lowers to StableHLO (0.36.0);
+full generative-model coverage is still in progress.
 
 ### Where each architecture fits
 
@@ -88,7 +90,8 @@ Honest status — see the project-status note at the top of this README.
 | **Qwen 2 / 3** | DSL + loaders present; runs through the shared decoder path. Early; Qwen3 RoPE / QK-norm fixes landed in 0.23.2. |
 | **Gemma 2 / 3 / 3n** | DSL + loaders present (Gemma 4 via the SafeTensors path); has the most test coverage, but not verified end-to-end. |
 | **Apertus** | DSL + loaders present; declared end-to-end in 0.23.1, still early. |
-| **BERT** | Sentence embeddings on the DSL path (`bertNetwork()` + `BertEncoderRuntime`, eager or traced/fused) — verified against sentence-transformers on MongoDB/mdbr-leaf. One-call `BertEmbeddingModel.fromHuggingFace(...)` with built-in Hub download. No text generation, no tool calling. |
+| **BERT** | Sentence embeddings on the DSL path (`bertNetwork()` + `BertEncoderRuntime`, eager or traced/fused) — verified against sentence-transformers on MongoDB/mdbr-leaf. One-call `BertEmbeddingModel.fromHuggingFace(...)` with built-in Hub download; MEAN or CLS pooling and retrieval prefixes cover LEAF, BGE and E5-style models. No text generation, no tool calling. |
+| **T5 / GTR** | Encoder-decoder runtime (hand-coded, batch 1, no KV cache) + `GtrEmbedder`, powering the **vec2text** embedding-inversion pipeline, with greedy and beam-search decoding — verified with a real-weights gtr-base round-trip test. |
 | **Voxtral** | TTS / voice; architecture code only — no runtime facade or CLI yet. |
 
 ### Near term
@@ -103,15 +106,68 @@ Honest status — see the project-status note at the top of this README.
 
 ## Current release
 
-The current release is **0.35.0** (against **SKaiNET 0.35.0**) — it adds **FunctionGemma**
-self-compiled from the SKaiNET NN DSL: a one-dependency function-calling sLLM
-(`skainet-transformers-runtime-kgemma`) with an eager one-line API
-(`FunctionGemma.fromGguf(gguf).call("turn the light on")` → `ToolCall(set_lights, {state="on"})`, runs
-anywhere on CPU, no iree) **and** a no-Python compiled edge export (`FunctionGemma.exportCompiled` /
-`compile-gemma.sh`) verified token-for-token against llama.cpp on the SL2610 board. It uses the engine's
-new `argMax` op to fold the `logits → token-ids` argmax tail into the DSL trace.
+The current release is **0.38.0** (against **SKaiNET 0.38.0**) — the release that completes the
+**Moonshine v2 streaming ASR entirely in the SKaiNET NN DSL** and adds **narrow-float weights**.
 
-It builds on **0.34.1** — a patch that layer-qualifies the
+**Moonshine v2 — the whole pipeline is now DSL-authored and self-compiled** (DSL → StableHLO → IREE,
+no vendor neural binaries) in `skainet-transformers-inference-moonshine`: the **audio frontend**
+(CMVN → asinh → filterbank → SiLU → two causal `Conv1d`), the position-free sliding-window
+**encoder**, the learned-positional-embedding **adapter**, and the KV-cache **decoder**. The last
+vendor-ONNX graph — the frontend — is gone.
+
+- **Streaming decode over a growing cache.** The decoder exports **true-dynamic** KV-cache graphs
+  (`Dim.DYNAMIC`), so one compiled artifact serves every autoregressive position instead of a fixed
+  re-decode. A **fixed-max-pad cross-attention mask** lets one prefill + one `with_past` pair serve
+  any encoder-memory length ≤ MAX. `transformer-core`'s `MultiHeadAttention` gains an optional
+  trailing `crossMask` (default null — byte-identical for existing callers).
+
+**Narrow-float `KEEP_NATIVE` weights** — keep FP16/BF16 packed on the SafeTensors and GGUF paths
+instead of widening to FP32 at load (half the weight bytes at rest), and relay matmul weights
+input-major so the per-forward `.t()` becomes a zero-copy view: **BF16 1.8–1.9×, FP16 1.5–1.7×** over
+FP32, and a 4.4 s-per-projection widening on `ffn_up` 8B removed. Wired across
+llama/qwen/gemma/apertus/voxtral through the `DTypePolicyValidation` policy surface.
+
+**Gemma** now **row-dequants the packed `token_embd`** in the shared `Embedding`, cutting host memory
+at load.
+
+This is the first release on **SKaiNET engine 0.38.0**, which ships first-class dynamic tensor shapes
+(`Dim`) — the capability the true-dynamic decode export is built on.
+
+It builds on **0.36.1**, which added **BGE embedding models** on the BERT DSL path (CLS pooling +
+retrieval prefixes) and **beam search** for the T5 decoder and the vec2text inversion loop — both
+additive, drop-in for existing consumers.
+
+It builds on **0.36.0**, in which **BERT became completely defined in the SKaiNET NN DSL** and the
+deprecated hand-coded eager BERT stack was **removed (BREAKING)**:
+
+- `bertNetwork()` is a numerically complete `tokens → hidden-states` encoder: the new
+  `BertEmbeddings` module adds the absolute-position and token-type embeddings the DSL definition
+  previously omitted, and each encoder layer is wired as two post-norm blocks so every residual
+  lands on the right value.
+- `BertEncoderRuntime` runs the same definition **eagerly** (`DIRECT`, default) or as a traced,
+  LLM-pipeline-**optimized ComputeGraph** (`OPTIMIZED`, bit-exact vs eager), adds masked mean
+  pooling, the optional sentence-transformers `2_Dense` projection, and L2 normalization — and
+  `exportTape(...)` lowers the encoder to StableHLO.
+- One-call consumption: `BertEmbeddingModel.fromHuggingFace("MongoDB/mdbr-leaf-mt")` /
+  `fromSafeTensors(dir)` behind the neutral `EmbeddingModel` SPI, with built-in Hub download
+  (`HF_TOKEN`-aware, cached, offline-safe after the first run).
+- Downstream effect: indexing the leaf-cli reference corpus dropped **676.9 s → 44.5 s (~15×)**
+  with identical embeddings. Migration notes for the removed `BertRuntime` stack are in the
+  [CHANGELOG](CHANGELOG.md) and the
+  [BERT-as-DSL explanation](docs/modules/ROOT/pages/explanation/bert-dsl.adoc).
+
+0.36.0 also added the **T5 encoder-decoder** runtime (`llm-inference/t5`) with `GtrEmbedder`, and
+the **vec2text embedding-inversion** pipeline (`llm-inference/vec2text`) that iteratively
+reconstructs text from a GTR embedding — verified end-to-end against real
+`sentence-transformers/gtr-t5-base` weights. That is the pipeline 0.36.1's beam search extends.
+
+Both build on **0.35.0**, which added **FunctionGemma** self-compiled from the SKaiNET NN DSL: a
+one-dependency function-calling sLLM (`skainet-transformers-runtime-kgemma`) with an eager one-line
+API (`FunctionGemma.fromGguf(gguf).call("turn the light on")` → `ToolCall(set_lights, {state="on"})`,
+runs anywhere on CPU, no iree) **and** a no-Python compiled edge export
+(`FunctionGemma.exportCompiled` / `compile-gemma.sh`) verified token-for-token against llama.cpp on
+the SL2610 board, using the engine's new `argMax` op to fold the `logits → token-ids` argmax tail
+into the DSL trace; and on **0.34.1** — a patch that layer-qualifies the
 Moonshine encoder's attention/LayerNorm parameter names so by-name weight loading can tell the
 layers apart (no public API change) — and on **0.34.0**, which adds the first **Moonshine**
 speech-to-text encoder authored entirely in the SKaiNET NN DSL (`skainet-transformers-inference-moonshine`,
@@ -138,7 +194,7 @@ The recommended way to consume is via the BOM. It pins every published `skainet-
 
 ```kotlin
 dependencies {
-    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.35.0"))
+    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.38.0"))
 
     // Versions resolved from the BOM:
     implementation("sk.ainet.transformers:skainet-transformers-core")
@@ -165,11 +221,37 @@ dependencies {
 | `llm-api`            | Framework-neutral interfaces (`ChatModel`, `EmbeddingModel`, `ToolDefinition`) — Spring AI-shaped. |
 | `transformer-core`   | Framework NN primitives (attention, KV-cache family, embedding, norms, RoPE, FFNs, linear projection). `lang-core`-only → **all targets incl. `androidNative`**; re-exported by `llm-core`. |
 | `llm-core`           | `OptimizedLLMRuntime`, `ModelRegistry`, `UnifiedModelLoader`, shared abstractions. |
-| `llm-inference/<arch>` | Per-architecture network DSLs and weight loaders (`llama`, `gemma`, `qwen`, `apertus`, `bert`). |
+| `llm-inference/<arch>` | Per-architecture network DSLs and weight loaders (`llama`, `gemma`, `qwen`, `apertus`, `bert`, `t5`, `vec2text`). |
 | `llm-runtime/<arch>` | Per-architecture runtime facades (`kllama`, `kgemma`, `kqwen`, `kapertus`). |
 | `llm-agent`          | Chat templates, tool-call parsers, agent loops; Java surface.           |
 | `llm-apps`           | CLIs: `skainet-cli` (unified), `kllama-cli`, `kbert-cli`, plus `kllama-java-sample`. |
 | `llm-test/llm-test-java` | JUnit 5 end-to-end tests for the Java surface (gated on `TINYLLAMA_MODEL_PATH`). |
+
+## Supported targets
+
+Which Maven artifact publishes which Kotlin target (derived from each module's
+`build.gradle.kts`; "iOS" = `iosArm64` + `iosSimulatorArm64`, "Linux" =
+`linuxX64` + `linuxArm64`):
+
+| Module | JVM | Android | iOS | macOS arm64 | Linux | JS | wasmJs | wasmWasi |
+| --- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |
+| `transformer-core` ¹ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `llm-core` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `llm-api` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `llm-agent` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `llm-inference`: `llama`, `qwen`, `gemma`, `apertus`, `voxtral` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `llm-inference/bert` | ✓ | ✓ | — | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `llm-inference/moonshine` ² | ✓ | — | ✓ | — | ✓ | — | — | — |
+| `llm-inference`: `t5`, `vec2text` | ✓ | — | — | — | ✓ | — | — | — |
+| `llm-runtime/kllama` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — |
+| `llm-runtime/kgemma` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `llm-runtime/gemma-iree` | ✓ | — | — | ✓ | ✓ | — | — | — |
+| `llm-runtime/kapertus` | ✓ | — | — | — | — | — | — | — |
+| `llm-performance` | ✓ | ✓ | — | ✓ | — | ✓ | ✓ | ✓ |
+| `llm-providers`, `llm-apps/*`, `llm-test/*` | ✓ | — | — | — | — | — | — | — |
+
+¹ `transformer-core` additionally publishes `androidNativeArm32`/`androidNativeArm64`.
+² `moonshine` publishes `iosArm64` and `androidNativeArm64` but no simulator or Android (AGP) variant.
 
 ## Getting started
 
@@ -194,6 +276,22 @@ java -jar skainet-all.jar -m model.gguf --agent --template=apertus
 ```
 
 `--template` accepts `llama3`, `chatml`, `qwen`, `gemma`, `apertus` (auto-detected from GGUF metadata if omitted).
+
+### Embeddings: LEAF in one call
+
+Sentence embeddings with MongoDB's compact LEAF retrieval models need a single factory call —
+the model downloads from the Hugging Face Hub and is cached on first use:
+
+```kotlin
+import sk.ainet.llm.providers.BertEmbeddingModel
+
+BertEmbeddingModel.fromHuggingFace("MongoDB/mdbr-leaf-ir").use { model ->
+    val vector = model.embed("The quick brown fox")   // L2-normalized FloatArray
+}
+```
+
+See the [Getting Started with LEAF tutorial](docs/modules/ROOT/pages/tutorials/getting-started-leaf.adoc)
+and the [BERT-as-DSL explanation](docs/modules/ROOT/pages/explanation/bert-dsl.adoc).
 
 ### Java consumers
 
@@ -301,6 +399,12 @@ See `llm-test/llm-test-java/src/test/java/.../KLlamaJavaToolCallingTest.java` fo
   0.28.1 (`GemmaMlirDumpTest`, `GemmaTraceTest` pass).
 
 ## What's new in 0.25.0
+
+> **Superseded (unreleased, engine 0.38.0).** The narrow-float limits described below are gone:
+> the GGUF chain now honors `DTypePolicy` and keeps F16/BF16 packed, `Require(FP16)` is accepted
+> alongside `Require(BF16)`, and the two formats are resolved independently. Conversely, Gemma
+> and Apertus now *reject* `Require(BF16)` — their own weight chains never honored it. See the
+> `[Unreleased]` section of [CHANGELOG.md](CHANGELOG.md).
 
 - **`DTypePolicy` on every `*NetworkLoader.fromGguf` / `.fromSafeTensors`
   entry.** A sealed `DTypePolicy` type (`Any | Require | Prefer | OneOf`,
