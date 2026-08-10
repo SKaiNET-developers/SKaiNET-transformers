@@ -109,7 +109,13 @@ kotlin {
         }
         // val androidMain by getting
         if (!project.hasProperty("buildFatJar")) {
-            val androidMain by getting
+            val androidMain by getting {
+                dependencies {
+                    // NEON kernel backend (AAR, engine >= 0.39.0). ServiceLoader
+                    // self-registers on ART; runtime classpath is all it needs.
+                    runtimeOnly(libs.skainet.backend.jniCpu)
+                }
+            }
         }
         val wasmJsMain by getting
         wasmJsMain.dependencies {

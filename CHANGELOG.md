@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Native NEON kernels on Android, out of the box.** The `llm-runtime/kllama` and
+  `llm-runtime/kgemma` Android artifacts now carry engine 0.39.0's
+  `sk.ainet.core:skainet-backend-jni-cpu` AAR as a `runtimeOnly` dependency. The backend
+  self-registers via ServiceLoader on ART and provides NEON kernels (with runtime dotprod
+  dispatch) for Q8_0 / Q4_0 / Q4_K / Q5_K / Q6_K — measured ~6.4× decode-kernel throughput
+  on SmolLM2-135M Q8_0 (Pixel 8a: ~24 tok/s vs ~3.8 scalar). Apps using the inference
+  modules directly add the AAR themselves; excluding it opts back into pure Kotlin
+  ([#285](https://github.com/SKaiNET-developers/SKaiNET-transformers/issues/285)).
+
 - **iOS artifacts for the runtime facades.** `llm-runtime/kllama` and `llm-runtime/kgemma` now
   declare `iosArm64` + `iosSimulatorArm64` and publish the corresponding klibs. kllama's
   `src/iosMain` (the `registerPlatformBackends` actual) predated the targets and was silently dead —
