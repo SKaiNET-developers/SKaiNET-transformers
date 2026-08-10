@@ -23,6 +23,10 @@ public object ToolCallingSupportResolver {
         GemmaToolCallingSupport(),
         ApertusToolCallingSupport(),
         Llama3ToolCallingSupport(),
+        // SmolLM2 must come BEFORE the generic ChatML provider: its chat
+        // template uses <|im_start|>, which ChatMLToolCallingSupport.supports()
+        // also matches, but SmolLM2 needs its own system-prompt recipe.
+        SmolLMToolCallingSupport(),
         ChatMLToolCallingSupport()
     )
 
