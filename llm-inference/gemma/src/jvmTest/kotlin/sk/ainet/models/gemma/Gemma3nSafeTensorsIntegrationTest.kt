@@ -1,7 +1,7 @@
 package sk.ainet.models.gemma
 
 import kotlinx.coroutines.runBlocking
-import org.junit.Assume.assumeTrue
+import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.Tag
 import kotlin.test.Test
 import sk.ainet.io.safetensors.StreamingShardedSafeTensorsReader
@@ -23,8 +23,8 @@ class Gemma3nSafeTensorsIntegrationTest {
 
     private fun skipIfModelNotPresent() {
         assumeTrue(
-            "Skipping test - model files not present",
-            File(configPath).exists() && File(indexPath).exists()
+            File(configPath).exists() && File(indexPath).exists(),
+            "Skipping test - model files not present"
         )
     }
 

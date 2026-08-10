@@ -1,7 +1,7 @@
 package sk.ainet.models.gemma
 
 import kotlinx.coroutines.runBlocking
-import org.junit.Assume.assumeTrue
+import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.Tag
 import java.io.File
 import kotlin.test.Test
@@ -53,9 +53,9 @@ class GemmaNetworkLoaderIntegrationTest {
 
     private fun skipIfModelNotPresent() {
         assumeTrue(
+            File(modelPath).exists(),
             "Skipping - Gemma 4 E2B GGUF not present at $modelPath " +
-                "(set -Dgemma4.e2b.gguf=/abs/path to override)",
-            File(modelPath).exists()
+                "(set -Dgemma4.e2b.gguf=/abs/path to override)"
         )
     }
 
