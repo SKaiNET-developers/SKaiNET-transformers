@@ -50,7 +50,7 @@ Use the version shown in this README as the source of truth for first-run snippe
 - **Native CPU performance.** Auto-discovers SKaiNET's priority-100 FFM (Foreign Function & Memory) native kernel provider when present (4–6× faster Q4_K matmul, 1.5–1.8× faster FP32 SGEMM vs the priority-50 Panama Vector path; Linux x86_64 / macOS ARM64 / Windows x86_64 in the published JAR — no manual setup).
 - **Tool calling (experimental).** Family-specific chat templates and tool-call parsers (Llama 3, Qwen, Gemma, Apertus, ChatML/Hermes) and a Java surface (`KLlamaJava`, `JavaTools.definition`, `JavaAgentLoop`) exist, but tool calling is **not reliable yet** — it may fail to trigger or parse even when plain generation works.
 - **GGUF + SafeTensors loading.** Streaming reader for any model size; `NATIVE_OPTIMIZED` quant policy keeps weights in their packed SIMD-friendly form.
-- **Kotlin Multiplatform.** JVM, Android, Kotlin/Native (Linux x64/ARM64, macOS ARM64, iOS arm64/sim arm64), JS, Wasm targets where applicable.
+- **Kotlin Multiplatform.** JVM, Android, Kotlin/Native (Linux x64/ARM64, macOS ARM64, iOS arm64/sim arm64), JS, Wasm targets — see the [supported targets matrix](#supported-targets) for exactly which module publishes which target.
 
 ## Roadmap
 
@@ -226,6 +226,32 @@ dependencies {
 | `llm-agent`          | Chat templates, tool-call parsers, agent loops; Java surface.           |
 | `llm-apps`           | CLIs: `skainet-cli` (unified), `kllama-cli`, `kbert-cli`, plus `kllama-java-sample`. |
 | `llm-test/llm-test-java` | JUnit 5 end-to-end tests for the Java surface (gated on `TINYLLAMA_MODEL_PATH`). |
+
+## Supported targets
+
+Which Maven artifact publishes which Kotlin target (derived from each module's
+`build.gradle.kts`; "iOS" = `iosArm64` + `iosSimulatorArm64`, "Linux" =
+`linuxX64` + `linuxArm64`):
+
+| Module | JVM | Android | iOS | macOS arm64 | Linux | JS | wasmJs | wasmWasi |
+| --- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |
+| `transformer-core` ¹ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `llm-core` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `llm-api` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `llm-agent` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `llm-inference`: `llama`, `qwen`, `gemma`, `apertus`, `voxtral` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `llm-inference/bert` | ✓ | ✓ | — | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `llm-inference/moonshine` ² | ✓ | — | ✓ | — | ✓ | — | — | — |
+| `llm-inference`: `t5`, `vec2text` | ✓ | — | — | — | ✓ | — | — | — |
+| `llm-runtime/kllama` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — |
+| `llm-runtime/kgemma` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `llm-runtime/gemma-iree` | ✓ | — | — | ✓ | ✓ | — | — | — |
+| `llm-runtime/kapertus` | ✓ | — | — | — | — | — | — | — |
+| `llm-performance` | ✓ | ✓ | — | ✓ | — | ✓ | ✓ | ✓ |
+| `llm-providers`, `llm-apps/*`, `llm-test/*` | ✓ | — | — | — | — | — | — | — |
+
+¹ `transformer-core` additionally publishes `androidNativeArm32`/`androidNativeArm64`.
+² `moonshine` publishes `iosArm64` and `androidNativeArm64` but no simulator or Android (AGP) variant.
 
 ## Getting started
 
