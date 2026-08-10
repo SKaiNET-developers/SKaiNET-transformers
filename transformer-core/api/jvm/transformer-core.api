@@ -173,7 +173,8 @@ public final class sk/ainet/lang/nn/transformer/MultiHeadAttention : sk/ainet/la
 	public fun <init> (IIIZZZDLjava/lang/Float;ZZLjava/lang/String;Lsk/ainet/lang/nn/transformer/RoPE;Lsk/ainet/lang/nn/transformer/KVCache;Ljava/lang/Integer;Ljava/lang/Integer;ILkotlin/reflect/KClass;)V
 	public synthetic fun <init> (IIIZZZDLjava/lang/Float;ZZLjava/lang/String;Lsk/ainet/lang/nn/transformer/RoPE;Lsk/ainet/lang/nn/transformer/KVCache;Ljava/lang/Integer;Ljava/lang/Integer;ILkotlin/reflect/KClass;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun forward (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/context/ExecutionContext;)Lsk/ainet/lang/tensor/Tensor;
-	public final fun forwardWithKV (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/context/ExecutionContext;)Lsk/ainet/lang/nn/transformer/AttentionKV;
+	public final fun forwardWithKV (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/context/ExecutionContext;Lsk/ainet/lang/tensor/Tensor;)Lsk/ainet/lang/nn/transformer/AttentionKV;
+	public static synthetic fun forwardWithKV$default (Lsk/ainet/lang/nn/transformer/MultiHeadAttention;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/context/ExecutionContext;Lsk/ainet/lang/tensor/Tensor;ILjava/lang/Object;)Lsk/ainet/lang/nn/transformer/AttentionKV;
 	public final fun getAttentionScale ()Ljava/lang/Float;
 	public final fun getBias ()Z
 	public final fun getCausal ()Z

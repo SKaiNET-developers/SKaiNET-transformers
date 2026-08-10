@@ -212,17 +212,22 @@ public final class sk/ainet/apps/kllama/cli/ToolCallingDemo {
 
 public final class sk/ainet/apps/kllama/java/GenerationConfig {
 	public static final field Companion Lsk/ainet/apps/kllama/java/GenerationConfig$Companion;
-	public synthetic fun <init> (IFLkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (IFLsk/ainet/apps/llm/PrefillStrategy;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public static final fun builder ()Lsk/ainet/apps/kllama/java/GenerationConfig$Builder;
 	public static final fun defaults ()Lsk/ainet/apps/kllama/java/GenerationConfig;
 	public final fun getMaxTokens ()I
+	public final fun getPrefillStrategy ()Lsk/ainet/apps/llm/PrefillStrategy;
 	public final fun getTemperature ()F
 }
 
 public final class sk/ainet/apps/kllama/java/GenerationConfig$Builder {
 	public fun <init> ()V
+	public final fun batchedPrefill ()Lsk/ainet/apps/kllama/java/GenerationConfig$Builder;
+	public final fun batchedPrefill (I)Lsk/ainet/apps/kllama/java/GenerationConfig$Builder;
+	public static synthetic fun batchedPrefill$default (Lsk/ainet/apps/kllama/java/GenerationConfig$Builder;IILjava/lang/Object;)Lsk/ainet/apps/kllama/java/GenerationConfig$Builder;
 	public final fun build ()Lsk/ainet/apps/kllama/java/GenerationConfig;
 	public final fun maxTokens (I)Lsk/ainet/apps/kllama/java/GenerationConfig$Builder;
+	public final fun prefillStrategy (Lsk/ainet/apps/llm/PrefillStrategy;)Lsk/ainet/apps/kllama/java/GenerationConfig$Builder;
 	public final fun temperature (F)Lsk/ainet/apps/kllama/java/GenerationConfig$Builder;
 }
 
