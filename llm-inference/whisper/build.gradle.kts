@@ -38,6 +38,10 @@ kotlin {
                 implementation(libs.skainet.compile.dag)
                 implementation(libs.skainet.compile.hlo)
                 implementation(libs.skainet.compile.opt)
+                // NOTE: sk.ainet.core:skainet-io-iree-params (IrpaWriter) was evaluated for the
+                // merged prefill/step weights archive and REJECTED by the IREE 3.x runtime
+                // (header_size=40 vs required 88; unpacked entry structs). The harness emits
+                // the packed IRPA v0 layout itself — see WhisperExportHarness.writeIrpa.
             }
         }
     }
