@@ -1,7 +1,7 @@
 package sk.ainet.models.gemma
 
 import kotlinx.coroutines.runBlocking
-import org.junit.Assume.assumeTrue
+import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.Tag
 import kotlin.test.Test
 import sk.ainet.io.safetensors.StreamingShardedSafeTensorsReader
@@ -23,8 +23,8 @@ class Gemma4SafeTensorsIntegrationTest {
 
     private fun skipIfModelNotPresent() {
         assumeTrue(
-            "Skipping test - Gemma 4 model files not present in $modelsDir",
-            File(configPath).exists()
+            File(configPath).exists(),
+            "Skipping test - Gemma 4 model files not present in $modelsDir"
         )
     }
 
@@ -65,8 +65,8 @@ class Gemma4SafeTensorsIntegrationTest {
     fun `test Gemma4 safetensors index loading`() = runBlocking {
         skipIfModelNotPresent()
         assumeTrue(
-            "Skipping - safetensors index not present",
-            File(indexPath).exists()
+            File(indexPath).exists(),
+            "Skipping - safetensors index not present"
         )
 
         val reader = StreamingShardedSafeTensorsReader.openFromIndex(indexPath)

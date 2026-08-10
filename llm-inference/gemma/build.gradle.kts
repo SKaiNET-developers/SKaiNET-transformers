@@ -64,7 +64,11 @@ kotlin {
             dependencies {
                 implementation(project.dependencies.platform(project(":llm-bom")))
                 implementation(libs.kotlin.test)
-                implementation(libs.junit)
+                // No JUnit 4: the module runs under the Jupiter engine, and
+                // JUnit 4's AssumptionViolatedException is not a Jupiter
+                // TestAbortedException, so `org.junit.Assume` records skips as
+                // failures (#261). Dropping the dep makes that mistake
+                // unrepresentable — use org.junit.jupiter.api.Assumptions.
                 implementation(libs.kotlinx.coroutines.test)
                 implementation(libs.skainet.backend.cpu)
                 // Test-only: trace gemmaNetwork to a ComputeGraph + lower to
