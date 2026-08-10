@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **iOS artifacts for the runtime facades.** `llm-runtime/kllama` and `llm-runtime/kgemma` now
+  declare `iosArm64` + `iosSimulatorArm64` and publish the corresponding klibs. kllama's
+  `src/iosMain` (the `registerPlatformBackends` actual) predated the targets and was silently dead —
+  these modules set `kotlin.mpp.applyDefaultHierarchyTemplate=false`, so the `iosMain` source set is
+  now wired by hand (`iosMain → nativeMain`, mirroring `llm-core`). All commonMain dependencies of
+  both modules already published iOS. No CLI executables are declared for the Apple targets —
+  consumers link the klib into their app. Closes
+  [#271](https://github.com/SKaiNET-developers/SKaiNET-transformers/issues/271).
+- **Supported-targets matrix in the README.** A module-vs-target table (derived from each module's
+  `build.gradle.kts`) replaces the "where applicable" hand-wave, so which artifact runs on iOS /
+  Android / Wasm is now documented rather than discoverable only by browsing Maven Central
+  ([#271](https://github.com/SKaiNET-developers/SKaiNET-transformers/issues/271)).
+
 ## [0.38.0] — 2026-07-31
 
 Ships against **SKaiNET engine 0.38.0**, which adds first-class dynamic tensor shapes (`Dim`) plus
