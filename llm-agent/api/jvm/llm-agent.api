@@ -355,6 +355,24 @@ public final class sk/ainet/apps/kllama/chat/ResolutionResult {
 	public fun toString ()Ljava/lang/String;
 }
 
+public final class sk/ainet/apps/kllama/chat/SmolLMChatTemplate : sk/ainet/apps/kllama/chat/ChatTemplate {
+	public fun <init> ()V
+	public fun apply (Ljava/util/List;Ljava/util/List;Z)Ljava/lang/String;
+	public fun containsToolCall (Ljava/lang/String;)Z
+	public fun parseThinkingBlocks (Ljava/lang/String;)Ljava/util/List;
+	public fun parseToolCalls (Ljava/lang/String;)Ljava/util/List;
+	public fun stripThinking (Ljava/lang/String;)Ljava/lang/String;
+}
+
+public final class sk/ainet/apps/kllama/chat/SmolLMToolCallingSupport : sk/ainet/apps/kllama/chat/ToolCallingSupport {
+	public fun <init> ()V
+	public fun createChatTemplate ()Lsk/ainet/apps/kllama/chat/ChatTemplate;
+	public fun getFamily ()Ljava/lang/String;
+	public fun parseToolCalls (Ljava/lang/String;)Ljava/util/List;
+	public fun supports (Lsk/ainet/apps/kllama/chat/ModelMetadata;)Z
+	public fun toolCallingMode (Lsk/ainet/apps/kllama/chat/ModelMetadata;)Lsk/ainet/apps/kllama/chat/ToolCallingMode;
+}
+
 public abstract interface class sk/ainet/apps/kllama/chat/Tool {
 	public abstract fun execute (Lkotlinx/serialization/json/JsonObject;)Ljava/lang/String;
 	public abstract fun getDefinition ()Lsk/ainet/apps/kllama/chat/ToolDefinition;

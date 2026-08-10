@@ -75,7 +75,7 @@ private fun usage(errorMessage: String? = null): Nothing {
     println("  --chat              Interactive chat mode")
     println("  --agent             Interactive agent mode with tool calling")
     println("  --demo              Tool calling demo with file listing and calculator")
-    println("  --template=NAME     Chat template: llama3, chatml, qwen, gemma (auto-detected if omitted)")
+    println("  --template=NAME     Chat template: llama3, chatml, qwen, gemma, smollm (auto-detected if omitted)")
     println("  --context=N         Cap context length to N tokens (reduces memory usage)")
     println("  --backend=NAME      Compute backend: auto-selects best available (see --list-backends)")
     println("  --list-backends     List available compute backends and exit")
