@@ -51,4 +51,46 @@ class KvCacheTraceFidelityTest {
         // Sanity: K/V projections are present as real dot_generals (q,k,v,o + ffn etc.).
         assertTrue(Regex("dot_general").findAll(mlir).count() >= 6, "expected real projection dot_generals in the export")
     }
+
+    /**
+     * Same fidelity check for the shared-cache variants (#194): with kvSharedLayers > 0 the
+     * follower layers read the owner's [PositionalKVCache] through [OwnerReadOnlyKVCache], whose
+     * eager sliceView path bypasses ctx.ops. Before the fix the traced follower attended over a
+     * baked `stablehlo.constant dense<0.0>` KV buffer, disconnecting the owner's k_proj/v_proj
+     * from the shared layers.
+     */
+    @Test
+    fun tracedKvSharedDecoderKeepsComputedKV() {
+        val meta = Gemma4ModelMetadata(
+            architecture = "gemma3", embeddingLength = 64, contextLength = 128, blockCount = 3,
+            headCount = 2, kvHeadCount = 1, intermediateSize = 128, headDim = 32, globalHeadDim = 32,
+            vocabSize = 48, slidingWindow = 64, kvSharedLayers = 1, layerTypes = List(3) { "full_attention" },
+            ropeParametersFull = Gemma4RopeConfig(base = 10000.0f),
+            ropeParametersSliding = Gemma4RopeConfig(base = 10000.0f), maxPositionEmbeddings = 128,
+        )
+        // maxInferenceLen = 8 (not 4): OwnerReadOnlyKVCache.position mirrors the owner's already-
+        // bumped counter, so the follower's RoPE offset for a 4-token step is 4 — the RoPE tables
+        // need headroom past the input length.
+        val model = gemmaNetwork<FP32, Float>(meta, FP32::class, maxInferenceLen = 8, sandwichNorms = true)
+        val input = VoidOpsTensor(object : TensorData<FP32, Float> {
+            override val shape = Shape(4); override fun get(vararg i: Int) = 0.0f; override fun set(vararg i: Int, value: Float) {}
+        }, FP32::class)
+        val ctx = DefaultGraphExecutionContext.tape(baseOps = VoidTensorOps())
+        val tape = ctx.record {
+            val ct = (this as DefaultGraphExecutionContext).currentTape ?: error("no tape")
+            Execution.tapeStack.pushTape(ct)
+            try { model.forward(input, this as ExecutionContext) } finally { Execution.tapeStack.popTape() }
+        }.first
+        val graph = (tape as DefaultExecutionTape).toComputeGraph(synthesizeExternalInputs = true, embedConstants = true)
+        val mlir = sk.ainet.compile.hlo.toStableHlo(graph, "gemma").content
+
+        // KV head shape is [1, 4, 32]; before the fix each shared follower's K and V appeared as
+        // `stablehlo.constant dense<0.0> : tensor<1x4x32xf32>`.
+        val kvZeroConstants = Regex("stablehlo\\.constant dense<0\\.0> : tensor<1x4x32xf32>").findAll(mlir).count()
+        assertEquals(0, kvZeroConstants,
+            "Traced kv-shared Gemma decoder baked $kvZeroConstants zero KV-cache constants — " +
+                "shared-cache K/V not wired (#194)")
+        // Sanity: q/k/v/o + ffn projections of all 3 blocks are real dot_generals in the graph.
+        assertTrue(Regex("dot_general").findAll(mlir).count() >= 9, "expected real projection dot_generals in the export")
+    }
 }

@@ -206,12 +206,12 @@ public object FunctionGemmaExport {
      * vmfb on first board run (see docs/GEMMA-KV-BOARD-LOOP.md) — do not assume K-before-V.
      *
      * KV tensor shape: pass [dynamicPast]=true for one vmfb that serves EVERY decode position via a
-     * dynamic (`1x{nKV}x?x{headDim}`) self-cache seq dim. We do NOT trace with a `-1` placeholder — the
-     * tracer's concat shape-inference computes `-1 + 1 = 0` and emits broken `1x1x0x256` OUTPUT caches.
-     * Instead we trace at a concrete **sentinel prime** ([SENTINEL_PAST]) so `concat` infers correctly
-     * (`sentinel → sentinel+1`), then regex-relax both dims to `?` — leaving `iree-compile llvm-cpu` to
-     * do the real dynamic-concat shape inference. [dynamicPast]=false emits a fixed [past] length (static
-     * probe / fixed-pad fallback). Weights share the prefill graph's "model" irpa scope (no safetensors here).
+     * dynamic (`1x{nKV}x?x{headDim}`) self-cache seq dim, traced with a real `Dim.DYNAMIC` extent
+     * (engine 0.38+ dynamic-safe tracer/emitter — no post-emit text rewrite). Set
+     * `GEMMA_SENTINEL_PAST=1` to roll back to the legacy sentinel-prime trace + regex relax
+     * ([SENTINEL_PAST] / [relaxSeqDimToDynamic]); see #248. [dynamicPast]=false emits a fixed [past]
+     * length (static probe / fixed-pad fallback). Weights share the prefill graph's "model" irpa
+     * scope (no safetensors here).
      *
      * Returns the emitted MLIR text (also written to `<outDir>/gemma-with-past.mlir`).
      */
@@ -238,19 +238,21 @@ public object FunctionGemmaExport {
         val nLayers = md.blockCount
         val headDim = md.getHeadDim(0)
         val nKV = md.kvHeadCount
-        // Trace at a CONCRETE length so `concat` shape-inference is valid (a `-1` placeholder
-        // mis-infers `-1 + 1 = 0` → broken `1x1x0x256` output caches). For the dynamic graph we
-        // trace at the sentinel prime and relax it to `?` after emit (see relaxSeqDimToDynamic).
-        // GEMMA_TRUE_DYNAMIC=1: thread a real dynamic extent (Dim.DYNAMIC) straight through the trace
-        // instead of the sentinel-prime + post-emit text-relax. Requires the dynamic-safe tracer (concat
-        // and reshape propagate a dynamic dim) and the dynamic-safe emitter (dynamic_broadcast_in_dim);
-        // no text-relax needed. Verified to iree-compile the with_past graph (vs the sentinel path, which
-        // does not). Kept env-gated so the default export path is unchanged until the core release lands.
-        val trueDynamic = System.getenv("GEMMA_TRUE_DYNAMIC") == "1"
+        // Dynamic graphs thread a real dynamic extent (Dim.DYNAMIC) straight through the trace —
+        // the engine's dynamic-safe tracer (concat/reshape propagate a dynamic dim) and emitter
+        // (dynamic_broadcast_in_dim) landed in core 0.38, so no post-emit text rewrite is needed
+        // and the emitted `?` dims iree-compile cleanly. DEFAULT since #248 retired the
+        // sentinel-prime hack. (A `-1` placeholder is NOT an option either way: concat
+        // shape-inference computes `-1 + 1 = 0` and emits broken `1x1x0x256` output caches.)
+        // GEMMA_SENTINEL_PAST=1: rollback to the legacy sentinel-prime trace (concrete prime dim,
+        // regex-relaxed to `?` after emit via relaxSeqDimToDynamic) in case a downstream toolchain
+        // chokes on the true-dynamic IR. Scheduled for removal with the remaining MLIR-text
+        // rewrites tracked in #248.
+        val sentinelRollback = System.getenv("GEMMA_SENTINEL_PAST") == "1"
         val pastDim = when {
             !dynamicPast -> past
-            trueDynamic -> sk.ainet.lang.tensor.Dim.DYNAMIC
-            else -> SENTINEL_PAST
+            sentinelRollback -> SENTINEL_PAST
+            else -> sk.ainet.lang.tensor.Dim.DYNAMIC
         }
 
         val tokenId = voidF32(Shape(1))
@@ -283,23 +285,28 @@ public object FunctionGemmaExport {
             .createBasic(ConstantMaterializationPolicy.ExternalAlways(scope = "model"))
             .convert(graph, "gemma_with_past")
         var mlir = if (bf16) rewriteGlobalsToBf16(module.content) else module.content
-        if (dynamicPast && !trueDynamic) mlir = relaxSeqDimToDynamic(mlir)
+        // Only the sentinel rollback needs the post-emit text relax; the true-dynamic default
+        // emits `?` dims directly from the trace.
+        if (dynamicPast && sentinelRollback) mlir = relaxSeqDimToDynamic(mlir)
         File(outDir).apply { mkdirs() }
         File(outDir, "gemma-with-past.mlir").writeText(mlir)
         mlir
     }
 
     /**
-     * Sentinel prime the with_past self-cache is traced at. Chosen well above the graph's SSA node
-     * count (so `%v7919` can't collide) and unlike any real model dim (256/640/vocab/…), so relaxing
-     * its two derived seq dims (`sentinel` = past, `sentinel+1` = past+1) to `?` is collision-free.
+     * LEGACY (GEMMA_SENTINEL_PAST=1 rollback only, #248): sentinel prime the with_past self-cache
+     * was traced at before true-dynamic tracing became the default. Chosen well above the graph's
+     * SSA node count (so `%v7919` can't collide) and unlike any real model dim (256/640/vocab/…),
+     * so relaxing its two derived seq dims (`sentinel` = past, `sentinel+1` = past+1) to `?` is
+     * collision-free.
      */
     private const val SENTINEL_PAST = 7919
 
-    /** Relax the sentinel-traced self-cache seq dims (`sentinel`, `sentinel+1`, and any derived
-     *  attention-score seq dim) to a dynamic `?`, so the compiled vmfb serves every decode position.
-     *  The sentinel only ever appears as an interior tensor dim (`x7919x` / `x7920x`), never as an SSA
-     *  index, so the textual replace is safe. */
+    /** LEGACY (GEMMA_SENTINEL_PAST=1 rollback only, #248): relax the sentinel-traced self-cache
+     *  seq dims (`sentinel`, `sentinel+1`, and any derived attention-score seq dim) to a dynamic
+     *  `?`, so the compiled vmfb serves every decode position. The sentinel only ever appears as an
+     *  interior tensor dim (`x7919x` / `x7920x`), never as an SSA index, so the textual replace is
+     *  safe. Remove together with the sentinel rollback. */
     private fun relaxSeqDimToDynamic(mlir: String): String =
         mlir.replace("x${SENTINEL_PAST}x", "x?x")
             .replace("x${SENTINEL_PAST + 1}x", "x?x")

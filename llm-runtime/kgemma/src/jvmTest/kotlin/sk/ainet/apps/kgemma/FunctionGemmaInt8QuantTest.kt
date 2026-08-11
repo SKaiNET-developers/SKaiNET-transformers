@@ -38,7 +38,8 @@ class FunctionGemmaInt8QuantTest {
         assertTrue(i8Globals == scaleGlobals, "each int8 weight needs a per-row scale global ($i8Globals vs $scaleGlobals)")
         assertTrue(hasDequant, "in-graph dequant (convert i8->f32 + broadcast scale + multiply) missing")
         assertTrue(normsBf16, "1-D norm globals should stay bf16")
-        // int8 weights ~1 B/elem + tiny scales; bf16 was ~831 MiB, so int8 ~= half.
-        assertTrue(r.weightMiB in 300..550, "int8 archive should be ~half the bf16 831 MiB (got ${r.weightMiB})")
+        // int8 weights ~1 B/elem + tiny scales; the deduped bf16 archive is ~512 MiB (#260 removed
+        // the duplicated tied embedding), so int8 ~= half of that (~256 MiB).
+        assertTrue(r.weightMiB in 200..350, "int8 archive should be ~half the deduped bf16 512 MiB (got ${r.weightMiB})")
     }
 }
