@@ -1,25 +1,21 @@
 package sk.ainet.lang.nn
 
 /**
- * Marker for `sk.ainet.lang.tensor.data.TensorData` implementations that should
- * not be materialised as a single dense `FloatArray` — either the logical tensor
- * exceeds `Int.MAX_VALUE` elements / 2 GB, or keeping it packed avoids a large
- * FP32 inflation (e.g. a Q8_0 `token_embd` table) — and instead expose a cheap
- * per-row dequantisation API.
+ * MOVED to the engine: `sk.ainet.lang.tensor.data.RowDequantSource` (present in the SKaiNET
+ * engine at the 0.39.0 pin) is the canonical home of the row-dequant contract, and the engine's
+ * `ops.gather` consumes it directly — a packed table gathered through any `ops.gather` call (not only the
+ * [layers.Embedding] fast path) dequantises only the touched rows.
  *
- * Consumers that gather rows (the [layers.Embedding] lookup, gemma's
- * `PerLayerEmbedding`) MUST call [dequantRow] for the few rows actually touched
- * per decode step (one per token) instead of `copyToFloatArray()` on the whole
- * table.
+ * This alias keeps source compatibility for existing implementors (gemma's
+ * `GemmaPerLayerTokenEmbedTensorData` / `SafeTensorsPerLayerTokenEmbedTensorData`); implementing
+ * either name now implements the engine interface, so both the shared [layers.Embedding] row-dequant
+ * path and the engine `ops.gather` row-dequant path recognise the tensor.
  *
- * (Lives in `llm-core` so the shared `Embedding` layer can honour it; gemma's
- * `GemmaPerLayerTokenEmbedTensorData` / `SafeTensorsPerLayerTokenEmbedTensorData`
- * implement it.)
+ * Binary note: the transformer-core interface `sk/ainet/lang/nn/RowDequantSource` no longer exists
+ * as a distinct class — external code compiled against it must recompile (call out in release notes).
  */
-public interface RowDequantSource {
-    /**
-     * Dequantise one logical row of the table to a fresh `FloatArray` of length
-     * equal to the row width (`shape[1]`).
-     */
-    public fun dequantRow(rowIdx: Int): FloatArray
-}
+@Deprecated(
+    message = "Moved to the engine; use sk.ainet.lang.tensor.data.RowDequantSource",
+    replaceWith = ReplaceWith("RowDequantSource", "sk.ainet.lang.tensor.data.RowDequantSource"),
+)
+public typealias RowDequantSource = sk.ainet.lang.tensor.data.RowDequantSource

@@ -1,7 +1,7 @@
 package sk.ainet.models.gemma
 
 import sk.ainet.context.DirectCpuExecutionContext
-import sk.ainet.lang.nn.RowDequantSource
+import sk.ainet.lang.tensor.data.RowDequantSource
 import sk.ainet.lang.nn.layers.Embedding
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.data.TensorData

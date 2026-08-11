@@ -2,7 +2,7 @@ package sk.ainet.lang.nn.layers
 
 import sk.ainet.context.ExecutionContext
 import sk.ainet.lang.nn.DualModule
-import sk.ainet.lang.nn.RowDequantSource
+import sk.ainet.lang.tensor.data.RowDequantSource
 import sk.ainet.lang.nn.topology.ModuleNode
 import sk.ainet.lang.nn.topology.ModuleParameter
 import sk.ainet.lang.nn.topology.ModuleParameters
