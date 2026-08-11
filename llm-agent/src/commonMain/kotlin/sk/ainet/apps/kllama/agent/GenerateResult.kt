@@ -1,14 +1,11 @@
+@file:Suppress("unused")
+
 package sk.ainet.apps.kllama.agent
 
 /**
- * Result of EOS-aware generation.
- *
- * @param tokens The generated token IDs (excluding the prompt).
- * @param text The decoded text (if a tokenizer was provided).
- * @param stoppedByEos True if generation stopped because EOS was emitted.
+ * Re-export for backward compatibility.
+ * The canonical definition is now in [sk.ainet.apps.llm.GenerateResult]
+ * (promoted to `llm-core` in issue #49 Phase 1 so any runner can use
+ * stop-token-aware generation without the agent layer).
  */
-public data class GenerateResult(
-    val tokens: List<Int>,
-    val text: String,
-    val stoppedByEos: Boolean
-)
+public typealias GenerateResult = sk.ainet.apps.llm.GenerateResult

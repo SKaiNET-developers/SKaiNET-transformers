@@ -61,6 +61,28 @@ public final class sk/ainet/apps/llm/GenerateExtensionsKt {
 	public static synthetic fun sampleFromTensor$default (Lsk/ainet/lang/tensor/Tensor;FLkotlin/random/Random;ILjava/lang/Object;)I
 }
 
+public final class sk/ainet/apps/llm/GenerateResult {
+	public fun <init> (Ljava/util/List;Ljava/lang/String;Z)V
+	public final fun component1 ()Ljava/util/List;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Z
+	public final fun copy (Ljava/util/List;Ljava/lang/String;Z)Lsk/ainet/apps/llm/GenerateResult;
+	public static synthetic fun copy$default (Lsk/ainet/apps/llm/GenerateResult;Ljava/util/List;Ljava/lang/String;ZILjava/lang/Object;)Lsk/ainet/apps/llm/GenerateResult;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getStoppedByEos ()Z
+	public final fun getText ()Ljava/lang/String;
+	public final fun getTokens ()Ljava/util/List;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/apps/llm/GenerateUntilStopKt {
+	public static final fun generateUntilStop (Lsk/ainet/apps/llm/InferenceRuntime;[IIIFLkotlin/random/Random;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function2;Lsk/ainet/apps/llm/PrefillStrategy;)Lsk/ainet/apps/llm/GenerateResult;
+	public static synthetic fun generateUntilStop$default (Lsk/ainet/apps/llm/InferenceRuntime;[IIIFLkotlin/random/Random;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function2;Lsk/ainet/apps/llm/PrefillStrategy;ILjava/lang/Object;)Lsk/ainet/apps/llm/GenerateResult;
+	public static final fun sampleFromLogits (Lsk/ainet/lang/tensor/Tensor;FLkotlin/random/Random;)I
+	public static synthetic fun sampleFromLogits$default (Lsk/ainet/lang/tensor/Tensor;FLkotlin/random/Random;ILjava/lang/Object;)I
+}
+
 public final class sk/ainet/apps/llm/HeapKvCache : sk/ainet/apps/llm/KvCache {
 	public fun <init> (III)V
 	public fun getKey (IIII)F
