@@ -11,6 +11,7 @@ import sk.ainet.apps.llm.OptimizedLLMMode
 import sk.ainet.apps.llm.OptimizedLLMRuntime
 import sk.ainet.apps.llm.generate
 import sk.ainet.context.DirectCpuExecutionContext
+import sk.ainet.exec.tensor.ops.KernelProfile
 import sk.ainet.io.RandomAccessSource
 import sk.ainet.io.gguf.createRandomAccessSource
 import sk.ainet.io.model.QuantPolicy
@@ -129,6 +130,7 @@ class AndroidSmolLm2E2eTest {
             val prompt = tokenizer.encode("The capital of France is")
             val out = StringBuilder()
             var generated = 0
+            KernelProfile.reset()
             val decodeElapsed = measureTime {
                 runtime.generate(prompt = prompt, steps = steps, temperature = 0f) { tokenId ->
                     generated++
@@ -143,6 +145,9 @@ class AndroidSmolLm2E2eTest {
             log("decode: $generated tokens in ${decodeElapsed.inWholeMilliseconds} ms")
             log("tok/s: ${(tokPerSec * 100).toLong() / 100.0}")
             log("output: ${out.toString().take(120)}")
+            // Where decode time actually goes: packed-quant (JNI NEON when
+            // registered) vs dense FP32 scalar vs generic matmuls.
+            KernelProfile.report().lines().forEach { log(it) }
 
             assertTrue("no tokens generated", generated > 0)
             assertTrue("empty decode output", out.isNotBlank())
