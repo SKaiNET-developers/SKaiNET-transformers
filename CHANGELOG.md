@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.39.1] — 2026-08-11
 
-Patch release against **SKaiNET engine 0.39.0** — the gemma function-calling day:
+Patch release against **SKaiNET engine 0.39.1** — the gemma function-calling day:
 the compiled FunctionGemma path gets materially smaller, faster, and board-verified.
 
 ### Added
@@ -31,6 +31,11 @@ the compiled FunctionGemma path gets materially smaller, faster, and board-verif
 
 ### Changed
 
+- **Engine pin `skainet 0.39.0 → 0.39.1`**: picks up the engine's primitive FP32
+  fast paths for the eager CPU ops and the cached `DirectCpuExecutionContext.ops`
+  (engine [#949](https://github.com/SKaiNET-developers/SKaiNET/issues/949)) — the
+  per-element overhead that dominated on-device decode (83% of SmolLM2-135M
+  end-to-end on a Pixel 8a even with NEON matmul) is gone for every non-JVM target.
 - **Tied embedding exported once** (#290, closes #260): `Gemma4WeightLoader` aliases
   `token_embd` into `output.weight`; the FunctionGemma weight archive drops
   ~832 → ~512 MiB bf16 with a single `262153x640` global.
