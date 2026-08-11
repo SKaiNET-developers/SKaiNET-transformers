@@ -54,6 +54,10 @@ kotlin {
             implementation(libs.skainet.compile.opt)
             implementation(libs.skainet.io.core)
             implementation(libs.skainet.io.gguf)
+            // KernelRegistry/KernelProvider capability queries for the
+            // packed-quant kernel gate (`hasPackedMatmulKernel`, #170).
+            // implementation-scoped: no backend types leak into the API.
+            implementation(libs.skainet.backend.api)
             implementation(libs.kotlinx.io.core)
             implementation(libs.kotlinx.serialization.json)
         }

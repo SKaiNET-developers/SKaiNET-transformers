@@ -42,5 +42,25 @@ kotlin {
         commonTest.dependencies {
             implementation(libs.kotlin.test)
         }
+
+        val jvmTest by getting {
+            dependencies {
+                implementation(project.dependencies.platform(project(":llm-bom")))
+                // Test-only: a real CPU backend (DirectCpuExecutionContext +
+                // ServiceLoader-discovered kernel providers) so the
+                // PreTransposedWeight `linearProject` path is proven against
+                // the actual packed-quant matmul dispatch. Production code in
+                // this module stays lang-core-only.
+                implementation(libs.skainet.backend.cpu)
+            }
+        }
     }
+}
+
+// jvmTest runs real packed-quant matmuls (LinearProjectionPreTransposedTest):
+// same convention as llm-inference/* — the Vector API module makes the JVM
+// backend pick DefaultCpuOpsJvm, which auto-installs the ServiceLoader kernel
+// providers the packed dispatch resolves against.
+tasks.withType<Test>().configureEach {
+    jvmArgs("--enable-preview", "--add-modules", "jdk.incubator.vector")
 }

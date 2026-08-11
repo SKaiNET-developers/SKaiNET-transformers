@@ -1,11 +1,10 @@
 package sk.ainet.models.llama
 
+import sk.ainet.apps.llm.weights.hasPackedMatmulKernel
+import sk.ainet.apps.llm.weights.toBlockEncoding
 import sk.ainet.io.gguf.GGMLQuantizationType
+import sk.ainet.lang.nn.quant.BlockQuantPacking
 import sk.ainet.lang.tensor.Shape
-import sk.ainet.lang.tensor.data.Q4_KBlockTensorData
-import sk.ainet.lang.tensor.data.Q5_KBlockTensorData
-import sk.ainet.lang.tensor.data.Q6_KBlockTensorData
-import sk.ainet.lang.tensor.data.Q8_0BlockTensorData
 import sk.ainet.lang.tensor.data.TensorData
 import sk.ainet.lang.types.DType
 
@@ -46,61 +45,49 @@ internal fun logicalShapeFor(name: String, metadata: LlamaModelMetadata): Shape?
 
 /**
  * Re-layout GGUF K-series bytes from row-major block order to the input-block-major order the
- * `matmulQ{K}` kernels expect. For a `[outDim, inDim]` weight with `inDim % 256 == 0` this is a
- * block-level 2-D transpose; bytes inside a block are untouched. (Mirror of GemmaQuantLayout.)
+ * `matmulQ{K}` kernels expect. Delegates to the shared
+ * [BlockQuantPacking.relayoutRowMajorToBlockMajor] (#184 hoist 2); kept as an internal shim
+ * for existing call sites and tests.
  */
+@Deprecated(
+    "Hoisted to the shared packer (#184): use BlockQuantPacking.relayoutRowMajorToBlockMajor",
+    ReplaceWith(
+        "BlockQuantPacking.relayoutRowMajorToBlockMajor(bytes, shape, bytesPerBlock, blockSize)",
+        "sk.ainet.lang.nn.quant.BlockQuantPacking",
+    ),
+)
 internal fun relayoutKSeriesRowMajorToBlockMajor(
     bytes: ByteArray,
     shape: Shape,
     bytesPerBlock: Int,
     blockSize: Int = 256,
-): ByteArray {
-    require(shape.rank == 2) { "K-series weight must be 2D, got rank ${shape.rank}" }
-    val outDim = shape[0]
-    val inDim = shape[1]
-    require(inDim % blockSize == 0) { "K-series weight inDim ($inDim) must be a multiple of $blockSize" }
-    val blocksPerRow = inDim / blockSize
-    val expected = outDim.toLong() * blocksPerRow.toLong() * bytesPerBlock.toLong()
-    require(bytes.size.toLong() >= expected) {
-        "K-series byte buffer ${bytes.size} < expected $expected for [$outDim, $inDim] @ ${bytesPerBlock}B/block"
-    }
-    val out = ByteArray(bytes.size)
-    for (r in 0 until outDim) {
-        for (b in 0 until blocksPerRow) {
-            val srcOff = (r * blocksPerRow + b) * bytesPerBlock
-            val dstOff = (b * outDim + r) * bytesPerBlock
-            bytes.copyInto(out, dstOff, srcOff, srcOff + bytesPerBlock)
-        }
-    }
-    return out
-}
-
-private fun quantBlockLayout(qt: GGMLQuantizationType): Pair<Int, Int>? = when (qt) {
-    GGMLQuantizationType.Q4_K -> 256 to 144
-    GGMLQuantizationType.Q5_K -> 256 to 176
-    GGMLQuantizationType.Q6_K -> 256 to 210
-    GGMLQuantizationType.Q8_0 -> 32 to 34
-    else -> null
-}
+): ByteArray = BlockQuantPacking.relayoutRowMajorToBlockMajor(bytes, shape, bytesPerBlock, blockSize)
 
 /**
  * Pack raw GGUF `bytes` of logical `[out, in]` shape into heap-packed block tensor data the
- * matmul kernels read directly (Q4_K / Q5_K / Q6_K / Q8_0), with the row-major → block-major
- * relayout. Null for types without a packed kernel (caller dequantizes those to FP32).
+ * matmul kernels read directly, with the row-major → block-major relayout. Null for types
+ * without a packed kernel (caller dequantizes those to FP32). Delegates to the shared
+ * [BlockQuantPacking] packer (#184 hoist 2), which covers Q4_K / Q5_K / Q6_K / Q8_0 plus
+ * Q4_0 / Q5_0 / Q5_1 (#170).
  */
 internal fun <T : DType> packLlamaKQuant(
     bytes: ByteArray,
     qt: GGMLQuantizationType,
     shape: Shape,
 ): TensorData<T, *>? {
-    val (blockElems, bpb) = quantBlockLayout(qt) ?: return null
-    val relaid = relayoutKSeriesRowMajorToBlockMajor(bytes, shape, bpb, blockElems)
-    @Suppress("UNCHECKED_CAST")
-    return when (qt) {
-        GGMLQuantizationType.Q4_K -> Q4_KBlockTensorData(shape, relaid) as TensorData<T, *>
-        GGMLQuantizationType.Q5_K -> Q5_KBlockTensorData(shape, relaid) as TensorData<T, *>
-        GGMLQuantizationType.Q6_K -> Q6_KBlockTensorData(shape, relaid) as TensorData<T, *>
-        GGMLQuantizationType.Q8_0 -> Q8_0BlockTensorData(shape, relaid) as TensorData<T, *>
-        else -> null
-    }
+    val encoding = qt.toBlockEncoding() ?: return null
+    // Legacy 32-elem formats (Q4_0/Q5_0/Q5_1) are new to this packed path
+    // (#170): gate on an actually-registered matmul kernel — without one, a
+    // packed weight would fall through to the generic elementwise matmul,
+    // which misreads block-major bytes after the lazy transpose. `null` →
+    // the caller's FP32 dequant fallback. Mirrors `packGemmaKQuant`.
+    if (qt in legacyPackedQuantTypes && !qt.hasPackedMatmulKernel()) return null
+    return BlockQuantPacking.pack(bytes, encoding, shape)
 }
+
+/** See `GemmaQuantLayout.legacyPackedQuantTypes` — kernel-gated new formats. */
+private val legacyPackedQuantTypes: Set<GGMLQuantizationType> = setOf(
+    GGMLQuantizationType.Q4_0,
+    GGMLQuantizationType.Q5_0,
+    GGMLQuantizationType.Q5_1,
+)
