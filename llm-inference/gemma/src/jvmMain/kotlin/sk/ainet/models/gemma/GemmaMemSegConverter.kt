@@ -3,6 +3,7 @@ package sk.ainet.models.gemma
 import java.lang.foreign.Arena
 import sk.ainet.context.ExecutionContext
 import sk.ainet.io.gguf.GGMLQuantizationType
+import sk.ainet.io.gguf.GGML_QUANT_SIZES
 import sk.ainet.io.gguf.dequant.DequantOps
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.Tensor
@@ -44,10 +45,14 @@ import sk.ainet.lang.types.FP32
  * copy), and the `matmul(FloatArray, Q4/Q8_MemSeg)` SIMD kernels read the
  * packed bytes directly — so the full chain runs without a FP32 round-trip.
  *
- * Token embedding and the output projection are kept as FP32 regardless of
- * their source quant type: embedding needs row-gather access, and output is
- * typically sub-32-aligned past the last block. Both are tiny relative to
- * the attention/FFN weights, so the memory impact is negligible.
+ * The token embedding (`token_embd`) is gathered by row, not matmul'd, so
+ * when its quant layout is row-sliceable (row width divisible by the quant
+ * block size) it stays PACKED, wrapped as a [GemmaPerLayerTokenEmbedTensorData]
+ * ([sk.ainet.lang.tensor.data.RowDequantSource]): the shared `Embedding` layer
+ * and the engine `ops.gather` dequant only the one row per token actually
+ * looked up. For FunctionGemma's Q8_0 `token_embd` that is ~178 MB packed vs
+ * ~0.67 GB FP32 — the last big FP32 block on this path (#178 / #184 (1)).
+ * Non-row-sliceable layouts fall back to a full FP32 dequant.
  *
  * @param weights Gemma 4 weights produced with `QuantPolicy.NATIVE_OPTIMIZED`
  *   (raw quant bytes in [IntArrayTensorData] + a `quantTypes` map).
@@ -80,7 +85,15 @@ public fun convertGemmaWeightsToMemSeg(
                     println("WARNING: GemmaMemSegConverter: no logical shape for '$name' in weights map; leaving as-is")
                     tensor
                 } else if (name == Gemma4TensorNames.TOKEN_EMBEDDINGS) {
-                    dequantToFloat(tensor, qt, name, ctx, dtype, logicalShape)
+                    // Row-sliceable quant layouts stay packed (row-dequant gather);
+                    // anything else falls back to the full FP32 dequant. Mirrors
+                    // `GemmaPackedWeights.dequantNoTranspose` (the board path).
+                    val block = GGML_QUANT_SIZES[qt]
+                    if (block != null && logicalShape.rank == 2 && logicalShape[1] % block.first == 0) {
+                        tokenEmbedToRowDequant(tensor, qt, ctx, dtype, logicalShape)
+                    } else {
+                        dequantToFloat(tensor, qt, name, ctx, dtype, logicalShape)
+                    }
                 } else if (name == Gemma4TensorNames.PER_LAYER_TOKEN_EMBD) {
                     // Can't dequant — per_layer_token_embd on E2B is 9 GB FP32.
                     // The loader already wrapped the raw bytes in a
@@ -88,7 +101,7 @@ public fun convertGemmaWeightsToMemSeg(
                     // Fall back to the wrapper path if somehow the data is
                     // still in the generic IntArrayTensorData form.
                     if (tensor.data is GemmaPerLayerTokenEmbedTensorData) tensor
-                    else perLayerTokenEmbedToRowDequant(tensor, qt, ctx, dtype, logicalShape)
+                    else tokenEmbedToRowDequant(tensor, qt, ctx, dtype, logicalShape)
                 } else {
                     convertOne(tensor, qt, name, ctx, arena, dtype, logicalShape)
                 }
@@ -206,13 +219,15 @@ private fun <T : DType, V> dequantPackedToFp32(
 }
 
 /**
- * Wrap the raw Q-series bytes of `per_layer_token_embd.weight` in a
+ * Wrap the raw Q-series bytes of a row-gathered embedding table
+ * (`per_layer_token_embd.weight` or the main `token_embd.weight`) in a
  * [GemmaPerLayerTokenEmbedTensorData] that dequants one row at a time.
- * Avoids the 9 GB FP32 blow-up that [dequantToFloat] would produce on
- * Gemma 4 E2B. See the class kdoc for the memory math.
+ * Avoids the FP32 blow-up that [dequantToFloat] would produce — 9 GB for
+ * Gemma 4 E2B's PLE table, ~0.67 GB for FunctionGemma's `token_embd`.
+ * See the class kdoc for the memory math.
  */
 @Suppress("UNCHECKED_CAST")
-private fun <T : DType, V> perLayerTokenEmbedToRowDequant(
+private fun <T : DType, V> tokenEmbedToRowDequant(
     tensor: Tensor<T, V>,
     qt: GGMLQuantizationType,
     ctx: ExecutionContext,

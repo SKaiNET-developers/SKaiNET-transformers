@@ -2,7 +2,7 @@ package sk.ainet.models.gemma
 
 import java.lang.foreign.MemorySegment
 import java.lang.foreign.ValueLayout
-import sk.ainet.lang.nn.RowDequantSource
+import sk.ainet.lang.tensor.data.RowDequantSource
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.data.TensorData
 import sk.ainet.lang.types.FP32
