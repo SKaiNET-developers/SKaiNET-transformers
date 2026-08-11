@@ -216,8 +216,11 @@ public class PositionalKVCache<T : DType, V>(
     private var pos: Int = 0
 
     // Functional K/V history kept only while tracing (see update()).
-    private var tracedKeys: Tensor<T, V>? = null
-    private var tracedValues: Tensor<T, V>? = null
+    // Internal so shared-cache wrappers ([OwnerReadOnlyKVCache] et al.) can
+    // wire the owner's *traced* history instead of reading the heap buffer
+    // back (which under tracing bakes K=V=0 constants — see #194).
+    internal var tracedKeys: Tensor<T, V>? = null
+    internal var tracedValues: Tensor<T, V>? = null
 
     override fun update(
         newKey: Tensor<T, V>,
@@ -374,11 +377,33 @@ public class SharedPositionalKVCache<T : DType, V>(
 
     private var pos: Int = 0
 
+    // Functional K/V history kept only while tracing (see update()).
+    private var tracedKeys: Tensor<T, V>? = null
+    private var tracedValues: Tensor<T, V>? = null
+
     override fun update(
         newKey: Tensor<T, V>,
         newValue: Tensor<T, V>,
         ctx: ExecutionContext
     ): Pair<Tensor<T, V>, Tensor<T, V>> {
+        // Mirror of PositionalKVCache.update's trace-fidelity branch (#193 /
+        // SKaiNET#763): the eager path below round-trips K/V through the
+        // delegate's heap buffer (writeAt + currentView), bypassing ctx.ops.
+        // Under tracing the incoming tensors carry no data, so that path bakes
+        // an all-zero constant and disconnects k_proj/v_proj (#194). When
+        // recording, wire this follower's K/V functionally instead.
+        if (ctx.isRecording) {
+            val ops = ctx.ops
+            val seqDim = newKey.rank - 2
+            val prevK = tracedKeys
+            val prevV = tracedValues
+            val fullK = if (prevK != null) ops.concat(listOf(prevK, newKey), dim = seqDim) else newKey
+            val fullV = if (prevV != null) ops.concat(listOf(prevV, newValue), dim = seqDim) else newValue
+            tracedKeys = fullK
+            tracedValues = fullV
+            pos += newKey.shape[seqDim]
+            return fullK to fullV
+        }
         val newLen = newKey.shape[newKey.rank - 2]
         delegate.writeAt(pos, newKey, newValue)
         pos += newLen
@@ -387,6 +412,8 @@ public class SharedPositionalKVCache<T : DType, V>(
 
     override fun reset() {
         pos = 0
+        tracedKeys = null
+        tracedValues = null
     }
 
     override val position: Int get() = pos
@@ -455,6 +482,10 @@ public class PaddedSharedPositionalKVCache<T : DType, V>(
 
     private var pos: Int = 0
 
+    // Functional K/V history kept only while tracing (see update()).
+    private var tracedKeys: Tensor<T, V>? = null
+    private var tracedValues: Tensor<T, V>? = null
+
     init {
         require(layerHeadDim in 1..delegate.headDim) {
             "$name: layerHeadDim ($layerHeadDim) must be in [1, ${delegate.headDim}]"
@@ -466,6 +497,26 @@ public class PaddedSharedPositionalKVCache<T : DType, V>(
         newValue: Tensor<T, V>,
         ctx: ExecutionContext
     ): Pair<Tensor<T, V>, Tensor<T, V>> {
+        // Trace-fidelity branch (#193 / SKaiNET#763 mirror, see #194): the
+        // eager path pads via raw copyToFloatArray + ctx.fromData and reads
+        // back through the delegate's heap buffer, both of which bypass
+        // ctx.ops and bake K=V=0 constants under tracing. When recording,
+        // wire the layer's own-head_dim K/V functionally — pad-then-slice-
+        // back is an identity on this layer's data, so no ops.pad is needed;
+        // the padded shared slot only matters for the eager cross-layer
+        // buffer, which no traced peer reads.
+        if (ctx.isRecording) {
+            val ops = ctx.ops
+            val seqDim = newKey.rank - 2
+            val prevK = tracedKeys
+            val prevV = tracedValues
+            val fullK = if (prevK != null) ops.concat(listOf(prevK, newKey), dim = seqDim) else newKey
+            val fullV = if (prevV != null) ops.concat(listOf(prevV, newValue), dim = seqDim) else newValue
+            tracedKeys = fullK
+            tracedValues = fullV
+            pos += newKey.shape[seqDim]
+            return fullK to fullV
+        }
         val newLen = newKey.shape[newKey.rank - 2]
         val paddedK = padHeadDim(newKey, delegate.headDim, ctx)
         val paddedV = padHeadDim(newValue, delegate.headDim, ctx)
@@ -476,6 +527,8 @@ public class PaddedSharedPositionalKVCache<T : DType, V>(
 
     override fun reset() {
         pos = 0
+        tracedKeys = null
+        tracedValues = null
     }
 
     override val position: Int get() = pos
@@ -554,6 +607,22 @@ public class OwnerReadOnlyKVCache<T : DType, V>(
         newValue: Tensor<T, V>,
         ctx: ExecutionContext
     ): Pair<Tensor<T, V>, Tensor<T, V>> {
+        // Trace-fidelity branch (#193 / SKaiNET#763 mirror, see #194): the
+        // eager sliceView below reads the owner's heap buffer, which under
+        // tracing carries no data — the follower would attend over a baked
+        // K=V=0 constant. When recording, return the owner's *traced* K/V
+        // history instead, so the exported graph wires the follower's
+        // attention to the owner's computed k_proj/v_proj.
+        if (ctx.isRecording) {
+            val k = delegate.tracedKeys
+            val v = delegate.tracedValues
+            check(k != null && v != null) {
+                "$name: owner cache '${delegate.name}' has no traced K/V history — " +
+                    "the owner layer must update before any read-only follower " +
+                    "when tracing (kv-shared owners precede followers in Gemma)."
+            }
+            return k to v
+        }
         // Discard newKey/newValue — they came from the follower's own
         // (unused) k_proj/v_proj. Per HF, shared layers don't have those
         // weights at all; in our build the projections still run because
