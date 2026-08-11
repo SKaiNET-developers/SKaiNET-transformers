@@ -253,6 +253,13 @@ Which Maven artifact publishes which Kotlin target (derived from each module's
 ¹ `transformer-core` additionally publishes `androidNativeArm32`/`androidNativeArm64`.
 ² `moonshine` publishes `iosArm64` and `androidNativeArm64` but no simulator or Android (AGP) variant.
 
+On Android, the runtime facades `kllama` and `kgemma` ship the engine's NEON kernel
+backend (`sk.ainet.core:skainet-backend-jni-cpu`, engine ≥ 0.39.0) as a transitive
+runtime dependency, so apps get native ARM kernels out of the box instead of the
+scalar Kotlin fallback. Apps that drive `llm-inference/llama` + `transformer-core`
+directly (the same wiring the iOS path uses) should add that AAR themselves;
+excluding the artifact opts back into pure-Kotlin execution.
+
 ## Getting started
 
 ### Prerequisites
