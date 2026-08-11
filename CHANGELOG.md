@@ -48,6 +48,25 @@ the compiled FunctionGemma path gets materially smaller, faster, and board-verif
   engine type (fixing a latent gather mismatch), and `GemmaMemSegConverter` keeps
   row-sliceable `token_embd` layouts packed — ~0.49 GB less FP32 on Q8_0, decode
   byte-identical.
+  
+
+### Added 
+
+- **Tool-calling architecture completion** ([#35](https://github.com/SKaiNET-developers/SKaiNET-transformers/issues/35) epic,
+  [#49](https://github.com/SKaiNET-developers/SKaiNET-transformers/issues/49) Phase 1; stacked PRs #296/#297/W2c):
+  `generateUntilStop`/`GenerateResult` promoted from `llm-agent` to `llm-core` (typealias
+  re-exports keep old imports working); `ToolCallingDemo`/`AgentCli`/`ListFilesTool`/
+  `CalculatorTool` moved from `:llm-runtime:kllama` to `:llm-agent` jvmMain (packages
+  unchanged) so any runner gets chat/agent/demo modes without depending on kllama; new
+  shared `ModelMetadataExtraction` (best-effort GGUF fields + HF `tokenizer_config.json`/
+  `chat_template.json`/`config.json` parsing) drives provider auto-detection on both the
+  GGUF and safetensors CLI paths (explicit `--template` still wins);
+  `ToolCallParser.registerStrategy(...)` lets model families plug custom tool-call output
+  formats into the default parser chain; demo *and* agent CLI now print
+  provider/mode/reason resolution diagnostics; env-gated real-checkpoint validation for
+  Qwen (`QWEN_MODEL_PATH`); README gains a native-vs-generic tool-calling compatibility
+  matrix.
+  
 
 ### Fixed
 
@@ -55,6 +74,16 @@ the compiled FunctionGemma path gets materially smaller, faster, and board-verif
   `SharedPositionalKVCache` / `PaddedSharedPositionalKVCache` / `OwnerReadOnlyKVCache`
   no longer bake K=V=0 constants under `embedConstants` tracing (kvSharedLayers > 0,
   e.g. Gemma 4 E2B).
+- **`llm-runtime/kllama` now registers the native-cinterop kernel provider on linuxX64/
+  linuxArm64.** `DirectCpuExecutionContext` on Kotlin/Native registers only the scalar
+  provider by default (no `ServiceLoader` on K/N, unlike JVM/Android), so every native
+  target's packed-quant matmul ran scalar even though the engine's
+  `skainet-backend-native-cpu` kernels were on the classpath. `CpuBackendProvider` and the
+  cross-target `SmolLm2InferenceSpike` now call the engine's `installNativeKernels()` once
+  per context via a small per-target hook ([#300](https://github.com/SKaiNET-developers/SKaiNET-transformers/issues/300)).
+  Measured: the linuxX64 spike goes from ~0.6 to **2.06 tok/s (3.4×)** on SmolLM2-135M Q8_0,
+  44 tokens, identical output. `macosArm64`/`iosArm64`/`iosSimulatorArm64` stay no-op until
+  the engine publishes those klibs ([#298](https://github.com/SKaiNET-developers/SKaiNET-transformers/issues/298)).
 
 ## [0.39.0] — 2026-08-11
 

@@ -38,6 +38,7 @@ import kotlin.system.exitProcess
 import kotlin.time.measureTime
 import kotlinx.coroutines.runBlocking
 import sk.ainet.apps.kllama.chat.ModelMetadata
+import sk.ainet.apps.kllama.chat.ModelMetadataExtraction
 import sk.ainet.apps.llm.InferenceRuntime
 import sk.ainet.apps.llm.generate
 import sk.ainet.io.gguf.StreamingGGUFReader
@@ -276,23 +277,29 @@ private fun resolveModelDir(path: Path): Path =
 private fun peekGgufMetadata(modelPath: Path): ModelMetadata {
     return JvmRandomAccessSource.open(modelPath.toString()).use { source ->
         StreamingGGUFReader.open(source).use { reader ->
-            val fields = reader.fields
-            val arch = (fields["general.architecture"] as? String) ?: "unknown"
-            val chatTemplate = fields["tokenizer.chat_template"] as? String
-            val family = when {
-                arch.startsWith("qwen") -> "qwen"
-                arch.startsWith("gemma") -> "gemma"
-                arch == "llama" -> "llama"
-                else -> arch
-            }
-            ModelMetadata(
-                family = family,
-                architecture = arch,
-                chatTemplate = chatTemplate,
-                sourceFormat = "gguf"
-            )
+            ModelMetadataExtraction.fromGgufFields(reader.fields)
         }
     }
+}
+
+/**
+ * Best-effort [ModelMetadata] from HuggingFace-side config files next to a
+ * safetensors checkpoint (`tokenizer_config.json`, `chat_template.json`,
+ * `config.json`). Returns `null` when none of the files exist so callers can
+ * distinguish "no HF sidecar files" from "empty metadata".
+ */
+private fun peekHfMetadata(modelDir: Path): ModelMetadata? {
+    fun readIfExists(name: String): String? =
+        modelDir.resolve(name).takeIf { it.exists() }?.readText()
+    val tokenizerConfig = readIfExists("tokenizer_config.json")
+    val chatTemplate = readIfExists("chat_template.json")
+    val modelConfig = readIfExists("config.json")
+    if (tokenizerConfig == null && chatTemplate == null && modelConfig == null) return null
+    return ModelMetadataExtraction.fromHuggingFaceConfig(
+        tokenizerConfigJson = tokenizerConfig,
+        chatTemplateJson = chatTemplate,
+        modelConfigJson = modelConfig
+    )
 }
 
 /** Peek at the EOS token ID from GGUF metadata. */
@@ -353,6 +360,16 @@ fun main(args: Array<String>) {
         val ggufMetadata: ModelMetadata? = if (format == ModelFormat.GGUF) {
             peekGgufMetadata(modelPath).also {
                 println("GGUF architecture: ${it.architecture}, family: ${it.family}")
+            }
+        } else null
+
+        // HF-side detection for safetensors checkpoints (#38): tokenizer_config.json /
+        // chat_template.json / config.json. Best-effort only — explicit --template
+        // still wins in the resolver.
+        val hfMetadata: ModelMetadata? = if (format == ModelFormat.SAFETENSORS) {
+            peekHfMetadata(resolveModelDir(modelPath))?.also {
+                println("HF model_type: ${it.architecture ?: "unknown"}, family: ${it.family ?: "unknown"}" +
+                    (if (it.chatTemplate != null) ", chat_template detected" else ""))
             }
         } else null
 
@@ -510,7 +527,7 @@ fun main(args: Array<String>) {
 
         // Dispatch to chat/agent/demo mode — works with any Tokenizer, not just GGUFTokenizer
         if (cliArgs.chatMode || cliArgs.agentMode || cliArgs.demoMode) {
-            val metadata = ggufMetadata ?: ModelMetadata()
+            val metadata = ggufMetadata ?: hfMetadata ?: ModelMetadata()
             when {
                 cliArgs.demoMode -> {
                     val demo = ToolCallingDemo(runtime, tokenizer, cliArgs.templateName, metadata)

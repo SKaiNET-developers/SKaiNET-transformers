@@ -12,5 +12,8 @@ public class CpuBackendProvider : BackendProvider {
     override val displayName: String = "CPU (SIMD)"
     override val priority: Int = 0
     override fun isAvailable(): Boolean = true
-    override fun createContext(): ExecutionContext = DirectCpuExecutionContext()
+    override fun createContext(): ExecutionContext {
+        installPlatformNativeKernels()
+        return DirectCpuExecutionContext()
+    }
 }

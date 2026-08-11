@@ -1,14 +1,18 @@
 package sk.ainet.models.gemma
 
 import java.lang.foreign.Arena
+import sk.ainet.apps.llm.weights.hasPackedMatmulKernel
 import sk.ainet.context.ExecutionContext
 import sk.ainet.io.gguf.GGMLQuantizationType
 import sk.ainet.io.gguf.GGML_QUANT_SIZES
 import sk.ainet.io.gguf.dequant.DequantOps
+import sk.ainet.lang.nn.quant.BlockQuantPacking
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.tensor.data.IntArrayTensorData
 import sk.ainet.lang.tensor.data.Q4_KBlockTensorData
+import sk.ainet.lang.tensor.data.Q5_0BlockTensorData
+import sk.ainet.lang.tensor.data.Q5_1BlockTensorData
 import sk.ainet.lang.tensor.data.Q5_KBlockTensorData
 import sk.ainet.lang.tensor.data.Q6_KBlockTensorData
 import sk.ainet.lang.tensor.data.Q4MemorySegmentTensorData
@@ -159,7 +163,7 @@ private fun <T : DType, V> convertOne(
             // layout; combined, a Q4_K_M Gemma 4 E2B checkpoint (3.2 GB on
             // disk) stays near that footprint in RAM instead of inflating
             // to ~18 GB FP32.
-            val relaid = relayoutKSeriesRowMajorToBlockMajor(bytes, shape, 144)
+            val relaid = BlockQuantPacking.relayoutRowMajorToBlockMajor(bytes, shape, 144, 256)
             val data = Q4_KBlockTensorData.fromRawBytes(shape, relaid)
             ctx.fromData(data as TensorData<FP32, Float>, advertisedDtype) as Tensor<T, V>
         }
@@ -171,7 +175,7 @@ private fun <T : DType, V> convertOne(
             // ~12 GB of FP32 bloat (and the corresponding 7.5 GB per-forward
             // transpose transient). Sanity-checked against FP32 dequant and
             // Q6_K packed produces identical tokens — kernel math is right.
-            val relaid = relayoutKSeriesRowMajorToBlockMajor(bytes, shape, 210)
+            val relaid = BlockQuantPacking.relayoutRowMajorToBlockMajor(bytes, shape, 210, 256)
             val data = Q6_KBlockTensorData.fromRawBytes(shape, relaid)
             ctx.fromData(data as TensorData<FP32, Float>, advertisedDtype) as Tensor<T, V>
         }
@@ -181,17 +185,49 @@ private fun <T : DType, V> convertOne(
             // in DefaultCpuOps. FunctionGemma-270M Q5_K_M ships most attn/FFN
             // weights as Q5_K, so keeping them packed (176 B/block) avoids the
             // FP32 inflation and runs the in-kernel dequant matmul.
-            val relaid = relayoutKSeriesRowMajorToBlockMajor(bytes, shape, 176)
+            val relaid = BlockQuantPacking.relayoutRowMajorToBlockMajor(bytes, shape, 176, 256)
             val data = Q5_KBlockTensorData.fromRawBytes(shape, relaid)
             ctx.fromData(data as TensorData<FP32, Float>, advertisedDtype) as Tensor<T, V>
         }
+        GGMLQuantizationType.Q5_1 -> {
+            // Packed-path treatment for the 32-elem/24-byte legacy blocks
+            // (#170): FunctionGemma-270M "Q5_K_M" ships attn_q/attn_k and
+            // ffn_gate/ffn_up as Q5_1 (81 of 236 tensors), which until #170
+            // took the FP32 dequant fallback below. The engine has Q5_1
+            // kernels (scalar + Panama since 0.39.0; native FFM/K-N/JNI from
+            // SKaiNET#951 / 0.40.0) + the lazy Q5_1 transpose, so the weights
+            // stay packed and run the in-kernel dequant matmul.
+            //
+            // Gated on kernel AVAILABILITY (not engine version): if no
+            // registered provider carries a Q5_1 kernel, packing would send
+            // the weight down the generic elementwise matmul, which misreads
+            // the block-major bytes after the lazy transpose — so fall back
+            // to the always-correct #169 FP32 dequant instead.
+            if (qt.hasPackedMatmulKernel()) {
+                val relaid = BlockQuantPacking.relayoutRowMajorToBlockMajor(bytes, shape, 24, 32)
+                val data = Q5_1BlockTensorData.fromRawBytes(shape, relaid)
+                ctx.fromData(data as TensorData<FP32, Float>, advertisedDtype) as Tensor<T, V>
+            } else {
+                dequantPackedToFp32<T, V>(bytes, qt, shape, ctx)
+            }
+        }
+        GGMLQuantizationType.Q5_0 -> {
+            // Same as Q5_1, 22-byte blocks (f16 d + qh + qs, symmetric).
+            if (qt.hasPackedMatmulKernel()) {
+                val relaid = BlockQuantPacking.relayoutRowMajorToBlockMajor(bytes, shape, 22, 32)
+                val data = Q5_0BlockTensorData.fromRawBytes(shape, relaid)
+                ctx.fromData(data as TensorData<FP32, Float>, advertisedDtype) as Tensor<T, V>
+            } else {
+                dequantPackedToFp32<T, V>(bytes, qt, shape, ctx)
+            }
+        }
         else -> {
-            // Any other quant type without a packed SIMD kernel (Q5_0/Q5_1/Q4_1/Q2_K/…)
+            // Any other quant type without a packed SIMD kernel (Q4_1/Q2_K/…)
             // would otherwise be left as raw 1-D bytes, which `linearProject` then can't
             // transpose ("Transpose requires at least 2 dimensions"). Dequantize to a
             // correct FP32 `[out, in]` weight so the DSL path runs; the supported packed
-            // types (Q4_0/Q8_0/Q4_K/Q6_K) above keep their fast SIMD form. This trades
-            // those tensors' memory savings for correctness until a packed kernel exists.
+            // types above keep their fast SIMD form. This trades those tensors' memory
+            // savings for correctness until a packed kernel exists.
             dequantPackedToFp32<T, V>(bytes, qt, shape, ctx)
         }
     }
@@ -271,8 +307,15 @@ private fun <T : DType, V> dequantToFloat(
  * [relayoutKSeriesRowMajorToBlockMajor] at Q4_K's 144-byte block size. Kept for
  * any callers outside this file pinned to the old name.
  */
+@Deprecated(
+    "Hoisted to the shared packer (#184): use BlockQuantPacking.relayoutRowMajorToBlockMajor",
+    ReplaceWith(
+        "BlockQuantPacking.relayoutRowMajorToBlockMajor(bytes, shape, 144, 256)",
+        "sk.ainet.lang.nn.quant.BlockQuantPacking",
+    ),
+)
 internal fun relayoutQ4_KRowMajorToBlockMajor(bytes: ByteArray, shape: sk.ainet.lang.tensor.Shape): ByteArray =
-    relayoutKSeriesRowMajorToBlockMajor(bytes, shape, 144)
+    BlockQuantPacking.relayoutRowMajorToBlockMajor(bytes, shape, 144, 256)
 
 private fun extractBytes(data: TensorData<*, *>): ByteArray {
     if (data is IntArrayTensorData<*>) {
