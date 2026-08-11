@@ -102,6 +102,10 @@ kotlin {
                 // JVM-only (skainet-compile-hlo/-dag publish no JS).
                 implementation(libs.skainet.compile.hlo)
                 implementation(libs.skainet.compile.dag)
+                // FunctionGemma export moved to :llm-inference:functiongemma (the DSL->StableHLO->IREE
+                // module pattern shared with whisper/moonshine); FunctionGemmaExport* here are now
+                // deprecated delegating shims (deprecate-don't-delete — exportFunctionGemma keeps working).
+                implementation(project(":llm-inference:functiongemma"))
                 // FunctionGemma facade: CompactCodec (<tool_N> -> ToolCall) + ToolCall.
                 implementation(project(":llm-runtime:gemma-iree"))
                 implementation(project(":llm-runtime:kllama"))

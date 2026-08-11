@@ -25,6 +25,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   provider/mode/reason resolution diagnostics; env-gated real-checkpoint validation for
   Qwen (`QWEN_MODEL_PATH`); README gains a native-vs-generic tool-calling compatibility
   matrix.
+### Fixed
+
+- **`llm-runtime/kllama` now registers the native-cinterop kernel provider on linuxX64/
+  linuxArm64.** `DirectCpuExecutionContext` on Kotlin/Native registers only the scalar
+  provider by default (no `ServiceLoader` on K/N, unlike JVM/Android), so every native
+  target's packed-quant matmul ran scalar even though the engine's
+  `skainet-backend-native-cpu` kernels were on the classpath. `CpuBackendProvider` and the
+  cross-target `SmolLm2InferenceSpike` now call the engine's `installNativeKernels()` once
+  per context via a small per-target hook ([#300](https://github.com/SKaiNET-developers/SKaiNET-transformers/issues/300)).
+  Measured: the linuxX64 spike goes from ~0.6 to **2.06 tok/s (3.4×)** on SmolLM2-135M Q8_0,
+  44 tokens, identical output. `macosArm64`/`iosArm64`/`iosSimulatorArm64` stay no-op until
+  the engine publishes those klibs ([#298](https://github.com/SKaiNET-developers/SKaiNET-transformers/issues/298)).
 
 ## [0.39.0] — 2026-08-11
 

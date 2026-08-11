@@ -34,6 +34,12 @@ import sk.ainet.apps.llm.tokenizer.GGUFTokenizer
  *   2. `--output=@file.bin` writes RAW little-endian bytes (extension-driven; `.npy` would add a header).
  * Input arg order (token, per-base cos/sin introduced on first use, per-block K-then-V) is trace-confirmed
  * and board-confirmed; `--task_topology_group_count` is accepted by the board `iree-run-module` (g165).
+ *
+ * The architecture constants above (nLayers=18, headDim=256, the two RoPE bases, the global-layer
+ * period, [kFirstInOutput]) are constructor defaults matching this historical FunctionGemma-270M
+ * shape; [fromManifest] builds a decoder from a compiled export's `manifest.json` instead (D3 —
+ * the `:llm-inference:functiongemma` contract, see [GemmaManifest]), so a differently-shaped export
+ * is served without a code change here.
  */
 @OptIn(kotlin.native.runtime.NativeRuntimeApi::class, ExperimentalForeignApi::class)
 public class GemmaKvDecoder(
@@ -51,18 +57,64 @@ public class GemmaKvDecoder(
     private val maxNewTokens: Int = 20,
     private val workDir: String = "/tmp/gemma-kv",
     ireeBin: String = "iree-run-module",
+    // D3 — architecture constants + I/O facts, defaulting to the historical hardcoded
+    // FunctionGemma-270M values. A manifest-driven caller ([fromManifest]) overrides these from
+    // `manifest.json` (the `:llm-inference:functiongemma` contract — see [GemmaManifest]) instead
+    // of hardcoding them; existing direct-constructor callers are unaffected (same defaults).
+    private val nLayers: Int = 18,
+    private val headDim: Int = 256,
+    private val slidingRopeBase: Float = 10_000f,
+    private val globalRopeBase: Float = 1_000_000f,
+    /** Every [globalLayerPeriod]-th layer (`i % period == period-1`) uses the global RoPE base. */
+    private val globalLayerPeriod: Int = 6,
+    // Per-block output K-vs-V order. BOARD-VERIFIED true (SL2610, 2026-08-11): both graphs return
+    // K THEN V per block — layer-0 return pair in the emitted MLIR is (concat(K_in,·), concat(V_in,·))
+    // where K is the RoPE'd+normed projection — and the K-first loop reproduces the oracle
+    // token-for-token. (The draft's return-SSA "V,K" hint was wrong.)
+    private val kFirstInOutput: Boolean = true,
 ) {
-    private companion object {
-        const val N_LAYERS = 18
-        const val HEAD_DIM = 256
-        const val ROW = HEAD_DIM              // nKV=1 -> one KV row is headDim floats
-        const val SLIDING_BASE = 10_000f
-        const val GLOBAL_BASE = 1_000_000f
-        // Per-block output K-vs-V order. BOARD-VERIFIED true (SL2610, 2026-08-11): both graphs return
-        // K THEN V per block — layer-0 return pair in the emitted MLIR is (concat(K_in,·), concat(V_in,·))
-        // where K is the RoPE'd+normed projection — and the K-first loop reproduces the oracle
-        // token-for-token. (The draft's return-SSA "V,K" hint was wrong.)
-        const val kFirstInOutput = true
+    // nKV=1 -> one KV row is headDim floats.
+    private val row: Int get() = headDim
+
+    public companion object {
+        /**
+         * Build a [GemmaKvDecoder] whose architecture constants and I/O facts are sourced from a
+         * compiled export's `manifest.json` (D3) instead of the historical hardcoded defaults —
+         * so a differently-shaped FunctionGemma export (different nLayers/headDim/RoPE bases/tool
+         * vocabulary) is served correctly without a code change here. [manifestPath] is read as
+         * plain JSON (this module does NOT depend on `:llm-inference:functiongemma` — see
+         * [GemmaManifest]'s doc for why).
+         */
+        public fun fromManifest(
+            manifestPath: String,
+            prefillVmfb: String,
+            withPastVmfb: String,
+            irpa: String,
+            gguf: String,
+            maxNewTokens: Int = 20,
+            workDir: String = "/tmp/gemma-kv",
+            ireeBin: String = "iree-run-module",
+        ): GemmaKvDecoder {
+            val manifest = GemmaManifest.parse(
+                SystemFileSystem.source(Path(manifestPath)).buffered().readByteArray().decodeToString(),
+            )
+            return GemmaKvDecoder(
+                prefillVmfb = prefillVmfb,
+                withPastVmfb = withPastVmfb,
+                irpa = irpa,
+                gguf = gguf,
+                seq = manifest.seq,
+                maxNewTokens = maxNewTokens,
+                workDir = workDir,
+                ireeBin = ireeBin,
+                nLayers = manifest.nLayers,
+                headDim = manifest.headDim,
+                slidingRopeBase = manifest.slidingRopeBase,
+                globalRopeBase = manifest.globalRopeBase,
+                globalLayerPeriod = manifest.globalLayerPeriod,
+                kFirstInOutput = manifest.kFirstInOutput,
+            )
+        }
     }
 
     private val taskGroups: Int? =
@@ -102,8 +154,8 @@ public class GemmaKvDecoder(
         if (!preRes.ok) { println("[gemma-kv] prefill failed: ${preRes.stdout.take(400)}"); return GemmaDecoder.Generation("(prefill failed)", emptyList()) }
         var next = Bin.readI32(preTokFile, seq)[p - 1]
         // slice each [1,1,seq,256] output to [1,1,p,256] (drop padded tail positions).
-        val kCache = Array(N_LAYERS) { Bin.readF32(kFile(preOut, it), seq * ROW).copyOfRange(0, p * ROW) }
-        val vCache = Array(N_LAYERS) { Bin.readF32(vFile(preOut, it), seq * ROW).copyOfRange(0, p * ROW) }
+        val kCache = Array(nLayers) { Bin.readF32(kFile(preOut, it), seq * row).copyOfRange(0, p * row) }
+        val vCache = Array(nLayers) { Bin.readF32(vFile(preOut, it), seq * row).copyOfRange(0, p * row) }
 
         // --- DECODE: one token/step over the growing cache ---
         val gen = mutableListOf<Int>()
@@ -116,11 +168,11 @@ public class GemmaKvDecoder(
             val t0 = if (profile) TimeSource.Monotonic.markNow() else null
 
             // cos/sin for both RoPE bases at this position (full-rotary split-half, headDim denom).
-            val (cosS, sinS) = splitHalfCosSin(pos, SLIDING_BASE)
-            val (cosG, sinG) = splitHalfCosSin(pos, GLOBAL_BASE)
+            val (cosS, sinS) = splitHalfCosSin(pos, slidingRopeBase)
+            val (cosG, sinG) = splitHalfCosSin(pos, globalRopeBase)
             Bin.writeF32("$workDir/cosS.bin", cosS); Bin.writeF32("$workDir/sinS.bin", sinS)
             Bin.writeF32("$workDir/cosG.bin", cosG); Bin.writeF32("$workDir/sinG.bin", sinG)
-            for (i in 0 until N_LAYERS) {
+            for (i in 0 until nLayers) {
                 Bin.writeF32("$workDir/k_in_$i.bin", kCache[i])
                 Bin.writeF32("$workDir/v_in_$i.bin", vCache[i])
             }
@@ -135,8 +187,8 @@ public class GemmaKvDecoder(
             )
             if (!res.ok) { println("[gemma-kv] with_past failed at pos=$pos: ${res.stdout.take(400)}"); break }
             next = Bin.readI32(wpTokFile, 1)[0]
-            val newLen = (pos + 1) * ROW
-            for (i in 0 until N_LAYERS) {
+            val newLen = (pos + 1) * row
+            for (i in 0 until nLayers) {
                 kCache[i] = Bin.readF32(kFile(wpOut, i), newLen)
                 vCache[i] = Bin.readF32(vFile(wpOut, i), newLen)
             }
@@ -158,11 +210,11 @@ public class GemmaKvDecoder(
     /** Sign-baked split-half cos/sin `[headDim]` at [position], full rotary, freqDenom=headDim (matches
      *  RoPE.buildSplitHalfCosSin for FunctionGemma: factor=1 no-op, partialRotary=1.0). */
     private fun splitHalfCosSin(position: Int, base: Float): Pair<FloatArray, FloatArray> {
-        val half = HEAD_DIM / 2
-        val c = FloatArray(HEAD_DIM)
-        val s = FloatArray(HEAD_DIM)
+        val half = headDim / 2
+        val c = FloatArray(headDim)
+        val s = FloatArray(headDim)
         for (i in 0 until half) {
-            val freq = 1.0 / base.toDouble().pow(2.0 * i / HEAD_DIM)
+            val freq = 1.0 / base.toDouble().pow(2.0 * i / headDim)
             val a = position * freq
             val cv = cos(a).toFloat()
             val sv = sin(a).toFloat()
@@ -175,14 +227,14 @@ public class GemmaKvDecoder(
     /** with_past inputs in the trace-confirmed arg order: token, then per-base cos/sin introduced on
      *  first use of each layer type, with each block's K THEN V. */
     private fun withPastInputSpecs(token: Int, pos: Int): List<String> {
-        val kv = "1x1x${pos}x256xf32"
+        val kv = "1x1x${pos}x${headDim}xf32"
         val specs = mutableListOf("1xi32=$token")
         var introS = false
         var introG = false
-        for (i in 0 until N_LAYERS) {
-            val isGlobal = i % 6 == 5
-            if (isGlobal && !introG) { specs += "1x256xf32=@$workDir/cosG.bin"; specs += "1x256xf32=@$workDir/sinG.bin"; introG = true }
-            if (!isGlobal && !introS) { specs += "1x256xf32=@$workDir/cosS.bin"; specs += "1x256xf32=@$workDir/sinS.bin"; introS = true }
+        for (i in 0 until nLayers) {
+            val isGlobal = i % globalLayerPeriod == globalLayerPeriod - 1
+            if (isGlobal && !introG) { specs += "1x${headDim}xf32=@$workDir/cosG.bin"; specs += "1x${headDim}xf32=@$workDir/sinG.bin"; introG = true }
+            if (!isGlobal && !introS) { specs += "1x${headDim}xf32=@$workDir/cosS.bin"; specs += "1x${headDim}xf32=@$workDir/sinS.bin"; introS = true }
             specs += "$kv=@$workDir/k_in_$i.bin"
             specs += "$kv=@$workDir/v_in_$i.bin"
         }
@@ -190,7 +242,7 @@ public class GemmaKvDecoder(
     }
 
     // Output layout: 36 K/V (block order, two per block) then the token file (appended by the caller).
-    private fun kvOutFiles(tag: String): List<String> = (0 until 2 * N_LAYERS).map { "$workDir/${tag}_out_$it.bin" }
+    private fun kvOutFiles(tag: String): List<String> = (0 until 2 * nLayers).map { "$workDir/${tag}_out_$it.bin" }
     private fun kFile(outs: List<String>, layer: Int): String = outs[2 * layer + if (kFirstInOutput) 0 else 1]
     private fun vFile(outs: List<String>, layer: Int): String = outs[2 * layer + if (kFirstInOutput) 1 else 0]
 
