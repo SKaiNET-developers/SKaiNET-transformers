@@ -47,7 +47,7 @@ Use the version shown in this README as the source of truth for first-run snippe
 > widely per item and many paths are unverified — see the project-status note above.
 
 - **Multi-model support (in progress).** Architecture code exists for Llama / Mistral, Qwen 2 / 3, Gemma 2 / 3 / 3n, Apertus (Swiss AI) and BERT. Llama is the most exercised path; the other families are at varying, often early, stages and are not all verified end-to-end.
-- **Native CPU performance.** Auto-discovers SKaiNET's priority-100 FFM (Foreign Function & Memory) native kernel provider when present (4–6× faster Q4_K matmul, 1.5–1.8× faster FP32 SGEMM vs the priority-50 Panama Vector path; Linux x86_64 / macOS ARM64 / Windows x86_64 in the published JAR — no manual setup).
+- **Native CPU performance.** Auto-discovers SKaiNET's priority-100 FFM (Foreign Function & Memory) native kernel provider when present (4–6× faster Q4_K matmul, 1.5–1.8× faster FP32 SGEMM vs the priority-50 Panama Vector path; Linux x86_64 / macOS ARM64 / Windows x86_64 in the published JAR — no manual setup). On **Android**, the runtime facades ship the engine's JNI NEON backend the same way — native kernels out of the box, ~6.4× measured on SmolLM2-135M Q8_0 (see the [supported-targets matrix](#supported-targets)).
 - **Tool calling (experimental).** Family-specific chat templates and tool-call parsers (Llama 3, Qwen, Gemma, Apertus, ChatML/Hermes) and a Java surface (`KLlamaJava`, `JavaTools.definition`, `JavaAgentLoop`) exist, but tool calling is **not reliable yet** — it may fail to trigger or parse even when plain generation works.
 - **GGUF + SafeTensors loading.** Streaming reader for any model size; `NATIVE_OPTIMIZED` quant policy keeps weights in their packed SIMD-friendly form.
 - **Kotlin Multiplatform.** JVM, Android, Kotlin/Native (Linux x64/ARM64, macOS ARM64, iOS arm64/sim arm64), JS, Wasm targets — see the [supported targets matrix](#supported-targets) for exactly which module publishes which target.
@@ -106,32 +106,37 @@ Honest status — see the project-status note at the top of this README.
 
 ## Current release
 
-The current release is **0.38.0** (against **SKaiNET 0.38.0**) — the release that completes the
-**Moonshine v2 streaming ASR entirely in the SKaiNET NN DSL** and adds **narrow-float weights**.
+The current release is **0.39.0** (against **SKaiNET 0.39.0**) — the release that turns the
+mobile story around: **Android apps decode with native NEON kernels out of the box**.
 
-**Moonshine v2 — the whole pipeline is now DSL-authored and self-compiled** (DSL → StableHLO → IREE,
-no vendor neural binaries) in `skainet-transformers-inference-moonshine`: the **audio frontend**
-(CMVN → asinh → filterbank → SiLU → two causal `Conv1d`), the position-free sliding-window
-**encoder**, the learned-positional-embedding **adapter**, and the KV-cache **decoder**. The last
-vendor-ONNX graph — the frontend — is gone.
+**Android NEON, no setup.** The `runtime-kllama` and `runtime-kgemma` Android artifacts now carry
+the engine's new `sk.ainet.core:skainet-backend-jni-cpu` AAR as a transitive runtime dependency.
+The backend self-registers via ServiceLoader on ART and provides NEON kernels (runtime dotprod
+dispatch) for Q8_0 / Q4_0 / Q4_K / Q5_K / Q6_K — measured **~24 tok/s vs ~3.8 scalar** (~6.4×)
+decode-kernel throughput on SmolLM2-135M Q8_0 on a Pixel 8a. Engine 0.39.0 also makes
+`createRandomAccessSource` real on Android, so GGUF loading streams instead of materializing the
+whole file on the ART heap — the hard-OOM load path is gone — and the GGUF loader now fails fast
+on unsupported quantization types.
 
-- **Streaming decode over a growing cache.** The decoder exports **true-dynamic** KV-cache graphs
-  (`Dim.DYNAMIC`), so one compiled artifact serves every autoregressive position instead of a fixed
-  re-decode. A **fixed-max-pad cross-attention mask** lets one prefill + one `with_past` pair serve
-  any encoder-memory length ≤ MAX. `transformer-core`'s `MultiHeadAttention` gains an optional
-  trailing `crossMask` (default null — byte-identical for existing callers).
+**whisper-tiny in the NN DSL** (`skainet-transformers-inference-whisper`): encoder, fixed-masked-KV
+decoder, weights streamed straight from the HF safetensors checkpoint, and an export harness
+emitting MLIR + IRPA for IREE — no PyTorch/ONNX scripts anywhere. Verified bit-close against the
+ONNX-pipeline golden and on-device (Pixel Tensor G3, Vulkan).
 
-**Narrow-float `KEEP_NATIVE` weights** — keep FP16/BF16 packed on the SafeTensors and GGUF paths
-instead of widening to FP32 at load (half the weight bytes at rest), and relay matmul weights
-input-major so the per-forward `.t()` becomes a zero-copy view: **BF16 1.8–1.9×, FP16 1.5–1.7×** over
-FP32, and a 4.4 s-per-projection widening on `ffn_up` 8B removed. Wired across
-llama/qwen/gemma/apertus/voxtral through the `DTypePolicyValidation` policy surface.
+**Runtime facades on iOS.** `runtime-kllama` and `runtime-kgemma` now publish `iosArm64` +
+`iosSimulatorArm64` klibs, and the [supported-targets matrix](#supported-targets) documents which
+artifact runs where.
 
-**Gemma** now **row-dequants the packed `token_embd`** in the shared `Embedding`, cutting host memory
-at load.
+**SmolLM2** joins the tool-calling families (`SmolLMChatTemplate` + parser strategy), and a
+cross-target **SmolLM2-135M inference spike** in `kllama`'s commonTest gives directly comparable
+load/tok-s numbers from one source on JVM, Linux native, and the iOS simulator.
 
-This is the first release on **SKaiNET engine 0.38.0**, which ships first-class dynamic tensor shapes
-(`Dim`) — the capability the true-dynamic decode export is built on.
+It builds on **0.38.0**, which completed **Moonshine v2 streaming ASR entirely in the SKaiNET NN
+DSL** (frontend, sliding-window encoder, adapter, KV-cache decoder — no vendor neural binaries,
+with true-dynamic KV-cache graphs on engine 0.38.0's `Dim`) and added **narrow-float
+`KEEP_NATIVE` weights** — FP16/BF16 stay packed on the SafeTensors and GGUF paths instead of
+widening to FP32 (BF16 1.8–1.9×, FP16 1.5–1.7× over FP32), wired across llama / qwen / gemma /
+apertus / voxtral — plus Gemma row-dequant of the packed `token_embd` at load.
 
 It builds on **0.36.1**, which added **BGE embedding models** on the BERT DSL path (CLS pooling +
 retrieval prefixes) and **beam search** for the T5 decoder and the vec2text inversion loop — both
@@ -194,7 +199,7 @@ The recommended way to consume is via the BOM. It pins every published `skainet-
 
 ```kotlin
 dependencies {
-    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.38.0"))
+    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.39.0"))
 
     // Versions resolved from the BOM:
     implementation("sk.ainet.transformers:skainet-transformers-core")

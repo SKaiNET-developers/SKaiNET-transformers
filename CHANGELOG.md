@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.39.0] — 2026-08-11
+
+Ships against **SKaiNET engine 0.39.0** — the engine release that answers the mobile
+field report behind engine issue [#920](https://github.com/SKaiNET-developers/SKaiNET/issues/920):
+a JNI NEON kernel backend for Android, real random-access GGUF loading on Android, and
+fail-fast on unsupported quantization types. The transformers headline follows directly:
+**Android apps using the runtime facades now decode with native NEON kernels out of the
+box** (measured ~6.4× on SmolLM2-135M Q8_0, Pixel 8a) instead of silently falling back to
+scalar Kotlin. Also new: **whisper-tiny authored end-to-end in the NN DSL**, iOS artifacts
+for the runtime facades, and SmolLM2 tool-calling support.
+
 ### Added
 
 - **Native NEON kernels on Android, out of the box.** The `llm-runtime/kllama` and
@@ -19,6 +30,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   on SmolLM2-135M Q8_0 (Pixel 8a: ~24 tok/s vs ~3.8 scalar). Apps using the inference
   modules directly add the AAR themselves; excluding it opts back into pure Kotlin
   ([#285](https://github.com/SKaiNET-developers/SKaiNET-transformers/issues/285)).
+- **whisper-tiny — the full pipeline authored in the NN DSL**
+  (`llm-inference/whisper`, artifact `skainet-transformers-inference-whisper`): encoder at a
+  configurable short audio context, decoder with the fixed-masked-KV prefill/step split (KV cache
+  as explicit graph I/O, host-computed additive f32 masks — SPIR-V-safe, no `i1`/`select`), weights
+  streamed by HF name directly from the safetensors checkpoint (`SafeTensorsWeightSource`, tied
+  embedding, no Python anywhere), and a jvmTest export harness emitting MLIR + merged `params.irpa`
+  + `manifest.json` for IREE compilation. Verified: encoder cosine 0.9999921 vs the ONNX-pipeline
+  golden, greedy tokens reproduce the reference German transcript exactly, and the compiled vmfbs
+  decode correctly on-device (Pixel Tensor G3, Vulkan). Replaces the PyTorch→ONNX export scripts
+  that previously fed skainet-whisper-android (PR
+  [#279](https://github.com/SKaiNET-developers/SKaiNET-transformers/pull/279)).
+- **SmolLM2 tool-calling support** (`llm-agent` / kllama): `SmolLMChatTemplate`, the SmolLM
+  tool-call parser strategy, and `ToolCallingSupport` resolver registration, so
+  SmolLM2-Instruct models drive the agent loop like the other supported families. Includes a
+  7-case parser test and a gated end-to-end smoke test
+  ([#272](https://github.com/SKaiNET-developers/SKaiNET-transformers/issues/272)).
+- **Cross-target SmolLM2-135M inference spike** (`llm-runtime/kllama`, commonTest): one
+  env-gated test (`SMOLLM2_MODEL`) that loads the Q8_0 GGUF via
+  `LlamaNetworkLoader.fromGguf(NATIVE_OPTIMIZED)` + `OptimizedLLMRuntime(DIRECT)` and prints
+  load time, decode tok/s, and the generated text — identical source on JVM, linuxX64, and
+  iOS simulator, so per-target numbers are directly comparable (the reproducer half of
+  [#272](https://github.com/SKaiNET-developers/SKaiNET-transformers/issues/272); measured
+  JVM ~7.2 tok/s FFM, linuxX64 ~0.6 tok/s scalar K/N).
 
 - **iOS artifacts for the runtime facades.** `llm-runtime/kllama` and `llm-runtime/kgemma` now
   declare `iosArm64` + `iosSimulatorArm64` and publish the corresponding klibs. kllama's
@@ -32,6 +66,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `build.gradle.kts`) replaces the "where applicable" hand-wave, so which artifact runs on iOS /
   Android / Wasm is now documented rather than discoverable only by browsing Maven Central
   ([#271](https://github.com/SKaiNET-developers/SKaiNET-transformers/issues/271)).
+
+### Changed
+
+- **SKaiNET engine 0.38.0 → 0.39.0** ([#282](https://github.com/SKaiNET-developers/SKaiNET-transformers/pull/282)).
+  Besides publishing the Android JNI backend above, the engine release brings the rest of the
+  mobile-field-report fixes to every transformers consumer: `createRandomAccessSource` is now real
+  on Android (streaming GGUF load instead of materializing the whole file on the ART heap — the
+  hard-OOM path is gone, engine [#922](https://github.com/SKaiNET-developers/SKaiNET/issues/922)),
+  the streaming GGUF loader fails fast on unsupported tensor types instead of silently skipping
+  them and loads Q4_0/Q5_0/Q5_1 packed (engine
+  [#919](https://github.com/SKaiNET-developers/SKaiNET/issues/919)), a NEON Q4_0 kernel and
+  cinterop-embedded kernel archives for Kotlin/Native consumers, and a round of tensor-storage
+  API hygiene fixes.
+
+### Fixed
+
+- **Gemma integration tests skip properly under JUnit 5**: `org.junit.Assume` (JUnit 4) swapped
+  for Jupiter `Assumptions` in the three `-PincludeIntegration` gemma tests, so a missing model
+  now reports as *skipped* instead of failing the run; the stray JUnit 4 dependency is gone from
+  gemma's jvmTest ([#261](https://github.com/SKaiNET-developers/SKaiNET-transformers/issues/261)).
+- **`apiCheck` green again on clean checkouts**: refreshed the stale jvm binary-compatibility
+  dumps for `llm-agent`, `kllama`, and `transformer-core`
+  ([#275](https://github.com/SKaiNET-developers/SKaiNET-transformers/issues/275)).
 
 ## [0.38.0] — 2026-07-31
 
