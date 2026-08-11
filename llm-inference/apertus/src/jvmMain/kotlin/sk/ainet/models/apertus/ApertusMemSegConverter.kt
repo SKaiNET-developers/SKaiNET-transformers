@@ -3,6 +3,7 @@ package sk.ainet.models.apertus
 import sk.ainet.context.ExecutionContext
 import sk.ainet.io.gguf.GGMLQuantizationType
 import sk.ainet.io.gguf.dequant.DequantOps
+import sk.ainet.lang.nn.quant.BlockQuantPacking
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.tensor.data.Q4_KBlockTensorData
@@ -110,13 +111,13 @@ private fun <T : DType, V> convertOne(
         }
 
         GGMLQuantizationType.Q4_K -> {
-            val relaid = relayoutKSeriesRowMajorToBlockMajor(bytes, logicalShape, BYTES_PER_Q4_K_BLOCK)
+            val relaid = BlockQuantPacking.relayoutRowMajorToBlockMajor(bytes, logicalShape, BYTES_PER_Q4_K_BLOCK, K_SERIES_BLOCK_SIZE)
             val data = Q4_KBlockTensorData.fromRawBytes(logicalShape, relaid)
             ctx.fromData(data as TensorData<FP32, Float>, advertisedDtype) as Tensor<T, V>
         }
 
         GGMLQuantizationType.Q6_K -> {
-            val relaid = relayoutKSeriesRowMajorToBlockMajor(bytes, logicalShape, BYTES_PER_Q6_K_BLOCK)
+            val relaid = BlockQuantPacking.relayoutRowMajorToBlockMajor(bytes, logicalShape, BYTES_PER_Q6_K_BLOCK, K_SERIES_BLOCK_SIZE)
             val data = Q6_KBlockTensorData.fromRawBytes(logicalShape, relaid)
             ctx.fromData(data as TensorData<FP32, Float>, advertisedDtype) as Tensor<T, V>
         }
@@ -139,38 +140,22 @@ private const val BYTES_PER_Q6_K_BLOCK = 210
 private const val K_SERIES_BLOCK_SIZE = 256
 
 /**
- * Re-layout GGUF K-series bytes from row-major block order
- * (block at row `r`, block index `b` within the row → byte offset
- * `(r * blocksPerRow + b) * bytesPerBlock`) to the input-block-major layout
- * the `matmulQ{K}_Vec` kernels index via `(blockIdx * outDim + r) * bytesPerBlock`.
- *
- * For a weight of shape `[outDim, inDim]` with `inDim % 256 == 0`, this is
- * a 2D block-level transpose of the `[outDim, inDim/256]` block grid. Bytes
- * inside a block are untouched.
+ * Re-layout GGUF K-series bytes from row-major block order to the
+ * input-block-major layout the `matmulQ{K}_Vec` kernels index. Delegates to
+ * the shared [sk.ainet.lang.nn.quant.BlockQuantPacking] packer (#184 hoist 2);
+ * kept as an internal shim for existing call sites and tests.
  */
+@Deprecated(
+    "Hoisted to the shared packer (#184): use BlockQuantPacking.relayoutRowMajorToBlockMajor",
+    ReplaceWith(
+        "BlockQuantPacking.relayoutRowMajorToBlockMajor(bytes, shape, bytesPerBlock, 256)",
+        "sk.ainet.lang.nn.quant.BlockQuantPacking",
+    ),
+)
 internal fun relayoutKSeriesRowMajorToBlockMajor(
     bytes: ByteArray,
     shape: Shape,
     bytesPerBlock: Int
-): ByteArray {
-    require(shape.rank == 2) { "K-series weight must be 2D, got rank ${shape.rank}" }
-    val outDim = shape[0]
-    val inDim = shape[1]
-    require(inDim % K_SERIES_BLOCK_SIZE == 0) {
-        "K-series weight inDim ($inDim) must be a multiple of $K_SERIES_BLOCK_SIZE"
-    }
-    val blocksPerRow = inDim / K_SERIES_BLOCK_SIZE
-    val expected = outDim.toLong() * blocksPerRow.toLong() * bytesPerBlock.toLong()
-    require(bytes.size.toLong() >= expected) {
-        "K-series byte buffer size ${bytes.size} < expected $expected for shape [$outDim, $inDim] @ ${bytesPerBlock}B/block"
-    }
-    val out = ByteArray(bytes.size)
-    for (r in 0 until outDim) {
-        for (b in 0 until blocksPerRow) {
-            val srcOff = (r * blocksPerRow + b) * bytesPerBlock
-            val dstOff = (b * outDim + r) * bytesPerBlock
-            System.arraycopy(bytes, srcOff, out, dstOff, bytesPerBlock)
-        }
-    }
-    return out
-}
+): ByteArray = BlockQuantPacking.relayoutRowMajorToBlockMajor(
+    bytes, shape, bytesPerBlock, K_SERIES_BLOCK_SIZE,
+)

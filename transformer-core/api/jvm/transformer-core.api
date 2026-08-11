@@ -113,6 +113,17 @@ public final class sk/ainet/lang/nn/normalization/RMSNormalization : sk/ainet/la
 	public fun getParams ()Ljava/util/List;
 }
 
+public final class sk/ainet/lang/nn/quant/BlockQuantPacking {
+	public static final field INSTANCE Lsk/ainet/lang/nn/quant/BlockQuantPacking;
+	public final fun blockLayoutFor (Lsk/ainet/lang/tensor/storage/TensorEncoding;)Lkotlin/Pair;
+	public final fun pack ([BLsk/ainet/lang/tensor/storage/TensorEncoding;Lsk/ainet/lang/tensor/Shape;)Lsk/ainet/lang/tensor/data/TensorData;
+	public final fun packPreTransposed ([BLsk/ainet/lang/tensor/storage/TensorEncoding;Lsk/ainet/lang/tensor/Shape;)Lsk/ainet/lang/tensor/data/TensorData;
+	public final fun relayoutRowMajorToBlockMajor ([BLsk/ainet/lang/tensor/Shape;II)[B
+}
+
+public abstract interface class sk/ainet/lang/nn/quant/PreTransposedWeight {
+}
+
 public final class sk/ainet/lang/nn/transformer/AppendKVCache : sk/ainet/lang/nn/transformer/KVCache {
 	public fun <init> (IIILjava/lang/String;)V
 	public synthetic fun <init> (IIILjava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V

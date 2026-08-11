@@ -524,6 +524,11 @@ public final class sk/ainet/apps/llm/weights/BertSafeTensorsNameResolver : sk/ai
 	public fun resolve (Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
 }
 
+public final class sk/ainet/apps/llm/weights/GgmlQuantEncodingsKt {
+	public static final fun hasPackedMatmulKernel (Lsk/ainet/io/gguf/GGMLQuantizationType;)Z
+	public static final fun toBlockEncoding (Lsk/ainet/io/gguf/GGMLQuantizationType;)Lsk/ainet/lang/tensor/storage/TensorEncoding;
+}
+
 public final class sk/ainet/apps/llm/weights/LlamaGGUFNameResolver : sk/ainet/io/weights/WeightNameResolver {
 	public fun <init> ()V
 	public fun resolve (Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
