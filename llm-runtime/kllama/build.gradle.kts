@@ -18,6 +18,13 @@ kotlin {
         compilerOptions {
             jvmTarget.set(JvmTarget.JVM_11)
         }
+        // On-device e2e inference spike (#272). Runs the SmolLM2 generation
+        // loop on a connected device/emulator with the NEON JNI backend that
+        // androidMain ships since 0.39.0; skips unless a model server is
+        // reachable (see AndroidSmolLm2E2eTest).
+        withDeviceTest {
+            instrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        }
     }
 
     linuxX64 {
@@ -123,6 +130,15 @@ kotlin {
         val wasmJsMain by getting
         wasmJsMain.dependencies {
             implementation(libs.kotlinx.browser)
+        }
+        if (!project.hasProperty("buildFatJar")) {
+            val androidDeviceTest by getting {
+                dependencies {
+                    implementation(libs.androidx.test.junit)
+                    implementation(libs.androidx.test.runner)
+                    implementation(libs.kotlinx.coroutines)
+                }
+            }
         }
 
         val nativeMain by creating {

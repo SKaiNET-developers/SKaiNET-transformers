@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- The e2e spike downloads the GGUF from the host over `adb reverse`
+         (http://localhost:<port>), which is cleartext by definition. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- largeHeap: SmolLM2-135M loads ~145 MiB packed weights PLUS a dense
+         FP32 token_embd (~113 MiB — llama has no row-dequant embedding yet,
+         unlike gemma since 0.38.0), which overflows the standard ~192 MiB
+         app heap. Finding recorded in transformers#272. -->
+    <application
+        android:usesCleartextTraffic="true"
+        android:largeHeap="true" />
+</manifest>
