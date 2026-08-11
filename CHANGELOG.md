@@ -9,7 +9,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.39.1] — 2026-08-11
+
+Patch release against **SKaiNET engine 0.39.1** — the gemma function-calling day:
+the compiled FunctionGemma path gets materially smaller, faster, and board-verified.
+
 ### Added
+
+- **FunctionGemmaToolCallingSupport** (#292): the compact functional-token format
+  (`<tool_N>(…)`, `CompactCodec`) joins the `ToolCallingSupport` architecture — parser
+  strategy, byte-exact chat template, NATIVE-mode detection; the tool map is now
+  injectable (`CompactToolCodec`), so consumers can extend the tool set without a
+  library change. First concrete slice of the #35 generalization.
+- **Board-verified KV decode** (#291): `GemmaKvDecoder` is no longer a draft — K-first
+  outputs, raw `.bin` I/O, per-graph parameter archives (`gemma-prefill.irpa` /
+  `gemma-with-past.irpa`; the shared-irpa contract was invalid due to per-trace
+  external numbering), runbook shipped in `llm-runtime/gemma-iree/docs/`. SL2610:
+  steady-state ~1740 ms/token, 2.1× the same-day re-decode baseline.
+
+- On-device Android E2E SmolLM2 generation spike for the runtime facades (#288, refs #272).
+
+### Changed
+
+- **Engine pin `skainet 0.39.0 → 0.39.1`**: picks up the engine's primitive FP32
+  fast paths for the eager CPU ops and the cached `DirectCpuExecutionContext.ops`
+  (engine [#949](https://github.com/SKaiNET-developers/SKaiNET/issues/949)) — the
+  per-element overhead that dominated on-device decode (83% of SmolLM2-135M
+  end-to-end on a Pixel 8a even with NEON matmul) is gone for every non-JVM target.
+- **Tied embedding exported once** (#290, closes #260): `Gemma4WeightLoader` aliases
+  `token_embd` into `output.weight`; the FunctionGemma weight archive drops
+  ~832 → ~512 MiB bf16 with a single `262153x640` global.
+- **True-dynamic `with_past` export is the default** (#290, refs #248): engine
+  `Dim.DYNAMIC` tracing replaces the `SENTINEL_PAST=7919` text rewrite
+  (`GEMMA_SENTINEL_PAST=1` is the rollback); the g165 Torq-fork compiler accepts the
+  dynamic-dim MLIR on-board.
+- **Token embedding stays packed on the JVM eager path** (#289, closes #178/#234):
+  the transformers-local `RowDequantSource` became a deprecated typealias to the
+  engine type (fixing a latent gather mismatch), and `GemmaMemSegConverter` keeps
+  row-sliceable `token_embd` layouts packed — ~0.49 GB less FP32 on Q8_0, decode
+  byte-identical.
+  
+
+### Added 
 
 - **Tool-calling architecture completion** ([#35](https://github.com/SKaiNET-developers/SKaiNET-transformers/issues/35) epic,
   [#49](https://github.com/SKaiNET-developers/SKaiNET-transformers/issues/49) Phase 1; stacked PRs #296/#297/W2c):
@@ -25,8 +66,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   provider/mode/reason resolution diagnostics; env-gated real-checkpoint validation for
   Qwen (`QWEN_MODEL_PATH`); README gains a native-vs-generic tool-calling compatibility
   matrix.
+  
+
 ### Fixed
 
+- **Shared-KV cache variants trace correctly** (#290, closes #194):
+  `SharedPositionalKVCache` / `PaddedSharedPositionalKVCache` / `OwnerReadOnlyKVCache`
+  no longer bake K=V=0 constants under `embedConstants` tracing (kvSharedLayers > 0,
+  e.g. Gemma 4 E2B).
 - **`llm-runtime/kllama` now registers the native-cinterop kernel provider on linuxX64/
   linuxArm64.** `DirectCpuExecutionContext` on Kotlin/Native registers only the scalar
   provider by default (no `ServiceLoader` on K/N, unlike JVM/Android), so every native
@@ -95,6 +142,8 @@ for the runtime facades, and SmolLM2 tool-calling support.
   `build.gradle.kts`) replaces the "where applicable" hand-wave, so which artifact runs on iOS /
   Android / Wasm is now documented rather than discoverable only by browsing Maven Central
   ([#271](https://github.com/SKaiNET-developers/SKaiNET-transformers/issues/271)).
+
+- On-device Android E2E SmolLM2 generation spike for the runtime facades (#288, refs #272).
 
 ### Changed
 
@@ -166,6 +215,8 @@ PR #886). Two headlines: **Moonshine v2 streaming ASR authored end-to-end in the
   permutation (`DequantOps.transposeColumnMajorToRowMajor` returns its input unchanged). An
   actual element transpose here would have handed the matmul kernel a silently transposed
   weight matrix. The result is genuinely zero-copy — the on-disk buffer becomes the storage.
+
+- On-device Android E2E SmolLM2 generation spike for the runtime facades (#288, refs #272).
 
 ### Changed
 
@@ -340,6 +391,8 @@ Ships against **SKaiNET engine 0.35.0**, whose new `argMax` op this release uses
   - `exportFunctionGemma` Gradle task (for `scripts/compile-gemma.sh`); `kgemma` jvm deps gain
     `skainet-compile-hlo`/`-dag` + `gemma-iree` (`CompactCodec`).
 
+- On-device Android E2E SmolLM2 generation spike for the runtime facades (#288, refs #272).
+
 ### Changed
 
 - **Engine → 0.35.0.** Adopts the new engine line; the compiled FunctionGemma export depends on the
@@ -378,6 +431,8 @@ bit-exact on a real NPU.
 - **`VoidDense(addBias = true)`** — a projection can now add its `$name.bias` term, keeping traced
   FFNs faithful to reference checkpoints that carry `fc1.bias` / `fc2.bias`.
 
+- On-device Android E2E SmolLM2 generation spike for the runtime facades (#288, refs #272).
+
 ### Changed
 
 - **RoPE precision & form.** The interleaved rotation and its `cos`/`sin` tables are computed in
@@ -392,6 +447,8 @@ bit-exact on a real NPU.
 
 Ships against **SKaiNET engine 0.33.0**. No transformers API changes — this release adopts the new
 engine line and routine dependency updates.
+
+- On-device Android E2E SmolLM2 generation spike for the runtime facades (#288, refs #272).
 
 ### Changed
 
@@ -415,6 +472,8 @@ Fixes streaming detokenization — generated text no longer runs words together
   (the sequence-level `addSpacePrefix` strip is only correct once per sequence). Fixes correct-but-spaceless
   output in streaming generation (kllama, agent loops). Adds `SentencePieceSpecialTokensStreamingTest`.
 
+- On-device Android E2E SmolLM2 generation spike for the runtime facades (#288, refs #272).
+
 ### Changed
 
 - **Engine pin `skainet 0.32.2 → 0.32.4`** (adds `Tokenizer.decodeToken`).
@@ -432,6 +491,8 @@ Brings the real-GGUF **Llama** eager path up to the Gemma standard (packed
   + `LlamaPackedWeights.convertLlamaWeightsPacked`, mirroring `convertGemmaWeightsPacked`. Coherent
   output matching llama.cpp; the low-footprint path real-GGUF Llama inference on constrained ARM was
   missing. (ccbd87e)
+
+- On-device Android E2E SmolLM2 generation spike for the runtime facades (#288, refs #272).
 
 ### Changed
 
@@ -467,6 +528,8 @@ primitives instead of reimplementing them.
   lang-core-only NN primitives, reusable on every target incl. `androidNativeArm32`/`androidNativeArm64`.
   Depends only on `skainet-lang-core`. Added to the BOM. (#183)
 
+- On-device Android E2E SmolLM2 generation spike for the runtime facades (#288, refs #272).
+
 ### Changed
 
 - **`llm-core` now `api`-depends on `transformer-core` and re-exports it** (no behaviour change). The NN
@@ -496,6 +559,8 @@ context to fit constrained devices.
   can pass a small value (e.g. `32` for a short tool-call prompt) to shrink the
   KV cache ~100×, which otherwise allocates ~0.4 GB at the first forward and OOMs
   the board after the weights load. Default `null` preserves existing behaviour. (#180)
+
+- On-device Android E2E SmolLM2 generation spike for the runtime facades (#288, refs #272).
 
 ### Changed
 
@@ -569,6 +634,8 @@ MemSeg path.
   `GemmaQ5KPackedParityTest` confirms all three paths (FP32 baseline, `jvmMain`
   MemSeg-packed, `load()` packed) produce the identical token sequence.
 
+- On-device Android E2E SmolLM2 generation spike for the runtime facades (#288, refs #272).
+
 ### Changed
 
 - **`gradle/libs.versions.toml` `skainet` pin: 0.28.1 → 0.30.0.** Picks up the
@@ -630,6 +697,8 @@ MemSeg path.
 Version-aligned with **SKaiNET 0.28.1**. Skips 0.26.x / 0.27.x —
 SKaiNET-transformers tracked the engine internally across that window without a
 tagged release.
+
+- On-device Android E2E SmolLM2 generation spike for the runtime facades (#288, refs #272).
 
 ### Changed
 
@@ -717,6 +786,8 @@ window without a tagged 0.24.x release on either side.
   resolvable through the standard `~/.lmstudio/models/` /
   `~/.cache/huggingface/hub/` / env-var fallback chain, so CI without model
   files stays green.
+
+- On-device Android E2E SmolLM2 generation spike for the runtime facades (#288, refs #272).
 
 ### Changed
 
@@ -806,6 +877,8 @@ focus is the BOM and the consumer-facing docs.
   the snippets to the BOM pattern so future version bumps only need to
   touch one line.
 
+- On-device Android E2E SmolLM2 generation spike for the runtime facades (#288, refs #272).
+
 ### Changed
 
 - **BOM internals: auto-discovery.** The constraint list in
@@ -872,6 +945,8 @@ Version-aligned with **SKaiNET 0.23.2**.
 - **`kllama-cli`**: prompts, raw responses, and tools list now logged by
   `ToolCallingDemo`.
 
+- On-device Android E2E SmolLM2 generation spike for the runtime facades (#288, refs #272).
+
 ### Changed
 
 - **`kllama-cli`, `kllama-native`, and `kllama-wasm` swapped to the DSL
@@ -930,6 +1005,8 @@ Version-aligned with **SKaiNET 0.23.1**.
   so CI without the checkpoints cleanly skips.
 - **Apertus tool calling** as a first-class family alongside Llama 3, Gemma 4,
   Qwen, and ChatML/Hermes.
+
+- On-device Android E2E SmolLM2 generation spike for the runtime facades (#288, refs #272).
 
 ### Changed
 

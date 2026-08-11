@@ -106,14 +106,14 @@ Honest status — see the project-status note at the top of this README.
 
 ## Current release
 
-The current release is **0.39.0** (against **SKaiNET 0.39.0**) — the release that turns the
+The current release is **0.39.1** (against **SKaiNET 0.39.1**) — the release that turns the
 mobile story around: **Android apps decode with native NEON kernels out of the box**.
 
 **Android NEON, no setup.** The `runtime-kllama` and `runtime-kgemma` Android artifacts now carry
 the engine's new `sk.ainet.core:skainet-backend-jni-cpu` AAR as a transitive runtime dependency.
 The backend self-registers via ServiceLoader on ART and provides NEON kernels (runtime dotprod
 dispatch) for Q8_0 / Q4_0 / Q4_K / Q5_K / Q6_K — measured **~24 tok/s vs ~3.8 scalar** (~6.4×)
-decode-kernel throughput on SmolLM2-135M Q8_0 on a Pixel 8a. Engine 0.39.0 also makes
+decode-kernel throughput on SmolLM2-135M Q8_0 on a Pixel 8a. Engine 0.39.1 also makes
 `createRandomAccessSource` real on Android, so GGUF loading streams instead of materializing the
 whole file on the ART heap — the hard-OOM load path is gone — and the GGUF loader now fails fast
 on unsupported quantization types.
@@ -199,7 +199,7 @@ The recommended way to consume is via the BOM. It pins every published `skainet-
 
 ```kotlin
 dependencies {
-    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.39.0"))
+    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.39.1"))
 
     // Versions resolved from the BOM:
     implementation("sk.ainet.transformers:skainet-transformers-core")
@@ -259,7 +259,7 @@ Which Maven artifact publishes which Kotlin target (derived from each module's
 ² `moonshine` publishes `iosArm64` and `androidNativeArm64` but no simulator or Android (AGP) variant.
 
 On Android, the runtime facades `kllama` and `kgemma` ship the engine's NEON kernel
-backend (`sk.ainet.core:skainet-backend-jni-cpu`, engine ≥ 0.39.0) as a transitive
+backend (`sk.ainet.core:skainet-backend-jni-cpu`, engine ≥ 0.39.1) as a transitive
 runtime dependency, so apps get native ARM kernels out of the box instead of the
 scalar Kotlin fallback. Apps that drive `llm-inference/llama` + `transformer-core`
 directly (the same wiring the iOS path uses) should add that AAR themselves;
