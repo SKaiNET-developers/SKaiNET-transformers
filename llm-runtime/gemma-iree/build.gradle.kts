@@ -9,7 +9,9 @@ plugins {
 // compact tool-call output. Pairs with the gemma3 -> StableHLO export in
 // :llm-inference:gemma (host) that produces the vmfb this module consumes.
 //
-//   commonMain  — CompactCodec + ToolCall (pure Kotlin: the tool-call grammar)
+//   commonMain  — CompactCodec + ToolCall (the tool-call grammar) + the
+//                 FunctionGemma ToolCallingSupport/ParserStrategy/ChatTemplate
+//                 bridge into llm-agent's provider architecture (#35/#36)
 //   native      — IreeRuntime (drives iree-run-module) + GemmaDecoder
 kotlin {
     jvm()
@@ -18,8 +20,25 @@ kotlin {
     macosArm64() // Apple Silicon host dev (mirrors :llm-runtime:kgemma); uses the same nativeMain sources
 
     sourceSets {
+        commonMain.dependencies {
+            implementation(project.dependencies.platform(project(":llm-bom")))
+            // api, not implementation: FunctionGemmaToolCallingSupport / the
+            // parser strategy / chat template expose llm-agent's
+            // ToolCallingSupport, ChatTemplate and ToolCall in public
+            // signatures. Direction is agent <- gemma-iree (not the reverse):
+            // llm-agent publishes js/wasm/android/ios targets this module
+            // does not have, so the provider lives HERE and is registered at
+            // runtime via ToolCallingSupportResolver.register(...).
+            api(project(":llm-agent"))
+            // llm-agent keeps kotlinx-serialization-json `implementation`-scoped;
+            // ToolCall.arguments is a JsonObject, so we need our own dependency
+            // to construct one.
+            implementation(libs.kotlinx.serialization.json)
+        }
+
         commonTest.dependencies {
             implementation(libs.kotlin.test)
+            implementation(libs.kotlinx.serialization.json)
         }
 
         // Native (board + host) gets the IREE driver + decode loop. The SL2610

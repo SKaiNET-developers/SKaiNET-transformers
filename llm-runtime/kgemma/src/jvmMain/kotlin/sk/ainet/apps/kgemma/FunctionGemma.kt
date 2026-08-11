@@ -12,7 +12,10 @@ import sk.ainet.io.model.QuantPolicy
 import sk.ainet.lang.types.FP32
 import sk.ainet.models.gemma.Gemma4WeightLoader
 import sk.ainet.models.gemma.GemmaNetworkLoader
+import sk.ainet.apps.kllama.chat.ChatMessage
+import sk.ainet.apps.kllama.chat.ChatRole
 import sk.ainet.transformers.gemma.iree.CompactCodec
+import sk.ainet.transformers.gemma.iree.FunctionGemmaChatTemplate
 import sk.ainet.transformers.gemma.iree.ToolCall
 import kotlin.random.Random
 
@@ -40,12 +43,16 @@ public class FunctionGemma private constructor(
 ) {
     public data class Turn(val text: String, val calls: List<ToolCall>)
 
+    private val chatTemplate = FunctionGemmaChatTemplate()
+
     /**
-     * EAGER function-calling: apply the Octopus-v2 chat template, greedily generate the compact
-     * tool call, and parse it — entirely in-process (no iree-compile, no board).
+     * EAGER function-calling: apply the Octopus-v2 chat template ([FunctionGemmaChatTemplate] —
+     * the exact `<start_of_turn>user\n…<end_of_turn>\n<start_of_turn>model\n` string this method
+     * used to hardcode), greedily generate the compact tool call, and parse it — entirely
+     * in-process (no iree-compile, no board).
      */
     public fun call(userText: String, maxTokens: Int = 24): Turn {
-        val prompt = "<start_of_turn>user\n$userText<end_of_turn>\n<start_of_turn>model\n"
+        val prompt = chatTemplate.apply(listOf(ChatMessage(ChatRole.USER, userText)))
         val ptoks = tokenizer.encode(prompt) // generate() prepends bos
         val gen = ArrayList<Int>(maxTokens)
         var stopped = false
