@@ -70,6 +70,11 @@ class SmolLm2InferenceSpike {
         }
         val steps = readEnv("SMOLLM2_STEPS")?.trim()?.toIntOrNull() ?: 44
 
+        // Without this, every Kotlin/Native target in this spike runs
+        // packed-quant matmul scalar: DirectCpuExecutionContext registers
+        // only the scalar (+ Accelerate on Apple) provider by default, and
+        // K/N has no ServiceLoader to pick up the native-cinterop one (#300).
+        installPlatformNativeKernels()
         val ctx = DirectCpuExecutionContext()
 
         val tokenizer = GGUFTokenizer.fromSource(
