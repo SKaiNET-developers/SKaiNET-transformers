@@ -21,7 +21,7 @@ import kotlin.test.Test
 class RealGemmaLoadTest {
     @Test
     fun loadFunctionGemmaWeights() = runBlocking {
-        val path = "/home/miso/projects/coral/SKaiNET-embedded/sl2610-function-calling/models/functiongemma-physical-ai-v10-Q5_K_M.gguf"
+        val path = FunctionGemmaFixture.gguf
         val ctx = DirectCpuExecutionContext.create()
         val loader = Gemma4WeightLoader(
             randomAccessProvider = { JvmRandomAccessSource.open(path) },

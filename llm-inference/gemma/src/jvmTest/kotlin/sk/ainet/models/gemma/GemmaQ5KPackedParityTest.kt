@@ -35,7 +35,7 @@ import kotlin.test.assertEquals
 class GemmaQ5KPackedParityTest {
 
     private val gguf =
-        "/home/miso/projects/coral/SKaiNET-embedded/sl2610-function-calling/models/functiongemma-physical-ai-v10-Q5_K_M.gguf"
+        FunctionGemmaFixture.gguf
 
     private fun argmax(a: FloatArray): Int {
         var bi = 0; var bv = a[0]
