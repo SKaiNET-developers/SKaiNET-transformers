@@ -144,45 +144,7 @@ public object FunctionGemmaExport {
         val mlirFile = File(out, "gemma-gen.mlir").apply { writeText(mlir) }
 
         val stFile = File(out, "gemma.safetensors")
-        val dtype = if (bf16) "BF16" else "F32"
-        val bpe = if (bf16) 2 else 4
-        var off = 0L
-        val hdr = StringBuilder("{")
-        ext.forEachIndexed { i, e ->
-            val count = e.source.sizeInBytes / 4          // f32 element count
-            val len = count * bpe
-            if (i > 0) hdr.append(",")
-            hdr.append("\"${e.key}\":{\"dtype\":\"$dtype\",\"shape\":[$count],\"data_offsets\":[$off,${off + len}]}")
-            off += len
-        }
-        hdr.append("}")
-        val headerBytes = hdr.toString().encodeToByteArray()
-        BufferedOutputStream(FileOutputStream(stFile), 1 shl 20).use { os ->
-            os.write(ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN).putLong(headerBytes.size.toLong()).array())
-            os.write(headerBytes)
-            for (e in ext) {
-                val src = e.source as BufferHandle.Owned
-                if (bf16) {
-                    val data = src.data
-                    val base = src.offset
-                    val n = src.sizeInBytes.toInt() / 4
-                    val obuf = ByteArray(n * 2)
-                    for (j in 0 until n) {
-                        val o = base + j * 4
-                        val fb = (data[o].toInt() and 0xFF) or
-                            ((data[o + 1].toInt() and 0xFF) shl 8) or
-                            ((data[o + 2].toInt() and 0xFF) shl 16) or
-                            ((data[o + 3].toInt() and 0xFF) shl 24)
-                        val bf = Bf16TensorData.floatToBf16Bits(Float.fromBits(fb)) // truncation = core parity
-                        obuf[j * 2] = (bf and 0xFF).toByte()
-                        obuf[j * 2 + 1] = ((bf ushr 8) and 0xFF).toByte()
-                    }
-                    os.write(obuf)
-                } else {
-                    os.write(src.data, src.offset, src.sizeInBytes.toInt())
-                }
-            }
-        }
+        writeSafetensors(ext, stFile, bf16)
 
         val totalF32 = ext.sumOf { it.source.sizeInBytes }
         Result(
@@ -201,17 +163,17 @@ public object FunctionGemmaExport {
      * prefill graph, it processes 1 token/step instead of re-running the whole seq (the KV-cache win).
      *
      * I/O (per-layer): inputs `token[1]i32`, per-RoPE-base `cos/sin[1,256]`, and the 18 past self-K/V
-     * `[1,nKV,?,headDim]`; outputs the 18 extended self-K/V + `token'[1]i32`. NOTE: the exact input arg
-     * order and the output K-vs-V order are TRACE-DERIVED and MUST be confirmed against the compiled
-     * vmfb on first board run (see docs/GEMMA-KV-BOARD-LOOP.md) — do not assume K-before-V.
+     * `[1,nKV,?,headDim]`; outputs the 18 extended self-K/V + `token'[1]i32`. BOARD-VERIFIED
+     * (SL2610, 2026-08-11): outputs are K THEN V per block; the input arg order matches the trace
+     * (see docs/GEMMA-KV-BOARD-LOOP.md and GemmaKvDecoder.kFirstInOutput).
      *
      * KV tensor shape: pass [dynamicPast]=true for one vmfb that serves EVERY decode position via a
      * dynamic (`1x{nKV}x?x{headDim}`) self-cache seq dim, traced with a real `Dim.DYNAMIC` extent
      * (engine 0.38+ dynamic-safe tracer/emitter — no post-emit text rewrite). Set
      * `GEMMA_SENTINEL_PAST=1` to roll back to the legacy sentinel-prime trace + regex relax
      * ([SENTINEL_PAST] / [relaxSeqDimToDynamic]); see #248. [dynamicPast]=false emits a fixed [past]
-     * length (static probe / fixed-pad fallback). Weights share the prefill graph's "model" irpa
-     * scope (no safetensors here).
+     * length (static probe / fixed-pad fallback). Writes its own `gemma-with-past.safetensors`
+     * (per-trace key numbering — see [writeSafetensors]).
      *
      * Returns the emitted MLIR text (also written to `<outDir>/gemma-with-past.mlir`).
      */
@@ -290,6 +252,8 @@ public object FunctionGemmaExport {
         if (dynamicPast && sentinelRollback) mlir = relaxSeqDimToDynamic(mlir)
         File(outDir).apply { mkdirs() }
         File(outDir, "gemma-with-past.mlir").writeText(mlir)
+        // This trace's own key numbering -> its own archive (see writeSafetensors).
+        writeSafetensors(module.externalParameters, File(outDir, "gemma-with-past.safetensors"), bf16)
         mlir
     }
 
@@ -321,7 +285,8 @@ public object FunctionGemmaExport {
      * to [seq]; causal masking keeps the real positions `[0, P)` from attending the padding, so the
      * board runtime slices the emitted K/V to `[1, nKV, P, headDim]` before the decode loop (the
      * padding positions' K/V are discarded). Reads the first token at position `P-1`. Runs ONCE per
-     * generation. Weights share the with_past graph's "model" irpa scope.
+     * generation. Writes its own `gemma-prefill.safetensors` (per-trace key numbering — see
+     * [writeSafetensors]).
      */
     public fun exportPrefill(
         gguf: String,
@@ -367,7 +332,58 @@ public object FunctionGemmaExport {
         val mlir = if (bf16) rewriteGlobalsToBf16(module.content) else module.content
         File(outDir).apply { mkdirs() }
         File(outDir, "gemma-prefill.mlir").writeText(mlir)
+        // This trace's own key numbering -> its own archive (see writeSafetensors).
+        writeSafetensors(module.externalParameters, File(outDir, "gemma-prefill.safetensors"), bf16)
         mlir
+    }
+
+    /**
+     * Write [ext] as a safetensors archive ([bf16] truncation = core parity, else raw f32). Every traced
+     * graph numbers its "model" externals independently (`t0`, `t10`, …), so an archive only serves the
+     * graph whose trace produced its keys — the KV graphs each write their OWN safetensors/irpa
+     * (board-verified on the SL2610: binding the redecode archive to the prefill vmfb fails with
+     * NOT_FOUND on the first differently-numbered `tN` key).
+     */
+    private fun writeSafetensors(ext: List<sk.ainet.compile.hlo.ExternalParameterRef>, stFile: File, bf16: Boolean) {
+        val dtype = if (bf16) "BF16" else "F32"
+        val bpe = if (bf16) 2 else 4
+        var off = 0L
+        val hdr = StringBuilder("{")
+        ext.forEachIndexed { i, e ->
+            val count = e.source.sizeInBytes / 4          // f32 element count
+            val len = count * bpe
+            if (i > 0) hdr.append(",")
+            hdr.append("\"${e.key}\":{\"dtype\":\"$dtype\",\"shape\":[$count],\"data_offsets\":[$off,${off + len}]}")
+            off += len
+        }
+        hdr.append("}")
+        val headerBytes = hdr.toString().encodeToByteArray()
+        BufferedOutputStream(FileOutputStream(stFile), 1 shl 20).use { os ->
+            os.write(ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN).putLong(headerBytes.size.toLong()).array())
+            os.write(headerBytes)
+            for (e in ext) {
+                val src = e.source as BufferHandle.Owned
+                if (bf16) {
+                    val data = src.data
+                    val base = src.offset
+                    val n = src.sizeInBytes.toInt() / 4
+                    val obuf = ByteArray(n * 2)
+                    for (j in 0 until n) {
+                        val o = base + j * 4
+                        val fb = (data[o].toInt() and 0xFF) or
+                            ((data[o + 1].toInt() and 0xFF) shl 8) or
+                            ((data[o + 2].toInt() and 0xFF) shl 16) or
+                            ((data[o + 3].toInt() and 0xFF) shl 24)
+                        val bf = Bf16TensorData.floatToBf16Bits(Float.fromBits(fb)) // truncation = core parity
+                        obuf[j * 2] = (bf and 0xFF).toByte()
+                        obuf[j * 2 + 1] = ((bf ushr 8) and 0xFF).toByte()
+                    }
+                    os.write(obuf)
+                } else {
+                    os.write(src.data, src.offset, src.sizeInBytes.toInt())
+                }
+            }
+        }
     }
 
     private fun voidF32(shape: Shape): sk.ainet.lang.tensor.Tensor<FP32, Float> =

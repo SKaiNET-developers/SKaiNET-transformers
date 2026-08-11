@@ -18,25 +18,35 @@ import sk.ainet.apps.llm.tokenizer.GGUFTokenizer
  * FunctionGemma-270M **KV-cache** decoder — the 2-graph (prefill + with_past) board loop that replaces
  * the fixed seq re-decode's O(seq²) recompute with O(1 new position)/step (the perf-program Phase-2 win).
  *
- * Drives two vmfbs (from `compile-gemma.sh GEMMA_KV=1`, sharing one `gemma-gen.irpa`):
+ * Drives two vmfbs (from `compile-gemma.sh GEMMA_KV=1`, each with its own parameter archive —
+ * `gemma-prefill.irpa` / `gemma-with-past.irpa` — because every trace numbers its externals itself):
  *   gemma_prefill    : `{seq}xi32` tokens -> argMax `{seq}xi32` + 18 self-K + 18 self-V `[1,1,seq,256]`
  *   gemma_with_past  : token[1]i32 + per-base cos/sin[1,256] + 18 past K/V `[1,1,pos,256]`
  *                      -> 18 extended K/V `[1,1,pos+1,256]` + token'[1]i32
  * RoPE position is a runtime input (cos/sin built host-side); the with_past cache dim is dynamic so ONE
  * vmfb serves every position.
  *
- * ⚠️ BOARD-UNVERIFIED DRAFT (see docs/GEMMA-KV-BOARD-LOOP.md). Two things MUST be confirmed on the first
- * SL2610 run — both caught by the token-parity check against the oracle:
- *   1. [kFirstInOutput] — the per-block K-vs-V ORDER of the with_past/prefill outputs (SSA hints V,K).
- *   2. `--output=@file` is RAW bytes (assumed), not NumPy (would need header strip in [Bin.readF32]).
- * Input arg order (token, per-base cos/sin introduced on first use, per-block K-then-V) is trace-confirmed.
+ * BOARD-VERIFIED on the SL2610 (2026-08-11, see docs/GEMMA-KV-BOARD-LOOP.md): the full prefill→with_past
+ * loop reproduces the oracle `[262146,236769,3255,718,498,1373,262152,106]` token-for-token.
+ *   1. [kFirstInOutput] = true — both graphs emit K THEN V per block (the earlier return-SSA "V,K" hint
+ *      was wrong; confirmed in the emitted MLIR — layer-0 pair is concat(K_in,·), concat(V_in,·) — and by
+ *      board oracle parity with the K-first mapping).
+ *   2. `--output=@file.bin` writes RAW little-endian bytes (extension-driven; `.npy` would add a header).
+ * Input arg order (token, per-base cos/sin introduced on first use, per-block K-then-V) is trace-confirmed
+ * and board-confirmed; `--task_topology_group_count` is accepted by the board `iree-run-module` (g165).
  */
 @OptIn(kotlin.native.runtime.NativeRuntimeApi::class, ExperimentalForeignApi::class)
 public class GemmaKvDecoder(
     private val prefillVmfb: String,
     private val withPastVmfb: String,
-    private val irpa: String,
+    irpa: String,
     private val gguf: String,
+    // Each traced graph numbers its "model" external parameters independently (t0, t10, …), so the
+    // redecode archive does NOT serve the KV graphs — each needs the archive written for ITS trace
+    // (compile-gemma.sh GEMMA_KV=1 emits gemma-prefill.irpa / gemma-with-past.irpa). Board-verified:
+    // binding the wrong archive fails loudly with NOT_FOUND on the first missing `tN` key.
+    private val prefillIrpa: String = irpa.replace("gemma-gen.irpa", "gemma-prefill.irpa"),
+    private val withPastIrpa: String = irpa.replace("gemma-gen.irpa", "gemma-with-past.irpa"),
     private val seq: Int = 24,
     private val maxNewTokens: Int = 20,
     private val workDir: String = "/tmp/gemma-kv",
@@ -48,9 +58,11 @@ public class GemmaKvDecoder(
         const val ROW = HEAD_DIM              // nKV=1 -> one KV row is headDim floats
         const val SLIDING_BASE = 10_000f
         const val GLOBAL_BASE = 1_000_000f
-        // Per-block output K-vs-V order. false = (V, K) per the return-SSA analysis; flip to true if the
-        // first board run produces garbage tokens (the ONLY thing this controls). See board-loop doc.
-        const val kFirstInOutput = false
+        // Per-block output K-vs-V order. BOARD-VERIFIED true (SL2610, 2026-08-11): both graphs return
+        // K THEN V per block — layer-0 return pair in the emitted MLIR is (concat(K_in,·), concat(V_in,·))
+        // where K is the RoPE'd+normed projection — and the K-first loop reproduces the oracle
+        // token-for-token. (The draft's return-SSA "V,K" hint was wrong.)
+        const val kFirstInOutput = true
     }
 
     private val taskGroups: Int? =
@@ -85,7 +97,7 @@ public class GemmaKvDecoder(
             prefillVmfb, "gemma_prefill",
             inputSpecs = listOf("${seq}xi32=" + padded.joinToString(",")),
             outputFiles = preOut + preTokFile,
-            parameters = mapOf("model" to irpa), parameterMode = "file",
+            parameters = mapOf("model" to prefillIrpa), parameterMode = "file",
         )
         if (!preRes.ok) { println("[gemma-kv] prefill failed: ${preRes.stdout.take(400)}"); return GemmaDecoder.Generation("(prefill failed)", emptyList()) }
         var next = Bin.readI32(preTokFile, seq)[p - 1]
@@ -119,7 +131,7 @@ public class GemmaKvDecoder(
                 withPastVmfb, "gemma_with_past",
                 inputSpecs = withPastInputSpecs(next, pos),
                 outputFiles = wpOut + wpTokFile,
-                parameters = mapOf("model" to irpa), parameterMode = "file",
+                parameters = mapOf("model" to withPastIrpa), parameterMode = "file",
             )
             if (!res.ok) { println("[gemma-kv] with_past failed at pos=$pos: ${res.stdout.take(400)}"); break }
             next = Bin.readI32(wpTokFile, 1)[0]

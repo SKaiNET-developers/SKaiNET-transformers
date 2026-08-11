@@ -67,8 +67,9 @@ public class IreeRuntime(
      * or a raw-bin file (`"1x1x7x256xf32=@/tmp/k0.bin"`); each [outputFiles] path becomes `--output=@path`
      * (raw little-endian bytes). Weights bind via [parameters] + [parameterMode] like [invoke].
      *
-     * NOTE: assumes the board `iree-run-module` writes `--output=@file` as RAW bytes (as the Torq ASR
-     * path does). If it instead writes NumPy, strip the npy header on read. Confirm on first board run.
+     * BOARD-VERIFIED (SL2610 g165 `iree-run-module`, 2026-08-11): the `--output=@file` format is
+     * extension-driven — `@file.bin` writes RAW little-endian bytes (what this path uses), `@file.npy`
+     * would add a NumPy header.
      */
     public fun invokeFiles(
         module: String,
