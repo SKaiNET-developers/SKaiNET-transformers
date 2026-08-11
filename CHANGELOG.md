@@ -9,6 +9,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.39.1] — 2026-08-11
+
+Patch release against **SKaiNET engine 0.39.0** — the gemma function-calling day:
+the compiled FunctionGemma path gets materially smaller, faster, and board-verified.
+
+### Added
+
+- **FunctionGemmaToolCallingSupport** (#292): the compact functional-token format
+  (`<tool_N>(…)`, `CompactCodec`) joins the `ToolCallingSupport` architecture — parser
+  strategy, byte-exact chat template, NATIVE-mode detection; the tool map is now
+  injectable (`CompactToolCodec`), so consumers can extend the tool set without a
+  library change. First concrete slice of the #35 generalization.
+- **Board-verified KV decode** (#291): `GemmaKvDecoder` is no longer a draft — K-first
+  outputs, raw `.bin` I/O, per-graph parameter archives (`gemma-prefill.irpa` /
+  `gemma-with-past.irpa`; the shared-irpa contract was invalid due to per-trace
+  external numbering), runbook shipped in `llm-runtime/gemma-iree/docs/`. SL2610:
+  steady-state ~1740 ms/token, 2.1× the same-day re-decode baseline.
+
+### Changed
+
+- **Tied embedding exported once** (#290, closes #260): `Gemma4WeightLoader` aliases
+  `token_embd` into `output.weight`; the FunctionGemma weight archive drops
+  ~832 → ~512 MiB bf16 with a single `262153x640` global.
+- **True-dynamic `with_past` export is the default** (#290, refs #248): engine
+  `Dim.DYNAMIC` tracing replaces the `SENTINEL_PAST=7919` text rewrite
+  (`GEMMA_SENTINEL_PAST=1` is the rollback); the g165 Torq-fork compiler accepts the
+  dynamic-dim MLIR on-board.
+- **Token embedding stays packed on the JVM eager path** (#289, closes #178/#234):
+  the transformers-local `RowDequantSource` became a deprecated typealias to the
+  engine type (fixing a latent gather mismatch), and `GemmaMemSegConverter` keeps
+  row-sliceable `token_embd` layouts packed — ~0.49 GB less FP32 on Q8_0, decode
+  byte-identical.
+
+### Fixed
+
+- **Shared-KV cache variants trace correctly** (#290, closes #194):
+  `SharedPositionalKVCache` / `PaddedSharedPositionalKVCache` / `OwnerReadOnlyKVCache`
+  no longer bake K=V=0 constants under `embedConstants` tracing (kvSharedLayers > 0,
+  e.g. Gemma 4 E2B).
+
 ## [0.39.0] — 2026-08-11
 
 Ships against **SKaiNET engine 0.39.0** — the engine release that answers the mobile
