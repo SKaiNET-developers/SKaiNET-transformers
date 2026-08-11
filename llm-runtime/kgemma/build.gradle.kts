@@ -216,7 +216,8 @@ tasks.register<JavaExec>("exportFunctionGemma") {
     mainClass.set("sk.ainet.apps.kgemma.FunctionGemmaExportMainKt")
     // GEMMA_GRAPH selects the graph(s): redecode (default) | prefill | with_past | all.
     // GEMMA_QUANT=int8 quantizes the 2D matmul weights (Phase 5).
-    listOf("GEMMA_GGUF", "GEMMA_OUT_DIR", "GEN_SEQ", "PARTIAL_ROTARY", "GEMMA_DTYPE", "GEMMA_GRAPH", "GEMMA_QUANT").forEach { k ->
+    // GEMMA_SENTINEL_PAST=1 rolls the with_past graph back to the legacy sentinel-prime trace (#248).
+    listOf("GEMMA_GGUF", "GEMMA_OUT_DIR", "GEN_SEQ", "PARTIAL_ROTARY", "GEMMA_DTYPE", "GEMMA_GRAPH", "GEMMA_QUANT", "GEMMA_SENTINEL_PAST").forEach { k ->
         System.getenv(k)?.let { environment(k, it) }
     }
 }
