@@ -92,6 +92,9 @@ kotlin {
         commonTest.dependencies {
             implementation(project.dependencies.platform(project(":llm-bom")))
             implementation(libs.kotlin.test)
+            // runTest for the cross-target inference spike — runBlocking does
+            // not exist on the JS/Wasm targets.
+            implementation(libs.kotlinx.coroutines.test)
             implementation(libs.skainet.lang.models)
             implementation(libs.skainet.io.gguf)
         }
@@ -133,6 +136,28 @@ kotlin {
         val macosArm64Main by getting { dependsOn(macosMain) }
         val iosArm64Main by getting { dependsOn(iosMain) }
         val iosSimulatorArm64Main by getting { dependsOn(iosMain) }
+
+        // Native test tree — mirrors nativeMain, so the cross-target inference
+        // spike (SmolLm2InferenceSpike, commonTest) and its posix `readEnv`
+        // actual compile/run on the K/N targets. linuxX64Test runs natively on
+        // a Linux CI host; iosSimulatorArm64Test runs on a Mac. Manual wiring
+        // because this module sets applyDefaultHierarchyTemplate=false (#271).
+        val nativeTest by creating { dependsOn(commonTest.get()) }
+        val linuxX64Test by getting { dependsOn(nativeTest) }
+        val linuxArm64Test by getting { dependsOn(nativeTest) }
+        val macosArm64Test by getting { dependsOn(nativeTest) }
+        val iosArm64Test by getting { dependsOn(nativeTest) }
+        val iosSimulatorArm64Test by getting { dependsOn(nativeTest) }
+    }
+}
+
+// Environment variables do not reach an iOS simulator test process unless
+// prefixed with SIMCTL_CHILD_ — simctl strips that prefix when it spawns the
+// process. Forward the spike's model-path var so iosSimulatorArm64Test can be
+// gated on it (transformers#272).
+tasks.withType<org.jetbrains.kotlin.gradle.targets.native.tasks.KotlinNativeSimulatorTest>().configureEach {
+    listOf("SMOLLM2_MODEL", "SMOLLM2_QUANT", "SMOLLM2_STEPS").forEach { key ->
+        providers.environmentVariable(key).orNull?.let { environment("SIMCTL_CHILD_$key", it) }
     }
 }
 
