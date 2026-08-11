@@ -287,7 +287,40 @@ java -jar skainet-all.jar -m model.gguf --demo --template=llama3 "What is 17 * 2
 java -jar skainet-all.jar -m model.gguf --agent --template=apertus
 ```
 
-`--template` accepts `llama3`, `chatml`, `qwen`, `gemma`, `apertus` (auto-detected from GGUF metadata if omitted).
+`--template` accepts `llama3`, `chatml`, `qwen`, `gemma`, `apertus`, `smollm` (auto-detected if omitted — from GGUF metadata, or from `tokenizer_config.json` / `chat_template.json` / `config.json` next to safetensors checkpoints).
+
+### Tool calling: native vs. generic support
+
+Tool calling is modeled as a capability (#35/#36): each model family ships a
+`ToolCallingSupport` provider bundling its chat template and tool-call parser,
+and `ToolCallingSupportResolver` picks one per model. Resolution order:
+
+1. **Explicit** — `--template=NAME` (or a `templateName` passed to `ChatSession`) always wins.
+2. **Auto-detection** — best-effort, from model metadata (GGUF `general.architecture` /
+   `tokenizer.chat_template`, or HF sidecar configs). Metadata is a hint, not proof of
+   tool-calling capability.
+3. **Generic fallback** — if nothing matches, a ChatML-based generic provider is used
+   and reported as `mode=GENERIC` so the demo/agent output makes fallback selection visible.
+
+**NATIVE** means a dedicated, family-tested template + parser; **GENERIC** is
+best-effort and may fail to trigger or parse on models that were not trained
+for Hermes-style `<tool_call>` blocks. New families register at runtime via
+`ToolCallingSupportResolver.register(provider)` (and, for custom output
+formats, `ToolCallParser.registerStrategy(strategy)`) — no llm-agent changes
+needed; the FunctionGemma provider in `:llm-runtime:gemma-iree` is the
+reference example.
+
+| Family | Provider (`family`) | Mode | Tool-call wire format | Detected from |
+|---|---|---|---|---|
+| Llama 3.x | `llama3` | NATIVE | bare JSON (`{"name": ..., "parameters": ...}`), legacy `<function=...>` selectable | arch `llama`, `<\|start_header_id\|>` in template |
+| Qwen 2.5 / 3 | `qwen` | NATIVE | Hermes `<tool_call>` JSON | arch `qwen*`, `Qwen` in template |
+| Gemma 2 / 3 | `gemma` | NATIVE | `functionCall` JSON | arch `gemma*`, `<start_of_turn>` |
+| Gemma 4 | `gemma4` | NATIVE | Gemma 4 template format | arch `gemma4`, `<\|turn>` marker |
+| FunctionGemma | `functiongemma` | NATIVE | compact `<tool_N>(k="v")<end>` tokens | registered by `:llm-runtime:gemma-iree` |
+| Apertus | `apertus` | NATIVE | Apertus tool format | arch/template markers |
+| SmolLM2 | `smollm` | NATIVE | Hermes `<tool_call>` JSON + SmolLM2 system recipe | `smol` in arch/family, `SmolLM` in template |
+| ChatML / Hermes | `chatml` | NATIVE | Hermes `<tool_call>` JSON | `<\|im_start\|>` (non-Qwen) |
+| anything else | `generic` | GENERIC | Hermes `<tool_call>` JSON over ChatML | fallback only |
 
 ### Embeddings: LEAF in one call
 

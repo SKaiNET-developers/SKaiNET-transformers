@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Tool-calling architecture completion** ([#35](https://github.com/SKaiNET-developers/SKaiNET-transformers/issues/35) epic,
+  [#49](https://github.com/SKaiNET-developers/SKaiNET-transformers/issues/49) Phase 1; stacked PRs #296/#297/W2c):
+  `generateUntilStop`/`GenerateResult` promoted from `llm-agent` to `llm-core` (typealias
+  re-exports keep old imports working); `ToolCallingDemo`/`AgentCli`/`ListFilesTool`/
+  `CalculatorTool` moved from `:llm-runtime:kllama` to `:llm-agent` jvmMain (packages
+  unchanged) so any runner gets chat/agent/demo modes without depending on kllama; new
+  shared `ModelMetadataExtraction` (best-effort GGUF fields + HF `tokenizer_config.json`/
+  `chat_template.json`/`config.json` parsing) drives provider auto-detection on both the
+  GGUF and safetensors CLI paths (explicit `--template` still wins);
+  `ToolCallParser.registerStrategy(...)` lets model families plug custom tool-call output
+  formats into the default parser chain; demo *and* agent CLI now print
+  provider/mode/reason resolution diagnostics; env-gated real-checkpoint validation for
+  Qwen (`QWEN_MODEL_PATH`); README gains a native-vs-generic tool-calling compatibility
+  matrix.
+
 ## [0.39.0] — 2026-08-11
 
 Ships against **SKaiNET engine 0.39.0** — the engine release that answers the mobile

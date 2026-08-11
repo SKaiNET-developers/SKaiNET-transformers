@@ -311,6 +311,8 @@ public final class sk/ainet/apps/kllama/chat/ModelMetadataExtraction {
 	public static final field INSTANCE Lsk/ainet/apps/kllama/chat/ModelMetadataExtraction;
 	public final fun familyFromArchitecture (Ljava/lang/String;)Ljava/lang/String;
 	public final fun fromGgufFields (Ljava/util/Map;)Lsk/ainet/apps/kllama/chat/ModelMetadata;
+	public final fun fromHuggingFaceConfig (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Lsk/ainet/apps/kllama/chat/ModelMetadata;
+	public static synthetic fun fromHuggingFaceConfig$default (Lsk/ainet/apps/kllama/chat/ModelMetadataExtraction;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lsk/ainet/apps/kllama/chat/ModelMetadata;
 	public final fun tokenizerHints (Ljava/lang/String;Ljava/util/Collection;)Ljava/util/List;
 	public static synthetic fun tokenizerHints$default (Lsk/ainet/apps/kllama/chat/ModelMetadataExtraction;Ljava/lang/String;Ljava/util/Collection;ILjava/lang/Object;)Ljava/util/List;
 }
@@ -393,6 +395,9 @@ public final class sk/ainet/apps/kllama/chat/ToolCallParser {
 	public final fun parse (Ljava/lang/String;)Ljava/util/List;
 	public final fun parseJsonToolCall (Ljava/lang/String;)Lsk/ainet/apps/kllama/chat/ToolCall;
 	public final fun parseWith (Ljava/lang/String;Ljava/util/List;)Ljava/util/List;
+	public final fun registerStrategy (Lsk/ainet/apps/kllama/chat/ToolCallParserStrategy;)V
+	public final fun registeredFormats ()Ljava/util/List;
+	public final fun unregisterStrategy (Ljava/lang/String;)Z
 }
 
 public abstract interface class sk/ainet/apps/kllama/chat/ToolCallParserStrategy {

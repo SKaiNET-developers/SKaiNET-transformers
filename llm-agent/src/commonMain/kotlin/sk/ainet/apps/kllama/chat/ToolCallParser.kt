@@ -14,7 +14,8 @@ import kotlinx.serialization.json.jsonPrimitive
  * 2. **Llama 3.1 style**: Bare JSON `{"name": "...", "arguments": {...}}`
  *
  * Additional strategies (e.g. [GemmaToolCallParserStrategy]) can be used
- * through [parseWith] or by individual [ToolCallingSupport] providers.
+ * through [parseWith], by individual [ToolCallingSupport] providers, or
+ * registered into the default chain via [registerStrategy] (#40).
  */
 public object ToolCallParser {
 
@@ -22,17 +23,56 @@ public object ToolCallParser {
     private val llama3FunctionTagStrategy = Llama3FunctionTagParserStrategy()
     private val llama31Strategy = Llama31ToolCallParserStrategy()
 
-    private val defaultStrategies: List<ToolCallParserStrategy> = listOf(
+    private val builtInStrategies: List<ToolCallParserStrategy> = listOf(
         hermesStrategy,
         llama3FunctionTagStrategy,
         llama31Strategy
     )
 
+    /** Runtime-registered strategies; tried before the built-ins (#40). */
+    private val registeredStrategies: MutableList<ToolCallParserStrategy> = mutableListOf()
+
+    private val defaultStrategies: List<ToolCallParserStrategy>
+        get() = registeredStrategies + builtInStrategies
+
     private val json = Json { ignoreUnknownKeys = true }
 
     /**
+     * Register a model-family-specific [ToolCallParserStrategy] into the
+     * default chain used by [parse] and [containsToolCall].
+     *
+     * Mirrors [ToolCallingSupportResolver.register]: the new strategy is
+     * prepended so it takes priority over the built-in strategies, and a
+     * previously registered strategy with the same
+     * [ToolCallParserStrategy.formatName] is replaced. Built-in strategies
+     * cannot be replaced or removed — registered ones simply outrank them.
+     */
+    public fun registerStrategy(strategy: ToolCallParserStrategy) {
+        registeredStrategies.removeAll {
+            it.formatName.equals(strategy.formatName, ignoreCase = true)
+        }
+        registeredStrategies.add(0, strategy)
+    }
+
+    /**
+     * Remove a runtime-registered strategy by [ToolCallParserStrategy.formatName].
+     * Built-in strategies are unaffected.
+     *
+     * @return `true` if a strategy was removed.
+     */
+    public fun unregisterStrategy(formatName: String): Boolean =
+        registeredStrategies.removeAll { it.formatName.equals(formatName, ignoreCase = true) }
+
+    /**
+     * Snapshot of the format names in the default chain, in resolution order
+     * (runtime-registered first, then built-ins).
+     */
+    public fun registeredFormats(): List<String> = defaultStrategies.map { it.formatName }
+
+    /**
      * Attempt to parse one or more tool calls from [text] using the default
-     * strategies (Hermes, then Llama 3.1).
+     * chain: runtime-registered strategies first, then the built-ins
+     * (Hermes, Llama 3 function-tag, Llama 3.1 bare JSON).
      *
      * @return List of parsed [ToolCall]s (empty if no tool calls were found).
      */

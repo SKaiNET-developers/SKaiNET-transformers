@@ -1,5 +1,11 @@
 package sk.ainet.apps.kllama.chat
 
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonPrimitive
+
 /**
  * Best-effort extraction of [ModelMetadata] from loader-side sources (#37).
  *
@@ -55,6 +61,43 @@ public object ModelMetadataExtraction {
     }
 
     /**
+     * Build a [ModelMetadata] from HuggingFace-side config files that sit next
+     * to safetensors checkpoints (#38). All inputs are optional file *contents*
+     * (not paths — the caller reads whatever exists); malformed JSON in any of
+     * them is ignored rather than thrown.
+     *
+     * - [tokenizerConfigJson] — `tokenizer_config.json`; reads `chat_template`
+     *   (string, or HF's list-of-named-templates form where the `"default"`
+     *   entry wins, else the first) and `additional_special_tokens` (strings or
+     *   `{"content": ...}` objects) for hint scanning.
+     * - [chatTemplateJson] — `chat_template.json` (shipped by some repos,
+     *   notably VLM processors); used when `tokenizer_config.json` has no
+     *   template. Accepts `{"chat_template": "..."}` or a bare JSON string.
+     * - [modelConfigJson] — `config.json`; reads `model_type` (e.g. "qwen2",
+     *   "llama", "gemma3") as the architecture, mapped to a family via
+     *   [familyFromArchitecture].
+     */
+    public fun fromHuggingFaceConfig(
+        tokenizerConfigJson: String? = null,
+        chatTemplateJson: String? = null,
+        modelConfigJson: String? = null
+    ): ModelMetadata {
+        val tokenizerConfig = tokenizerConfigJson?.let(::parseObjectOrNull)
+        val chatTemplate = tokenizerConfig?.let(::chatTemplateFromTokenizerConfig)
+            ?: chatTemplateJson?.let(::chatTemplateFromChatTemplateJson)
+        val specialTokens = tokenizerConfig?.let(::additionalSpecialTokens)
+        val arch = modelConfigJson?.let(::parseObjectOrNull)
+            ?.get("model_type")?.stringOrNull()
+        return ModelMetadata(
+            family = familyFromArchitecture(arch),
+            architecture = arch,
+            chatTemplate = chatTemplate,
+            tokenizerHints = tokenizerHints(chatTemplate, specialTokens),
+            sourceFormat = "hf"
+        )
+    }
+
+    /**
      * Map a GGUF `general.architecture` string to a coarse model-family
      * identifier understood by the built-in [ToolCallingSupport] providers.
      *
@@ -88,6 +131,65 @@ public object ModelMetadataExtraction {
         } ?: emptySet()
         return TOOL_HINT_MARKERS.filter { marker ->
             (chatTemplate?.contains(marker) == true) || marker in vocab
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // HF-side JSON helpers (all best-effort, never throw)
+    // -----------------------------------------------------------------------
+
+    private val json = Json { ignoreUnknownKeys = true }
+
+    private fun parseObjectOrNull(text: String): JsonObject? = try {
+        json.parseToJsonElement(text) as? JsonObject
+    } catch (_: Exception) {
+        null
+    }
+
+    private fun JsonElement.stringOrNull(): String? =
+        (this as? JsonPrimitive)?.takeIf { it.isString }?.content
+
+    /**
+     * `chat_template` in `tokenizer_config.json` is either a plain string or a
+     * list of `{"name": ..., "template": ...}` entries (multi-template models).
+     * For the list form the `"default"` entry wins, else the first.
+     */
+    private fun chatTemplateFromTokenizerConfig(config: JsonObject): String? {
+        return when (val tpl = config["chat_template"]) {
+            is JsonPrimitive -> tpl.stringOrNull()
+            is JsonArray -> {
+                val entries = tpl.mapNotNull { it as? JsonObject }
+                val chosen = entries.firstOrNull { it["name"]?.stringOrNull() == "default" }
+                    ?: entries.firstOrNull()
+                chosen?.get("template")?.stringOrNull()
+            }
+            else -> null
+        }
+    }
+
+    /** `chat_template.json` is `{"chat_template": "..."}` or a bare JSON string. */
+    private fun chatTemplateFromChatTemplateJson(text: String): String? = try {
+        when (val element = json.parseToJsonElement(text)) {
+            is JsonObject -> element["chat_template"]?.stringOrNull()
+            is JsonPrimitive -> element.stringOrNull()
+            else -> null
+        }
+    } catch (_: Exception) {
+        null
+    }
+
+    /**
+     * `additional_special_tokens` entries are plain strings or
+     * `{"content": ...}` objects depending on the exporter.
+     */
+    private fun additionalSpecialTokens(config: JsonObject): List<String>? {
+        val arr = config["additional_special_tokens"] as? JsonArray ?: return null
+        return arr.mapNotNull { entry ->
+            when (entry) {
+                is JsonPrimitive -> entry.stringOrNull()
+                is JsonObject -> entry["content"]?.stringOrNull()
+                else -> null
+            }
         }
     }
 }
