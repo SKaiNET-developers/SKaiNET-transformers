@@ -29,6 +29,16 @@ public class AgentCli<T : DType>(
     private val session = ChatSession(runtime, tokenizer, metadata, templateName)
     private val template: ChatTemplate = session.chatTemplate
 
+    init {
+        // Same diagnostics ToolCallingDemo prints (#41): which provider was
+        // selected, whether it is NATIVE or GENERIC, and why.
+        val result = ToolCallingSupportResolver.resolveWithDiagnostics(
+            metadata = metadata,
+            explicitFamily = templateName
+        )
+        println("[AgentCli] Provider: ${result.provider.family} (mode=${result.mode}, reason: ${result.reason})")
+    }
+
     /**
      * Run a single non-interactive chat round. Used by smoke tests for instruct models.
      */
