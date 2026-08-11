@@ -38,6 +38,7 @@ import kotlin.system.exitProcess
 import kotlin.time.measureTime
 import kotlinx.coroutines.runBlocking
 import sk.ainet.apps.kllama.chat.ModelMetadata
+import sk.ainet.apps.kllama.chat.ModelMetadataExtraction
 import sk.ainet.apps.llm.InferenceRuntime
 import sk.ainet.apps.llm.generate
 import sk.ainet.io.gguf.StreamingGGUFReader
@@ -276,21 +277,7 @@ private fun resolveModelDir(path: Path): Path =
 private fun peekGgufMetadata(modelPath: Path): ModelMetadata {
     return JvmRandomAccessSource.open(modelPath.toString()).use { source ->
         StreamingGGUFReader.open(source).use { reader ->
-            val fields = reader.fields
-            val arch = (fields["general.architecture"] as? String) ?: "unknown"
-            val chatTemplate = fields["tokenizer.chat_template"] as? String
-            val family = when {
-                arch.startsWith("qwen") -> "qwen"
-                arch.startsWith("gemma") -> "gemma"
-                arch == "llama" -> "llama"
-                else -> arch
-            }
-            ModelMetadata(
-                family = family,
-                architecture = arch,
-                chatTemplate = chatTemplate,
-                sourceFormat = "gguf"
-            )
+            ModelMetadataExtraction.fromGgufFields(reader.fields)
         }
     }
 }
