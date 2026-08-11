@@ -44,9 +44,18 @@ class FunctionGemmaExportTest {
         ).find(mlir)
         assertTrue(f32Global == null, "no f32 weight globals should remain after the bf16 fold")
 
+        // Tied-embedding dedup (#260): token_embd/output.weight are one tensor, so the trace must
+        // externalize the 262153x640 embedding exactly ONCE (was twice = 77% of the archive).
+        val embedGlobals = Regex("""util\.global private @\w+ = [^\n]*tensor<262153x640x""").findAll(mlir).count()
+        kotlin.test.assertEquals(
+            1, embedGlobals,
+            "tied 262153x640 embedding must be externalized exactly once (#260), got $embedGlobals globals",
+        )
+
         val st = File(r.safetensorsPath)
         assertTrue(st.exists() && st.length() > 0L, "bf16 safetensors written")
-        // bf16 (2 bytes) halves the f32 archive -> ~831 MiB, matching the proven f16 .irpa size.
-        assertTrue(r.weightMiB in 700..900, "bf16 weight archive ~831 MiB, got ${r.weightMiB} MiB")
+        // bf16 (2 bytes) halves the f32 archive; with the tied embedding deduplicated (#260) the
+        // 268.3M-param model lands at ~512 MiB (was ~831 MiB with the duplicate).
+        assertTrue(r.weightMiB in 450..600, "bf16 deduped weight archive ~512 MiB, got ${r.weightMiB} MiB")
     }
 }

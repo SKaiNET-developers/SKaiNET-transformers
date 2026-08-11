@@ -150,10 +150,18 @@ public class Gemma4WeightLoader private constructor(
         val required = requiredTensorNames(metadata)
         val tensorByName = reader.tensors.associateBy { it.name }
 
+        // Retained so the tied-output fallback below can ALIAS the already-
+        // loaded embedding instead of re-reading the bytes into a second
+        // tensor. Two independent tensors mean two BufferHandles, and the
+        // compiled export then externalizes the 262153x640 tied weight twice
+        // — 77% of the weight archive (#260).
+        var embedTensor: Tensor<T, V>? = null
+
         required.forEach { name ->
             val rt = tensorByName[name]
                 ?: error("Missing required tensor in GGUF payload: $name")
             val tensor: Tensor<T, V> = readerTensorToTensor(ctx, dtype, reader, rt, metadata)
+            if (name == Gemma4TensorNames.TOKEN_EMBEDDINGS) embedTensor = tensor
             onTensorLoaded(name, tensor)
             if ((quantPolicy == QuantPolicy.RAW_BYTES || quantPolicy == QuantPolicy.NATIVE_OPTIMIZED) && rt.tensorType != GGMLQuantizationType.F32) {
                 quantCallback?.invoke(name, rt.tensorType)
@@ -175,7 +183,11 @@ public class Gemma4WeightLoader private constructor(
         } else {
             val embedRt = tensorByName[Gemma4TensorNames.TOKEN_EMBEDDINGS]
                 ?: error("Missing both output.weight and token_embd.weight")
-            val tensor: Tensor<T, V> = readerTensorToTensor(ctx, dtype, reader, embedRt, metadata)
+            // Tied output: alias the SAME tensor (same BufferHandle) as
+            // token_embd — no second read. The trace then sees one weight
+            // and the export emits one global / one archive blob (#260).
+            val tensor: Tensor<T, V> = embedTensor
+                ?: readerTensorToTensor(ctx, dtype, reader, embedRt, metadata)
             onTensorLoaded(Gemma4TensorNames.OUTPUT_WEIGHT, tensor)
             // See loadFromStreamingGguf for why the tied-output path must
             // also fire quantCallback + logicalShapeCallback.
@@ -218,10 +230,15 @@ public class Gemma4WeightLoader private constructor(
             val required = requiredTensorNames(metadata)
             val tensorByName = reader.tensors.associateBy { it.name }
 
+            // See loadFromGguf: retained so the tied-output fallback aliases
+            // the loaded embedding instead of re-reading it (#260).
+            var embedTensor: Tensor<T, V>? = null
+
             required.forEach { name ->
                 val st = tensorByName[name]
                     ?: error("Missing required tensor in GGUF payload: $name")
                 val tensor: Tensor<T, V> = streamingTensorToTensor(ctx, dtype, reader, st, metadata)
+                if (name == Gemma4TensorNames.TOKEN_EMBEDDINGS) embedTensor = tensor
                 onTensorLoaded(name, tensor)
                 if ((quantPolicy == QuantPolicy.RAW_BYTES || quantPolicy == QuantPolicy.NATIVE_OPTIMIZED) && st.tensorType != GGMLQuantizationType.F32) {
                     quantCallback?.invoke(name, st.tensorType)
@@ -244,7 +261,11 @@ public class Gemma4WeightLoader private constructor(
             } else {
                 val embedSt = tensorByName[Gemma4TensorNames.TOKEN_EMBEDDINGS]
                     ?: error("Missing both output.weight and token_embd.weight")
-                val tensor: Tensor<T, V> = streamingTensorToTensor(ctx, dtype, reader, embedSt, metadata)
+                // Tied output: alias the SAME tensor (same BufferHandle) as
+                // token_embd — no second read. The trace then sees one weight
+                // and the export emits one global / one archive blob (#260).
+                val tensor: Tensor<T, V> = embedTensor
+                    ?: streamingTensorToTensor(ctx, dtype, reader, embedSt, metadata)
                 onTensorLoaded(Gemma4TensorNames.OUTPUT_WEIGHT, tensor)
                 // Weight-tied output shares the embedding's quant type — the
                 // MemSeg converter needs this callback to convert the shared
