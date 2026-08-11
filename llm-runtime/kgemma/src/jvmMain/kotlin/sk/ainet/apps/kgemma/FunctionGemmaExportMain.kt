@@ -1,7 +1,13 @@
+@file:Suppress("DEPRECATION") // intentional use of the FunctionGemmaExport shim — see its @Deprecated doc.
+
 package sk.ainet.apps.kgemma
 
 /**
  * CLI entry for the FunctionGemma compiled export — driven by `scripts/compile-gemma.sh`.
+ *
+ * DEPRECATED wrapper: prefer `:llm-inference:functiongemma:exportFunctionGemma`
+ * (`sk.ainet.models.functiongemma.FunctionGemmaExportCli`), which this delegates to via the
+ * [FunctionGemmaExport] shim. Kept so the existing gradle task keeps working unchanged.
  *
  *   GEMMA_GGUF=…Q5_K_M.gguf GEMMA_OUT_DIR=build/mlir GEMMA_GRAPH=all \
  *     ./gradlew -PuseLocalSkainet=true :llm-runtime:kgemma:exportFunctionGemma

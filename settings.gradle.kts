@@ -31,6 +31,10 @@ include("llm-providers")
 include("llm-inference:llama")
 include("llm-inference:qwen")
 include("llm-inference:gemma")
+// FunctionGemma function-calling product module: export spec + harness + contract
+// manifest for the DSL -> StableHLO -> IREE pipeline (whisper/moonshine pattern).
+// Depends on :llm-inference:gemma for the architecture; owns the export contract.
+include("llm-inference:functiongemma")
 include("llm-inference:moonshine")
 include("llm-inference:whisper")
 include("llm-inference:apertus")
