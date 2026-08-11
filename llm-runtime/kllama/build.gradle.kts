@@ -144,7 +144,19 @@ kotlin {
         val nativeMain by creating {
             dependsOn(commonMain.get())
         }
-        val linuxMain by creating { dependsOn(nativeMain) }
+        val linuxMain by creating {
+            dependsOn(nativeMain)
+            dependencies {
+                // Native NEON/scalar kernel backend (K/N cinterop, engine
+                // >= 0.39.0). No ServiceLoader on Kotlin/Native, so this
+                // needs the explicit installNativeKernels() call wired in
+                // PlatformNativeKernels.linux.kt (#300) — declared only on
+                // linuxMain because that's the only K/N target group the
+                // engine currently publishes this artifact for; macosMain/
+                // iosMain get it once SKaiNET-transformers#298 is unblocked.
+                implementation(libs.skainet.backend.nativeCpu)
+            }
+        }
         val macosMain by creating { dependsOn(nativeMain) }
         val iosMain by creating { dependsOn(nativeMain) }
         val linuxX64Main by getting { dependsOn(linuxMain) }
