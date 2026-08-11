@@ -50,6 +50,15 @@ public class CompactToolCodec(
         )
         private val CALL_RE = Regex("""<tool_(\d+|none)>\(([^)]*)\)(?:<end>)?""")
         private val NAMED_ARG_RE = Regex("""(\w+)\s*=\s*"([^"]*)"""")
+
+        /**
+         * A codec whose token->tool-name map is sourced from a compiled export's
+         * [GemmaManifest.toolMap] (D3) instead of [DEFAULT_TOKEN_TO_NAME] — so a fine-tune with a
+         * different (or extended) tool vocabulary is served correctly without a library edit, as
+         * long as its export's `manifest.json` carries the right `toolMap`.
+         */
+        public fun fromManifest(manifest: GemmaManifest): CompactToolCodec =
+            CompactToolCodec(manifest.toolMap)
     }
 }
 
