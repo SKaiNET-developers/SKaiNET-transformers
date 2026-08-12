@@ -1,6 +1,10 @@
 plugins {
     alias(libs.plugins.kotlinMultiplatform) apply false
     alias(libs.plugins.androidMultiplatformLibrary) apply false
+    // Plain com.android.library (not the KMP multiplatform-library target) — used by
+    // :llm-runtime:iree-android, which bundles prebuilt JNI .so's via jniLibs, matching
+    // the engine repo's skainet-backend-jni-cpu precedent.
+    alias(libs.plugins.androidLibrary) apply false
     alias(libs.plugins.jetbrainsKotlinJvm) apply false
     alias(libs.plugins.vanniktech.mavenPublish) apply false
     alias(libs.plugins.kover)
