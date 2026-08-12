@@ -35,6 +35,11 @@ include("llm-inference:gemma")
 // manifest for the DSL -> StableHLO -> IREE pipeline (whisper/moonshine pattern).
 // Depends on :llm-inference:gemma for the architecture; owns the export contract.
 include("llm-inference:functiongemma")
+// SmolLM2 compiled-export product module (transformers#305): the redecode
+// (fixed-seq, in-graph argMax) StableHLO export for the compiled leg of the
+// SmolLM2 cross-target reproducer. Depends on :llm-inference:llama for the
+// architecture; owns the export contract, mirroring functiongemma's shape.
+include("llm-inference:smollm2")
 include("llm-inference:moonshine")
 include("llm-inference:whisper")
 include("llm-inference:apertus")
