@@ -6,9 +6,13 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.gguf.GGMLQuantizationType
+import sk.ainet.lang.nn.quant.PreTransposedWeight
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.data.Q5_KBlockTensorData
+import sk.ainet.lang.tensor.data.Q5_KTensorData
 import sk.ainet.lang.tensor.data.Q8_0BlockTensorData
+import sk.ainet.lang.tensor.data.Q8_0TensorData
+import sk.ainet.lang.tensor.storage.PackedBlockStorage
 import sk.ainet.lang.types.FP32
 import sk.ainet.lang.types.Int8
 
@@ -43,24 +47,53 @@ class GemmaQuantLayoutTest {
     }
 
     @Test
-    fun pack_q5k_produces_block_tensor_with_relaid_bytes() {
+    fun pack_q5k_defaults_to_pre_transposed_with_relaid_bytes() {
+        // #184 (3)/#170, engine 0.40.0 closure train: packGemmaKQuant now
+        // defaults to the pre-transposed marked path.
         val shape = Shape(2, 512)
         val bytes = ByteArray(2 * 2 * 176)
         for (i in 0 until 4) bytes[i * 176] = (i + 1).toByte()
 
         val td = packGemmaKQuant<FP32>(bytes, GGMLQuantizationType.Q5_K, shape)
-        assertTrue(td is Q5_KBlockTensorData, "Q5_K should pack to Q5_KBlockTensorData")
-        // packedData is the block-major relayout of the input.
+        assertTrue(td is PreTransposedWeight, "Q5_K should default to the pre-transposed marked path")
+        assertTrue(td is Q5_KTensorData, "the marked wrapper still satisfies Q5_KTensorData dispatch checks")
+        assertEquals(Shape(512, 2), td.shape, "pre-transposed result carries the swapped [in, out] shape")
+        // packedData is still the block-major relayout of the input — only the
+        // logical shape + marker changed, not the bytes.
+        val expected = relayoutKSeriesRowMajorToBlockMajor(bytes, shape, 176)
+        assertTrue(td is PackedBlockStorage)
+        assertTrue(expected.contentEquals((td as PackedBlockStorage).packedData))
+    }
+
+    @Test
+    fun pack_q5k_preTransposed_false_keeps_classic_block_tensor_reachable() {
+        // Deprecate-don't-delete: the non-transposed packer path stays reachable
+        // for fallback / parity comparison against the pre-transposed default.
+        val shape = Shape(2, 512)
+        val bytes = ByteArray(2 * 2 * 176)
+        for (i in 0 until 4) bytes[i * 176] = (i + 1).toByte()
+
+        val td = packGemmaKQuant<FP32>(bytes, GGMLQuantizationType.Q5_K, shape, preTransposed = false)
+        assertTrue(td is Q5_KBlockTensorData, "Q5_K should pack to the classic Q5_KBlockTensorData when opted out")
+        assertEquals(shape, td.shape, "classic path keeps the checkpoint's [out, in] shape")
         val expected = relayoutKSeriesRowMajorToBlockMajor(bytes, shape, 176)
         assertTrue(expected.contentEquals(td.packedData))
     }
 
     @Test
-    fun pack_q8_0_produces_block_tensor() {
-        // Q8_0 is now packed (32 elems / 34 B per block) so a tied Q8_0 lm_head
-        // stays packed and runs on the Q8_0 kernel instead of dequanting to FP32.
+    fun pack_q8_0_defaults_to_pre_transposed_block_tensor() {
+        // Q8_0 is packed (32 elems / 34 B per block) so a tied Q8_0 lm_head
+        // stays packed and runs on the Q8_0 kernel instead of dequanting to FP32;
+        // as of the 0.40.0 closure train it packs pre-transposed by default.
         val td = packGemmaKQuant<FP32>(ByteArray(34), GGMLQuantizationType.Q8_0, Shape(1, 32))
-        assertTrue(td is Q8_0BlockTensorData, "Q8_0 should pack to Q8_0BlockTensorData")
+        assertTrue(td is PreTransposedWeight, "Q8_0 should default to the pre-transposed marked path")
+        assertTrue(td is Q8_0TensorData, "the marked wrapper still satisfies Q8_0TensorData dispatch checks")
+    }
+
+    @Test
+    fun pack_q8_0_preTransposed_false_keeps_classic_block_tensor_reachable() {
+        val td = packGemmaKQuant<FP32>(ByteArray(34), GGMLQuantizationType.Q8_0, Shape(1, 32), preTransposed = false)
+        assertTrue(td is Q8_0BlockTensorData, "Q8_0 should pack to the classic Q8_0BlockTensorData when opted out")
     }
 
     @Test

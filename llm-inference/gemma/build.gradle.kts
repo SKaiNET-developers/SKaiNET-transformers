@@ -87,6 +87,28 @@ kotlin {
                 // Test-only: write the externalized weights to an IREE .irpa
                 // parameter archive (RealGemmaBakeIrpaTest).
                 implementation(libs.skainet.io.iree.params)
+                // NOTE (0.40.0 closure train investigation, #170/#184): this
+                // module deliberately does NOT pull in `skainet.backend.
+                // nativeCpu` the way `:llm-inference:llama`'s jvmTest does.
+                // Temporarily adding it while validating this closure train
+                // confirmed the SKaiNET#951 native (FFM) kernel really is
+                // faster (real-checkpoint decode: ~53% higher tok/s) and
+                // still byte-identical via the new pre-transposed path — but
+                // it also reproducibly zeroed out `GemmaQ5xPackedParityTest`'s
+                // synthetic Q5_0/Q5_1 byte-level checks, which exercise the
+                // *classic* (non-pre-transposed) packed weight through
+                // `linearProject`'s lazy `ops.transpose` branch. Those two
+                // tests construct `Q5_{0,1}BlockTensorData` directly — no
+                // code this PR touches — so this is a pre-existing upstream
+                // engine dispatch gap (native Q5_0/Q5_1 kernel × lazy
+                // transpose), not something introduced or fixable here.
+                // Production consumers of Gemma (`:llm-runtime:kgemma`)
+                // already depend on `skainet.backend.nativeCpu` directly and
+                // now get the pre-transposed path by default, which sidesteps
+                // this gap entirely — see `packPreTransposed`, `linearProject`.
+                // Left un-wired here so this module's own test suite stays
+                // green without masking that finding; see the closure-train
+                // PR description for the measurement.
             }
         }
     }

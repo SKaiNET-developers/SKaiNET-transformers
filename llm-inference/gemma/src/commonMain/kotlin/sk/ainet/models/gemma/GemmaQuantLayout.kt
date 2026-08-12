@@ -93,11 +93,23 @@ internal fun relayoutKSeriesRowMajorToBlockMajor(
  * decode fit the 1.9 GB board, and it runs on the NEON Q8_0 kernel.
  *
  * commonMain → works on JVM and Kotlin/Native alike (no MemSeg / Arena).
+ *
+ * @param preTransposed when `true` (the default as of the engine 0.40.0
+ *   native-kernel closure train, #184 (3)/#170), the result is packed via
+ *   [BlockQuantPacking.packPreTransposed] — logical `[in, out]`, marked
+ *   [sk.ainet.lang.nn.quant.PreTransposedWeight] — so
+ *   [sk.ainet.lang.nn.transformer.linearProject] skips its per-forward
+ *   `ops.transpose` for this weight. Pass `false` to get the classic
+ *   [BlockQuantPacking.pack] `[out, in]` result instead (kept reachable,
+ *   deprecate-don't-delete, for fallback / parity comparison against the
+ *   pre-transposed path — see `GemmaQ5xPackedParityTest` /
+ *   `LinearProjectionPreTransposedTest`).
  */
 internal fun <T : DType> packGemmaKQuant(
     bytes: ByteArray,
     qt: GGMLQuantizationType,
     shape: Shape,
+    preTransposed: Boolean = true,
 ): TensorData<T, *>? {
     val encoding = qt.toBlockEncoding() ?: return null
     // The legacy 32-elem formats (Q4_0/Q5_0/Q5_1) are NEW to this packed path
@@ -107,11 +119,18 @@ internal fun <T : DType> packGemmaKQuant(
     // bytes with row-major strides after the lazy transpose (garbage), so the
     // correct degradation is `null` → the caller's FP32 dequant fallback
     // (#169 behavior). Q4_K/Q5_K/Q6_K/Q8_0 keep their long-standing
-    // unconditional packing. Under engine 0.39.0 the scalar/Panama Q5_x
-    // kernels already satisfy the gate; SKaiNET#951 (0.40.0) adds the native
-    // FFM/K-N/JNI tiers behind the same check.
+    // unconditional packing. Engine 0.40.0 (SKaiNET#951) added the native
+    // FFM/K-N/JNI Q5_0/Q5_1 kernel tiers behind the same
+    // [hasPackedMatmulKernel] check, which is also what makes pre-transposed
+    // packing safe to default to here — a weight is only ever marked
+    // pre-transposed once this same gate has confirmed a real packed kernel
+    // will consume it.
     if (qt in legacyPackedQuantTypes && !qt.hasPackedMatmulKernel()) return null
-    return BlockQuantPacking.pack(bytes, encoding, shape)
+    return if (preTransposed) {
+        BlockQuantPacking.packPreTransposed(bytes, encoding, shape)
+    } else {
+        BlockQuantPacking.pack(bytes, encoding, shape)
+    }
 }
 
 /**
