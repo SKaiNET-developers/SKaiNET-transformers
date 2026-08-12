@@ -57,6 +57,12 @@ include("llm-runtime:kapertus")
 // Gemma-on-IREE runtime: decode loop + iree-run-module driver + tool-call codec
 // (the on-device side of the DSL -> StableHLO -> IREE path).
 include("llm-runtime:gemma-iree")
+// Generic Android JNI runtime for the DSL -> StableHLO -> IREE compiled path
+// (transformers#305): drives ANY fixed-seq redecode vmfb with an in-graph
+// argMax tail over the real IREE C API — model-agnostic, unlike gemma-iree
+// (board-specific, subprocess-driven). :llm-inference:smollm2 is its first
+// producer of a (vmfb, irpa, function-name) triple.
+include("llm-runtime:iree-android")
 include("llm-performance")
 include("llm-apps:skainet-cli")
 include("llm-apps:kllama-cli")
