@@ -81,7 +81,7 @@ class BlockQuantPackingTest {
     }
 
     @Test
-    fun pack_produces_the_matching_block_tensor_data_with_relaid_bytes() {
+    fun pack_produces_the_matching_block_tensor_data_with_canonical_bytes_verbatim() {
         for ((enc, blockElems, bpb) in encodings) {
             val outDim = 2
             val blocksPerRow = 2
@@ -91,7 +91,6 @@ class BlockQuantPackingTest {
 
             val td = BlockQuantPacking.pack<FP32>(bytes, enc, shape)
                 ?: error("${enc.name}: pack unexpectedly returned null")
-            val expectedRelaid = BlockQuantPacking.relayoutRowMajorToBlockMajor(bytes, shape, bpb, blockElems)
             val packedData = when (td) {
                 is Q4_KBlockTensorData -> { assertEquals(TensorEncoding.Q4_K, enc); td.packedData }
                 is Q5_KBlockTensorData -> { assertEquals(TensorEncoding.Q5_K, enc); td.packedData }
@@ -102,11 +101,29 @@ class BlockQuantPackingTest {
                 is Q5_1BlockTensorData -> { assertEquals(TensorEncoding.Q5_1, enc); td.packedData }
                 else -> error("${enc.name}: unexpected packed type ${td::class.simpleName}")
             }
+            // Canonical row-major order is kept verbatim: the engine's packed
+            // ops.transpose (>= 0.40.1) performs the physical block-grid
+            // permutation itself and requires this order as its input.
             assertTrue(
-                expectedRelaid.contentEquals(packedData),
-                "${enc.name}: packedData is not the block-major relayout",
+                bytes.contentEquals(packedData),
+                "${enc.name}: packedData must be the checkpoint bytes verbatim (canonical order)",
             )
             assertEquals(shape, td.shape, "${enc.name}: logical shape must be preserved")
+        }
+    }
+
+    @Test
+    fun pack_rejects_non_2d_and_misaligned_shapes() {
+        assertFailsWith<IllegalArgumentException> {
+            BlockQuantPacking.pack<FP32>(ByteArray(64), TensorEncoding.Q4_0, Shape(64))
+        }
+        assertFailsWith<IllegalArgumentException> {
+            // inDim 33 not a multiple of block size 32.
+            BlockQuantPacking.pack<FP32>(ByteArray(64), TensorEncoding.Q4_0, Shape(2, 33))
+        }
+        assertFailsWith<IllegalArgumentException> {
+            // Buffer too small for [2, 64] @ 18 B/block (= 4 blocks = 72 B).
+            BlockQuantPacking.pack<FP32>(ByteArray(71), TensorEncoding.Q4_0, Shape(2, 64))
         }
     }
 
@@ -126,9 +143,9 @@ class BlockQuantPackingTest {
                 Shape(shape[1], shape[0]), td.shape,
                 "${enc.name}: logical shape must be the transposed [in, out]",
             )
-            // Same block-major bytes as the plain pack — the transpose is a
-            // pure logical-shape swap, exactly what the engine's lazy packed
-            // ops.transpose would produce.
+            // Relaid block-major bytes — the load-time equivalent of the
+            // engine's physical packed ops.transpose (>= 0.40.1) applied to
+            // pack()'s canonical result.
             val storage = td as PackedBlockStorage
             val expectedRelaid = BlockQuantPacking.relayoutRowMajorToBlockMajor(bytes, shape, bpb, blockElems)
             assertTrue(

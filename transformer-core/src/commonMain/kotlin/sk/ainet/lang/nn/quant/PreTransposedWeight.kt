@@ -26,13 +26,15 @@ import sk.ainet.lang.tensor.storage.PackedBlockStorage
  * apply, so `linearProject` dispatches `ops.matmul(x, W)` directly and skips
  * `ops.transpose` entirely.
  *
- * For GGUF block-quant weights this is free: the row-major → block-major
- * relayout ([BlockQuantPacking.relayoutRowMajorToBlockMajor]) already stores
- * the bytes in the kernels' input-block-major order, and the engine's lazy
- * packed `ops.transpose` is a pure logical-shape swap over those same bytes.
- * [BlockQuantPacking.packPreTransposed] performs that shape swap at pack time
- * and attaches this marker, cutting the per-forward transpose wrapper
- * allocation out of every projection.
+ * For GGUF block-quant weights this is the production path: the row-major →
+ * block-major relayout ([BlockQuantPacking.relayoutRowMajorToBlockMajor])
+ * stores the bytes in the kernels' input-block-major order once at load time —
+ * the same physical block-grid permutation the engine's packed `ops.transpose`
+ * (≥ 0.40.1, SKaiNET#968 fix) would otherwise perform on every forward.
+ * [BlockQuantPacking.packPreTransposed] performs the relayout plus the
+ * logical-shape swap at pack time and attaches this marker, cutting both the
+ * per-forward byte permutation and the wrapper allocation out of every
+ * projection.
  *
  * The explicit marker exists because a shape heuristic
  * (`W.shape[0] == x.shape[-1]`) is ambiguous for square projections — see

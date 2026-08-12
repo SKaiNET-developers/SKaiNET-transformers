@@ -6,11 +6,10 @@ import sk.ainet.io.gguf.dequant.DequantOps
 import sk.ainet.lang.nn.quant.BlockQuantPacking
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.Tensor
-import sk.ainet.lang.tensor.data.Q4_KBlockTensorData
 import sk.ainet.lang.tensor.data.Q4MemorySegmentTensorData
-import sk.ainet.lang.tensor.data.Q6_KBlockTensorData
 import sk.ainet.lang.tensor.data.Q8MemorySegmentTensorData
 import sk.ainet.lang.tensor.data.TensorData
+import sk.ainet.lang.tensor.storage.TensorEncoding
 import sk.ainet.lang.types.DType
 import sk.ainet.lang.types.FP32
 import java.lang.foreign.Arena
@@ -27,10 +26,14 @@ import java.lang.foreign.Arena
  * rank-1 byte tensors the loader produces under `NATIVE_OPTIMIZED`. With
  * this step, each quantized weight ends up as the right wrapper:
  *
- * - `Q4_K` → [Q4_KBlockTensorData] (relayout from GGUF row-major
- *   `[row, block]` order to the input-block-major `[block, row]` order
- *   `JvmQuantizedVectorKernels.matmulQ4_KVec` expects). 144-byte blocks.
- * - `Q6_K` → [Q6_KBlockTensorData]. 210-byte blocks.
+ * - `Q4_K` → [BlockQuantPacking.packPreTransposed]: input-block-major relayout
+ *   + `[in, out]` shape + `PreTransposedWeight` marker, so `linearProject`
+ *   skips `ops.transpose` entirely (aligning apertus with the gemma/llama
+ *   converters — the previous inlined relayout under an unmarked `[out, in]`
+ *   shape relied on the pre-0.40.1 shape-swap-only packed transpose and is
+ *   silently corrupted by the physical block-grid permutation the engine
+ *   performs since 0.40.1). 144-byte blocks.
+ * - `Q6_K` → same pre-transposed packing. 210-byte blocks.
  * - `Q4_0` → [Q4MemorySegmentTensorData] (arena-allocated, 64-byte aligned).
  * - `Q8_0` → [Q8MemorySegmentTensorData].
  * - `Q5_K` → fallback: dequant to FP32. Apertus-8B-Instruct-2509 Q4_K_S has
@@ -111,14 +114,14 @@ private fun <T : DType, V> convertOne(
         }
 
         GGMLQuantizationType.Q4_K -> {
-            val relaid = BlockQuantPacking.relayoutRowMajorToBlockMajor(bytes, logicalShape, BYTES_PER_Q4_K_BLOCK, K_SERIES_BLOCK_SIZE)
-            val data = Q4_KBlockTensorData.fromRawBytes(logicalShape, relaid)
+            val data = BlockQuantPacking.packPreTransposed<FP32>(bytes, TensorEncoding.Q4_K, logicalShape)
+                ?: error("ApertusMemSegConverter: packPreTransposed returned null for Q4_K ('$name')")
             ctx.fromData(data as TensorData<FP32, Float>, advertisedDtype) as Tensor<T, V>
         }
 
         GGMLQuantizationType.Q6_K -> {
-            val relaid = BlockQuantPacking.relayoutRowMajorToBlockMajor(bytes, logicalShape, BYTES_PER_Q6_K_BLOCK, K_SERIES_BLOCK_SIZE)
-            val data = Q6_KBlockTensorData.fromRawBytes(logicalShape, relaid)
+            val data = BlockQuantPacking.packPreTransposed<FP32>(bytes, TensorEncoding.Q6_K, logicalShape)
+                ?: error("ApertusMemSegConverter: packPreTransposed returned null for Q6_K ('$name')")
             ctx.fromData(data as TensorData<FP32, Float>, advertisedDtype) as Tensor<T, V>
         }
 
@@ -135,8 +138,6 @@ private fun <T : DType, V> convertOne(
     }
 }
 
-private const val BYTES_PER_Q4_K_BLOCK = 144
-private const val BYTES_PER_Q6_K_BLOCK = 210
 private const val K_SERIES_BLOCK_SIZE = 256
 
 /**
