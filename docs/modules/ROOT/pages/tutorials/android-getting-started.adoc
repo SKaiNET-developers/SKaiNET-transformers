@@ -1,0 +1,177 @@
+= Android Getting Started
+:description: Run on-device text generation on Android — the eager NEON path and the compiled IREE path — and know which one to reach for.
+
+This tutorial gets a model generating text on an Android device. SKaiNET
+has *two* on-device paths, and this page walks the one you'll want
+first (eager), then points at the other (compiled) once you know why
+you might need it.
+
+[NOTE]
+====
+For the *why*, not the *how*, see
+xref:explanation/android-eager-vs-compiled.adoc[]. Short version: start
+with eager — it's a normal library dependency with zero export step.
+Reach for compiled only once you've measured that eager isn't fast
+enough for your model and device.
+====
+
+[mermaid]
+----
+flowchart LR
+    subgraph eager["Eager path — start here"]
+        A1["Add kllama as a dependency"] --> A2["ServiceLoader auto-discovers\nthe NEON JNI kernel provider"]
+        A2 --> A3["Run LlamaNetworkLoader +\nOptimizedLLMRuntime, as-is"]
+    end
+    subgraph compiled["Compiled path — when you need it"]
+        B1["Export the model:\nDSL -> StableHLO -> IREE"] --> B2["Compile to a vmfb\n(per-ABI, via SKaiNET-iree-toolchain)"]
+        B2 --> B3["Run via IreeRedecodeDecoder\n(llm-runtime/iree-android)"]
+    end
+----
+
+== Prerequisites
+
+* An Android project, `minSdk 24`+, with `arm64-v8a` (and optionally
+  `armeabi-v7a`) in your ABI filters.
+* A GGUF checkpoint. This tutorial uses `SmolLM2-135M-Instruct-Q8_0.gguf`
+  — small enough to keep the whole loop (download, load, decode) inside a
+  few seconds on a mid-range phone.
+* A physical ARM64 device for realistic numbers. An x86_64 emulator will
+  run the *scalar* fallback (see below), which works but tells you
+  nothing about real throughput.
+
+== Step 1: Depend on the runtime facade
+
+The eager path's on-device acceleration is a **library dependency, not a
+build step**. Add `kllama` (or `kgemma`/`kapertus` for those
+architectures) to your Android target's dependencies:
+
+[source,kotlin]
+----
+// build.gradle.kts (KMP module, androidMain, or a plain Android app module)
+dependencies {
+    implementation(platform("sk.ainet:skainet-bom:0.40.0"))
+    implementation("sk.ainet.core:skainet-backend-cpu")
+    // The NEON JNI kernel backend (AAR, engine >= 0.39.0). ServiceLoader
+    // self-registers it on ART at process start — nothing to call.
+    runtimeOnly("sk.ainet.core:skainet-backend-jni-cpu")
+
+    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.39.1"))
+    implementation("sk.ainet.transformers:skainet-transformers-core")
+    implementation("sk.ainet.transformers:skainet-transformers-runtime-kllama")
+    implementation("sk.ainet.transformers:skainet-transformers-inference-llama")
+}
+----
+
+`skainet-backend-jni-cpu` is `runtimeOnly` deliberately — your code never
+calls into it directly. It ships a `META-INF/services` entry; ART's
+`ServiceLoader` (which, unlike `java.lang.foreign`/FFM, Android *does*
+support) discovers and registers it automatically the first time the CPU
+ops factory runs. If the AAR isn't on the runtime classpath, or the
+device can't load either `.so` variant, `KernelRegistry` cascades to the
+scalar floor — code that runs, just without acceleration. See
+xref:explanation/android-eager-vs-compiled.adoc[] for what "scalar
+floor" costs in practice.
+
+== Step 2: Load and generate
+
+This is the entire integration — the same five lines run on JVM, Android,
+and Kotlin/Native, no `expect`/`actual` in your own code:
+
+[source,kotlin]
+----
+val ctx = DirectCpuExecutionContext.create()
+val weights = DecoderGgufWeightLoader(
+    randomAccessProvider = { AndroidRandomAccessSource.open(gguf.path) },
+    quantPolicy = QuantPolicy.NATIVE_OPTIMIZED,        // keep weights packed for the NEON kernels
+    acceptedArchitectures = setOf("llama", "mistral"),  // SmolLM2 is llama-family
+).loadToMapStreaming<FP32, Float>(ctx)
+
+val runtime = OptimizedLLMRuntime(
+    model = LlamaNetworkLoader.fromWeights(weights),
+    ctx = ctx,
+    mode = OptimizedLLMMode.DIRECT,
+    dtype = FP32::class,
+    bos = weights.metadata.bosTokenId,
+)
+
+val tokenizer = AndroidRandomAccessSource.open(gguf.path).use { TokenizerFactory.fromGgufSource(it) }
+
+val result = runtime.generateUntilStop(
+    prompt = tokenizer.encode("<|im_start|>user\n$prompt<|im_end|>\n<|im_start|>assistant\n"),
+    maxTokens = 200,
+    eosTokenId = tokenizer.eosTokenId,
+    onToken = { tokenId -> print(tokenizer.decode(tokenId)) },
+)
+----
+
+`AndroidRandomAccessSource.open(...)` streams the GGUF via positional
+`FileChannel` reads (API 1, no JNI) instead of materializing the whole
+file — the fix for the classic "148 MB model, `OutOfMemoryError` on a
+256 MB ART heap" failure mode. `QuantPolicy.NATIVE_OPTIMIZED` is what
+keeps weights in their packed on-disk format so the JNI kernels — which
+expect packed Q8_0/Q4_0/etc. buffers, not dequantized FP32 — actually get
+used; `DEQUANTIZE_TO_FP32` works too but throws away both the memory
+savings and the acceleration.
+
+== Step 3: Confirm it's actually accelerated
+
+Nothing above *fails* if the NEON provider didn't load — it silently
+falls back to scalar, which is a correctness-preserving but very slow
+outcome you want to notice, not discover from a bug report. Log which
+provider won:
+
+[source,kotlin]
+----
+Log.i(TAG, "kernel provider: ${KernelRegistry.bestAvailable()?.name ?: "none"}")
+// expect: "native-jni" on a real ARM64 device with the AAR on the runtime classpath
+// "scalar" means the AAR is missing, the .so failed to load, or you're on an
+// x86_64 emulator (which has no ARM NEON to accelerate in the first place)
+----
+
+On a Pixel 8a, SmolLM2-135M Q8_0 decodes at roughly **24 tok/s** with
+`native-jni` active versus **~3.8 tok/s** scalar — the difference between
+a usable chat UI and an unusable one. See the engine docs'
+https://skainet-developers.github.io/SKaiNET/skainet/explanation/perf/android-neon-jni-kernels.html[Android
+NEON kernels via JNI] page for the full mechanism (two `.so` tiers,
+`/proc/cpuinfo` gating, why JNI and not FFM).
+
+== A complete reference app
+
+Rather than assembling this from scratch, the
+https://github.com/SKaiNET-developers/SKaiNET-examples/tree/develop/AndroidNeonLlmDemo[`AndroidNeonLlmDemo`]
+sample (SKaiNET-examples) is a full Compose app built on exactly this
+integration, plus a built-in NEON-vs-scalar A/B comparison (two chips
+re-pin the kernel registry and re-run, so you can measure the difference
+on your own device) and a Hugging Face Hub downloader for the model
+file. `llm-runtime/kllama`'s own
+`src/androidDeviceTest/kotlin/sk/ainet/apps/kllama/AndroidSmolLm2E2eTest.kt`
+is a smaller, CI-oriented version of the same loop, useful as a minimal
+`adb`-driven reference if you don't want the UI.
+
+== Common first-run problems
+
+[cols="1,2"]
+|===
+| Problem | What to check
+
+| `OutOfMemoryError` on model load
+| Confirm you're using `AndroidRandomAccessSource` + `loadToMapStreaming`, not a sequential `Source` + `loadToMap` — the sequential path materializes the whole file. Also confirm `QuantPolicy.NATIVE_OPTIMIZED`, not `DEQUANTIZE_TO_FP32` (4x the memory for FP32 weights).
+
+| `KernelRegistry.bestAvailable()` reports `"scalar"` on a real device
+| Check `skainet-backend-jni-cpu` is on the *runtime* classpath (not `compileOnly`), and that your APK's ABI filters include `arm64-v8a`. Check logcat for `UnsatisfiedLinkError` around app start.
+
+| Decode is correct but slow even with `native-jni` active
+| Confirm the prompt/response length and device thermal state — sustained decode throttles on phone SoCs. Compare against the reference numbers above on the same device model if possible.
+
+| Tokenizer output looks wrong / model babbles
+| Confirm the chat template matches the model (SmolLM2-Instruct uses ChatML — `<\|im_start\|>`/`<\|im_end\|>`; other models differ). A raw untemplated prompt to an instruct model is a common cause of immediate `<\|im_end\|>` or incoherent output.
+
+| Need a bigger model than fits comfortably in the ART heap
+| See xref:explanation/android-eager-vs-compiled.adoc[] and the engine's off-heap/mmap tensor storage (SKEEP-002) — file-backed weight storage that lives outside the managed-heap cap.
+|===
+
+== What's next
+
+* xref:explanation/android-eager-vs-compiled.adoc[] — why two paths exist and when to switch
+* xref:how-to/compile-model-for-android.adoc[] — the compiled path, worked end to end
+* xref:reference/iree-android-runtime.adoc[] — API reference for the compiled-path runtime

@@ -3,6 +3,7 @@
 .Tutorials
 * xref:tutorials/getting-started.adoc[Getting Started]
 * xref:tutorials/getting-started-java.adoc[Getting Started for Java Developers]
+* xref:tutorials/android-getting-started.adoc[Android Getting Started]
 * xref:tutorials/tool-calling.adoc[Tool Calling with Any Model]
 * xref:tutorials/llama3-tool-calling.adoc[Llama 3 / 3.1 / 3.2 Tool Calling]
 * xref:tutorials/embeddings.adoc[Embeddings — Getting Started]
@@ -14,6 +15,7 @@
 * xref:how-to/add-tool.adoc[Add a Custom Tool]
 * xref:how-to/run-unified-cli.adoc[Use the Unified CLI]
 * xref:how-to/benchmarking.adoc[Run Benchmarks]
+* xref:how-to/compile-model-for-android.adoc[Compile a Model for Android (IREE)]
 
 .Reference
 * xref:reference/architecture.adoc[Architecture Overview]
@@ -23,6 +25,7 @@
 * xref:reference/chat-session-api.adoc[ChatSession API]
 * xref:reference/model-registry.adoc[Model Registry]
 * xref:reference/cli-reference.adoc[CLI Reference]
+* xref:reference/iree-android-runtime.adoc[IREE Android Runtime API]
 
 .Explanation
 * xref:explanation/pipeline-design.adoc[Pipeline Design Decisions]
@@ -31,3 +34,4 @@
 * xref:explanation/tokenizer-internals.adoc[Tokenizer Internals]
 * xref:explanation/weight-quantization.adoc[Weight Quantization and Numeric Representation]
 * xref:explanation/embeddings.adoc[How Embeddings Work]
+* xref:explanation/android-eager-vs-compiled.adoc[Eager vs. Compiled on Android]

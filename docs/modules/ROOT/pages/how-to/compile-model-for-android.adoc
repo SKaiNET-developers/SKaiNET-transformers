@@ -1,0 +1,226 @@
+= Compile a Model for Android (DSL -> StableHLO -> IREE)
+:description: Export a DSL model, compile it with IREE, and run it on Android through the generic iree-android runtime.
+
+This guide walks the compiled path end to end, using SmolLM2-135M as the
+worked example — the same model
+xref:tutorials/android-getting-started.adoc[the eager-path tutorial]
+uses, so you can compare both paths on identical ground. For *why*
+you'd pick this path over eager, see
+xref:explanation/android-eager-vs-compiled.adoc[].
+
+[mermaid]
+----
+flowchart LR
+    A["GGUF checkpoint"] --> B["Export harness:\ntrace DSL model,\nstrip KV cache,\nappend argMax tail"]
+    B --> C[".mlir\n(StableHLO)"]
+    B --> D["weights safetensors"]
+    D --> E["iree-convert-parameters"]
+    E --> F[".irpa\n(portable, one file, all ABIs)"]
+    C --> G["iree-compile\n--target arm64 / arm32"]
+    G --> H["arm64 .vmfb"]
+    G --> I["arm32 .vmfb\n(machine code, per ABI)"]
+    F --> J["Android app assets"]
+    H --> J
+    I --> J
+    J --> K["IreeRedecodeDecoder.fromAssets(...)"]
+----
+
+== Prerequisites
+
+* Docker, and the https://github.com/SKaiNET-developers/SKaiNET-iree-toolchain[`SKaiNET-iree-toolchain`]
+  repo cloned as a sibling checkout (or let `bin/iree-run` auto-build the
+  images on first use).
+* A GGUF checkpoint for the model you're exporting.
+* An export harness. `:llm-inference:smollm2`'s `SmolLm2ExportHarness` is
+  the reference implementation this guide follows — if you're exporting
+  a *different* model, start by copying its shape (see
+  "Writing your own export harness" below) rather than starting from
+  scratch.
+
+== Step 1: Export to StableHLO + externalized weights
+
+Run the export task (or the equivalent for your own harness):
+
+[source,bash]
+----
+SMOLLM2_GGUF=/path/to/SmolLM2-135M-Instruct-Q8_0.gguf \
+SMOLLM2_OUT_DIR=build/mlir \
+  ./gradlew :llm-inference:smollm2:exportSmolLm2
+----
+
+This traces the DSL model (`LlamaNetworkLoader.fromWeights`), strips
+per-layer KV caches (a single fixed-`seq` forward pass needs none — see
+the harness's own doc comment for why `KVCache.update()` isn't
+traceable), appends the DSL's in-graph `argMax` so the compiled function
+returns small token ids instead of a full `[seq, vocab]` logits tensor,
+and emits two files: `<model>-gen.mlir` (the StableHLO graph) and
+`<model>.safetensors` (every weight, externalized — not baked into the
+graph).
+
+The exported function follows a fixed contract:
+`tensor<1xSEQxi32> -> tensor<SEQxi32>` — token ids in, one predicted
+next-token id per position out. `llm-runtime/iree-android`'s runtime is
+written against exactly this contract; if your own harness's export
+doesn't match it, `IreeRedecodeDecoder` won't be able to drive it — see
+xref:reference/iree-android-runtime.adoc[] for the contract in full.
+
+== Step 2: Weights to `.irpa`
+
+[source,bash]
+----
+cd build/mlir
+iree-run compiler convert-parameters \
+  --parameters=<model>.safetensors --output=<model>.irpa
+----
+
+This is architecture-agnostic tooling, not SKaiNET-specific — `.irpa` is
+IREE's own parameter-archive format. One `.irpa` serves *every* ABI and
+every compile target (CPU or GPU) — it's just tensor bytes, not machine
+code.
+
+== Step 3: Compile to a `.vmfb`, once per ABI
+
+Unlike the `.irpa`, the `.vmfb` **is** architecture-specific machine
+code — you need a separate compile per Android ABI you ship:
+
+[source,bash]
+----
+iree-run compiler compile-cpu <model>-gen.mlir --target arm64 --out <model>-gen-arm64.vmfb
+iree-run compiler compile-cpu <model>-gen.mlir --target arm32 --out <model>-gen-arm32.vmfb
+----
+
+`--target arm64` compiles for `aarch64-linux-android29`, `cortex-a76`,
+with dotprod; `--target arm32` compiles for
+`armv7a-linux-androideabi29`, `cortex-a55`, NEON only. Both are defined
+in the toolchain's `compile-cpu` subcommand — see
+`docker/compiler/entrypoint.sh` in `SKaiNET-iree-toolchain` if you need
+a different CPU target than either default.
+
+[TIP]
+====
+Also compile a `--target host` vmfb and run it through
+`iree-run compiler run-module` on your dev machine before shipping
+anything to a device. It's real x86_64/aarch64-host machine code you can
+actually execute locally — the `arm64`/`arm32` Android builds can't run
+on a typical dev workstation at all, so `--target host` is your only way
+to catch a broken export (wrong shapes, garbage output) before it's on
+a phone. See xref:reference/iree-android-runtime.adoc[] for how this was
+verified for SmolLM2.
+====
+
+=== GPU (Vulkan), if your export supports it
+
+[source,bash]
+----
+iree-run compiler compile-vulkan <model>-gen.mlir --out <model>-gen-vulkan.vmfb
+----
+
+One Vulkan vmfb (portable SPIR-V) serves every ABI — GPU compute doesn't
+have the per-ABI machine-code problem CPU codegen does. This is *not*
+guaranteed to succeed: SmolLM2's own export currently fails to compile
+for Vulkan (a real `iree-compile` 3.11.0 codegen gap on the
+token-embedding `stablehlo.gather` — see
+xref:reference/iree-android-runtime.adoc[] for the exact error). Try it;
+if it fails, `local-task` (CPU) still works and is what this guide
+verifies end to end.
+
+== Step 4: Get the JNI runtime `.so`
+
+If you're targeting the redecode contract from Step 1, you don't need
+to build anything here — `llm-runtime:iree-android` already ships
+pre-built `.so`s for both ABIs (checked in, not built per-model). Add it
+as a dependency:
+
+[source,kotlin]
+----
+implementation("sk.ainet.transformers:skainet-transformers-runtime-iree-android:0.40.0")
+----
+
+You only need to touch `llm-runtime/iree-android/native/` yourself if
+you're changing the *runtime's* contract (e.g. supporting the two-graph
+KV-cache pattern — see xref:explanation/android-eager-vs-compiled.adoc[]).
+In that case, `native/build-iree-redecode.sh <abi> [--vulkan]` cross-builds
+via the same toolchain image; the module's own README documents the
+`--link` flags required (external-weight vmfbs need three IREE targets
+beyond the runtime default — `iree_modules_io_parameters_parameters`,
+`iree_io_parameter_index`, `iree_io_parameter_index_provider`,
+`iree_io_formats_irpa_irpa` — because the weights are bound from a
+`.irpa` at session-create time, not baked into the vmfb).
+
+== Step 5: Bundle and run
+
+Copy the `.vmfb`(s) and `.irpa` into your app's assets:
+
+[source]
+----
+app/src/main/assets/
+  <model>/
+    <model>-gen-arm64.vmfb
+    <model>-gen-arm32.vmfb
+    <model>.irpa
+----
+
+Then drive it:
+
+[source,kotlin]
+----
+val abi = Build.SUPPORTED_ABIS.first { it == "arm64-v8a" || it == "armeabi-v7a" }
+val vmfbAsset = if (abi == "arm64-v8a") "<model>/<model>-gen-arm64.vmfb" else "<model>/<model>-gen-arm32.vmfb"
+
+val decoder = IreeRedecodeDecoder.fromAssets(
+    context,
+    vmfbAsset = vmfbAsset,
+    irpaAsset = "<model>/<model>.irpa",
+    functionName = "module.<model>",   // matches the MLIR func name from Step 1
+    seq = 24,                          // matches the seq the export was traced at
+    cacheDirName = "skainet_<model>",
+)
+val generated = decoder.generate(promptTokenIds, eosTokenId = tokenizer.eosTokenId)
+decoder.close()
+----
+
+`fromAssets` copies both files to `filesDir` on first run (IREE needs
+real file paths, not asset streams) and creates the native session —
+call it off the main thread.
+
+== Writing your own export harness
+
+If you're exporting a model other than SmolLM2, don't start from a blank
+file — copy `SmolLm2ExportHarness`'s shape
+(`llm-inference/smollm2/src/jvmMain/`). The parts that are genuinely
+model-specific: which loader builds the DSL graph
+(`LlamaNetworkLoader.fromWeights` for llama-family checkpoints —
+substitute the right one for your architecture), and the checkpoint
+path/seq passed in. The parts that are architecture-agnostic and should
+be copied close to verbatim: stripping `KVCache` before tracing,
+appending `ectx.ops.argMax(logits, dim = -1)` +
+`ectx.ops.squeeze(idx, 0)`, `ConstantMaterializationPolicy.ExternalAlways`,
+and the bf16 safetensors writer.
+
+== Common problems
+
+[cols="1,2"]
+|===
+| Problem | What to check
+
+| `iree-compile` fails on the *Vulkan* target with a `vector.step` / gather legalization error
+| A real codegen gap in IREE 3.11.0 for token-embedding gather patterns, not something you can fix from the export side. Use `local-task` (CPU) instead; see xref:reference/iree-android-runtime.adoc[].
+
+| `nativeCreate` fails at runtime with a parameter-related error
+| Confirm you cross-built the runtime `.so` with the four `--link` flags from Step 4 (external-weight vmfbs specifically need them) — the default `iree_runtime_unified` alone is not enough.
+
+| Output is garbage / wrong shape
+| Verify against a `--target host` build first (the Tip in Step 3) — this isolates "the export is wrong" from "the on-device build/runtime is wrong," which are otherwise easy to conflate when you can only test on a device.
+
+| App crashes or hangs loading the `.irpa`
+| Confirm the `.irpa` file actually finished copying to `filesDir` (it can be hundreds of MB — a 135M-parameter model at bf16 is already ~300 MiB) before `IreeRedecodeSession` tries to open it. `fromAssets`'s copy is synchronous, so this usually means it was called on a coroutine that got cancelled mid-copy.
+
+| Need a different `seq` than what was exported
+| `seq` is baked into the compiled graph's shape — there's no runtime resize. Re-export (Step 1) with a different `seq` and re-compile (Step 3); you can't change it from the Android side.
+|===
+
+== See also
+
+* xref:explanation/android-eager-vs-compiled.adoc[] — why this path exists alongside the eager one
+* xref:reference/iree-android-runtime.adoc[] — full API reference and the redecode graph contract
+* xref:tutorials/android-getting-started.adoc[] — the eager-path equivalent of this tutorial
