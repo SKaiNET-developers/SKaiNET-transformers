@@ -73,6 +73,16 @@ kotlin {
                 // pipeline test. JVM-only: native-cpu has no Kotlin/
                 // Native, JS, or Wasm targets.
                 implementation(libs.skainet.backend.nativeCpu)
+                // Test-only: trace llamaNetwork to a ComputeGraph + lower to
+                // StableHLO (RealSmolLm2BakeIrpaTest, transformers#305). Mirrors
+                // :llm-inference:gemma's RealGemmaBakeIrpaTest — JVM-only, since
+                // skainet-compile-hlo/-dag publish no JS/Wasm variant and the
+                // trace/export path is host tooling anyway.
+                implementation(libs.skainet.compile.dag)
+                implementation(libs.skainet.compile.hlo)
+                // Test-only: write the externalized weights to an IREE .irpa
+                // parameter archive (RealSmolLm2BakeIrpaTest).
+                implementation(libs.skainet.io.iree.params)
             }
         }
     }
