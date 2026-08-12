@@ -1,0 +1,124 @@
+= Eager vs. Compiled on Android
+:description: Why SKaiNET ships two different on-device paths for Android, and which one to reach for.
+
+SKaiNET runs models on Android two structurally different ways. Neither
+supersedes the other — they trade off differently, and which one you
+want depends on what you're building. This page is the *why*; for the
+*how*, see xref:tutorials/android-getting-started.adoc[] (eager) and
+xref:how-to/compile-model-for-android.adoc[] (compiled).
+
+[mermaid]
+----
+flowchart TD
+    subgraph Eager["Eager — op by op, at runtime"]
+        direction LR
+        E1["DSL model +\nGGUF weights"] --> E2["OptimizedLLMRuntime\nwalks the graph"]
+        E2 --> E3["each op dispatches to\nKernelRegistry.bestAvailable()"]
+        E3 --> E4["native-jni kernel\n(NEON, per matmul call)"]
+    end
+    subgraph Compiled["Compiled — whole graph, ahead of time"]
+        direction LR
+        C1["DSL model +\nGGUF weights"] --> C2["trace to a ComputeGraph,\nlower to StableHLO"]
+        C2 --> C3["iree-compile\n(offline, per ABI)"]
+        C3 --> C4["one vmfb, invoked\nwhole-graph per step"]
+    end
+----
+
+== The core difference
+
+**Eager** (`kllama` + `skainet-backend-jni-cpu`) walks the model graph at
+runtime, op by op, in Kotlin — the same code path that runs on JVM,
+dispatching each matmul to whichever `KernelProvider` is best available.
+On Android that's the JNI NEON provider from
+xref:tutorials/android-getting-started.adoc[]. There is no export step:
+you point the loader at a GGUF file and it runs.
+
+**Compiled** (`llm-inference/smollm2`'s export harness +
+`llm-runtime/iree-android`) traces the *same* DSL model once, ahead of
+time, to a StableHLO graph, and `iree-compile` lowers that to a single
+`.vmfb` — a self-contained compiled artifact you invoke through the IREE
+C API. The Kotlin/JNI layer on the device does one thing: bind weights
+from a `.irpa` archive and invoke the whole compiled function. There is
+no op dispatch on-device at all — that decision was made once, at
+compile time, not per call.
+
+== What each path actually gets you
+
+[cols="1,2,2",options="header"]
+|===
+| | Eager | Compiled
+
+| Setup
+| Add a dependency. Run.
+| Export → compile → bundle a vmfb per ABI. A build step, not a runtime one.
+
+| Model coverage
+| Any architecture the DSL can trace, immediately — no per-model artifact.
+| Whatever's been exported. New model = re-export, re-compile, re-bundle.
+
+| CPU acceleration
+| NEON via JNI, per op. No dense FP32 kernel yet (`#920` — falls to scalar for that one op type).
+| Whatever `iree-compile` generates for the target — typically competitive with, or better than, hand-written per-op kernels, because the compiler sees the whole graph.
+
+| GPU access
+| None. The `KernelProvider` SPI has no GPU implementation for the eager path today.
+| Real — `iree-android`'s `.so` ships both `local-task` (CPU) and `vulkan` (GPU, Mali/Adreno/portable SPIR-V) HAL drivers. *Whether a given model's export actually compiles for Vulkan is separate* — SmolLM2's currently doesn't, a real IREE codegen gap on its token-embedding gather, not a limitation of the runtime.
+
+| Autoregressive decode
+| True KV-cache — each step is O(1) new-token work over a growing cache, the normal fast decode loop.
+| Depends on which graph shape was exported. The `iree-android` runtime today only knows the *redecode* pattern (`gemma-iree`'s `GemmaDecoder`, not its `GemmaKvDecoder`) — one fixed-`seq` vmfb re-invoked with a growing, padded buffer, so each step recomputes the full prefix. O(seq) per step, not O(1). The two-graph KV-cache decode (prefill + with_past, real O(1) steps) is a real pattern — `gemma-iree` implements it for a Linux board — but hasn't been ported to the Android JNI runtime yet.
+
+| Weight distribution
+| Ship the GGUF (or stream it), same as any other target.
+| Ship a `.vmfb` (small, ABI-specific machine code) + a `.irpa` (the weights, portable across ABIs, sizeable — 300+ MiB for a 135M model at bf16).
+
+| Maturity
+| Shipped since 0.39.0, exercised by `AndroidNeonLlmDemo` and CI device tests.
+| New. One model (SmolLM2) verified end-to-end numerically on host; on-device execution not yet verified on real hardware.
+|===
+
+== So which one?
+
+**Default to eager.** It's a dependency, not a pipeline — matches the
+project's own "Start in 5 minutes" bias, and for most chat/decode
+workloads the NEON kernels get you to a usable tok/s (see the real
+numbers in xref:tutorials/android-getting-started.adoc[]) without
+touching an export toolchain.
+
+**Reach for compiled when:**
+
+* You need GPU. Eager has no GPU path at all today; compiled does (for
+  models whose export actually targets Vulkan cleanly).
+* You want an ahead-of-time-fixed artifact — a specific model, specific
+  shape, compiled once and shipped as a binary blob, rather than a
+  general-purpose Kotlin runtime that traces the graph on every load.
+* You're already using IREE elsewhere in your deployment (e.g. the same
+  StableHLO path targets desktop/server IREE too) and want one
+  compilation pipeline across targets instead of two different
+  execution models.
+
+**Don't reach for compiled because you assume it's faster.** It might
+be, for a given model and device — nobody has published a head-to-head
+number for the same model on both paths yet. The honest starting
+assumption is "measure your own model," not "compiled wins by
+construction."
+
+== Why the compiled path only has the redecode pattern so far
+
+This is a real, temporary gap, not a design choice: `iree-android`'s
+native shim (`IreeRedecodeSession`) is genuinely generic — it drives any
+vmfb matching the redecode contract (`tensor<1xSEQxi32> ->
+tensor<SEQxi32>`, weights external via a `.irpa`). Porting `gemma-iree`'s
+two-graph KV-cache loop (`GemmaKvDecoder`) to Android means adapting an
+algorithm that currently drives `iree-run-module` as a *subprocess* on a
+Linux board into a JNI call sequence that keeps IREE session state (the
+K/V device buffers) alive *across* JNI calls instead of round-tripping
+through files between subprocess invocations — real new work, not a
+config change. Until it lands, compiled-path decode cost grows with
+sequence length the way eager's did before KV-cache existed at all.
+
+== See also
+
+* xref:tutorials/android-getting-started.adoc[] — eager path, worked example
+* xref:how-to/compile-model-for-android.adoc[] — compiled path, worked example
+* xref:reference/iree-android-runtime.adoc[] — the compiled-path runtime's API surface

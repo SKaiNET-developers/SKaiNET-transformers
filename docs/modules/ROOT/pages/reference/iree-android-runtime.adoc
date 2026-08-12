@@ -1,0 +1,192 @@
+= IREE Android Runtime API
+:description: API reference for llm-runtime:iree-android — the generic JNI runtime for the compiled (DSL -> StableHLO -> IREE) path on Android.
+
+Module: `llm-runtime/iree-android`. Package: `sk.ainet.transformers.iree.android`.
+Maven coordinate: `sk.ainet.transformers:skainet-transformers-runtime-iree-android`.
+
+For the *why* and *how* this fits into the compiled path, see
+xref:explanation/android-eager-vs-compiled.adoc[] and
+xref:how-to/compile-model-for-android.adoc[].
+
+== The redecode graph contract
+
+Every `.vmfb` this runtime drives must be a compiled function shaped:
+
+[source]
+----
+tensor<1xSEQxi32> -> tensor<SEQxi32>
+----
+
+One fixed-length row of token ids in (batch dimension 1, `SEQ` fixed at
+export time), one predicted-next-token id *per position* out. The DSL's
+in-graph `argMax` has already run inside the graph — the output is small
+token ids, never a `[SEQ, vocab]` logits tensor. `nativeStep` (below)
+checks the output buffer-view's rank and length against this contract
+before transferring it and returns `null` on mismatch, rather than
+silently misreading device memory — a caller pointing this runtime at an
+incompatible vmfb fails loudly.
+
+Weights are **external**: bound from a `.irpa` parameter archive under
+scope `"model"` at session-create time, via IREE's `io_parameters` VM
+module — not baked into the `.vmfb`. This is why the cross-compiled
+`.so` links extra IREE targets beyond the runtime default; see the
+module README.
+
+`:llm-inference:smollm2`'s `SmolLm2ExportHarness` is the first, and
+currently only, producer of a contract-compatible triple — see
+`llm-inference/smollm2/docs/smollm2-vmfb.md` in that module (not part of
+this Antora site, but checked into the repo) for a concrete,
+tool-verified example: real function signature, real parameter table,
+real artifact sizes.
+
+== `IreeRedecodeSession`
+
+.`llm-runtime/iree-android/src/main/kotlin/sk/ainet/transformers/iree/android/IreeRedecodeSession.kt`
+[source,kotlin]
+----
+class IreeRedecodeSession(
+    vmfbPath: String,
+    irpaPath: String,
+    functionName: String,
+    device: String = DEFAULT_DEVICE,
+) : AutoCloseable {
+    fun step(tokenIds: IntArray): IntArray?   // null on failure or contract mismatch
+    override fun close()
+
+    companion object {
+        const val DEFAULT_DEVICE: String = "local-task"  // CPU
+        const val VULKAN_DEVICE: String = "vulkan"        // GPU (Mali/Adreno/portable SPIR-V)
+    }
+}
+----
+
+The raw JNI wrapper — one native session per instance, backed by an IREE
+runtime instance/device/session. `tokenIds` passed to `step` must be
+exactly `SEQ` long (the fixed length the vmfb was compiled for);
+`step` returns the full `SEQ`-length output array — the caller (see
+`IreeRedecodeDecoder` below) is responsible for reading the one position
+it actually needs.
+
+[IMPORTANT]
+====
+The package/class name (`sk.ainet.transformers.iree.android.IreeRedecodeSession`)
+*is* the JNI symbol contract with the `.so` — moving or renaming this
+class breaks the native binding. If you fork this runtime, rebuild the
+`.so` from the matching native source; don't just relocate the Kotlin class.
+====
+
+`device` selects the IREE HAL driver. The cross-compiled `.so` has both
+`local-task`/`local-sync` (CPU) and `vulkan` (GPU) drivers compiled in,
+so either string works *if the .vmfb you point it at was compiled for
+that backend* — a CPU-compiled vmfb will not run on the `vulkan` device
+string or vice versa. `local-task` is the only device this runtime has
+been numerically verified against so far (see "Verification" below).
+
+== `IreeRedecodeDecoder`
+
+.`llm-runtime/iree-android/src/main/kotlin/sk/ainet/transformers/iree/android/IreeRedecodeDecoder.kt`
+[source,kotlin]
+----
+class IreeRedecodeDecoder(
+    private val native: IreeRedecodeSession,
+    val seq: Int,
+) : AutoCloseable {
+
+    fun generate(
+        promptIds: IntArray,
+        eosTokenId: Int,
+        maxNewTokens: Int = seq - promptIds.size,
+    ): IntArray
+
+    override fun close()
+
+    companion object {
+        fun fromAssets(
+            context: Context,
+            vmfbAsset: String,
+            irpaAsset: String,
+            functionName: String,
+            seq: Int,
+            cacheDirName: String,
+            device: String = IreeRedecodeSession.DEFAULT_DEVICE,
+        ): IreeRedecodeDecoder
+    }
+}
+----
+
+The token-ids-in/token-ids-out facade. `generate` runs the
+`gemma-iree`-`GemmaDecoder`-style greedy re-decode loop: pad `promptIds`
+to `seq`, call `native.step`, read the position at
+`promptIds.size - 1 + step`, append it to the buffer, repeat — causal
+masking in the compiled graph makes padding-then-growing the buffer
+safe. Stops at `eosTokenId` or `maxNewTokens`, whichever comes first.
+`require(promptIds.size < seq)` — there must be room for at least one
+generated token.
+
+`fromAssets` is the constructor most callers want: it copies
+`vmfbAsset`/`irpaAsset` from the app's bundled assets to
+`context.filesDir/cacheDirName/` on first run (IREE needs real file
+paths, not asset streams — this copy is a no-op on subsequent runs) and
+opens the native session. **Deliberately not tokenizer-aware and not
+model-specific** — `vmfbAsset`, `irpaAsset`, `functionName`, and `seq`
+are all caller-supplied, so this class carries zero assumptions about
+which model it's driving. Pair it with whatever tokenizer your app
+already uses.
+
+== Native build
+
+`native/iree_redecode_jni.c`, cross-built via
+https://github.com/SKaiNET-developers/SKaiNET-iree-toolchain[`SKaiNET-iree-toolchain`]'s
+`skainet/iree-android:3.11.0` image:
+
+[source,bash]
+----
+native/build-iree-redecode.sh arm64-v8a --vulkan
+native/build-iree-redecode.sh armeabi-v7a --vulkan
+----
+
+Both ABIs' `.so`s are checked into the module (`src/main/jniLibs/`), not
+built by CI — regenerate them by re-running the script when the C source
+changes. `--link` targets required beyond the runtime default
+(`iree_runtime_unified`), because weights are external (see the graph
+contract above): `iree_modules_io_parameters_parameters`,
+`iree_io_parameter_index`, `iree_io_parameter_index_provider`,
+`iree_io_formats_irpa_irpa`.
+
+== Verification
+
+Host-side, numerically, against the real SmolLM2-135M-Instruct Q8_0
+checkpoint: `SmolLm2ExportHarness.export()` produced a graph with
+function signature
+`func.func @smollm2(%arg0: tensor<1x24xi32>) -> (tensor<24xi32>)`; a
+`--target host` `.vmfb` compile of that graph, driven by hand through
+the redecode loop via `iree-run-module`, greedy-decoded "The capital of
+France is" (tokens `1,504,3575,282,4649,314`) to **"the city of Paris, a
+city of"** in 8 steps — correct and coherent.
+
+Structurally, for the actual Android artifacts: both `arm64-v8a` and
+`armeabi-v7a` `.so`s were cross-built and their JNI symbols verified
+(`llvm-nm -D`) to correctly export
+`Java_sk_ainet_transformers_iree_android_IreeRedecodeSession_{nativeCreate,nativeStep,nativeDestroy}`;
+a downstream consumer app's debug APK was confirmed (via archive
+inspection) to correctly bundle both `.so`s and both ABI-specific
+`.vmfb`s.
+
+**Not yet verified**: running any of this on a physical Android device
+or emulator. The `arm64`/`arm32`-target `.vmfb`s are real ARM machine
+code and cannot execute on a typical x86_64 development machine, so
+their *numeric* correctness rests on being compiled from the same
+`.mlir` that produced the host-verified result above, not on independent
+on-device execution.
+
+**Vulkan**: SmolLM2's export currently fails to compile for
+`vulkan-spirv` — `iree-compile` 3.11.0 cannot legalize the graph's
+token-embedding `stablehlo.gather` (`vector.step` legalization error).
+This is a compiler limitation on that specific gather pattern, not a
+limitation of this runtime — the `.so` and Kotlin API are built and
+ready for a Vulkan-compiled vmfb whenever one compiles cleanly.
+
+== See also
+
+* xref:how-to/compile-model-for-android.adoc[] — produce a compatible `(vmfb, irpa, functionName)` triple
+* xref:explanation/android-eager-vs-compiled.adoc[] — how this compares to the eager (NEON/JNI) path
