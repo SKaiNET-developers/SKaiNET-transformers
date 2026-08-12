@@ -10,14 +10,10 @@ import sk.ainet.lang.nn.quant.BlockQuantPacking
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.tensor.data.IntArrayTensorData
-import sk.ainet.lang.tensor.data.Q4_KBlockTensorData
-import sk.ainet.lang.tensor.data.Q5_0BlockTensorData
-import sk.ainet.lang.tensor.data.Q5_1BlockTensorData
-import sk.ainet.lang.tensor.data.Q5_KBlockTensorData
-import sk.ainet.lang.tensor.data.Q6_KBlockTensorData
 import sk.ainet.lang.tensor.data.Q4MemorySegmentTensorData
 import sk.ainet.lang.tensor.data.Q8MemorySegmentTensorData
 import sk.ainet.lang.tensor.data.TensorData
+import sk.ainet.lang.tensor.storage.TensorEncoding
 import sk.ainet.lang.types.DType
 import sk.ainet.lang.types.FP32
 
@@ -31,18 +27,19 @@ import sk.ainet.lang.types.FP32
  * MemorySegment-backed Q4 / Q8 tensor data the DSL path can feed to its
  * SIMD matmul kernels.
  *
- * **Different from `MemSegWeightConverter` (Llama)**: no pre-transpose for
- * K-series weights. The Llama-path runtime (`LlamaRuntime.linearProject`)
- * picks direct-matmul-vs-transpose-then-matmul based on a shape check, and
- * pre-transposing FP32 K-series weights lets it take the direct branch. The
- * DSL path's [sk.ainet.lang.nn.transformer.linearProject] always transposes,
- * so pre-transposing here would produce double-transposed weights and the
- * wrong math. Instead, for K-series we dequant to FP32 and keep the
- * canonical `[out, in]` layout — the DSL transposes at runtime like any
- * other FP32 weight. That loses the Q4_K / Q6_K memory savings but keeps
- * numerical correctness until a quant-aware DSL dispatch (recognising
- * `linearProject` on a Q4_K tensor and skipping the transpose) is
- * implemented in the backend.
+ * **K-series and legacy (Q4_0/Q5_0/Q5_1) weights are packed pre-transposed**
+ * (#184 (3)/#170, engine 0.40.0 native-kernel closure train): each goes
+ * through [BlockQuantPacking.packPreTransposed], which relays out the GGUF
+ * blocks and marks the result [sk.ainet.lang.nn.quant.PreTransposedWeight],
+ * so [sk.ainet.lang.nn.transformer.linearProject] dispatches
+ * `ops.matmul(x, W)` directly and skips its per-forward `ops.transpose` for
+ * these weights — no FP32 round-trip, no double-transpose risk, since the
+ * marker (not a shape heuristic) is what `linearProject` checks. Q4_0/Q5_0/Q5_1
+ * stay gated on [hasPackedMatmulKernel] (kernel-availability, not engine
+ * version) and fall back to the #169 FP32 dequant when no packed kernel is
+ * registered — see `packPreTransposed`'s call sites below and
+ * [BlockQuantPacking.pack] (kept reachable for the non-transposed
+ * fallback / parity-comparison path, deprecate-don't-delete).
  *
  * Q4_0 and Q8_0 keep their packed quantized form. The CPU backend's
  * `ops.transpose` does a lazy shape-swap on those MemSeg tensors (no data
@@ -154,49 +151,55 @@ private fun <T : DType, V> convertOne(
             ctx.fromData(data as TensorData<FP32, Float>, advertisedDtype) as Tensor<T, V>
         }
         GGMLQuantizationType.Q4_K -> {
-            // Keep Q4_K packed, but re-layout the GGUF-stored bytes from
-            // row-major block order `[row, block]` to the input-block-major
-            // order `[block, row]` that `JvmQuantizedVectorKernels.matmulQ4_KVec`
-            // indexes via `(blockIdx * outputDim + o) * bytesPerBlock`.
-            //
-            // The lazy Q4_K transpose in `DefaultCpuOpsJvm` expects this
-            // layout; combined, a Q4_K_M Gemma 4 E2B checkpoint (3.2 GB on
-            // disk) stays near that footprint in RAM instead of inflating
-            // to ~18 GB FP32.
-            val relaid = BlockQuantPacking.relayoutRowMajorToBlockMajor(bytes, shape, 144, 256)
-            val data = Q4_KBlockTensorData.fromRawBytes(shape, relaid)
+            // Keep Q4_K packed AND pre-transposed (#184 (3), engine 0.40.0
+            // closure train): packPreTransposed re-layouts the GGUF-stored
+            // bytes from row-major block order `[row, block]` to the
+            // input-block-major order `[block, row]` that
+            // `JvmQuantizedVectorKernels.matmulQ4_KVec` indexes via
+            // `(blockIdx * outputDim + o) * bytesPerBlock`, then swaps the
+            // logical shape to `[in, out]` and marks the result
+            // `PreTransposedWeight` so `linearProject` skips its per-forward
+            // `ops.transpose` entirely (previously a lazy shape-swap via
+            // `DefaultCpuOpsJvm`'s Q4_K transpose; now zero wrapper
+            // allocation). A Q4_K_M Gemma 4 E2B checkpoint (3.2 GB on disk)
+            // stays near that footprint in RAM instead of inflating to
+            // ~18 GB FP32.
+            val data = BlockQuantPacking.packPreTransposed<FP32>(bytes, TensorEncoding.Q4_K, shape)
+                ?: error("packPreTransposed returned null for Q4_K — expected an unconditional kernel")
             ctx.fromData(data as TensorData<FP32, Float>, advertisedDtype) as Tensor<T, V>
         }
         GGMLQuantizationType.Q6_K -> {
-            // Same packed-path treatment as Q4_K, enabled by the
-            // `matmulQ6_KVec` kernel + lazy transpose in `DefaultCpuOpsJvm`.
-            // Gemma 4 E2B Q4_K_M uses Q6_K for ffn_gate/up/down, attn_v,
-            // token_embd, and the tied lm_head — keeping these packed saves
-            // ~12 GB of FP32 bloat (and the corresponding 7.5 GB per-forward
-            // transpose transient). Sanity-checked against FP32 dequant and
-            // Q6_K packed produces identical tokens — kernel math is right.
-            val relaid = BlockQuantPacking.relayoutRowMajorToBlockMajor(bytes, shape, 210, 256)
-            val data = Q6_KBlockTensorData.fromRawBytes(shape, relaid)
+            // Same packed-and-pre-transposed treatment as Q4_K, enabled by
+            // the `matmulQ6_KVec` kernel. Gemma 4 E2B Q4_K_M uses Q6_K for
+            // ffn_gate/up/down, attn_v, token_embd, and the tied lm_head —
+            // keeping these packed saves ~12 GB of FP32 bloat (and the
+            // corresponding 7.5 GB per-forward transpose transient).
+            // Sanity-checked against FP32 dequant and Q6_K packed produces
+            // identical tokens — kernel math is right.
+            val data = BlockQuantPacking.packPreTransposed<FP32>(bytes, TensorEncoding.Q6_K, shape)
+                ?: error("packPreTransposed returned null for Q6_K — expected an unconditional kernel")
             ctx.fromData(data as TensorData<FP32, Float>, advertisedDtype) as Tensor<T, V>
         }
         GGMLQuantizationType.Q5_K -> {
-            // Same packed-path treatment as Q4_K/Q6_K, enabled by the Q5_K
-            // matmul kernel (scalar/Panama/native) + the lazy Q5_K transpose
-            // in DefaultCpuOps. FunctionGemma-270M Q5_K_M ships most attn/FFN
-            // weights as Q5_K, so keeping them packed (176 B/block) avoids the
-            // FP32 inflation and runs the in-kernel dequant matmul.
-            val relaid = BlockQuantPacking.relayoutRowMajorToBlockMajor(bytes, shape, 176, 256)
-            val data = Q5_KBlockTensorData.fromRawBytes(shape, relaid)
+            // Same packed-and-pre-transposed treatment as Q4_K/Q6_K, enabled
+            // by the Q5_K matmul kernel (scalar/Panama/native).
+            // FunctionGemma-270M Q5_K_M ships most attn/FFN weights as Q5_K,
+            // so keeping them packed (176 B/block) avoids the FP32 inflation
+            // and runs the in-kernel dequant matmul.
+            val data = BlockQuantPacking.packPreTransposed<FP32>(bytes, TensorEncoding.Q5_K, shape)
+                ?: error("packPreTransposed returned null for Q5_K — expected an unconditional kernel")
             ctx.fromData(data as TensorData<FP32, Float>, advertisedDtype) as Tensor<T, V>
         }
         GGMLQuantizationType.Q5_1 -> {
-            // Packed-path treatment for the 32-elem/24-byte legacy blocks
-            // (#170): FunctionGemma-270M "Q5_K_M" ships attn_q/attn_k and
+            // Packed-and-pre-transposed treatment for the 32-elem/24-byte
+            // legacy blocks (#170, engine 0.40.0 native-kernel closure
+            // train): FunctionGemma-270M "Q5_K_M" ships attn_q/attn_k and
             // ffn_gate/ffn_up as Q5_1 (81 of 236 tensors), which until #170
             // took the FP32 dequant fallback below. The engine has Q5_1
             // kernels (scalar + Panama since 0.39.0; native FFM/K-N/JNI from
-            // SKaiNET#951 / 0.40.0) + the lazy Q5_1 transpose, so the weights
-            // stay packed and run the in-kernel dequant matmul.
+            // SKaiNET#951 / 0.40.0), so the weights stay packed, marked
+            // `PreTransposedWeight`, and run the in-kernel dequant matmul
+            // with no per-forward transpose.
             //
             // Gated on kernel AVAILABILITY (not engine version): if no
             // registered provider carries a Q5_1 kernel, packing would send
@@ -204,8 +207,8 @@ private fun <T : DType, V> convertOne(
             // the block-major bytes after the lazy transpose — so fall back
             // to the always-correct #169 FP32 dequant instead.
             if (qt.hasPackedMatmulKernel()) {
-                val relaid = BlockQuantPacking.relayoutRowMajorToBlockMajor(bytes, shape, 24, 32)
-                val data = Q5_1BlockTensorData.fromRawBytes(shape, relaid)
+                val data = BlockQuantPacking.packPreTransposed<FP32>(bytes, TensorEncoding.Q5_1, shape)
+                    ?: error("packPreTransposed returned null for Q5_1 despite hasPackedMatmulKernel()==true")
                 ctx.fromData(data as TensorData<FP32, Float>, advertisedDtype) as Tensor<T, V>
             } else {
                 dequantPackedToFp32<T, V>(bytes, qt, shape, ctx)
@@ -214,8 +217,8 @@ private fun <T : DType, V> convertOne(
         GGMLQuantizationType.Q5_0 -> {
             // Same as Q5_1, 22-byte blocks (f16 d + qh + qs, symmetric).
             if (qt.hasPackedMatmulKernel()) {
-                val relaid = BlockQuantPacking.relayoutRowMajorToBlockMajor(bytes, shape, 22, 32)
-                val data = Q5_0BlockTensorData.fromRawBytes(shape, relaid)
+                val data = BlockQuantPacking.packPreTransposed<FP32>(bytes, TensorEncoding.Q5_0, shape)
+                    ?: error("packPreTransposed returned null for Q5_0 despite hasPackedMatmulKernel()==true")
                 ctx.fromData(data as TensorData<FP32, Float>, advertisedDtype) as Tensor<T, V>
             } else {
                 dequantPackedToFp32<T, V>(bytes, qt, shape, ctx)

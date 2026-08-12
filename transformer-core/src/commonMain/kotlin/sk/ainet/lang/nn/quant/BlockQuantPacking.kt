@@ -124,9 +124,15 @@ public object BlockQuantPacking {
      * [pack] (callers dequantize those to FP32 and keep the transposing
      * `linearProject` path).
      *
-     * Not yet the converters' default: flipping gemma/llama onto this is the
-     * "enable pre-transposed by default" step gated on the engine 0.40.0
-     * kernel train (#951) landing — see #184.
+     * The converters' default as of the engine 0.40.0 native-kernel closure
+     * train (SKaiNET#951 landed, gate confirmed live): `GemmaQuantLayout
+     * .packGemmaKQuant` / `LlamaQuantLayout.packLlamaKQuant` and
+     * `GemmaMemSegConverter`'s JVM MemSeg path call this instead of [pack]
+     * whenever the kernel-availability gate ([hasPackedMatmulKernel]) has
+     * confirmed a packed kernel exists — see #184, #170. [pack] itself is
+     * kept reachable (deprecate-don't-delete) as the non-transposed fallback
+     * / parity-comparison path, and both `pack*` functions still expose a
+     * `preTransposed` parameter to opt back into it.
      */
     public fun <T : DType> packPreTransposed(
         bytes: ByteArray,
