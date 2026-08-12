@@ -19,16 +19,33 @@ import sk.ainet.lang.types.DType
  * copy of the same two steps (gemma `GemmaQuantLayout.packGemmaKQuant`, llama
  * `LlamaQuantLayout.packLlamaKQuant`, apertus' JVM converter):
  *
- * 1. re-layout the checkpoint's row-major block order to the input-block-major
- *    order the `matmulQ*` kernels index (`(blockIdx * outDim + r)`), and
- * 2. wrap the relaid bytes in the engine block tensor-data type for the format.
+ * 1. (pre-transposed path only) re-layout the checkpoint's row-major block
+ *    order to the input-block-major order the `matmulQ*` kernels index
+ *    (`(blockIdx * outDim + r)`), and
+ * 2. wrap the bytes in the engine block tensor-data type for the format.
  *
  * This object is that logic, once, keyed by the engine's [TensorEncoding]
  * (a `skainet-lang-core` type — so this file needs no GGUF dependency; model
  * modules map their `GGMLQuantizationType` to an encoding and keep only weight
  * *selection* and naming). Supported: the seven formats with first-class CPU
- * matmul kernels + lazy `ops.transpose` support — Q4_K / Q5_K / Q6_K / Q8_0 /
- * Q4_0 / Q5_0 / Q5_1.
+ * matmul kernels — Q4_K / Q5_K / Q6_K / Q8_0 / Q4_0 / Q5_0 / Q5_1.
+ *
+ * ## Byte-order contract (engine ≥ 0.40.1)
+ *
+ * The engine's `ops.transpose` on packed data performs a **physical**
+ * canonical→input-block-major block-grid permutation (SKaiNET#968 fix) and
+ * therefore **requires its input bytes in the checkpoint's canonical row-major
+ * block order**. Consequently:
+ *
+ * - [pack] stores the checkpoint bytes **verbatim** (canonical, `[out, in]`)
+ *   and relies on the engine transpose inside `linearProject`'s classic path
+ *   to produce kernel order — an O(bytes) copy per forward.
+ * - [packPreTransposed] performs the relayout **once at load time** and marks
+ *   the result [PreTransposedWeight] so `linearProject` never transposes it.
+ *   This is the production path.
+ *
+ * Feeding a [pack] result to a pre-0.40.1 engine (shape-swap-only transpose)
+ * re-creates bug SKaiNET#968; this packer requires the 0.40.1 pin.
  */
 public object BlockQuantPacking {
 
@@ -81,14 +98,33 @@ public object BlockQuantPacking {
     }
 
     /**
+     * Validates the same preconditions [relayoutRowMajorToBlockMajor] enforces
+     * (rank 2, block-aligned inDim, sufficient bytes) without copying — so
+     * [pack]'s no-relayout path fails as loudly as the relayouting path.
+     */
+    private fun requirePackable(bytes: ByteArray, shape: Shape, bytesPerBlock: Int, blockSize: Int) {
+        require(shape.rank == 2) { "packed matmul weight must be 2D, got rank ${shape.rank}" }
+        val outDim = shape[0]
+        val inDim = shape[1]
+        require(inDim % blockSize == 0) { "packed weight inDim ($inDim) must be a multiple of $blockSize" }
+        val expected = outDim.toLong() * (inDim / blockSize).toLong() * bytesPerBlock.toLong()
+        require(bytes.size.toLong() >= expected) {
+            "packed byte buffer ${bytes.size} < expected $expected for [$outDim, $inDim] @ ${bytesPerBlock}B/block"
+        }
+    }
+
+    /**
      * Pack raw checkpoint `bytes` of logical `[out, in]` [shape] into the
-     * heap-packed block tensor data the matmul kernels read directly,
-     * performing the row-major → block-major relayout. Returns `null` for
-     * encodings without a packed kernel (callers dequantize those to FP32).
+     * heap-packed block tensor data for the format, keeping the checkpoint's
+     * **canonical row-major block order verbatim** (no relayout). Returns
+     * `null` for encodings without a packed kernel (callers dequantize those
+     * to FP32).
      *
-     * The result flows through the engine's lazy packed `ops.transpose`
-     * (pure shape swap) into the quantized matmul kernel dispatch, so a
-     * weight packed here never round-trips through FP32.
+     * Canonical order is what the engine's packed `ops.transpose` (≥ 0.40.1)
+     * requires: `linearProject`'s classic path transposes the weight every forward,
+     * physically permuting the block grid into the kernels' input-block-major
+     * order. Prefer [packPreTransposed], which pays that permutation once at
+     * load time instead.
      */
     public fun <T : DType> pack(
         bytes: ByteArray,
@@ -96,28 +132,29 @@ public object BlockQuantPacking {
         shape: Shape,
     ): TensorData<T, *>? {
         val (blockElems, bpb) = blockLayoutFor(encoding) ?: return null
-        val relaid = relayoutRowMajorToBlockMajor(bytes, shape, bpb, blockElems)
+        requirePackable(bytes, shape, bpb, blockElems)
         @Suppress("UNCHECKED_CAST")
         return when (encoding) {
-            TensorEncoding.Q4_K -> Q4_KBlockTensorData(shape, relaid) as TensorData<T, *>
-            TensorEncoding.Q5_K -> Q5_KBlockTensorData(shape, relaid) as TensorData<T, *>
-            TensorEncoding.Q6_K -> Q6_KBlockTensorData(shape, relaid) as TensorData<T, *>
-            TensorEncoding.Q8_0 -> Q8_0BlockTensorData(shape, relaid) as TensorData<T, *>
-            TensorEncoding.Q4_0 -> Q4_0BlockTensorData(shape, relaid) as TensorData<T, *>
-            TensorEncoding.Q5_0 -> Q5_0BlockTensorData(shape, relaid) as TensorData<T, *>
-            TensorEncoding.Q5_1 -> Q5_1BlockTensorData(shape, relaid) as TensorData<T, *>
+            TensorEncoding.Q4_K -> Q4_KBlockTensorData(shape, bytes) as TensorData<T, *>
+            TensorEncoding.Q5_K -> Q5_KBlockTensorData(shape, bytes) as TensorData<T, *>
+            TensorEncoding.Q6_K -> Q6_KBlockTensorData(shape, bytes) as TensorData<T, *>
+            TensorEncoding.Q8_0 -> Q8_0BlockTensorData(shape, bytes) as TensorData<T, *>
+            TensorEncoding.Q4_0 -> Q4_0BlockTensorData(shape, bytes) as TensorData<T, *>
+            TensorEncoding.Q5_0 -> Q5_0BlockTensorData(shape, bytes) as TensorData<T, *>
+            TensorEncoding.Q5_1 -> Q5_1BlockTensorData(shape, bytes) as TensorData<T, *>
             else -> null
         }
     }
 
     /**
      * Like [pack], but returns the weight *already transposed*: logical shape
-     * `[in, out]` over the same block-major bytes, marked with
-     * [PreTransposedWeight] so [sk.ainet.lang.nn.transformer.linearProject]
-     * skips `ops.transpose` and feeds the tensor straight to the packed
-     * matmul dispatch (#184 hoist 3). This is exactly the tensor data the
-     * engine's lazy packed `ops.transpose` would produce from [pack]'s result
-     * — shape swap, zero copy — minus the per-forward wrapper allocation.
+     * `[in, out]` over **relaid (input-block-major, kernel-order) bytes**,
+     * marked with [PreTransposedWeight] so
+     * [sk.ainet.lang.nn.transformer.linearProject] skips `ops.transpose` and
+     * feeds the tensor straight to the packed matmul dispatch (#184 hoist 3).
+     * This is exactly the tensor data the engine's packed `ops.transpose`
+     * (≥ 0.40.1, physical block-grid permutation) would produce from [pack]'s
+     * canonical result — computed once at load time instead of every forward.
      *
      * [logicalShape] is still the checkpoint's `[out, in]`; the swap happens
      * here. Returns `null` for encodings without a packed kernel, same as

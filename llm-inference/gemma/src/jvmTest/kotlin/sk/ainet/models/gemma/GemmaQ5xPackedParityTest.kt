@@ -14,13 +14,13 @@ import sk.ainet.io.JvmRandomAccessSource
 import sk.ainet.io.gguf.GGMLQuantizationType
 import sk.ainet.io.gguf.dequant.DequantOps
 import sk.ainet.io.model.QuantPolicy
+import sk.ainet.lang.nn.quant.BlockQuantPacking
 import sk.ainet.lang.nn.transformer.linearProject
 import sk.ainet.lang.tensor.Shape
-import sk.ainet.lang.tensor.data.Q5_0BlockTensorData
-import sk.ainet.lang.tensor.data.Q5_1BlockTensorData
 import sk.ainet.lang.tensor.data.Q5_0TensorData
 import sk.ainet.lang.tensor.data.Q5_1TensorData
 import sk.ainet.lang.tensor.data.TensorData
+import sk.ainet.lang.tensor.storage.TensorEncoding
 import sk.ainet.lang.types.FP32
 
 /**
@@ -30,8 +30,8 @@ import sk.ainet.lang.types.FP32
  *
  * Two layers of evidence:
  * - [synthetic tests] byte-level parity per format: the converter's exact
- *   packed pipeline (row-major → block-major relayout + `*BlockTensorData` +
- *   lazy-transpose matmul) vs the converter's exact FP32 fallback pipeline
+ *   packed pipeline (canonical bytes via `BlockQuantPacking.pack` + the
+ *   engine's physical packed transpose matmul) vs the converter's exact FP32 fallback pipeline
  *   (`DequantOps.dequantFromBytes` + identity col→row transpose). Q5_0 is
  *   covered here only — the FunctionGemma checkpoint carries no Q5_0 tensor.
  * - [real checkpoint] FunctionGemma-270M "Q5_K_M" ships 81 of 236 tensors as
@@ -128,14 +128,12 @@ class GemmaQ5xPackedParityTest {
         val wRef = ctx.fromFloatArray<FP32, Float>(shape, FP32::class, rowMajor)
         val ref = linearProject(ctx.ops, x, wRef).data.copyToFloatArray()
 
-        // Packed: the converter's packed pipeline, verbatim.
-        @Suppress("DEPRECATION")
-        val relaid = relayoutKSeriesRowMajorToBlockMajor(gguf, shape, bpb, blockSize = 32)
+        // Packed: the converter's classic packed pipeline, verbatim — canonical
+        // checkpoint bytes, [out, in] shape; the engine's physical packed
+        // ops.transpose (>= 0.40.1) inside linearProject produces kernel order.
+        val encoding = if (qt == GGMLQuantizationType.Q5_1) TensorEncoding.Q5_1 else TensorEncoding.Q5_0
         @Suppress("UNCHECKED_CAST")
-        val data = when (qt) {
-            GGMLQuantizationType.Q5_1 -> Q5_1BlockTensorData.fromRawBytes(shape, relaid)
-            else -> Q5_0BlockTensorData.fromRawBytes(shape, relaid)
-        } as TensorData<FP32, Float>
+        val data = BlockQuantPacking.pack<FP32>(gguf, encoding, shape) as TensorData<FP32, Float>
         val y = linearProject(ctx.ops, x, ctx.fromData(data, FP32::class)).data.copyToFloatArray()
 
         assertEquals(ref.size, y.size)

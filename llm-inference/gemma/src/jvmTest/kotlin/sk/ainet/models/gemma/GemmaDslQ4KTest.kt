@@ -20,11 +20,11 @@ import sk.ainet.lang.types.FP32
  * running on the corresponding dequantised FP32 weights.
  *
  * Validates:
- * 1. `relayoutQ4_KRowMajorToBlockMajor` correctly reshuffles GGUF
- *    row-major Q4_K bytes into the input-block-major layout expected by
- *    `JvmQuantizedVectorKernels.matmulQ4_KVec`.
- * 2. The lazy `ops.transpose(Q4_KTensorData)` in `DefaultCpuOpsJvm`
- *    composes correctly with the Q4_K matmul kernel.
+ * 1. Canonical (GGUF row-major) Q4_K bytes under an `[out, in]` shape flow
+ *    through the engine's physical packed `ops.transpose` (>= 0.40.1,
+ *    SKaiNET#968) into the input-block-major layout the Q4_K matmul kernel
+ *    expects.
+ * 2. That transpose composes correctly with the Q4_K matmul kernel dispatch.
  * 3. Running a tiny Gemma DSL model with Q4_K-backed weights produces
  *    logits close to the FP32 baseline (i.e., no wrong-math bug from
  *    layout or dispatch).
@@ -38,9 +38,9 @@ class GemmaDslQ4KTest {
 
     // dim and ffnDim chosen so each Q4_K weight has multiple input blocks per
     // row — `inDim = 512 → blocksPerRow = 2`. With one block per row the
-    // `relayoutKSeriesRowMajorToBlockMajor` is the identity transform and the
-    // test silently misses any relayout bug. Two blocks per row exercises the
-    // real ggml strided codes layout end-to-end.
+    // canonical and input-block-major orders coincide and the test silently
+    // misses any block-order bug. Two blocks per row exercises the real ggml
+    // strided codes layout end-to-end.
     private val dim = 512
     private val nHeads = 2
     private val nKvHeads = 1
@@ -176,8 +176,12 @@ class GemmaDslQ4KTest {
 
     @Suppress("UNCHECKED_CAST")
     private fun q4kTensor(rows: Int, cols: Int, bytes: ByteArray): Tensor<FP32, Float> {
-        val relaid = relayoutQ4_KRowMajorToBlockMajor(bytes, Shape(rows, cols))
-        val data = Q4_KBlockTensorData.fromRawBytes(Shape(rows, cols), relaid)
+        // Canonical row-major bytes verbatim: the classic [out, in] path defers
+        // the block-grid permutation to the engine's physical packed
+        // ops.transpose (>= 0.40.1) inside linearProject. Relayouting here
+        // (as before the SKaiNET#968 layout-contract fix landed in 0.40.1)
+        // would get the blocks permuted a second time.
+        val data = Q4_KBlockTensorData.fromRawBytes(Shape(rows, cols), bytes)
         return ctx.fromData(data as TensorData<FP32, Float>, FP32::class)
     }
 

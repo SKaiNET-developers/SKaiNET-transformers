@@ -76,8 +76,10 @@ class GemmaQuantLayoutTest {
         val td = packGemmaKQuant<FP32>(bytes, GGMLQuantizationType.Q5_K, shape, preTransposed = false)
         assertTrue(td is Q5_KBlockTensorData, "Q5_K should pack to the classic Q5_KBlockTensorData when opted out")
         assertEquals(shape, td.shape, "classic path keeps the checkpoint's [out, in] shape")
-        val expected = relayoutKSeriesRowMajorToBlockMajor(bytes, shape, 176)
-        assertTrue(expected.contentEquals(td.packedData))
+        // Canonical checkpoint bytes verbatim: the classic path defers the
+        // block-grid permutation to the engine's physical packed ops.transpose
+        // (>= 0.40.1) inside linearProject.
+        assertTrue(bytes.contentEquals(td.packedData))
     }
 
     @Test
