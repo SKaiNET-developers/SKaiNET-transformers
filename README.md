@@ -106,7 +106,7 @@ Honest status — see the project-status note at the top of this README.
 
 ## Current release
 
-The current release is **0.40.1** (against **SKaiNET 0.40.1**) — the release that rounds
+The current release is **0.40.2** (against **SKaiNET 0.40.1**) — the release that rounds
 out the **compiled on-device path**: FunctionGemma and SmolLM2 each get a standalone
 DSL → StableHLO → IREE export module, and a new generic Android JNI runtime
 (`llm-runtime/iree-android`) serves any compiled model the way `skainet-backend-jni-cpu`
@@ -121,7 +121,7 @@ every mode.
 **Packed-quant weights, one shared packer.** The GGUF-block → engine packing logic
 gemma/llama/apertus each carried privately is hoisted into `BlockQuantPacking`
 (transformer-core); Q5_0/Q5_1 join Q4_K/Q5_K/Q6_K/Q8_0 as kept-packed (instead of falling
-back to FP32 dequant) now that engine 0.40.0 shipped native Q5 kernels. 0.40.1 also fixes
+back to FP32 dequant) now that engine 0.40.0 shipped native Q5 kernels. 0.40.2 also fixes
 a real matmul-corruption regression the engine pin bump exposed on the classic
 (non-pre-transposed) packed path — see [#311](https://github.com/SKaiNET-developers/SKaiNET-transformers/pull/311).
 
@@ -197,7 +197,7 @@ The recommended way to consume is via the BOM. It pins every published `skainet-
 
 ```kotlin
 dependencies {
-    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.40.1"))
+    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.40.2"))
 
     // Versions resolved from the BOM:
     implementation("sk.ainet.transformers:skainet-transformers-core")

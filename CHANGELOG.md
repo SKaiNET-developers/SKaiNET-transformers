@@ -9,7 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.40.1] — 2026-08-12
+## [0.40.2] — 2026-08-13
+
+Republishes 0.40.1's content — ships against the same **SKaiNET engine 0.40.1** — after
+the 0.40.1 Maven Central publish broke partway through a multi-module release. No
+functional changes beyond the fix below.
+
+### Fixed
+
+- **Broken 0.40.1 release-workflow publish** (#313): `:llm-inference:smollm2` declared
+  `linuxX64()`/`linuxArm64()` Kotlin/Native targets with no source to back them
+  (`jvmMain`-only export tooling, no `commonMain`), so `compileKotlinLinuxArm64` reported
+  `NO-SOURCE` and produced no `.klib` — but the maven-publish plugin still registered a
+  publication for the target, and `generateMetadataFileForLinuxArm64Publication`
+  unconditionally tried to hash the (nonexistent) klib file, throwing
+  `FileNotFoundException` and aborting the tag-triggered `./gradlew publish` partway
+  through the module graph. By that point `llm-api`, `llm-agent`, `llm-core`,
+  `transformer-core`, `llm-bom`, `llm-performance`, `llm-providers`,
+  `llm-inference:{apertus,bert,functiongemma,gemma,llama,moonshine,qwen}`, and smollm2's
+  own JVM publication had already published; `llm-inference:{t5,vec2text,voxtral,whisper}`
+  and all of `llm-runtime:*` never got attempted. Fixed by dropping the two unused target
+  declarations — every other multiplatform module was audited for the same
+  declared-target-vs-actual-source mismatch and none had it. **0.40.1 is superseded —
+  use 0.40.2.**
+
+## [0.40.1] — 2026-08-12 — superseded by 0.40.2, Maven Central publish broke partway through, do not use
 
 Ships against **SKaiNET engine 0.40.1**. The headline is architectural rather than a
 single feature: the tool-calling epic's shared substrate lands in three stacked PRs,
