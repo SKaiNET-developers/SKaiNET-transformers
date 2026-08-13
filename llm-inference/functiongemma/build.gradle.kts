@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
     alias(libs.plugins.vanniktech.mavenPublish)
+    alias(libs.plugins.binary.compatibility.validator)
 }
 
 // FunctionGemma-270M as a standalone function-calling module (the whisper/moonshine

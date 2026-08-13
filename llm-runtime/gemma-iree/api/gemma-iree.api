@@ -1,0 +1,156 @@
+public final class sk/ainet/transformers/gemma/iree/CompactCodec {
+	public static final field INSTANCE Lsk/ainet/transformers/gemma/iree/CompactCodec;
+	public final fun parse (Ljava/lang/String;)Ljava/util/List;
+}
+
+public final class sk/ainet/transformers/gemma/iree/CompactToolCodec {
+	public static final field Companion Lsk/ainet/transformers/gemma/iree/CompactToolCodec$Companion;
+	public fun <init> ()V
+	public fun <init> (Ljava/util/Map;)V
+	public synthetic fun <init> (Ljava/util/Map;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun containsCall (Ljava/lang/String;)Z
+	public final fun parse (Ljava/lang/String;)Ljava/util/List;
+}
+
+public final class sk/ainet/transformers/gemma/iree/CompactToolCodec$Companion {
+	public final fun fromManifest (Lsk/ainet/transformers/gemma/iree/GemmaManifest;)Lsk/ainet/transformers/gemma/iree/CompactToolCodec;
+	public final fun getDEFAULT_TOKEN_TO_NAME ()Ljava/util/Map;
+}
+
+public final class sk/ainet/transformers/gemma/iree/FunctionGemmaChatTemplate : sk/ainet/apps/kllama/chat/ChatTemplate {
+	public fun <init> ()V
+	public fun <init> (Lsk/ainet/transformers/gemma/iree/FunctionGemmaToolCallParserStrategy;)V
+	public synthetic fun <init> (Lsk/ainet/transformers/gemma/iree/FunctionGemmaToolCallParserStrategy;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun apply (Ljava/util/List;Ljava/util/List;Z)Ljava/lang/String;
+	public fun containsToolCall (Ljava/lang/String;)Z
+	public fun parseThinkingBlocks (Ljava/lang/String;)Ljava/util/List;
+	public fun parseToolCalls (Ljava/lang/String;)Ljava/util/List;
+	public fun stripThinking (Ljava/lang/String;)Ljava/lang/String;
+}
+
+public final class sk/ainet/transformers/gemma/iree/FunctionGemmaToolCallParserStrategy : sk/ainet/apps/kllama/chat/ToolCallParserStrategy {
+	public fun <init> ()V
+	public fun <init> (Lsk/ainet/transformers/gemma/iree/CompactToolCodec;)V
+	public synthetic fun <init> (Lsk/ainet/transformers/gemma/iree/CompactToolCodec;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun containsToolCall (Ljava/lang/String;)Z
+	public fun getFormatName ()Ljava/lang/String;
+	public fun parse (Ljava/lang/String;)Ljava/util/List;
+}
+
+public final class sk/ainet/transformers/gemma/iree/FunctionGemmaToolCallingSupport : sk/ainet/apps/kllama/chat/ToolCallingSupport {
+	public fun <init> ()V
+	public fun <init> (Lsk/ainet/transformers/gemma/iree/CompactToolCodec;)V
+	public synthetic fun <init> (Lsk/ainet/transformers/gemma/iree/CompactToolCodec;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun createChatTemplate ()Lsk/ainet/apps/kllama/chat/ChatTemplate;
+	public fun getFamily ()Ljava/lang/String;
+	public fun parseToolCalls (Ljava/lang/String;)Ljava/util/List;
+	public fun supports (Lsk/ainet/apps/kllama/chat/ModelMetadata;)Z
+	public fun toolCallingMode (Lsk/ainet/apps/kllama/chat/ModelMetadata;)Lsk/ainet/apps/kllama/chat/ToolCallingMode;
+}
+
+public final class sk/ainet/transformers/gemma/iree/GemmaManifest {
+	public static final field Companion Lsk/ainet/transformers/gemma/iree/GemmaManifest$Companion;
+	public fun <init> (IIIIIIFFIZLjava/lang/String;Lsk/ainet/transformers/gemma/iree/GemmaManifest$Parameters;Ljava/util/List;Ljava/util/List;Ljava/util/List;Ljava/util/List;Ljava/util/Map;)V
+	public synthetic fun <init> (IIIIIIFFIZLjava/lang/String;Lsk/ainet/transformers/gemma/iree/GemmaManifest$Parameters;Ljava/util/List;Ljava/util/List;Ljava/util/List;Ljava/util/List;Ljava/util/Map;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()I
+	public final fun component10 ()Z
+	public final fun component11 ()Ljava/lang/String;
+	public final fun component12 ()Lsk/ainet/transformers/gemma/iree/GemmaManifest$Parameters;
+	public final fun component13 ()Ljava/util/List;
+	public final fun component14 ()Ljava/util/List;
+	public final fun component15 ()Ljava/util/List;
+	public final fun component16 ()Ljava/util/List;
+	public final fun component17 ()Ljava/util/Map;
+	public final fun component2 ()I
+	public final fun component3 ()I
+	public final fun component4 ()I
+	public final fun component5 ()I
+	public final fun component6 ()I
+	public final fun component7 ()F
+	public final fun component8 ()F
+	public final fun component9 ()I
+	public final fun copy (IIIIIIFFIZLjava/lang/String;Lsk/ainet/transformers/gemma/iree/GemmaManifest$Parameters;Ljava/util/List;Ljava/util/List;Ljava/util/List;Ljava/util/List;Ljava/util/Map;)Lsk/ainet/transformers/gemma/iree/GemmaManifest;
+	public static synthetic fun copy$default (Lsk/ainet/transformers/gemma/iree/GemmaManifest;IIIIIIFFIZLjava/lang/String;Lsk/ainet/transformers/gemma/iree/GemmaManifest$Parameters;Ljava/util/List;Ljava/util/List;Ljava/util/List;Ljava/util/List;Ljava/util/Map;ILjava/lang/Object;)Lsk/ainet/transformers/gemma/iree/GemmaManifest;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getContractVersion ()I
+	public final fun getEot ()I
+	public final fun getGlobalLayerPeriod ()I
+	public final fun getGlobalRopeBase ()F
+	public final fun getHeadDim ()I
+	public final fun getKFirstInOutput ()Z
+	public final fun getNKvHeads ()I
+	public final fun getNLayers ()I
+	public final fun getParameterScope ()Ljava/lang/String;
+	public final fun getParameters ()Lsk/ainet/transformers/gemma/iree/GemmaManifest$Parameters;
+	public final fun getPrefillArgs ()Ljava/util/List;
+	public final fun getPrefillOutputs ()Ljava/util/List;
+	public final fun getSeq ()I
+	public final fun getSlidingRopeBase ()F
+	public final fun getToolMap ()Ljava/util/Map;
+	public final fun getWithPastArgs ()Ljava/util/List;
+	public final fun getWithPastOutputs ()Ljava/util/List;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final synthetic class sk/ainet/transformers/gemma/iree/GemmaManifest$$serializer : kotlinx/serialization/internal/GeneratedSerializer {
+	public static final field INSTANCE Lsk/ainet/transformers/gemma/iree/GemmaManifest$$serializer;
+	public final fun childSerializers ()[Lkotlinx/serialization/KSerializer;
+	public synthetic fun deserialize (Lkotlinx/serialization/encoding/Decoder;)Ljava/lang/Object;
+	public final fun deserialize (Lkotlinx/serialization/encoding/Decoder;)Lsk/ainet/transformers/gemma/iree/GemmaManifest;
+	public final fun getDescriptor ()Lkotlinx/serialization/descriptors/SerialDescriptor;
+	public synthetic fun serialize (Lkotlinx/serialization/encoding/Encoder;Ljava/lang/Object;)V
+	public final fun serialize (Lkotlinx/serialization/encoding/Encoder;Lsk/ainet/transformers/gemma/iree/GemmaManifest;)V
+	public fun typeParametersSerializers ()[Lkotlinx/serialization/KSerializer;
+}
+
+public final class sk/ainet/transformers/gemma/iree/GemmaManifest$Companion {
+	public final fun parse (Ljava/lang/String;)Lsk/ainet/transformers/gemma/iree/GemmaManifest;
+	public final fun serializer ()Lkotlinx/serialization/KSerializer;
+}
+
+public final class sk/ainet/transformers/gemma/iree/GemmaManifest$Parameters {
+	public static final field Companion Lsk/ainet/transformers/gemma/iree/GemmaManifest$Parameters$Companion;
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Lsk/ainet/transformers/gemma/iree/GemmaManifest$Parameters;
+	public static synthetic fun copy$default (Lsk/ainet/transformers/gemma/iree/GemmaManifest$Parameters;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lsk/ainet/transformers/gemma/iree/GemmaManifest$Parameters;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getPrefill ()Ljava/lang/String;
+	public final fun getRedecode ()Ljava/lang/String;
+	public final fun getWithPast ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final synthetic class sk/ainet/transformers/gemma/iree/GemmaManifest$Parameters$$serializer : kotlinx/serialization/internal/GeneratedSerializer {
+	public static final field INSTANCE Lsk/ainet/transformers/gemma/iree/GemmaManifest$Parameters$$serializer;
+	public final fun childSerializers ()[Lkotlinx/serialization/KSerializer;
+	public synthetic fun deserialize (Lkotlinx/serialization/encoding/Decoder;)Ljava/lang/Object;
+	public final fun deserialize (Lkotlinx/serialization/encoding/Decoder;)Lsk/ainet/transformers/gemma/iree/GemmaManifest$Parameters;
+	public final fun getDescriptor ()Lkotlinx/serialization/descriptors/SerialDescriptor;
+	public synthetic fun serialize (Lkotlinx/serialization/encoding/Encoder;Ljava/lang/Object;)V
+	public final fun serialize (Lkotlinx/serialization/encoding/Encoder;Lsk/ainet/transformers/gemma/iree/GemmaManifest$Parameters;)V
+	public fun typeParametersSerializers ()[Lkotlinx/serialization/KSerializer;
+}
+
+public final class sk/ainet/transformers/gemma/iree/GemmaManifest$Parameters$Companion {
+	public final fun serializer ()Lkotlinx/serialization/KSerializer;
+}
+
+public final class sk/ainet/transformers/gemma/iree/ToolCall {
+	public fun <init> (Ljava/lang/String;Ljava/util/Map;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/util/Map;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/util/Map;
+	public final fun copy (Ljava/lang/String;Ljava/util/Map;)Lsk/ainet/transformers/gemma/iree/ToolCall;
+	public static synthetic fun copy$default (Lsk/ainet/transformers/gemma/iree/ToolCall;Ljava/lang/String;Ljava/util/Map;ILjava/lang/Object;)Lsk/ainet/transformers/gemma/iree/ToolCall;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getArgs ()Ljava/util/Map;
+	public final fun getTool ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
