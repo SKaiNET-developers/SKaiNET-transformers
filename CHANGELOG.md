@@ -9,6 +9,109 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.40.2] — 2026-08-13
+
+Republishes 0.40.1's content — ships against the same **SKaiNET engine 0.40.1** — after
+the 0.40.1 Maven Central publish broke partway through a multi-module release. No
+functional changes beyond the fix below.
+
+### Fixed
+
+- **Broken 0.40.1 release-workflow publish** (#313): `:llm-inference:smollm2` declared
+  `linuxX64()`/`linuxArm64()` Kotlin/Native targets with no source to back them
+  (`jvmMain`-only export tooling, no `commonMain`), so `compileKotlinLinuxArm64` reported
+  `NO-SOURCE` and produced no `.klib` — but the maven-publish plugin still registered a
+  publication for the target, and `generateMetadataFileForLinuxArm64Publication`
+  unconditionally tried to hash the (nonexistent) klib file, throwing
+  `FileNotFoundException` and aborting the tag-triggered `./gradlew publish` partway
+  through the module graph. By that point `llm-api`, `llm-agent`, `llm-core`,
+  `transformer-core`, `llm-bom`, `llm-performance`, `llm-providers`,
+  `llm-inference:{apertus,bert,functiongemma,gemma,llama,moonshine,qwen}`, and smollm2's
+  own JVM publication had already published; `llm-inference:{t5,vec2text,voxtral,whisper}`
+  and all of `llm-runtime:*` never got attempted. Fixed by dropping the two unused target
+  declarations — every other multiplatform module was audited for the same
+  declared-target-vs-actual-source mismatch and none had it. **0.40.1 is superseded —
+  use 0.40.2.**
+
+## [0.40.1] — 2026-08-12 — superseded by 0.40.2, Maven Central publish broke partway through, do not use
+
+Ships against **SKaiNET engine 0.40.1**. The headline is architectural rather than a
+single feature: the tool-calling epic's shared substrate lands in three stacked PRs,
+every packed-quant format gets a single hoisted packer with a pre-transposed-by-default
+fast path now that native Q5 kernels shipped, FunctionGemma and SmolLM2 each get a
+standalone DSL→StableHLO→IREE export module, and a generic Android JNI runtime serves
+the compiled path the way `skainet-backend-jni-cpu` already serves the eager one. Also
+fixes a real packed-quant matmul-corruption regression that the 0.40.0→0.40.1 engine
+pin exposed on the classic (non-pre-transposed) path.
+
+### Added
+
+- **Tool-calling epic substrate (#35), landed in three stacked PRs**: `generateUntilStop`
+  promoted to `llm-core`, demo/agent CLI extracted out of `kllama` into `llm-agent`
+  (#296, closes #37/#49-P1); HF-side chat-template auto-detection from
+  `tokenizer_config.json` / `chat_template.json` / `config.json` plus registerable
+  parser strategies (#297, closes #38/#40); `AgentCli` resolution diagnostics,
+  detection/diagnostics test coverage, and validation against a real Qwen instruct
+  GGUF (#299, closes #41/#42/#43/#44).
+- **Packed Q5_0/Q5_1 converter path + shared block packer** (#294, closes #170,
+  implements #184 items 2–3): `GemmaMemSegConverter` keeps Q5_1/Q5_0 weights packed
+  instead of falling back to FP32 dequant, gated on `hasPackedMatmulKernel()` rather
+  than engine version (81 of FunctionGemma-270M's 236 tensors are Q5_1). The
+  GGUF-block → engine-tensor packing that gemma/llama/apertus each carried privately
+  is hoisted into `sk.ainet.lang.nn.quant.BlockQuantPacking` (transformer-core), and
+  `PreTransposedWeight` marks weights already in kernel-feed layout so
+  `linearProject` can skip `ops.transpose` entirely.
+- **FunctionGemma extracted into a standalone module** (#302): `:llm-inference:functiongemma`
+  owns the function-calling export/contract (`FunctionGemmaSpec`, `FunctionGemmaContract`,
+  `FunctionGemmaExportHarness`), moved verbatim (byte-identical, sha256-verified) from
+  `:llm-runtime:kgemma`, which keeps `@Deprecated` delegating shims. `:llm-runtime:gemma-iree`
+  gains manifest-driven support (`GemmaManifest`, `GemmaKvDecoder.fromManifest`,
+  `CompactToolCodec.fromManifest`).
+- **SmolLM2 compiled-export path** (#305 epic): host-side StableHLO export for
+  SmolLM2-135M-Instruct following the gemma export pattern — no export existed for the
+  llama architecture before this (#306); a standalone `:llm-inference:smollm2` module
+  with the redecode-graph + DSL argMax tail, numerically verified end-to-end via
+  `iree-compile`/`iree-run-module` (#308).
+- **Generic Android JNI runtime for the compiled path** (#309): `:llm-runtime:iree-android`,
+  the compiled-path counterpart to the engine's `skainet-backend-jni-cpu` — binds
+  external weights from a `.irpa`, invokes a named compiled function, model-agnostic.
+  Both `arm64-v8a`/`armeabi-v7a` ABIs, both CPU and Vulkan HAL drivers built in.
+- **Android Antora docs** (#310): a getting-started tutorial for the eager path and an
+  eager-vs-compiled explanation page, tying together the JNI eager backend and the new
+  compiled runtime for a reader deciding which to use.
+
+### Changed
+
+- **SKaiNET engine 0.39.1 → 0.40.0 → 0.40.1** (#307, #311). 0.40.0 brings native
+  Q5_0/Q5_1 kernels, so the gemma/llama packed-weight converters flip to
+  `packPreTransposed` by default wherever a packed kernel is confirmed available
+  (Q4_K/Q5_K/Q6_K/Q8_0 unconditionally; Q4_0/Q5_0/Q5_1 kernel-gated as before) —
+  verified byte/token-identical greedy decode across the FP32 baseline, the JVM
+  MemSeg path, and the Kotlin/Native board path on a real FunctionGemma-270M
+  checkpoint. 0.40.1 is the packed-quant regression fix below.
+
+### Fixed
+
+- **kllama native kernels now actually register on Linux Kotlin/Native** (#301,
+  closes #300): `linuxX64`/`linuxArm64` publish the cinterop-embedded native kernels,
+  but nothing ever called the engine's `installNativeKernels()` on those targets (K/N
+  has no `ServiceLoader`) — measured 0.6 → 2.06 tok/s (3.4×) on SmolLM2-135M Q8_0 once
+  fixed.
+- **Packed-quant classic-path matmul corruption under engine 0.40.1** (#311): engine
+  0.40.1's `ops.transpose` became a *physical* canonical→kernel-native block-grid
+  permutation (closing engine #968), but `BlockQuantPacking.pack()`'s classic path was
+  already eagerly relayouting bytes to kernel-native order at load time — so the
+  weight got double-permuted at forward time, silently producing wrong matmul output
+  on Q4_K/Q5_0/Q5_1 (not a crash). `pack()` now stores checkpoint bytes verbatim; the
+  Apertus Q4_K/Q6_K converter (which carried its own inlined, un-migrated relayout) is
+  switched onto the shared `packPreTransposed` path. New parity-matrix,
+  synthetic-Apertus, and llama quant-layout tests close the coverage gap that let this
+  ship undetected. The pre-transposed production path — what gemma/llama/kgemma
+  actually serve — was never affected. Root cause tracked upstream at
+  [SKaiNET#973](https://github.com/SKaiNET-developers/SKaiNET/issues/973): packed-quant
+  byte order is an unwritten, contradictory contract across the engine and its
+  converters.
+
 ## [0.39.1] — 2026-08-11
 
 Patch release against **SKaiNET engine 0.39.1** — the gemma function-calling day:

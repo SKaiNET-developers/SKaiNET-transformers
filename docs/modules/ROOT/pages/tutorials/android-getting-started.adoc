@@ -49,13 +49,13 @@ architectures) to your Android target's dependencies:
 ----
 // build.gradle.kts (KMP module, androidMain, or a plain Android app module)
 dependencies {
-    implementation(platform("sk.ainet:skainet-bom:0.40.0"))
+    implementation(platform("sk.ainet:skainet-bom:0.40.1"))
     implementation("sk.ainet.core:skainet-backend-cpu")
     // The NEON JNI kernel backend (AAR, engine >= 0.39.0). ServiceLoader
     // self-registers it on ART at process start — nothing to call.
     runtimeOnly("sk.ainet.core:skainet-backend-jni-cpu")
 
-    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.39.1"))
+    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.40.2"))
     implementation("sk.ainet.transformers:skainet-transformers-core")
     implementation("sk.ainet.transformers:skainet-transformers-runtime-kllama")
     implementation("sk.ainet.transformers:skainet-transformers-inference-llama")

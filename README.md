@@ -106,26 +106,24 @@ Honest status — see the project-status note at the top of this README.
 
 ## Current release
 
-The current release is **0.39.1** (against **SKaiNET 0.39.1**) — the release that turns the
-mobile story around: **Android apps decode with native NEON kernels out of the box**.
+The current release is **0.40.2** (against **SKaiNET 0.40.1**) — the release that rounds
+out the **compiled on-device path**: FunctionGemma and SmolLM2 each get a standalone
+DSL → StableHLO → IREE export module, and a new generic Android JNI runtime
+(`llm-runtime/iree-android`) serves any compiled model the way `skainet-backend-jni-cpu`
+already serves the eager path.
 
-**Android NEON, no setup.** The `runtime-kllama` and `runtime-kgemma` Android artifacts now carry
-the engine's new `sk.ainet.core:skainet-backend-jni-cpu` AAR as a transitive runtime dependency.
-The backend self-registers via ServiceLoader on ART and provides NEON kernels (runtime dotprod
-dispatch) for Q8_0 / Q4_0 / Q4_K / Q5_K / Q6_K — measured **~24 tok/s vs ~3.8 scalar** (~6.4×)
-decode-kernel throughput on SmolLM2-135M Q8_0 on a Pixel 8a. Engine 0.39.1 also makes
-`createRandomAccessSource` real on Android, so GGUF loading streams instead of materializing the
-whole file on the ART heap — the hard-OOM load path is gone — and the GGUF loader now fails fast
-on unsupported quantization types.
+**Tool-calling epic substrate lands.** Three stacked PRs complete the shared architecture
+behind #35: HF-side chat-template auto-detection, registerable parser strategies,
+resolution diagnostics, and validation against a real Qwen instruct checkpoint —
+`AgentCli` now reports *why* a model resolved to native or generic tool-calling mode, in
+every mode.
 
-**whisper-tiny in the NN DSL** (`skainet-transformers-inference-whisper`): encoder, fixed-masked-KV
-decoder, weights streamed straight from the HF safetensors checkpoint, and an export harness
-emitting MLIR + IRPA for IREE — no PyTorch/ONNX scripts anywhere. Verified bit-close against the
-ONNX-pipeline golden and on-device (Pixel Tensor G3, Vulkan).
-
-**Runtime facades on iOS.** `runtime-kllama` and `runtime-kgemma` now publish `iosArm64` +
-`iosSimulatorArm64` klibs, and the [supported-targets matrix](#supported-targets) documents which
-artifact runs where.
+**Packed-quant weights, one shared packer.** The GGUF-block → engine packing logic
+gemma/llama/apertus each carried privately is hoisted into `BlockQuantPacking`
+(transformer-core); Q5_0/Q5_1 join Q4_K/Q5_K/Q6_K/Q8_0 as kept-packed (instead of falling
+back to FP32 dequant) now that engine 0.40.0 shipped native Q5 kernels. 0.40.2 also fixes
+a real matmul-corruption regression the engine pin bump exposed on the classic
+(non-pre-transposed) packed path — see [#311](https://github.com/SKaiNET-developers/SKaiNET-transformers/pull/311).
 
 **SmolLM2** joins the tool-calling families (`SmolLMChatTemplate` + parser strategy), and a
 cross-target **SmolLM2-135M inference spike** in `kllama`'s commonTest gives directly comparable
@@ -199,7 +197,7 @@ The recommended way to consume is via the BOM. It pins every published `skainet-
 
 ```kotlin
 dependencies {
-    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.39.1"))
+    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.40.2"))
 
     // Versions resolved from the BOM:
     implementation("sk.ainet.transformers:skainet-transformers-core")
