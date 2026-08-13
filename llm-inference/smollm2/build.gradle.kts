@@ -20,12 +20,13 @@ plugins {
 //   jvmMain — SmolLm2ExportHarness (trace + StableHLO emit + safetensors) and
 //             the env-driven CLI entry (exportSmolLm2 task below).
 //
-// Targets mirror functiongemma's (jvm for authoring/export, linux{X64,Arm64}
-// for host tooling).
+// JVM-only for now: the export harness is host tooling, not on-device code,
+// and there's no commonMain/native source to justify publishing empty
+// linux{X64,Arm64} klibs (unlike functiongemma, which shares real commonMain
+// code across targets). Add native targets if/when this module gains actual
+// shared or native-specific source.
 kotlin {
     jvm()
-    linuxX64()
-    linuxArm64()
 
     sourceSets {
         commonMain.dependencies {
