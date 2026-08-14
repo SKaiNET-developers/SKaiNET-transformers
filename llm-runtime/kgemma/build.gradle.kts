@@ -52,6 +52,18 @@ kotlin {
     iosArm64()
     iosSimulatorArm64()
 
+    // Real EAGER FunctionGemma CLI, unlike the shared nativeMain stub above —
+    // entry point in its own package (cli.android, not cli) so it doesn't
+    // collide with nativeMain's `cli.main` in the same compilation.
+    androidNativeArm32 {
+        binaries {
+            executable {
+                entryPoint = "sk.ainet.apps.kgemma.cli.android.main"
+                baseName = "kgemma"
+            }
+        }
+    }
+
     jvm {
         mainRun {
             mainClass.set("sk.ainet.apps.kgemma.cli.MainKt")
@@ -156,6 +168,16 @@ kotlin {
         val macosArm64Main by getting { dependsOn(macosMain) }
         val iosArm64Main by getting { dependsOn(iosMain) }
         val iosSimulatorArm64Main by getting { dependsOn(iosMain) }
+        val androidNativeArm32Main by getting {
+            dependsOn(nativeMain)
+            dependencies {
+                // ToolCall/CompactCodec/FunctionGemmaChatTemplate — the compile-leg
+                // export (FunctionGemmaExportHarness) isn't needed on-device, so
+                // unlike jvmMain this doesn't pull in :llm-inference:functiongemma.
+                implementation(project(":llm-runtime:gemma-iree"))
+                implementation(project(":llm-agent"))
+            }
+        }
     }
 }
 

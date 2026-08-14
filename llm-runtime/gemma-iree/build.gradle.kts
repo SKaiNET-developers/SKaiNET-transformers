@@ -20,6 +20,10 @@ kotlin {
     linuxX64()
     linuxArm64()
     macosArm64() // Apple Silicon host dev (mirrors :llm-runtime:kgemma); uses the same nativeMain sources
+    // ToolCall/CompactCodec/FunctionGemmaChatTemplate for :llm-runtime:kgemma's
+    // androidNativeArm32 eager CLI — IreeRuntime/GemmaDecoder (the on-device
+    // vmfb decode loop) aren't used by that path, only the commonMain grammar.
+    androidNativeArm32()
 
     sourceSets {
         commonMain.dependencies {

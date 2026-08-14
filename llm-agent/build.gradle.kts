@@ -25,6 +25,7 @@ kotlin {
     linuxX64()
     linuxArm64()
     macosArm64()
+    androidNativeArm32()
     jvm()
 
     js {
