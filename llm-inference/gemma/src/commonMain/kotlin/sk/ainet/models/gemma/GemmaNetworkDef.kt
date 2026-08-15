@@ -166,10 +166,22 @@ public fun <T : DType, V> gemmaNetwork(
             // prior hardcoded 1.0 (a Gemma-4 "q/k-norm makes scale 1.0" claim)
             // over-sharpened softmax for >1 token => parity broke at pos>=1.
             attentionScale = null,
-            // gemma3 has NO v_norm (gguf carries no attn_v_norm tensor; only
-            // q/k norm). vNormNoScale=true applied a spurious parameterless V
-            // RMS-normalization llama.cpp/HF don't do.
-            vNormNoScale = false,
+            // Gemma 4 (unlike gemma3) DOES have v_norm: HF Gemma4TextAttention.__init__
+            // declares `self.v_norm = Gemma4RMSNorm(self.head_dim, eps=..., with_scale=False)`
+            // and forward() calls `value_states = self.v_norm(value_states)` right after
+            // v_proj, before it's used in attention (transformers 5.15.0, confirmed against
+            // real source — not just a comment/doc claim). No GGUF tensor is needed since
+            // with_scale=False is a parameterless per-head RMS normalization, computed
+            // on-the-fly below (same as MultiHeadAttention's existing vNormNoScale path).
+            // Previously disabled here based on a gemma3-specific finding (gemma3 genuinely
+            // has no v_norm) that got incorrectly generalized to gemma4 too — this was THE
+            // root cause of the immediate-<eos> decode collapse investigated in
+            // GEMMA4_E2B_SKAINET_FINDINGS.md: without it, raw (un-normalized) V values (whose
+            // per-head RMS is ~40-50, confirmed matching the real checkpoint via direct
+            // ground-truth comparison) flow straight into the softmax-weighted sum, producing
+            // an attention output ~35-60x too large, which compounds through 35 layers into a
+            // final-logit distribution completely unlike the real trained model's.
+            vNormNoScale = true,
             id = "attn",
             slidingWindow = slidingWindow
         ) {
