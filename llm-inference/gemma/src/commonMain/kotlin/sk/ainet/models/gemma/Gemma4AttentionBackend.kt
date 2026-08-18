@@ -59,17 +59,37 @@ public class Gemma4AttentionBackend<T : DType>(
         // Apply RoPE with layer-specific parameters
         applyRopeGqa(qBuf, kBuf, position, ropeBase, layerHeadDim, rotaryDim)
 
-        // Store to KV cache — pad to maxKvDim if layer has smaller KV dim
-        val layerKvDim = nKvHeads * layerHeadDim
-        val maxKvDim = cache.kvDim
-        if (layerKvDim < maxKvDim) {
-            val paddedK = FloatArray(maxKvDim)
-            kBuf.copyInto(paddedK, 0, 0, layerKvDim)
-            val paddedV = FloatArray(maxKvDim)
-            vBuf.copyInto(paddedV, 0, 0, layerKvDim)
-            cache.store(layerIdx, position, paddedK, 0, paddedV, 0)
-        } else {
-            cache.store(layerIdx, position, kBuf, 0, vBuf, 0)
+        // Store to KV cache — pad to maxKvDim if layer has smaller KV dim.
+        //
+        // Shared-KV layers (config.isKvShared) all resolve to the SAME physical cache slot
+        // (config.getCacheLayerIndex) — that's the whole point of sharing, to reuse one
+        // layer's K/V across the group instead of recomputing per layer. But
+        // HybridTransformerBlock has no KV-sharing awareness: it always runs a fresh Q/K/V
+        // projection for every layer and passes the result here regardless. Storing
+        // unconditionally meant every shared layer clobbered the one shared slot with its
+        // own (architecturally unintended) K/V on every forward() call — so by the time a
+        // later layer in the group attended over an earlier *position*, it read whichever
+        // shared layer happened to run last for that position, not the group's own anchor
+        // K/V, corrupting attention more and more as generated sequence length grew (see
+        // GEMMA4_E2B_SKAINET_FINDINGS.md — immediate-<eos> collapse, worsening with length).
+        // Only the group's designated owner (config.getCacheLayerIndex(layerIdx) ==
+        // layerIdx — itself for non-shared layers, the first layer of the group for shared
+        // ones) should ever write; every other shared layer must read-only reuse what the
+        // owner already stored for the current position (the owner's block always runs
+        // first in layer order, so its store always precedes any shared reader in the same
+        // forward() pass).
+        if (config.getCacheLayerIndex(layerIdx) == layerIdx) {
+            val layerKvDim = nKvHeads * layerHeadDim
+            val maxKvDim = cache.kvDim
+            if (layerKvDim < maxKvDim) {
+                val paddedK = FloatArray(maxKvDim)
+                kBuf.copyInto(paddedK, 0, 0, layerKvDim)
+                val paddedV = FloatArray(maxKvDim)
+                vBuf.copyInto(paddedV, 0, 0, layerKvDim)
+                cache.store(layerIdx, position, paddedK, 0, paddedV, 0)
+            } else {
+                cache.store(layerIdx, position, kBuf, 0, vBuf, 0)
+            }
         }
 
         // Compute attention
