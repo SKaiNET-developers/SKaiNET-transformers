@@ -74,6 +74,7 @@ kotlin {
                 // pipeline test. JVM-only: native-cpu has no Kotlin/
                 // Native, JS, or Wasm targets.
                 implementation(libs.skainet.backend.nativeCpu)
+                implementation(libs.skainet.backend.api)
             }
         }
     }
