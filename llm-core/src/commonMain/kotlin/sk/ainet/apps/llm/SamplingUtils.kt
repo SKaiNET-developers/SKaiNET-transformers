@@ -84,3 +84,42 @@ public fun sampleFromLogits(
     }
     return logits.lastIndex
 }
+
+/**
+ * A token with a score — the currency of candidate-based sampling (transformers#337): a two-stage
+ * lm_head (cheap approximate scoring over the full vocab, exact rescoring of the survivors) hands
+ * the sampler a *candidate list* instead of a full-vocab logits array.
+ */
+public data class ScoredToken(public val token: Int, public val score: Float)
+
+/**
+ * Sample a token from a candidate list — the candidate-shaped sibling of [sampleFromLogits],
+ * with the same temperature semantics:
+ *
+ * - `temperature <= 1e-6` → greedy (highest score)
+ * - otherwise → temperature-scaled softmax over the **candidates** + categorical sample
+ *
+ * The probability mass outside [candidates] is treated as zero — that is the two-stage contract:
+ * whoever built the list already decided the tail cannot win. Pair with a rescorer that selects
+ * candidates conservatively (e.g. `BitNetTwoStageDecode.topK`).
+ */
+public fun sampleFromCandidates(
+    candidates: List<ScoredToken>,
+    temperature: Float,
+    random: Random = Random.Default,
+): Int {
+    require(candidates.isNotEmpty()) { "sampleFromCandidates needs at least one candidate" }
+    if (temperature <= 1e-6f) {
+        var best = candidates[0]
+        for (i in 1 until candidates.size) if (candidates[i].score > best.score) best = candidates[i]
+        return best.token
+    }
+    val scores = FloatArray(candidates.size) { candidates[it].score / temperature }
+    softmaxInPlace(scores)
+    var r = random.nextFloat()
+    for (i in scores.indices) {
+        r -= scores[i]
+        if (r <= 0f) return candidates[i].token
+    }
+    return candidates.last().token
+}
