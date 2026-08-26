@@ -29,6 +29,7 @@ import sk.ainet.lang.memory.plan.WeightShapeOrientation
 import sk.ainet.lang.types.FP32
 import sk.ainet.models.llama.DecoderGgufWeightLoader
 import sk.ainet.models.llama.LlamaNetworkLoader
+import sk.ainet.models.bitnet.BitNetNetworkLoader
 import sk.ainet.models.qwen.QwenNetworkLoader
 import java.nio.file.Path
 import kotlin.io.path.exists
@@ -235,6 +236,7 @@ fun main(args: Array<String>) {
             // tensors in their stored block encoding as packed tensor data,
             // then the per-family network loader builds the right module:
             //   - Qwen → qwenNetwork() (QK-norm + NEOX RoPE)
+            //   - BitNet → bitnetNetwork() (relu² FFN + sub-norms)
             //   - else → llamaNetwork() (LLaMA / Mistral default)
             val acceptedArchitectures = modelInfo.family.architectures + setOf(modelInfo.architecture)
             val loader = DecoderGgufWeightLoader(
@@ -249,10 +251,10 @@ fun main(args: Array<String>) {
                 println("Context length capped to ${cliArgs.contextLength} (model default: ${convertedWeights.metadata.contextLength})")
             }
 
-            val model = if (modelInfo.family == ModelFamily.QWEN) {
-                QwenNetworkLoader.fromWeights(convertedWeights)
-            } else {
-                LlamaNetworkLoader.fromWeights(convertedWeights)
+            val model = when (modelInfo.family) {
+                ModelFamily.QWEN -> QwenNetworkLoader.fromWeights(convertedWeights)
+                ModelFamily.BITNET -> BitNetNetworkLoader.fromWeights(convertedWeights)
+                else -> LlamaNetworkLoader.fromWeights(convertedWeights)
             }
             OptimizedLLMRuntime(
                 model = model,

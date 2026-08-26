@@ -72,6 +72,13 @@ public class MultiHeadAttention<T : DType, V>(
      */
     public val qkNormEps: Double = 1e-5,
     /**
+     * BitNet-style attention sub-layer norm (`attn_sub_norm`): an RMSNorm applied to the merged
+     * attention output BEFORE the o_projection (b1.58-2B4T; verified against NeoGPU's reference
+     * driver). Off for every other architecture.
+     */
+    public val attnSubNorm: Boolean = false,
+    public val attnSubNormEps: Double = 1e-5,
+    /**
      * Explicit scale applied to the attention scores `Q @ K^T`. When `null`
      * (default), uses the standard `1 / sqrt(head_dim)`. Gemma 4 sets this
      * to `1.0f` because q_norm/k_norm have already normalized Q and K to
@@ -198,11 +205,17 @@ public class MultiHeadAttention<T : DType, V>(
         RMSNormalization(intArrayOf(headDim), eps = qkNormEps, name = "$name.k_norm", unitOffset = qkNormUnitOffset, dtype = dtype)
     } else null
 
+    /** BitNet `attn_sub_norm` over the merged attention output (dim = nHeads·headDim). */
+    public val subNorm: RMSNormalization<T, V>? = if (attnSubNorm) {
+        RMSNormalization(intArrayOf(qDim), eps = attnSubNormEps, name = "$name.sub_norm", dtype = dtype)
+    } else null
+
     @Suppress("UNCHECKED_CAST")
     override val modules: List<Module<T, V>>
         get() = buildList {
             if (qNorm != null) add(qNorm)
             if (kNorm != null) add(kNorm)
+            if (subNorm != null) add(subNorm)
             if (rope != null) add(rope as Module<T, V>)
             if (kvCache != null) add(kvCache as Module<T, V>)
         }
@@ -405,7 +418,8 @@ public class MultiHeadAttention<T : DType, V>(
         // `ops.*` SDPA path below, which exports cleanly. This is exactly the eager
         // fast-path / traceable-path split `ExecutionContext.isRecording` documents.
         if (qSeqLen == 1 && !isCrossAttention && slidingWindow == null && !ctx.isRecording) {
-            val merged = fusedDecodeAttention(q, fullK, fullV, scale, ctx)
+            var merged = fusedDecodeAttention(q, fullK, fullV, scale, ctx)
+            subNorm?.let { merged = it.forward(merged, ctx) }
             var output = PhaseProfile.time("attn.o_proj") { linearProject(ops, merged, wO) }
             if (bias) output = ops.add(output, params[oWIdx + 1].value)
             if (mhaDump) mhaDumpStat("[blk.0.mha post-fused-decode ]", output)
@@ -462,9 +476,10 @@ public class MultiHeadAttention<T : DType, V>(
         val swappedBack = swapSeqHeadDims(squeezed, ctx)
         // Output sequence length follows Q, not K/V — relevant for cross-attn
         // where kvSeqLen and qSeqLen differ.
-        val merged = ops.reshape(swappedBack, Shape(qSeqLen, qDim))
+        var merged = ops.reshape(swappedBack, Shape(qSeqLen, qDim))
 
         // Output projection: merged @ wO^T (+ bias if enabled)
+        subNorm?.let { merged = it.forward(merged, ctx) }
         var output = linearProject(ops, merged, wO)
         if (bias) {
             output = ops.add(output, params[oWIdx + 1].value)

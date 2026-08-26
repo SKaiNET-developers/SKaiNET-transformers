@@ -36,6 +36,7 @@ include("llm-agent")
 include("llm-providers")
 include("llm-inference:llama")
 include("llm-inference:qwen")
+include("llm-inference:bitnet")
 include("llm-inference:gemma")
 // FunctionGemma function-calling product module: export spec + harness + contract
 // manifest for the DSL -> StableHLO -> IREE pipeline (whisper/moonshine pattern).
