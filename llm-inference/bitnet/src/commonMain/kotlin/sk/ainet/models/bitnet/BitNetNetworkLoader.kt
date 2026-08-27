@@ -140,7 +140,17 @@ public class BitNetNetworkLoader @PublishedApi internal constructor(
     ): Module<T, V> {
         val model = bitnetNetwork<T, V>(weights.metadata)
 
-        val weightTensors = weights.tensors.map { (name, tensor) ->
+        // Tied embeddings (BitNet-2B4T ships no output.weight): serve the lm_head from
+        // token_embd — the same fallback DecoderGgufWeightLoader applies, needed here too
+        // because the packed path (BitNetPackedGgufLoader) bypasses that loader entirely.
+        val boundTensors =
+            if ("output.weight" !in weights.tensors && "token_embd.weight" in weights.tensors) {
+                weights.tensors + ("output.weight" to weights.tensors.getValue("token_embd.weight"))
+            } else {
+                weights.tensors
+            }
+
+        val weightTensors = boundTensors.map { (name, tensor) ->
             WeightTensor(
                 name = name,
                 shape = tensor.shape.dimensions.toList(),

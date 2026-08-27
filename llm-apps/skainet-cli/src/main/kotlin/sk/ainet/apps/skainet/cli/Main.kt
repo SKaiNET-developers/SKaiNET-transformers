@@ -29,7 +29,10 @@ import sk.ainet.lang.memory.plan.WeightShapeOrientation
 import sk.ainet.lang.types.FP32
 import sk.ainet.models.llama.DecoderGgufWeightLoader
 import sk.ainet.models.llama.LlamaNetworkLoader
+import sk.ainet.exec.kernel.NativeTernaryF32GemvKernel
+import sk.ainet.exec.kernel.NativeTernaryLmheadKernel
 import sk.ainet.models.bitnet.BitNetNetworkLoader
+import sk.ainet.models.bitnet.BitNetPackedGgufLoader
 import sk.ainet.models.qwen.QwenNetworkLoader
 import java.nio.file.Path
 import kotlin.io.path.exists
@@ -230,6 +233,29 @@ fun main(args: Array<String>) {
                 randomAccessProvider = { JvmRandomAccessSource.open(modelPath.toString()) }
             ).load<FP32, Float>(ctx)
             OptimizedLLMRuntime(model, ctx, OptimizedLLMMode.DIRECT, FP32::class)
+        } else if (modelInfo.family == ModelFamily.BITNET) {
+            // BitNet b1.58: the packed I2_S path (transformers#337). Ternary projections load as
+            // 2-bit BITNET_B1_58 tensors (0.25 B/weight) through the SKaiNET engine loader, and
+            // dispatch runs them on the vendored NeoGPU NEON kernels installed below — the exact
+            // f32 path, no requantization error. A file with tied embeddings serves the lm_head
+            // from token_embd; one with output.weight gets the fused BITNET_PLANES format.
+            println("Loading BitNet GGUF model from $modelPath via BitNetPackedGgufLoader (packed I2_S, GROUP_128 flavor)...")
+            if (cliArgs.contextLength != null) {
+                println("  --context flag currently ignored on the BitNet path; uses model default capped to 4096.")
+            }
+            NativeTernaryF32GemvKernel.install { println("[skainet] $it") }
+            NativeTernaryLmheadKernel.install { println("[skainet] $it") }
+            val loaded = BitNetPackedGgufLoader.loadWithMetadata(
+                ctx,
+                sourceProvider = { JvmRandomAccessSource.open(modelPath.toString()) },
+            )
+            OptimizedLLMRuntime(
+                model = loaded.model,
+                ctx = ctx,
+                mode = OptimizedLLMMode.DIRECT,
+                dtype = FP32::class,
+                bos = loaded.metadata.bosTokenId,
+            )
         } else {
             // LLaMA / Qwen / Mistral DSL path. DecoderGgufWeightLoader
             // streams the GGUF through the engine loader, keeping quantized

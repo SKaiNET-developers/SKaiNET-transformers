@@ -42,13 +42,29 @@ import sk.ainet.models.llama.LlamaModelMetadata
  */
 public object BitNetPackedGgufLoader {
 
+    /** A loaded model together with the GGUF metadata it was built from. */
+    public data class Loaded(
+        public val model: Module<FP32, Float>,
+        public val metadata: LlamaModelMetadata,
+    )
+
     public suspend fun load(
         ctx: ExecutionContext,
         sourceProvider: () -> RandomAccessSource,
         i2sLayout: I2sGgufLayout = I2sGgufLayout.GROUP_128,
         planesLmHead: Boolean = true,
         debug: Boolean = false,
-    ): Module<FP32, Float> {
+    ): Module<FP32, Float> =
+        loadWithMetadata(ctx, sourceProvider, i2sLayout, planesLmHead, debug).model
+
+    /** [load], returning the parsed [LlamaModelMetadata] alongside the model (bos/eos, dims). */
+    public suspend fun loadWithMetadata(
+        ctx: ExecutionContext,
+        sourceProvider: () -> RandomAccessSource,
+        i2sLayout: I2sGgufLayout = I2sGgufLayout.GROUP_128,
+        planesLmHead: Boolean = true,
+        debug: Boolean = false,
+    ): Loaded {
         // Pass 1 — metadata from the GGUF KV directory.
         val metadata = StreamingGGUFReader.open(sourceProvider()).use { reader ->
             metadataFrom(reader.fields, reader.tensors)
@@ -76,7 +92,8 @@ public object BitNetPackedGgufLoader {
             i2sLayout = i2sLayout,
         ).load<FP32, Float>(ctx, FP32::class) { name, tensor -> tensors[name] = tensor }
 
-        return BitNetNetworkLoader.fromWeights(DecoderGgufWeights(metadata, tensors), debug)
+        val model = BitNetNetworkLoader.fromWeights(DecoderGgufWeights(metadata, tensors), debug)
+        return Loaded(model, metadata)
     }
 
     /**
