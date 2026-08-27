@@ -9,7 +9,6 @@ import sk.ainet.apps.llm.OptimizedLLMMode
 import sk.ainet.apps.llm.OptimizedLLMRuntime
 import sk.ainet.apps.llm.generate
 import sk.ainet.context.DirectCpuExecutionContext
-import sk.ainet.io.model.QuantPolicy
 import sk.ainet.lang.types.FP32
 import sk.ainet.models.llama.DecoderGgufWeightLoader
 import sk.ainet.models.llama.LlamaNetworkLoader
@@ -73,7 +72,6 @@ internal class CpuNativeDslAdapter(
         log("  $runtimeName | loading model...")
         val weights = DecoderGgufWeightLoader(
             sourceProvider = { SystemFileSystem.source(modelPath).buffered() },
-            quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
         ).loadToMap<FP32, Float>(ctx)
         val model = LlamaNetworkLoader.fromWeights(weights)
         val runtime = OptimizedLLMRuntime(

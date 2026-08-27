@@ -27,10 +27,8 @@ import sk.ainet.apps.llm.tokenizer.TokenizerFactory
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
 import sk.ainet.io.gguf.StreamingGGUFReader
-import sk.ainet.io.model.QuantPolicy
 import sk.ainet.lang.tensor.data.MemorySegmentTensorDataFactory
 import sk.ainet.lang.types.FP32
-import sk.ainet.models.llama.DecoderGgufMemSegConverter
 import sk.ainet.models.llama.DecoderGgufWeightLoader
 import sk.ainet.models.qwen.QwenNetworkLoader
 
@@ -149,14 +147,10 @@ class QwenToolCallSmokeTest {
             try {
                 val loader = DecoderGgufWeightLoader(
                     randomAccessProvider = { JvmRandomAccessSource.open(path.toString()) },
-                    quantPolicy = QuantPolicy.NATIVE_OPTIMIZED,
                     acceptedArchitectures = setOf("qwen2", "qwen3", "qwen35"),
                 )
-                println("Loading Qwen GGUF from $path (DSL streaming mode)...")
-                val rawWeights = loader.loadToMapStreaming<FP32, Float>(ctx)
-                val weights = if (rawWeights.quantTypes.isNotEmpty()) {
-                    DecoderGgufMemSegConverter.convert(rawWeights, ctx, quantArena)
-                } else rawWeights
+                println("Loading Qwen GGUF from $path (DSL streaming mode, keep-packed)...")
+                val weights = loader.loadToMapStreaming<FP32, Float>(ctx)
 
                 val qwenModel = QwenNetworkLoader.fromWeights(weights)
                 val runtime = OptimizedLLMRuntime(

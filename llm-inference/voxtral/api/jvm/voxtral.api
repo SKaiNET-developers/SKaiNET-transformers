@@ -205,10 +205,10 @@ public final class sk/ainet/models/voxtral/VoxtralNetworkLoader {
 }
 
 public final class sk/ainet/models/voxtral/VoxtralNetworkLoader$Companion {
-	public final fun fromGguf (Lkotlin/jvm/functions/Function0;Lsk/ainet/io/model/QuantPolicy;Z)Lsk/ainet/models/voxtral/VoxtralNetworkLoader;
-	public static synthetic fun fromGguf$default (Lsk/ainet/models/voxtral/VoxtralNetworkLoader$Companion;Lkotlin/jvm/functions/Function0;Lsk/ainet/io/model/QuantPolicy;ZILjava/lang/Object;)Lsk/ainet/models/voxtral/VoxtralNetworkLoader;
-	public final fun fromGgufRandomAccess (Lkotlin/jvm/functions/Function0;Lsk/ainet/io/model/QuantPolicy;Z)Lsk/ainet/models/voxtral/VoxtralNetworkLoader;
-	public static synthetic fun fromGgufRandomAccess$default (Lsk/ainet/models/voxtral/VoxtralNetworkLoader$Companion;Lkotlin/jvm/functions/Function0;Lsk/ainet/io/model/QuantPolicy;ZILjava/lang/Object;)Lsk/ainet/models/voxtral/VoxtralNetworkLoader;
+	public final fun fromGguf (Lkotlin/jvm/functions/Function0;Z)Lsk/ainet/models/voxtral/VoxtralNetworkLoader;
+	public static synthetic fun fromGguf$default (Lsk/ainet/models/voxtral/VoxtralNetworkLoader$Companion;Lkotlin/jvm/functions/Function0;ZILjava/lang/Object;)Lsk/ainet/models/voxtral/VoxtralNetworkLoader;
+	public final fun fromGgufRandomAccess (Lkotlin/jvm/functions/Function0;ZLsk/ainet/lang/memory/plan/WeightForm;)Lsk/ainet/models/voxtral/VoxtralNetworkLoader;
+	public static synthetic fun fromGgufRandomAccess$default (Lsk/ainet/models/voxtral/VoxtralNetworkLoader$Companion;Lkotlin/jvm/functions/Function0;ZLsk/ainet/lang/memory/plan/WeightForm;ILjava/lang/Object;)Lsk/ainet/models/voxtral/VoxtralNetworkLoader;
 	public final fun fromSafeTensors (Lsk/ainet/models/llama/LlamaModelMetadata;Lkotlin/jvm/functions/Function0;ZZ)Lsk/ainet/models/voxtral/VoxtralNetworkLoader;
 	public static synthetic fun fromSafeTensors$default (Lsk/ainet/models/voxtral/VoxtralNetworkLoader$Companion;Lsk/ainet/models/llama/LlamaModelMetadata;Lkotlin/jvm/functions/Function0;ZZILjava/lang/Object;)Lsk/ainet/models/voxtral/VoxtralNetworkLoader;
 }
@@ -217,26 +217,24 @@ public abstract interface class sk/ainet/models/voxtral/VoxtralNetworkLoader$Wei
 }
 
 public final class sk/ainet/models/voxtral/VoxtralNetworkLoader$WeightsProvider$GgufRandomAccess : sk/ainet/models/voxtral/VoxtralNetworkLoader$WeightsProvider {
-	public fun <init> (Lkotlin/jvm/functions/Function0;Lsk/ainet/io/model/QuantPolicy;)V
+	public fun <init> (Lkotlin/jvm/functions/Function0;Lsk/ainet/lang/memory/plan/WeightForm;)V
 	public final fun component1 ()Lkotlin/jvm/functions/Function0;
-	public final fun component2 ()Lsk/ainet/io/model/QuantPolicy;
-	public final fun copy (Lkotlin/jvm/functions/Function0;Lsk/ainet/io/model/QuantPolicy;)Lsk/ainet/models/voxtral/VoxtralNetworkLoader$WeightsProvider$GgufRandomAccess;
-	public static synthetic fun copy$default (Lsk/ainet/models/voxtral/VoxtralNetworkLoader$WeightsProvider$GgufRandomAccess;Lkotlin/jvm/functions/Function0;Lsk/ainet/io/model/QuantPolicy;ILjava/lang/Object;)Lsk/ainet/models/voxtral/VoxtralNetworkLoader$WeightsProvider$GgufRandomAccess;
+	public final fun component2 ()Lsk/ainet/lang/memory/plan/WeightForm;
+	public final fun copy (Lkotlin/jvm/functions/Function0;Lsk/ainet/lang/memory/plan/WeightForm;)Lsk/ainet/models/voxtral/VoxtralNetworkLoader$WeightsProvider$GgufRandomAccess;
+	public static synthetic fun copy$default (Lsk/ainet/models/voxtral/VoxtralNetworkLoader$WeightsProvider$GgufRandomAccess;Lkotlin/jvm/functions/Function0;Lsk/ainet/lang/memory/plan/WeightForm;ILjava/lang/Object;)Lsk/ainet/models/voxtral/VoxtralNetworkLoader$WeightsProvider$GgufRandomAccess;
 	public fun equals (Ljava/lang/Object;)Z
-	public final fun getQuantPolicy ()Lsk/ainet/io/model/QuantPolicy;
 	public final fun getRandomAccessProvider ()Lkotlin/jvm/functions/Function0;
+	public final fun getWeightForm ()Lsk/ainet/lang/memory/plan/WeightForm;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
 }
 
 public final class sk/ainet/models/voxtral/VoxtralNetworkLoader$WeightsProvider$GgufSource : sk/ainet/models/voxtral/VoxtralNetworkLoader$WeightsProvider {
-	public fun <init> (Lkotlin/jvm/functions/Function0;Lsk/ainet/io/model/QuantPolicy;)V
+	public fun <init> (Lkotlin/jvm/functions/Function0;)V
 	public final fun component1 ()Lkotlin/jvm/functions/Function0;
-	public final fun component2 ()Lsk/ainet/io/model/QuantPolicy;
-	public final fun copy (Lkotlin/jvm/functions/Function0;Lsk/ainet/io/model/QuantPolicy;)Lsk/ainet/models/voxtral/VoxtralNetworkLoader$WeightsProvider$GgufSource;
-	public static synthetic fun copy$default (Lsk/ainet/models/voxtral/VoxtralNetworkLoader$WeightsProvider$GgufSource;Lkotlin/jvm/functions/Function0;Lsk/ainet/io/model/QuantPolicy;ILjava/lang/Object;)Lsk/ainet/models/voxtral/VoxtralNetworkLoader$WeightsProvider$GgufSource;
+	public final fun copy (Lkotlin/jvm/functions/Function0;)Lsk/ainet/models/voxtral/VoxtralNetworkLoader$WeightsProvider$GgufSource;
+	public static synthetic fun copy$default (Lsk/ainet/models/voxtral/VoxtralNetworkLoader$WeightsProvider$GgufSource;Lkotlin/jvm/functions/Function0;ILjava/lang/Object;)Lsk/ainet/models/voxtral/VoxtralNetworkLoader$WeightsProvider$GgufSource;
 	public fun equals (Ljava/lang/Object;)Z
-	public final fun getQuantPolicy ()Lsk/ainet/io/model/QuantPolicy;
 	public final fun getSourceProvider ()Lkotlin/jvm/functions/Function0;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;

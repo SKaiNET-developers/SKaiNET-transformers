@@ -13,8 +13,8 @@ import sk.ainet.apps.llm.OptimizedLLMRuntime
 import sk.ainet.apps.llm.PrefillStrategy
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
-import sk.ainet.io.model.QuantPolicy
 import sk.ainet.lang.types.FP32
+import sk.ainet.models.llama.DECODER_DEQUANTIZE_ALL
 import sk.ainet.models.llama.LlamaNetworkLoader
 
 /**
@@ -46,7 +46,7 @@ class GenerateUntilStopPrefillEquivalenceTest {
         val ctx = DirectCpuExecutionContext()
         val model = LlamaNetworkLoader.fromGguf(
             randomAccessProvider = { JvmRandomAccessSource.open(MODEL_PATH.toString()) },
-            quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32
+            weightForm = DECODER_DEQUANTIZE_ALL
         ).load<FP32, Float>(ctx)
         val runtime = OptimizedLLMRuntime(
             model = model, ctx = ctx,

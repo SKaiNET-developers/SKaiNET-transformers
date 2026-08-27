@@ -8,9 +8,7 @@ import sk.ainet.apps.llm.OptimizedLLMMode
 import sk.ainet.apps.llm.OptimizedLLMRuntime
 import sk.ainet.apps.llm.Tokenizer
 import sk.ainet.apps.llm.tokenizer.TokenizerFactory
-import sk.ainet.models.llama.DecoderGgufMemSegConverter
 import sk.ainet.models.llama.LlamaRuntime
-import sk.ainet.models.llama.MemSegWeightConverter
 import sk.ainet.apps.kllama.CpuAttentionBackend
 import sk.ainet.apps.kllama.Llama2DotCWeightLoader
 import sk.ainet.models.qwen.QwenNetworkLoader
@@ -21,13 +19,11 @@ import sk.ainet.apps.llm.backend.bestAvailable
 import sk.ainet.apps.llm.backend.find
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
-import sk.ainet.io.model.QuantPolicy
 import sk.ainet.lang.tensor.data.MemorySegmentTensorDataFactory
 import sk.ainet.lang.types.FP32
 import kotlinx.io.buffered
 import kotlinx.io.asSource
 import kotlin.io.path.inputStream
-import java.lang.foreign.Arena
 import java.nio.file.Path
 import java.nio.file.Files
 import kotlin.io.path.exists
@@ -347,12 +343,10 @@ fun main(args: Array<String>) {
         } ?: BackendRegistry.bestAvailable()
         println("Backend: ${provider.displayName}")
 
-        val quantArena = Arena.ofShared()
         val memSegFactory = MemorySegmentTensorDataFactory()
         val ctx = DirectCpuExecutionContext(tensorDataFactory = memSegFactory)
 
         Runtime.getRuntime().addShutdownHook(Thread {
-            quantArena.close()
             memSegFactory.close()
         })
 
@@ -384,10 +378,10 @@ fun main(args: Array<String>) {
         if (format == ModelFormat.GGUF && isQwen) {
             // --- Qwen: DSL path. QwenNetworkLoader builds a `qwenNetwork()`
             // module (RoPE NEOX, QK-norm, metadata-driven eps) populated
-            // from the GGUF; DecoderGgufMemSegConverter wraps Q4_0/Q8_0
-            // tensors as packed MemorySegment data for the SIMD quant
-            // matmul kernels. OptimizedLLMRuntime DIRECT mode runs the
-            // module tree forward.
+            // from the GGUF; the engine loader keeps quantized tensors in
+            // their stored block encoding as packed tensor data for the
+            // SIMD quant matmul kernels. OptimizedLLMRuntime DIRECT mode
+            // runs the module tree forward.
             //
             // Bit-for-bit parity with the legacy LlamaRuntime path on
             // identical weights is pinned by QwenDslLegacyParityTest
@@ -395,18 +389,10 @@ fun main(args: Array<String>) {
             val qwenArchitectures = setOf("qwen2", "qwen3", "qwen35")
             val loader = DecoderGgufWeightLoader(
                 randomAccessProvider = { JvmRandomAccessSource.open(modelPath.toString()) },
-                quantPolicy = QuantPolicy.NATIVE_OPTIMIZED,
                 acceptedArchitectures = qwenArchitectures,
             )
-            println("Loading GGUF model from $modelPath (Qwen, DSL streaming mode)...")
-            val rawWeights = loader.loadToMapStreaming<FP32, Float>(ctx)
-
-            val convertedWeights = if (rawWeights.quantTypes.isNotEmpty()) {
-                println("Converting ${rawWeights.quantTypes.size} quantized tensors to MemorySegment-backed SIMD format...")
-                DecoderGgufMemSegConverter.convert(rawWeights, ctx, quantArena)
-            } else {
-                rawWeights
-            }
+            println("Loading GGUF model from $modelPath (Qwen, DSL streaming mode, keep-packed)...")
+            val convertedWeights = loader.loadToMapStreaming<FP32, Float>(ctx)
 
             if (cliArgs.contextLength != null) {
                 println("Context length capped to ${cliArgs.contextLength} (model default: ${convertedWeights.metadata.contextLength})")
@@ -421,13 +407,8 @@ fun main(args: Array<String>) {
             )
             eosTokenId = convertedWeights.metadata.eosTokenId
         } else {
-            // --- Llama / SafeTensors / BIN: legacy LlamaRuntime path.
-            // The DSL path is functionally correct but ~8x slower for Q8/Q4
-            // GGUFs because every linearProject forward calls ops.transpose
-            // on packed quant weights through a generic dispatch (the DSL
-            // doesn't yet have first-class Q4/Q8 DTypes). Until that lands,
-            // run Llama through the legacy LlamaRuntime + CpuAttentionBackend
-            // + MemSegWeightConverter path that previously hit ~2 t/s.
+            // --- Llama / SafeTensors / BIN: legacy LlamaRuntime path
+            // (dense FP32; the eager kernels assume dense data).
             // Qwen GGUF stays on the DSL branch above.
             val runtimeWeights = when (format) {
                 ModelFormat.GGUF -> {
@@ -435,20 +416,12 @@ fun main(args: Array<String>) {
                         ctx = ctx,
                         dtype = FP32::class,
                         config = LlamaLoadConfig(
-                            quantPolicy = QuantPolicy.NATIVE_OPTIMIZED,
-                            allowQuantized = true,
                             acceptedArchitectures = LLAMA_COMPATIBLE_ARCHITECTURES,
                         ),
                     )
-                    println("Loading GGUF model from $modelPath (Llama, eager streaming mode)...")
-                    val rawWeights = ingestion.loadStreaming {
+                    println("Loading GGUF model from $modelPath (Llama, eager streaming mode, dense FP32)...")
+                    ingestion.loadStreaming {
                         JvmRandomAccessSource.open(modelPath.toString())
-                    }
-                    if (rawWeights.quantTypes.isNotEmpty()) {
-                        println("Converting ${rawWeights.quantTypes.size} quantized tensors to MemorySegment-backed SIMD format...")
-                        MemSegWeightConverter.convert(rawWeights, ctx, quantArena)
-                    } else {
-                        rawWeights
                     }
                 }
                 ModelFormat.SAFETENSORS -> {

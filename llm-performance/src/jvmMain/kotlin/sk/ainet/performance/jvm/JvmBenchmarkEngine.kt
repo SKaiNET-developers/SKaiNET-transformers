@@ -12,7 +12,6 @@ import sk.ainet.apps.llm.OptimizedLLMMode
 import sk.ainet.apps.llm.OptimizedLLMRuntime
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
-import sk.ainet.io.model.QuantPolicy
 import sk.ainet.lang.types.FP32
 import sk.ainet.models.llama.LlamaNetworkLoader
 import sk.ainet.performance.BenchmarkCaseResult
@@ -220,7 +219,6 @@ private class DirectDslLlamaAdapter(
         val ctx = DirectCpuExecutionContext()
         val model = LlamaNetworkLoader.fromGguf(
             randomAccessProvider = { JvmRandomAccessSource.open(modelPath.toString()) },
-            quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
         ).load<FP32, Float>(ctx)
         val runtime = OptimizedLLMRuntime(
             model = model,
@@ -285,7 +283,6 @@ private class OptimizedLlamaAdapter(
         val runtime = try {
             val model = LlamaNetworkLoader.fromGguf(
                 randomAccessProvider = { JvmRandomAccessSource.open(modelPath.toString()) },
-                quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
             ).load<FP32, Float>(ctx)
             OptimizedLLMRuntime(
                 model = model,
