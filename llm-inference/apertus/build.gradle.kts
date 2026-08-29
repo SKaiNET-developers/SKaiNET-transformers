@@ -10,6 +10,10 @@ plugins {
 }
 
 kotlin {
+    compilerOptions {
+        optIn.add("sk.ainet.lang.memory.ExperimentalMemoryApi")
+    }
+
     android {
         namespace = "sk.ainet.models.apertus"
         compileSdk = libs.versions.android.compileSdk.get().toInt()

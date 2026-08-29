@@ -205,13 +205,12 @@ fun main(args: Array<String>) {
             val model = GemmaNetworkLoader.fromWeights(ctx, converted, FP32::class)
             OptimizedLLMRuntime(model, ctx, OptimizedLLMMode.DIRECT, FP32::class)
         } else if (modelInfo.family == ModelFamily.APERTUS) {
-            println("Loading Apertus GGUF model from $modelPath via apertusNetwork() + OptimizedLLMRuntime (NATIVE_OPTIMIZED)...")
+            println("Loading Apertus GGUF model from $modelPath via apertusNetwork() + OptimizedLLMRuntime (engine loader, keep-packed)...")
             if (cliArgs.contextLength != null) {
                 println("  --context flag currently ignored on the Apertus path; uses model default.")
             }
             val model = ApertusNetworkLoader.fromGguf(
-                randomAccessProvider = { JvmRandomAccessSource.open(modelPath.toString()) },
-                quantPolicy = QuantPolicy.NATIVE_OPTIMIZED
+                randomAccessProvider = { JvmRandomAccessSource.open(modelPath.toString()) }
             ).load<FP32, Float>(ctx)
             OptimizedLLMRuntime(model, ctx, OptimizedLLMMode.DIRECT, FP32::class)
         } else {

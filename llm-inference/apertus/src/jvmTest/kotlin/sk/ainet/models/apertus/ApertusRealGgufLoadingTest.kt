@@ -8,10 +8,9 @@ import sk.ainet.apps.llm.UnifiedModelLoader
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
 import sk.ainet.io.gguf.StreamingGGUFReader
-import sk.ainet.io.model.QuantPolicy
+import sk.ainet.lang.tensor.storage.PackedBlockStorage
 import sk.ainet.lang.types.FP32
 import java.io.File
-import java.lang.foreign.Arena
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -90,13 +89,13 @@ class ApertusRealGgufLoadingTest {
     }
 
     @Test
-    fun `loadQuantized fully populates ApertusQuantizedWeights from real GGUF`() = runBlocking {
+    fun `engine loader keeps projection weights packed and dequantizes the token embedding`() = runBlocking {
         val file = modelFile ?: run {
             println("[skip] Apertus GGUF not found.")
             return@runBlocking
         }
-        // Token-embedding dequant to FP32 alone is ~2 GB (4096 × 131072 floats); the
-        // raw quant bytes for the rest add another ~5 GB. Need ≥ 8 GB heap to fit.
+        // Packed weights are ~5 GB; the FP32 token embedding adds ~2 GB
+        // (4096 × 131072 floats). Need ≥ 8 GB heap to fit.
         val maxHeapGb = Runtime.getRuntime().maxMemory() / (1024L * 1024L * 1024L)
         if (maxHeapGb < 8) {
             println("[skip] heap=$maxHeapGb GB < 8 GB; rerun with -PapertusTestMaxHeap=12g")
@@ -105,11 +104,10 @@ class ApertusRealGgufLoadingTest {
 
         val ctx = DirectCpuExecutionContext.create()
         val loader = ApertusWeightLoader.fromRandomAccess(
-            randomAccessProvider = { JvmRandomAccessSource.open(file) },
-            quantPolicy = QuantPolicy.RAW_BYTES
+            randomAccessProvider = { JvmRandomAccessSource.open(file) }
         )
 
-        val weights = loader.loadQuantized(ctx)
+        val weights = loader.loadToMap<FP32, Float>(ctx)
         val md = weights.metadata
 
         // Apertus-8B reference dimensions (from HF config.json).
@@ -119,35 +117,34 @@ class ApertusRealGgufLoadingTest {
         assertTrue(md.kvHeadCount in 1..md.headCount, "kvHeadCount=${md.kvHeadCount}")
         assertTrue(md.vocabSize > 100_000, "vocabSize=${md.vocabSize}")
 
-        // FP32 small tensors (norms, token embedding) must be present.
-        assertNotNull(weights.fp32Tensors[ApertusTensorNames.TOKEN_EMBEDDINGS],
-            "${ApertusTensorNames.TOKEN_EMBEDDINGS} must be loaded as FP32")
-        assertNotNull(weights.fp32Tensors[ApertusTensorNames.OUTPUT_NORM],
-            "${ApertusTensorNames.OUTPUT_NORM} must be loaded as FP32")
-        repeat(md.blockCount) { layer ->
-            assertNotNull(weights.fp32Tensors[ApertusTensorNames.attnNorm(layer)],
-                "${ApertusTensorNames.attnNorm(layer)} must be FP32")
-            assertNotNull(weights.fp32Tensors[ApertusTensorNames.ffnNorm(layer)],
-                "${ApertusTensorNames.ffnNorm(layer)} must be FP32")
-            assertNotNull(weights.fp32Tensors[ApertusTensorNames.attnQNorm(layer)],
-                "${ApertusTensorNames.attnQNorm(layer)} must be FP32")
-            assertNotNull(weights.fp32Tensors[ApertusTensorNames.attnKNorm(layer)],
-                "${ApertusTensorNames.attnKNorm(layer)} must be FP32")
-        }
+        // Token embedding must be a dense rank-2 [vocab, dim] tensor —
+        // Embedding.gather() needs real element access.
+        val tokenEmbd = weights.tensors[ApertusTensorNames.TOKEN_EMBEDDINGS]
+        assertNotNull(tokenEmbd, "${ApertusTensorNames.TOKEN_EMBEDDINGS} must be loaded")
+        assertEquals(2, tokenEmbd.shape.rank, "token embedding must be rank-2, got ${tokenEmbd.shape}")
+        assertEquals(md.vocabSize, tokenEmbd.shape[0], "token embedding dim 0 must be vocab")
+        assertEquals(md.embeddingLength, tokenEmbd.shape[1], "token embedding dim 1 must be embedding length")
+        assertTrue(tokenEmbd.data !is PackedBlockStorage, "token embedding must be dequantized to dense data")
 
-        // Large quantized projection matrices must be present.
+        // Quantized projection matrices keep their stored block encoding with
+        // logical [out, in] shapes — no rank-1 byte tensors anywhere (the old
+        // NATIVE_OPTIMIZED failure mode, transformers#100).
         repeat(md.blockCount) { layer ->
-            assertNotNull(weights.quantizedTensors[ApertusTensorNames.attnQ(layer)],
-                "${ApertusTensorNames.attnQ(layer)} must be quantized")
-            assertNotNull(weights.quantizedTensors[ApertusTensorNames.ffnDown(layer)],
-                "${ApertusTensorNames.ffnDown(layer)} must be quantized")
+            val wq = weights.tensors[ApertusTensorNames.attnQ(layer)]
+            assertNotNull(wq, "${ApertusTensorNames.attnQ(layer)} must be loaded")
+            assertEquals(2, wq.shape.rank, "attn_q layer $layer must have a logical rank-2 shape, got ${wq.shape}")
+            val ffnDown = weights.tensors[ApertusTensorNames.ffnDown(layer)]
+            assertNotNull(ffnDown, "${ApertusTensorNames.ffnDown(layer)} must be loaded")
+            assertEquals(2, ffnDown.shape.rank, "ffn_down layer $layer must have a logical rank-2 shape, got ${ffnDown.shape}")
         }
+        val packedCount = weights.tensors.values.count { it.data is PackedBlockStorage }
+        assertTrue(packedCount > 0, "expected packed block tensors from a Q4_K_S model, got none")
 
         // xIELU params must be populated for every layer.
         assertEquals(md.blockCount, weights.xieluParams.size,
             "xieluParams (${weights.xieluParams.size}) must match blockCount (${md.blockCount})")
 
-        println("[real-load loadQuantized] fp32=${weights.fp32Tensors.size} quant=${weights.quantizedTensors.size} xielu-layers=${weights.xieluParams.size}")
+        println("[real-load engine] tensors=${weights.tensors.size} packed=$packedCount xielu-layers=${weights.xieluParams.size}")
     }
 
     @Test
@@ -156,23 +153,18 @@ class ApertusRealGgufLoadingTest {
             println("[skip] Apertus GGUF not found.")
             return@runBlocking
         }
-        // Network construction allocates raw quant bytes (~5 GB) plus the placeholder
-        // metadata for ~27 GB of unrealized FP32 zero tensors. With upstream
-        // SKaiNET#587 (lazy zero-init in NetworkBuilder), the placeholders never
-        // materialize because WeightMapper substitutes them before any read.
         val maxHeapGb = Runtime.getRuntime().maxMemory() / (1024L * 1024L * 1024L)
         if (maxHeapGb < 8) {
             println("[skip] heap=$maxHeapGb GB < 8 GB; rerun with -PapertusTestMaxHeap=12g")
             return@runBlocking
         }
 
-        val ctx = sk.ainet.context.DirectCpuExecutionContext.create()
+        val ctx = DirectCpuExecutionContext.create()
         val loader = ApertusNetworkLoader.fromGguf(
-            randomAccessProvider = { JvmRandomAccessSource.open(file) },
-            quantPolicy = QuantPolicy.NATIVE_OPTIMIZED
+            randomAccessProvider = { JvmRandomAccessSource.open(file) }
         )
 
-        val model = loader.load<sk.ainet.lang.types.FP32, Float>(ctx)
+        val model = loader.load<FP32, Float>(ctx)
         assertNotNull(model, "ApertusNetworkLoader.load must return a Module")
         assertTrue(model.modules.isNotEmpty(), "loaded module must have submodules")
 
@@ -181,7 +173,7 @@ class ApertusRealGgufLoadingTest {
         assertTrue("output_norm" in topNames, "module tree missing output_norm: $topNames")
         assertTrue("output" in topNames, "module tree missing output: $topNames")
 
-        println("[real-load fromGguf NATIVE_OPTIMIZED] top-modules=${topNames.size}")
+        println("[real-load fromGguf engine] top-modules=${topNames.size}")
     }
 
     @Test
@@ -199,67 +191,60 @@ class ApertusRealGgufLoadingTest {
         val ctx = DirectCpuExecutionContext.create()
         val info = UnifiedModelLoader.peek { JvmRandomAccessSource.open(file) }
 
-        // load → convert → fromWeights — the converter wraps each quantized
-        // weight in the right block-major TensorData (Q4_K / Q6_K / Q4_0 / Q8_0)
-        // so the SIMD matmul kernels can dispatch directly. Without it the
-        // first attention projection blows up with "Transpose requires at least
-        // 2 dimensions" because NATIVE_OPTIMIZED stores raw byte-shape rank-1
-        // tensors that the standard transpose+matmul path can't consume.
-        Arena.ofShared().use { arena ->
-            val raw = ApertusWeightLoader.fromRandomAccess(
-                randomAccessProvider = { JvmRandomAccessSource.open(file) },
-                quantPolicy = QuantPolicy.NATIVE_OPTIMIZED
-            ).loadToMap<FP32, Float>(ctx)
+        // The engine loader delivers packed block tensors with logical [out, in]
+        // shapes; the packed matmul kernels dispatch on the TensorData directly,
+        // so no post-load conversion step is needed.
+        val raw = ApertusWeightLoader.fromRandomAccess(
+            randomAccessProvider = { JvmRandomAccessSource.open(file) }
+        ).loadToMap<FP32, Float>(ctx)
 
-            println("[real-forward weights] tensors=${raw.tensors.size} quantTypes=${raw.quantTypes.size} xielu=${raw.xieluParams.size}")
-            raw.xieluParams[0]?.let { p ->
-                println("[real-forward xielu0] alpha_p=${p.alphaP} alpha_n=${p.alphaN} beta=${p.beta} eps=${p.eps}")
-            }
-            raw.tensors[ApertusTensorNames.TOKEN_EMBEDDINGS]?.let { t ->
-                println("[real-forward token_embd shape] ${t.shape}")
-            }
-
-            val converted = convertApertusWeightsToMemSeg(raw, ctx, arena)
-            val model = ApertusNetworkLoader.fromWeights(ctx, converted)
-
-            val runtime = OptimizedLLMRuntime(
-                model = model,
-                ctx = ctx,
-                mode = OptimizedLLMMode.DIRECT,
-                dtype = FP32::class
-            )
-
-            val bosTokenId = (info.fields["tokenizer.ggml.bos_token_id"] as? Number)?.toInt()
-                ?: (info.fields["tokenizer.ggml.bos_token_id"] as? UInt)?.toInt()
-                ?: 1
-            val logits = runtime.forward(bosTokenId)
-
-            assertEquals(info.vocabSize, logits.shape[logits.shape.rank - 1],
-                "last logit dim must equal vocabSize=${info.vocabSize}, got shape ${logits.shape}")
-
-            val buf = logits.data.copyToFloatArray()
-            var nonZero = 0
-            var nan = 0
-            var inf = 0
-            var max = Float.NEGATIVE_INFINITY
-            var min = Float.POSITIVE_INFINITY
-            for (v in buf) {
-                if (v.isNaN()) nan++
-                else if (!v.isFinite()) inf++
-                else {
-                    if (v != 0f) nonZero++
-                    if (v > max) max = v
-                    if (v < min) min = v
-                }
-            }
-            println("[real-forward] vocab=${info.vocabSize} nan=$nan inf=$inf non-zero=$nonZero/${buf.size} min=$min max=$max")
-            assertEquals(0, nan, "logits must not contain NaN")
-            assertEquals(0, inf, "logits must not contain ±Inf")
-            assertTrue(nonZero > buf.size / 2,
-                "expected a broad logit distribution; got $nonZero/${buf.size} non-zero (min=$min max=$max)")
-            assertTrue(max > min,
-                "logits look constant (min=$min max=$max) — model didn't actually run")
+        println("[real-forward weights] tensors=${raw.tensors.size} xielu=${raw.xieluParams.size}")
+        raw.xieluParams[0]?.let { p ->
+            println("[real-forward xielu0] alpha_p=${p.alphaP} alpha_n=${p.alphaN} beta=${p.beta} eps=${p.eps}")
         }
+        raw.tensors[ApertusTensorNames.TOKEN_EMBEDDINGS]?.let { t ->
+            println("[real-forward token_embd shape] ${t.shape}")
+        }
+
+        val model = ApertusNetworkLoader.fromWeights(ctx, raw)
+
+        val runtime = OptimizedLLMRuntime(
+            model = model,
+            ctx = ctx,
+            mode = OptimizedLLMMode.DIRECT,
+            dtype = FP32::class
+        )
+
+        val bosTokenId = (info.fields["tokenizer.ggml.bos_token_id"] as? Number)?.toInt()
+            ?: (info.fields["tokenizer.ggml.bos_token_id"] as? UInt)?.toInt()
+            ?: 1
+        val logits = runtime.forward(bosTokenId)
+
+        assertEquals(info.vocabSize, logits.shape[logits.shape.rank - 1],
+            "last logit dim must equal vocabSize=${info.vocabSize}, got shape ${logits.shape}")
+
+        val buf = logits.data.copyToFloatArray()
+        var nonZero = 0
+        var nan = 0
+        var inf = 0
+        var max = Float.NEGATIVE_INFINITY
+        var min = Float.POSITIVE_INFINITY
+        for (v in buf) {
+            if (v.isNaN()) nan++
+            else if (!v.isFinite()) inf++
+            else {
+                if (v != 0f) nonZero++
+                if (v > max) max = v
+                if (v < min) min = v
+            }
+        }
+        println("[real-forward] vocab=${info.vocabSize} nan=$nan inf=$inf non-zero=$nonZero/${buf.size} min=$min max=$max")
+        assertEquals(0, nan, "logits must not contain NaN")
+        assertEquals(0, inf, "logits must not contain ±Inf")
+        assertTrue(nonZero > buf.size / 2,
+            "expected a broad logit distribution; got $nonZero/${buf.size} non-zero (min=$min max=$max)")
+        assertTrue(max > min,
+            "logits look constant (min=$min max=$max) — model didn't actually run")
     }
 
     @Test
@@ -277,44 +262,40 @@ class ApertusRealGgufLoadingTest {
         val ctx = DirectCpuExecutionContext.create()
         val info = UnifiedModelLoader.peek { JvmRandomAccessSource.open(file) }
 
-        Arena.ofShared().use { arena ->
-            val raw = ApertusWeightLoader.fromRandomAccess(
-                randomAccessProvider = { JvmRandomAccessSource.open(file) },
-                quantPolicy = QuantPolicy.NATIVE_OPTIMIZED
-            ).loadToMap<FP32, Float>(ctx)
-            val converted = convertApertusWeightsToMemSeg(raw, ctx, arena)
-            val model = ApertusNetworkLoader.fromWeights(ctx, converted)
+        val raw = ApertusWeightLoader.fromRandomAccess(
+            randomAccessProvider = { JvmRandomAccessSource.open(file) }
+        ).loadToMap<FP32, Float>(ctx)
+        val model = ApertusNetworkLoader.fromWeights(ctx, raw)
 
-            val bosTokenId = (info.fields["tokenizer.ggml.bos_token_id"] as? Number)?.toInt()
-                ?: (info.fields["tokenizer.ggml.bos_token_id"] as? UInt)?.toInt()
-                ?: 1
-            val runtime = OptimizedLLMRuntime(
-                model = model,
-                ctx = ctx,
-                mode = OptimizedLLMMode.DIRECT,
-                dtype = FP32::class,
-                bos = bosTokenId
-            )
+        val bosTokenId = (info.fields["tokenizer.ggml.bos_token_id"] as? Number)?.toInt()
+            ?: (info.fields["tokenizer.ggml.bos_token_id"] as? UInt)?.toInt()
+            ?: 1
+        val runtime = OptimizedLLMRuntime(
+            model = model,
+            ctx = ctx,
+            mode = OptimizedLLMMode.DIRECT,
+            dtype = FP32::class,
+            bos = bosTokenId
+        )
 
-            val steps = 4
-            val generated = mutableListOf<Int>()
-            runtime.generate(
-                prompt = intArrayOf(bosTokenId),
-                steps = steps,
-                temperature = 0f
-            ) { tokenId -> generated.add(tokenId) }
+        val steps = 4
+        val generated = mutableListOf<Int>()
+        runtime.generate(
+            prompt = intArrayOf(bosTokenId),
+            steps = steps,
+            temperature = 0f
+        ) { tokenId -> generated.add(tokenId) }
 
-            assertEquals(steps, generated.size, "must emit exactly $steps tokens")
-            for (tokenId in generated) {
-                assertTrue(tokenId in 0 until info.vocabSize,
-                    "generated token $tokenId out of [0, ${info.vocabSize})")
-            }
-            // Greedy on real weights should not collapse to the same token every step.
-            assertTrue(generated.toSet().size > 1,
-                "greedy collapsed to a single token across $steps steps: $generated")
-
-            println("[real-generate greedy] tokens=$generated")
+        assertEquals(steps, generated.size, "must emit exactly $steps tokens")
+        for (tokenId in generated) {
+            assertTrue(tokenId in 0 until info.vocabSize,
+                "generated token $tokenId out of [0, ${info.vocabSize})")
         }
+        // Greedy on real weights should not collapse to the same token every step.
+        assertTrue(generated.toSet().size > 1,
+            "greedy collapsed to a single token across $steps steps: $generated")
+
+        println("[real-generate greedy] tokens=$generated")
     }
 
     private fun locateModel(): File? {
