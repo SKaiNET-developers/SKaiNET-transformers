@@ -9,15 +9,12 @@ import sk.ainet.apps.llm.OptimizedLLMRuntime
 import sk.ainet.apps.llm.tokenizer.TokenizerFactory
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
-import sk.ainet.io.model.QuantPolicy
 import sk.ainet.lang.tensor.data.MemorySegmentTensorDataFactory
 import sk.ainet.lang.types.FP32
-import sk.ainet.models.llama.DecoderGgufMemSegConverter
 import sk.ainet.models.llama.DecoderGgufWeightLoader
 import sk.ainet.models.llama.DecoderSafeTensorsLoader
 import sk.ainet.models.llama.LlamaConfigParser
 import sk.ainet.models.llama.LlamaNetworkLoader
-import java.lang.foreign.Arena
 import java.nio.file.Path
 import kotlin.io.path.exists
 import kotlin.io.path.readText
@@ -60,23 +57,15 @@ public object KLlamaJava {
     @JvmStatic
     @JvmOverloads
     public fun loadGGUF(modelPath: Path, systemPrompt: String? = null): KLlamaSession {
-        val quantArena = Arena.ofShared()
         val memSegFactory = MemorySegmentTensorDataFactory()
         val ctx = DirectCpuExecutionContext(tensorDataFactory = memSegFactory)
 
         val loader = DecoderGgufWeightLoader(
             randomAccessProvider = { JvmRandomAccessSource.open(modelPath.toString()) },
-            quantPolicy = QuantPolicy.NATIVE_OPTIMIZED,
             acceptedArchitectures = LLAMA_FAMILY,
         )
-        val rawWeights = runBlocking { loader.loadToMapStreaming<FP32, Float>(ctx) }
-
-        // Convert quantized weights for SIMD dispatch if needed
-        val weights = if (rawWeights.quantTypes.isNotEmpty()) {
-            DecoderGgufMemSegConverter.convert(rawWeights, ctx, quantArena)
-        } else {
-            rawWeights
-        }
+        // The engine loader keeps quantized tensors packed for SIMD dispatch.
+        val weights = runBlocking { loader.loadToMapStreaming<FP32, Float>(ctx) }
 
         val model = LlamaNetworkLoader.fromWeights(weights)
         val runtime = OptimizedLLMRuntime(
@@ -98,7 +87,6 @@ public object KLlamaJava {
             eosTokenId = tokenizer.eosTokenId,
             systemPrompt = systemPrompt,
             closeAction = Runnable {
-                quantArena.close()
                 memSegFactory.close()
             }
         )
@@ -117,7 +105,6 @@ public object KLlamaJava {
     @JvmStatic
     @JvmOverloads
     public fun loadSafeTensors(modelDir: Path, systemPrompt: String? = null): KLlamaSession {
-        val quantArena = Arena.ofShared()
         val memSegFactory = MemorySegmentTensorDataFactory()
         val ctx = DirectCpuExecutionContext(tensorDataFactory = memSegFactory)
 
@@ -155,7 +142,6 @@ public object KLlamaJava {
             eosTokenId = tokenizer.eosTokenId,
             systemPrompt = systemPrompt,
             closeAction = Runnable {
-                quantArena.close()
                 memSegFactory.close()
             }
         )

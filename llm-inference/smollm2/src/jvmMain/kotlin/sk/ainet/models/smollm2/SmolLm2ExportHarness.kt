@@ -7,7 +7,10 @@ import sk.ainet.compile.hlo.StableHloConverterFactory
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.context.ExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
-import sk.ainet.io.model.QuantPolicy
+import sk.ainet.lang.memory.ExperimentalMemoryApi
+import sk.ainet.lang.memory.plan.EncodingRequest
+import sk.ainet.lang.memory.plan.WeightForm
+import sk.ainet.lang.memory.plan.WeightShapeOrientation
 import sk.ainet.lang.graph.DefaultExecutionTape
 import sk.ainet.lang.graph.DefaultGraphExecutionContext
 import sk.ainet.lang.nn.Module
@@ -73,8 +76,11 @@ public object SmolLm2ExportHarness {
         val ctx = DirectCpuExecutionContext.create()
         val weights = DecoderGgufWeightLoader(
             randomAccessProvider = { JvmRandomAccessSource.open(gguf) },
-            quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
             acceptedArchitectures = setOf("llama", "mistral"),
+            weightForm = WeightForm(
+                encoding = EncodingRequest.DequantizeTo(FP32),
+                shape = WeightShapeOrientation.OUT_IN
+            ),
         ).loadToMapStreaming<FP32, Float>(ctx, FP32::class)
         val model = LlamaNetworkLoader.fromWeights(weights)
 

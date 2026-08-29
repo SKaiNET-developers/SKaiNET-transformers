@@ -20,7 +20,6 @@ import sk.ainet.apps.llm.OptimizedLLMRuntime
 import sk.ainet.apps.llm.Tokenizer
 import sk.ainet.apps.llm.generate
 import sk.ainet.context.DirectCpuExecutionContext
-import sk.ainet.io.model.QuantPolicy
 import sk.ainet.lang.types.FP32
 import sk.ainet.models.llama.DecoderGgufWeightLoader
 import sk.ainet.models.llama.LlamaNetworkLoader
@@ -73,13 +72,12 @@ private suspend fun loadRuntimeAndTokenizer(path: String): Pair<InferenceRuntime
 
     val ctx = DirectCpuExecutionContext()
 
-    // Weights via the DSL path. Wasm has no MemorySegment, so we use
-    // QuantPolicy.DEQUANTIZE_TO_FP32 — packed Q4/Q8 don't have a
-    // wasm-side fast path anyway.
+    // Weights via the DSL path; the sequential Source loader dequantizes
+    // everything to dense tensors — packed Q4/Q8 don't have a wasm-side
+    // fast path anyway.
     val weightSource = (Buffer().apply { write(bytes) } as RawSource).buffered()
     val weights = DecoderGgufWeightLoader(
         sourceProvider = { weightSource },
-        quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
     ).loadToMap<FP32, Float>(ctx)
 
     val model = LlamaNetworkLoader.fromWeights(weights)

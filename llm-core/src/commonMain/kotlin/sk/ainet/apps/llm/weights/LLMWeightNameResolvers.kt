@@ -25,6 +25,20 @@ public class LlamaGGUFNameResolver : WeightNameResolver {
             paramName.contains("o_proj.weight") ->
                 if (blockPrefix != null) "$blockPrefix.attn_output.weight" else null
 
+            // Attention biases — Qwen2/Qwen2.5 ship real blk.N.attn_{q,k,v}.bias
+            // tensors (Qwen3 and LLaMA do not). Without these rules the biases
+            // loaded from the file never bind, the zero-initialized DSL bias
+            // params stand in, and qwen2 logits are silently garbage — found
+            // during the 0.51 migration (#338 arc), pre-existing on every lane.
+            paramName.contains("q_proj.bias") ->
+                if (blockPrefix != null) "$blockPrefix.attn_q.bias" else null
+            paramName.contains("k_proj.bias") ->
+                if (blockPrefix != null) "$blockPrefix.attn_k.bias" else null
+            paramName.contains("v_proj.bias") ->
+                if (blockPrefix != null) "$blockPrefix.attn_v.bias" else null
+            paramName.contains("o_proj.bias") ->
+                if (blockPrefix != null) "$blockPrefix.attn_output.bias" else null
+
             paramName.contains("q_norm") ->
                 if (blockPrefix != null) "$blockPrefix.attn_q_norm.weight" else null
             paramName.contains("k_norm") ->

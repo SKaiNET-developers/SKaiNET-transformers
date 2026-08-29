@@ -20,7 +20,6 @@ import sk.ainet.apps.llm.backend.bestAvailable
 import sk.ainet.apps.llm.backend.find
 import sk.ainet.apps.llm.generate
 import sk.ainet.context.ExecutionContext
-import sk.ainet.io.model.QuantPolicy
 import sk.ainet.lang.types.DType
 import sk.ainet.lang.types.FP16
 import sk.ainet.lang.types.FP32
@@ -128,12 +127,10 @@ private suspend inline fun <reified T : DType> runInference(
     val vocabSize: Int
 
     if (isGguf) {
-        // DSL path. Native has no MemorySegment, so QuantPolicy.DEQUANTIZE_TO_FP32
-        // is the only viable choice.
+        // DSL path; the sequential Source loader dequantizes everything to dense tensors.
         println("Loading GGUF model from $modelPathStr (Llama, DSL streaming, dtype=${dtype.simpleName})...")
         val weights = DecoderGgufWeightLoader(
             sourceProvider = { SystemFileSystem.source(modelPath).buffered() },
-            quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
         ).loadToMap<T, Float>(ctx)
         val model = LlamaNetworkLoader.fromWeights(weights)
         runtime = OptimizedLLMRuntime(

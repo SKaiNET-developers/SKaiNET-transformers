@@ -25,7 +25,6 @@ import sk.ainet.io.JvmRandomAccessSource
 import sk.ainet.io.model.QuantPolicy
 import sk.ainet.lang.tensor.data.MemorySegmentTensorDataFactory
 import sk.ainet.lang.types.FP32
-import sk.ainet.models.llama.DecoderGgufMemSegConverter
 import sk.ainet.models.llama.DecoderGgufWeightLoader
 import sk.ainet.models.llama.LlamaNetworkLoader
 import sk.ainet.models.qwen.QwenNetworkLoader
@@ -215,27 +214,19 @@ fun main(args: Array<String>) {
             OptimizedLLMRuntime(model, ctx, OptimizedLLMMode.DIRECT, FP32::class)
         } else {
             // LLaMA / Qwen / Mistral DSL path. DecoderGgufWeightLoader
-            // streams the GGUF, DecoderGgufMemSegConverter wraps Q4_0/Q8_0
-            // tensors as packed MemorySegment data, then the per-family
-            // network loader builds the right module:
+            // streams the GGUF through the engine loader, keeping quantized
+            // tensors in their stored block encoding as packed tensor data,
+            // then the per-family network loader builds the right module:
             //   - Qwen → qwenNetwork() (QK-norm + NEOX RoPE)
             //   - else → llamaNetwork() (LLaMA / Mistral default)
             val acceptedArchitectures = modelInfo.family.architectures + setOf(modelInfo.architecture)
             val loader = DecoderGgufWeightLoader(
                 randomAccessProvider = { JvmRandomAccessSource.open(modelPath.toString()) },
-                quantPolicy = QuantPolicy.NATIVE_OPTIMIZED,
                 acceptedArchitectures = acceptedArchitectures,
             )
 
-            println("Loading GGUF model from $modelPath (${modelInfo.family.displayName}, DSL streaming)...")
-            val rawWeights = loader.loadToMapStreaming<FP32, Float>(ctx)
-
-            val convertedWeights = if (rawWeights.quantTypes.isNotEmpty()) {
-                println("Converting ${rawWeights.quantTypes.size} quantized tensors to SIMD format...")
-                DecoderGgufMemSegConverter.convert(rawWeights, ctx, quantArena)
-            } else {
-                rawWeights
-            }
+            println("Loading GGUF model from $modelPath (${modelInfo.family.displayName}, DSL streaming, keep-packed)...")
+            val convertedWeights = loader.loadToMapStreaming<FP32, Float>(ctx)
 
             if (cliArgs.contextLength != null) {
                 println("Context length capped to ${cliArgs.contextLength} (model default: ${convertedWeights.metadata.contextLength})")

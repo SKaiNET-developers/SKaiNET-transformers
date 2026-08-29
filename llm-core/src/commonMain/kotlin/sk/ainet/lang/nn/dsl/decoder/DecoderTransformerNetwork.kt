@@ -61,6 +61,8 @@ public inline fun <reified T : DType, V> decoderTransformerNetwork(
     eps: Float = metadata.rmsNormEps,
     qkNorm: Boolean = false,
     qkNormUnitOffset: Boolean = false,
+    /** Q/K/V/O projection biases — real tensors in Qwen2/Qwen2.5 GGUFs (absent in LLaMA/Qwen3). */
+    attnBias: Boolean = false,
     ropeMode: RoPEMode = RoPEMode.INTERLEAVED,
     maxInferenceLen: Int = minOf(metadata.contextLength, 4096),
     @Suppress("UNUSED_PARAMETER") dtypePolicy: DTypePolicy = DTypePolicy.Any,
@@ -90,6 +92,7 @@ public inline fun <reified T : DType, V> decoderTransformerNetwork(
                 qkNorm = qkNorm,
                 qkNormUnitOffset = qkNormUnitOffset,
                 qkNormEps = eps,
+                bias = attnBias,
                 id = "attn",
             ) {
                 rope(headDim, seqLen, mode = ropeMode, base = ropeBase)

@@ -20,11 +20,9 @@ import sk.ainet.apps.kllama.chat.ToolCall
 import sk.ainet.apps.kllama.chat.ToolDefinition
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
-import sk.ainet.io.model.QuantPolicy
 import sk.ainet.lang.tensor.data.MemorySegmentTensorDataFactory
 import sk.ainet.lang.types.FP32
 import sk.ainet.models.llama.LlamaRuntime
-import sk.ainet.models.llama.MemSegWeightConverter
 
 /**
  * End-to-end smoke test for SmolLM2-1.7B-Instruct tool calling against a
@@ -123,21 +121,13 @@ class SmolLM2ToolCallSmokeTest {
                     ctx = ctx,
                     dtype = FP32::class,
                     config = LlamaLoadConfig(
-                        quantPolicy = QuantPolicy.NATIVE_OPTIMIZED,
-                        allowQuantized = true,
                         acceptedArchitectures = setOf("llama")
                     )
                 )
 
                 println("Loading SmolLM2 from $path via streaming Llama loader...")
-                val rawWeights = ingestion.loadStreaming {
+                val runtimeWeights = ingestion.loadStreaming {
                     JvmRandomAccessSource.open(path.toString())
-                }
-                val runtimeWeights = if (rawWeights.quantTypes.isNotEmpty()) {
-                    println("Converting ${rawWeights.quantTypes.size} quantized tensors to MemSeg-backed format...")
-                    MemSegWeightConverter.convert(rawWeights, ctx, quantArena)
-                } else {
-                    rawWeights
                 }
 
                 val backend = CpuAttentionBackend<FP32>(
