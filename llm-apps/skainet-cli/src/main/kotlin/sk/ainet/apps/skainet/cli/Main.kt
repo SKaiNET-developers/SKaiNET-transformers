@@ -50,7 +50,8 @@ private data class CliArgs(
     val agentMode: Boolean,
     val demoMode: Boolean,
     val templateName: String?,
-    val contextLength: Int?
+    val contextLength: Int?,
+    val explainLoad: Boolean,
 )
 
 private fun usage(errorMessage: String? = null): Nothing {
@@ -69,6 +70,7 @@ private fun usage(errorMessage: String? = null): Nothing {
     println("  --demo              Tool calling demo with file listing and calculator")
     println("  --template=NAME     Chat template: llama3, chatml, qwen, gemma (auto-detected if omitted)")
     println("  --context=N         Cap context length to N tokens")
+    println("  --explain-load      Print per-weight placement decisions (mapped/heap and why) before loading")
     println("  -h, --help          Show this help")
     println()
     println("Supported architectures (auto-detected from GGUF metadata):")
@@ -93,6 +95,7 @@ private fun parseArgs(args: Array<String>): CliArgs {
     var demoMode = false
     var templateName: String? = null
     var contextLength: Int? = null
+    var explainLoad = false
 
     var idx = 0
     fun nextValue(flag: String): String {
@@ -117,6 +120,7 @@ private fun parseArgs(args: Array<String>): CliArgs {
             arg == "--chat" -> chatMode = true
             arg == "--agent" -> agentMode = true
             arg == "--demo" -> demoMode = true
+            arg == "--explain-load" -> explainLoad = true
             arg.startsWith("--template=") -> templateName = arg.substringAfter("=")
             arg.startsWith("--context=") -> {
                 val value = arg.substringAfter("=")
@@ -137,7 +141,7 @@ private fun parseArgs(args: Array<String>): CliArgs {
         usage("Prompt is required (or use --chat/--agent/--demo mode).")
     }
 
-    return CliArgs(modelPath, steps, temperature, prompt, chatMode, agentMode, demoMode, templateName, contextLength)
+    return CliArgs(modelPath, steps, temperature, prompt, chatMode, agentMode, demoMode, templateName, contextLength, explainLoad)
 }
 
 fun main(args: Array<String>) {
@@ -182,16 +186,27 @@ fun main(args: Array<String>) {
                 shape = WeightShapeOrientation.OUT_IN,
                 residency = WeightResidency.MAPPED,
             )
-            val plan = JvmRandomAccessSource.open(modelPath.toString()).use { source ->
-                MemoryPlans.plan(
-                    StreamingGGUFReader.open(source).planInput(
-                        ctx = cliArgs.contextLength,
-                        formFor = { mappedDefault },
-                    ),
-                    Budget(Runtime.getRuntime().maxMemory(), "JVM max heap (-Xmx)"),
+            val planInput = JvmRandomAccessSource.open(modelPath.toString()).use { source ->
+                StreamingGGUFReader.open(source).planInput(
+                    ctx = cliArgs.contextLength,
+                    formFor = { mappedDefault },
                 )
             }
+            val plan = MemoryPlans.plan(
+                planInput,
+                Budget(Runtime.getRuntime().maxMemory(), "JVM max heap (-Xmx)"),
+            )
             println(plan.render())
+            if (cliArgs.explainLoad) {
+                // One line per weight: where it lands (mmap page cache vs heap)
+                // and why — the same AllocationResolver the plan itself uses.
+                println("Placements (--explain-load):")
+                for (line in planInput.weights.map {
+                    sk.ainet.lang.memory.plan.AllocationResolver.explain(it, sk.ainet.lang.memory.plan.PlannerProfile.DESKTOP)
+                }) {
+                    println("  $line")
+                }
+            }
             if (plan.fits == false) {
                 System.err.println("WARNING: planned heap use exceeds the JVM heap cap — the load may OOM. See suggestions above.")
             }

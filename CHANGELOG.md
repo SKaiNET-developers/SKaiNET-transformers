@@ -9,6 +9,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Targets **SKaiNET engine 0.51.0** (developed against `0.51.0-SNAPSHOT`; the pin
+flips to the release when the engine cuts it). The headline is the completed
+engine-adoption arc (#338–#346): this repository no longer carries any weight
+quantization, packing, or memory-staging machinery of its own — every family
+loads through the engine's `StreamingGgufParametersLoader` with a declared
+`WeightForm`, and **MAPPED residency is the default** everywhere.
+
+### Changed — the engine-loader migration (breaking)
+
+- **Every GGUF weight loader is a thin engine wrapper** (#338–#341):
+  `DecoderGgufWeightLoader` (llama/qwen/mistral/smollm2), `ApertusWeightLoader`,
+  `Gemma4WeightLoader`, `Gemma3nWeightLoader` rewritten around
+  `StreamingGgufParametersLoader`. The vendored `QuantPolicy` enum is deleted
+  (#342); loaders take an optional `WeightForm` instead (`null` = keep-packed
+  `[out, in]` MAPPED; `DECODER_DEQUANTIZE_ALL` / `GEMMA_DEQUANTIZE_ALL` for the
+  dense-FP32 export lane).
+- **MAPPED residency by default**: quantized weights are served zero-copy from
+  file-backed pages by the engine's row-major kernel packs
+  (`FfmRowMajorKernelPack` on JVM, `JniMappedKernelPack` on Android) and are not
+  charged against the managed heap. Measured: qwen2.5-1.5B (1.0 GB) runs under
+  `-Xmx512m` with ~176 MB of planned heap.
+- **Token embeddings stay packed**: a packed `token_embd` is rewrapped as
+  `PackedRowDequantTensorData` (new, transformer-core) — `Embedding` dequantizes
+  only the rows a step gathers, and a tied lm_head still rides the packed
+  matmul chain (SmolLM2 CLI: ~3.6 → ~50 tok/s).
+- **`linearProject` is one expression** — `ops.matmulWeightTransposed(input,
+  weight)`; the `PreTransposedWeight` marker and its branch are gone.
+- **Per-step forward scope** (#343): `OptimizedLLMRuntime` runs DIRECT decode
+  inside an engine `ForwardScope` — steady-state decode allocates zero new heap
+  bytes per token; KV caches detach their kept history to ambient storage.
+  Bit-identity with the unscoped path is pinned by `ForwardScopeSteadyStateTest`.
+- **Memory plan in the CLI**: skainet-cli prints `MemoryPlans.plan(...)` from
+  the GGUF header before loading (warns when the plan exceeds the heap cap) and
+  gained `--explain-load` for per-weight placement decisions. The hand-managed
+  `Arena` + `MemorySegmentTensorDataFactory` context setup is gone.
+- **Qwen2/2.5 attention biases**: the decoder lane now resolves
+  `attn_{q,k,v}.bias` tensors and `qwenNetwork` grows `attnBias` (auto-detected
+  from the checkpoint). Qwen2.5 end-to-end quality is still tracked in #352.
+- **Family template** (#346): shared `decoderMetadataFromGguf` parser; the
+  deprecated `GraphAccelerator`/`FusedQKVAccelerator` seam is deleted.
+
+### Added
+
+- **BitNet b1.58 family** (#336, #337): `llm-inference/bitnet` —
+  `bitnetNetwork()` (squared-ReLU FFN + `ffn_sub_norm`/`attn_sub_norm` via new
+  DSL extension points), `BitNetPackedGgufLoader` (packed I2_S through the
+  engine loader: ternary projections as 2-bit `BITNET_B1_58`, lm_head
+  requantized to `BITNET_PLANES`, two-stage exact decode), CLI auto-detection.
+  BitNet-2B4T decodes coherently through the unified CLI.
+
+### Removed
+
+- `QuantPolicy`, `PreTransposedWeight` + wrappers, `BlockQuantPacking`,
+  `GgmlQuantEncodings` (expect/actual), `GemmaMemSegConverter`,
+  `GemmaQuantLayout`, `GemmaPackedWeights`, `DecoderGgufMemSegConverter`,
+  `MemSegWeightConverter`, `MmapLlamaLoader`, `QuantizedTensorFactory`,
+  `LlamaPackedWeights`, `LlamaQuantLayout`, `ApertusMemSegConverter`,
+  `QuantizedTensor`, `GraphAccelerator`, `FusedQKVAccelerator`, `GcHint` —
+  the entire pre-engine quant/packing/staging layer (net ≈ −7,000 lines).
+
 ## [0.40.2] — 2026-08-13
 
 Republishes 0.40.1's content — ships against the same **SKaiNET engine 0.40.1** — after
