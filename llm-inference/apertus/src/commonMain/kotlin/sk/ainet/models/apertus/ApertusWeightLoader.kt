@@ -15,6 +15,7 @@ import sk.ainet.io.gguf.dequant.DequantOps
 import sk.ainet.lang.memory.ExperimentalMemoryApi
 import sk.ainet.lang.memory.plan.EncodingRequest
 import sk.ainet.lang.memory.plan.WeightForm
+import sk.ainet.lang.memory.plan.WeightResidency
 import sk.ainet.lang.memory.plan.WeightShapeOrientation
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.Tensor
@@ -170,7 +171,13 @@ public class ApertusWeightLoader private constructor(
         val byName = linkedMapOf<String, Tensor<T, V>>()
         val engineLoader = StreamingGgufParametersLoader(
             sourceProvider = randomAccessProvider,
-            weightForm = WeightForm(shape = WeightShapeOrientation.OUT_IN),
+            // MAPPED residency default (#342 arc, P5): servable encodings are
+            // served zero-copy from file-backed pages; the engine heap-stages
+            // the rest.
+            weightForm = WeightForm(
+                shape = WeightShapeOrientation.OUT_IN,
+                residency = WeightResidency.MAPPED,
+            ),
             weightFormFor = { name ->
                 if (name == ApertusTensorNames.TOKEN_EMBEDDINGS) {
                     WeightForm(

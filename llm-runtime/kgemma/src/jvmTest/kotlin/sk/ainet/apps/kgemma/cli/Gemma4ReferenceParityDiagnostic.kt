@@ -1,6 +1,5 @@
 package sk.ainet.apps.kgemma.cli
 
-import java.lang.foreign.Arena
 import java.nio.file.Path
 import kotlin.io.path.exists
 import kotlin.io.path.isDirectory
@@ -55,7 +54,6 @@ class Gemma4ReferenceParityDiagnostic {
         runBlocking {
             val memSegFactory = MemorySegmentTensorDataFactory()
             val ctx = DirectCpuExecutionContext(tensorDataFactory = memSegFactory)
-            val quantArena = Arena.ofShared()
             try {
                 val ingestion = Gemma4Ingestion<FP32>(
                     ctx = ctx,
@@ -136,7 +134,6 @@ class Gemma4ReferenceParityDiagnostic {
                 println()
                 println("Match against reference? Look for substrings: ' =', '100', '\$1'")
             } finally {
-                quantArena.close()
                 memSegFactory.close()
             }
         }

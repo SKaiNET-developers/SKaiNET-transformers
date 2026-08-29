@@ -15,6 +15,7 @@ import sk.ainet.io.gguf.dequant.DequantOps
 import sk.ainet.lang.memory.ExperimentalMemoryApi
 import sk.ainet.lang.memory.plan.EncodingRequest
 import sk.ainet.lang.memory.plan.WeightForm
+import sk.ainet.lang.memory.plan.WeightResidency
 import sk.ainet.lang.memory.plan.WeightShapeOrientation
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.Tensor
@@ -251,7 +252,14 @@ public class Gemma4WeightLoader private constructor(
         // tensors packed with logical [out, in] shapes; the caller-supplied
         // [weightForm] (e.g. GEMMA_DEQUANTIZE_ALL) overrides. The token
         // embedding and PLE table overrides always win — see class kdoc.
-        val defaultForm = weightForm ?: WeightForm(shape = WeightShapeOrientation.OUT_IN)
+        val defaultForm = weightForm ?: WeightForm(
+            shape = WeightShapeOrientation.OUT_IN,
+            // MAPPED residency default (#342 arc, P5): servable encodings are
+            // served zero-copy from file-backed pages; the engine heap-stages
+            // the rest. The PLE override below stays HEAP — its row-dequant
+            // wrapper needs a heap byte view of the packed table.
+            residency = WeightResidency.MAPPED,
+        )
         val engineLoader = StreamingGgufParametersLoader(
             sourceProvider = randomAccessProvider,
             weightForm = defaultForm,

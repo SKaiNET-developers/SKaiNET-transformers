@@ -1,7 +1,6 @@
 package sk.ainet.apps.kgemma.cli
 
 import java.io.File
-import java.lang.foreign.Arena
 import java.lang.management.BufferPoolMXBean
 import java.lang.management.ManagementFactory
 import java.nio.file.Path
@@ -145,7 +144,6 @@ class Gemma4E2BToolCallSmokeTest {
             memDump("test-start")
             val memSegFactory = MemorySegmentTensorDataFactory()
             val ctx = DirectCpuExecutionContext(tensorDataFactory = memSegFactory)
-            val quantArena = Arena.ofShared()
             try {
                 // Keep-packed (engine-loader default): Q4_K weights stay
                 // quantized in memory and dispatch to the packed matmul
@@ -276,7 +274,6 @@ class Gemma4E2BToolCallSmokeTest {
                     "Tool ran but with a surprising expression argument: ${tool.receivedExpression}"
                 )
             } finally {
-                quantArena.close()
                 memSegFactory.close()
             }
         }

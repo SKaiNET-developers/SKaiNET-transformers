@@ -19,12 +19,17 @@ import sk.ainet.backend.api.kernel.KernelPacks
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.exec.kernel.FfmRowMajorKernelPack
 import sk.ainet.io.JvmRandomAccessSource
-import sk.ainet.lang.tensor.data.MemorySegmentTensorDataFactory
+import sk.ainet.io.gguf.StreamingGGUFReader
+import sk.ainet.io.gguf.planInput
+import sk.ainet.lang.memory.plan.Budget
+import sk.ainet.lang.memory.plan.MemoryPlans
+import sk.ainet.lang.memory.plan.WeightForm
+import sk.ainet.lang.memory.plan.WeightResidency
+import sk.ainet.lang.memory.plan.WeightShapeOrientation
 import sk.ainet.lang.types.FP32
 import sk.ainet.models.llama.DecoderGgufWeightLoader
 import sk.ainet.models.llama.LlamaNetworkLoader
 import sk.ainet.models.qwen.QwenNetworkLoader
-import java.lang.foreign.Arena
 import java.nio.file.Path
 import kotlin.io.path.exists
 import kotlin.io.path.extension
@@ -160,15 +165,39 @@ fun main(args: Array<String>) {
             FfmRowMajorKernelPack.install()
         }
 
-        // Set up execution context
-        val quantArena = Arena.ofShared()
-        val memSegFactory = MemorySegmentTensorDataFactory()
-        val ctx = DirectCpuExecutionContext(tensorDataFactory = memSegFactory)
+        // Memory plan before anything is allocated: header-only arithmetic
+        // priced with the same form the loaders below request for every
+        // tensor — MAPPED keep-packed; even the token embedding stays at its
+        // packed footprint (rewrapped as a row-dequant source, not inflated
+        // to dense FP32) — against the JVM heap cap. Mapped weights page
+        // against device RAM, not this budget (#1189) — the whole point of
+        // the MAPPED default.
+        @OptIn(sk.ainet.lang.memory.ExperimentalMemoryApi::class)
+        run {
+            val mappedDefault = WeightForm(
+                shape = WeightShapeOrientation.OUT_IN,
+                residency = WeightResidency.MAPPED,
+            )
+            val plan = JvmRandomAccessSource.open(modelPath.toString()).use { source ->
+                MemoryPlans.plan(
+                    StreamingGGUFReader.open(source).planInput(
+                        ctx = cliArgs.contextLength,
+                        formFor = { mappedDefault },
+                    ),
+                    Budget(Runtime.getRuntime().maxMemory(), "JVM max heap (-Xmx)"),
+                )
+            }
+            println(plan.render())
+            if (plan.fits == false) {
+                System.err.println("WARNING: planned heap use exceeds the JVM heap cap — the load may OOM. See suggestions above.")
+            }
+        }
 
-        Runtime.getRuntime().addShutdownHook(Thread {
-            quantArena.close()
-            memSegFactory.close()
-        })
+        // Set up execution context. Weights no longer go through a hand-managed
+        // MemorySegment Arena — the engine loader owns residency (mapped pages
+        // or heap arrays) per the requested WeightForm, and activations live on
+        // the default heap factory.
+        val ctx = DirectCpuExecutionContext()
 
         // Load model based on detected family. All families route through
         // the DSL pipeline (per-family network() builder +
@@ -183,7 +212,7 @@ fun main(args: Array<String>) {
         // diverged from the checkpoint's intent. The DSL path is correct
         // for Apertus too. See APERTUS_ROLLOUT.md (PR 1).
         val runtime: InferenceRuntime<FP32> = if (modelInfo.family == ModelFamily.GEMMA) {
-            println("Loading Gemma GGUF model from $modelPath via gemmaNetwork() + OptimizedLLMRuntime (engine loader, keep-packed)...")
+            println("Loading Gemma GGUF model from $modelPath via gemmaNetwork() + OptimizedLLMRuntime (engine loader, keep-packed, mapped)...")
             if (cliArgs.contextLength != null) {
                 println("  --context flag currently ignored on the Gemma path; uses model default capped to 4096.")
             }
@@ -192,7 +221,7 @@ fun main(args: Array<String>) {
             ).load<FP32, Float>(ctx)
             OptimizedLLMRuntime(model, ctx, OptimizedLLMMode.DIRECT, FP32::class)
         } else if (modelInfo.family == ModelFamily.APERTUS) {
-            println("Loading Apertus GGUF model from $modelPath via apertusNetwork() + OptimizedLLMRuntime (engine loader, keep-packed)...")
+            println("Loading Apertus GGUF model from $modelPath via apertusNetwork() + OptimizedLLMRuntime (engine loader, keep-packed, mapped)...")
             if (cliArgs.contextLength != null) {
                 println("  --context flag currently ignored on the Apertus path; uses model default.")
             }
@@ -213,7 +242,7 @@ fun main(args: Array<String>) {
                 acceptedArchitectures = acceptedArchitectures,
             )
 
-            println("Loading GGUF model from $modelPath (${modelInfo.family.displayName}, DSL streaming, keep-packed)...")
+            println("Loading GGUF model from $modelPath (${modelInfo.family.displayName}, DSL streaming, keep-packed, mapped)...")
             val convertedWeights = loader.loadToMapStreaming<FP32, Float>(ctx)
 
             if (cliArgs.contextLength != null) {

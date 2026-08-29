@@ -113,6 +113,36 @@ public final class sk/ainet/lang/nn/normalization/RMSNormalization : sk/ainet/la
 	public fun getParams ()Ljava/util/List;
 }
 
+public final class sk/ainet/lang/nn/quant/PackedRowDequantTensorData : sk/ainet/lang/tensor/data/RowDequantSource, sk/ainet/lang/tensor/data/TensorData, sk/ainet/lang/tensor/storage/PackedBlockStorage {
+	public static final field Companion Lsk/ainet/lang/nn/quant/PackedRowDequantTensorData$Companion;
+	public synthetic fun <init> (Lsk/ainet/lang/tensor/data/TensorData;Lsk/ainet/lang/tensor/storage/PackedBlockStorage;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun copyToFloatArray ()[F
+	public fun dequantRow (I)[F
+	public fun dequantizeBlock (I[FI)V
+	public fun get ([I)Ljava/lang/Float;
+	public synthetic fun get ([I)Ljava/lang/Object;
+	public fun getBlockCount ()I
+	public fun getBlockOrder ()Lsk/ainet/lang/memory/BlockOrder;
+	public fun getBlockSize ()I
+	public fun getElementCount ()J
+	public fun getEncoding ()Lsk/ainet/lang/tensor/storage/TensorEncoding;
+	public fun getPackedData ()[B
+	public fun getPackedStorage ()Lsk/ainet/lang/memory/Storage;
+	public fun getPackedView ()Lsk/ainet/lang/memory/TensorView;
+	public fun getPhysicalBytes ()J
+	public fun getShape ()Lsk/ainet/lang/tensor/Shape;
+	public fun getView ()Lsk/ainet/lang/memory/TensorView;
+	public fun set ([IF)V
+	public synthetic fun set ([ILjava/lang/Object;)V
+	public fun toFloatArray ()[F
+	public fun toTensorStorage (Lsk/ainet/lang/tensor/storage/LogicalDType;Lsk/ainet/lang/tensor/storage/Placement;)Lsk/ainet/lang/tensor/storage/TensorStorage;
+	public fun toTensorStorage (Lsk/ainet/lang/types/DType;Lsk/ainet/lang/tensor/storage/Placement;)Lsk/ainet/lang/tensor/storage/TensorStorage;
+}
+
+public final class sk/ainet/lang/nn/quant/PackedRowDequantTensorData$Companion {
+	public final fun wrapIfRowDequantable (Lsk/ainet/lang/tensor/data/TensorData;)Lsk/ainet/lang/tensor/data/TensorData;
+}
+
 public final class sk/ainet/lang/nn/transformer/AppendKVCache : sk/ainet/lang/nn/transformer/KVCache {
 	public fun <init> (IIILjava/lang/String;)V
 	public synthetic fun <init> (IIILjava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V

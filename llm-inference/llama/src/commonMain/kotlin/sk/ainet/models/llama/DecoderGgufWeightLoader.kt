@@ -16,13 +16,16 @@ import sk.ainet.io.gguf.dequant.DequantOps
 import sk.ainet.lang.memory.ExperimentalMemoryApi
 import sk.ainet.lang.memory.plan.EncodingRequest
 import sk.ainet.lang.memory.plan.WeightForm
+import sk.ainet.lang.memory.plan.WeightResidency
 import sk.ainet.lang.memory.plan.WeightShapeOrientation
+import sk.ainet.lang.nn.quant.PackedRowDequantTensorData
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.tensor.data.Bf16DenseTensorData
 import sk.ainet.lang.tensor.data.Fp16DenseTensorData
 import sk.ainet.lang.tensor.data.NarrowFloatTensorData
 import sk.ainet.lang.tensor.data.TensorData
+import sk.ainet.lang.tensor.storage.PackedBlockStorage
 import sk.ainet.lang.types.BF16
 import sk.ainet.lang.types.DType
 import sk.ainet.lang.types.DTypePolicy
@@ -139,7 +142,9 @@ public class DecoderGgufWeightLoader private constructor(
      * @param weightForm per-tensor materialization request. `null` (default) keeps
      *   quantized tensors in their stored block encoding as packed
      *   [sk.ainet.lang.tensor.storage.PackedBlockStorage] data with logical
-     *   `[out, in]` shapes; pass
+     *   `[out, in]` shapes and `MAPPED` residency — servable encodings are
+     *   served zero-copy from file-backed pages (heap-staged where the
+     *   platform or encoding cannot map); pass
      *   `WeightForm(encoding = EncodingRequest.DequantizeTo(FP32), shape = WeightShapeOrientation.OUT_IN)`
      *   to fully dequantize (the legacy eager runtime path). The token embedding
      *   is always dequantized regardless — `Embedding.gather()` needs element access.
@@ -355,28 +360,35 @@ public class DecoderGgufWeightLoader private constructor(
             }
         }
 
-        // Payload pass through the engine loader.
-        val defaultForm = weightForm ?: WeightForm(shape = WeightShapeOrientation.OUT_IN)
+        // Payload pass through the engine loader. MAPPED residency is the
+        // default (#342 arc, P5): servable encodings stay in file-backed
+        // pages and the row-major kernel pack reads them zero-copy; the
+        // engine heap-stages anything it cannot serve from the mapping.
+        val defaultForm = weightForm ?: WeightForm(
+            shape = WeightShapeOrientation.OUT_IN,
+            residency = WeightResidency.MAPPED,
+        )
         val engineLoader = StreamingGgufParametersLoader(
             sourceProvider = randomAccessProvider,
             keepF16Native = keepF16Native && dtype == FP32::class,
             keepBf16Native = keepBf16Native && dtype == FP32::class,
             weightForm = defaultForm,
-            weightFormFor = { name ->
-                if (name == LlamaTensorNames.TOKEN_EMBEDDINGS) {
-                    WeightForm(
-                        encoding = EncodingRequest.DequantizeTo(FP32),
-                        shape = WeightShapeOrientation.OUT_IN
-                    )
-                } else {
-                    null
-                }
-            }
         )
         var tokenEmbedding: Tensor<T, V>? = null
         engineLoader.load(ctx, dtype) { name: String, tensor: Tensor<T, V> ->
-            if (name == LlamaTensorNames.TOKEN_EMBEDDINGS) tokenEmbedding = tensor
-            if (name in wanted) onTensorLoaded(name, tensor)
+            // The token embedding rides the default form like every other
+            // tensor (mapped keep-packed), then gets rewrapped as a
+            // row-dequant source so `Embedding` reads it row-by-row — a
+            // 152k-vocab table stays at its packed footprint instead of a
+            // ~1 GB dense FP32 heap array, and the *tied* output head still
+            // sees PackedBlockStorage for the packed matmul chain. Never
+            // deliver a bare packed table to Embedding: packed `get()`
+            // returns raw quantization codes, not values.
+            val delivered =
+                if (name == LlamaTensorNames.TOKEN_EMBEDDINGS) embeddingReady(ctx, dtype, tensor)
+                else tensor
+            if (name == LlamaTensorNames.TOKEN_EMBEDDINGS) tokenEmbedding = delivered
+            if (name in wanted) onTensorLoaded(name, delivered)
         }
         if (tiedEmbeddings) {
             onTensorLoaded(
@@ -386,6 +398,31 @@ public class DecoderGgufWeightLoader private constructor(
         }
 
         return metadata
+    }
+
+    /**
+     * The token-embedding tensor in a form `Embedding.gather` can read:
+     * packed deliveries are rewrapped as a [PackedRowDequantTensorData]
+     * row-dequant source; a packed table whose rows do not lie on block
+     * boundaries (no canonical GGUF quantization produces one, but the type
+     * system allows it) is dequantized outright rather than left where
+     * element access would return raw quantization codes. Dense deliveries
+     * pass through untouched.
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun <T : DType, V> embeddingReady(
+        ctx: ExecutionContext,
+        dtype: KClass<T>,
+        tensor: Tensor<T, V>,
+    ): Tensor<T, V> {
+        val data = tensor.data
+        if (data !is PackedBlockStorage) return tensor
+        val wrapped = PackedRowDequantTensorData.wrapIfRowDequantable(data as TensorData<FP32, Float>)
+        return if (wrapped !== data) {
+            ctx.fromData(wrapped as TensorData<T, V>, dtype)
+        } else {
+            ctx.fromFloatArray<T, V>(tensor.shape, dtype, data.toFloatArray())
+        }
     }
 
     /**
