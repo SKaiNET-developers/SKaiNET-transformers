@@ -5,10 +5,11 @@ import sk.ainet.apps.llm.DTypePolicyValidation
 import sk.ainet.apps.llm.weights.LlamaGGUFNameResolver
 import sk.ainet.context.ExecutionContext
 import sk.ainet.io.RandomAccessSource
-import sk.ainet.io.model.QuantPolicy
 import sk.ainet.io.weights.MappingConfig
 import sk.ainet.io.weights.WeightMapper
 import sk.ainet.io.weights.WeightTensor
+import sk.ainet.lang.memory.ExperimentalMemoryApi
+import sk.ainet.lang.memory.plan.WeightForm
 import sk.ainet.lang.nn.Module
 import sk.ainet.lang.types.DType
 import sk.ainet.lang.types.DTypePolicy
@@ -31,6 +32,7 @@ import sk.ainet.lang.types.DTypePolicy
  *     .load<FP32, Float>(ctx)
  * ```
  */
+@OptIn(ExperimentalMemoryApi::class)
 public class GemmaNetworkLoader @PublishedApi internal constructor(
     @PublishedApi internal val weightsProvider: WeightsProvider,
     @PublishedApi internal val debug: Boolean = false
@@ -53,13 +55,12 @@ public class GemmaNetworkLoader @PublishedApi internal constructor(
     @PublishedApi
     internal sealed interface WeightsProvider {
         data class GgufSource(
-            val sourceProvider: () -> Source,
-            val quantPolicy: QuantPolicy
+            val sourceProvider: () -> Source
         ) : WeightsProvider
 
         data class GgufRandomAccess(
             val randomAccessProvider: () -> RandomAccessSource,
-            val quantPolicy: QuantPolicy
+            val weightForm: WeightForm?
         ) : WeightsProvider
 
         data class SafeTensorsIndex(
@@ -72,23 +73,27 @@ public class GemmaNetworkLoader @PublishedApi internal constructor(
     }
 
     public companion object {
-        /** Load from a GGUF file via sequential Source (models under 2GB). */
+        /** Load from a GGUF file via sequential Source (models under 2GB, dequantized to dense FP32). */
         public fun fromGguf(
             sourceProvider: () -> Source,
-            quantPolicy: QuantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
             debug: Boolean = false
         ): GemmaNetworkLoader = GemmaNetworkLoader(
-            WeightsProvider.GgufSource(sourceProvider, quantPolicy), debug
+            WeightsProvider.GgufSource(sourceProvider), debug
         )
 
-        /** Load from a GGUF file via streaming RandomAccessSource (any size). */
+        /**
+         * Load from a GGUF file via streaming RandomAccessSource (any size)
+         * through the engine loader. Default form keeps quantized tensors
+         * packed with logical `[out, in]` shapes; pass [GEMMA_DEQUANTIZE_ALL]
+         * as [weightForm] for a dense FP32 load (the export/tracing path).
+         */
         @kotlin.jvm.JvmName("fromGgufRandomAccess")
         public fun fromGguf(
             randomAccessProvider: () -> RandomAccessSource,
-            quantPolicy: QuantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
+            weightForm: WeightForm? = null,
             debug: Boolean = false
         ): GemmaNetworkLoader = GemmaNetworkLoader(
-            WeightsProvider.GgufRandomAccess(randomAccessProvider, quantPolicy), debug
+            WeightsProvider.GgufRandomAccess(randomAccessProvider, weightForm), debug
         )
 
         /** Load from HuggingFace SafeTensors with index file. */
@@ -126,13 +131,13 @@ public class GemmaNetworkLoader @PublishedApi internal constructor(
         ctx: ExecutionContext,
         maxInferenceLen: Int? = null,
     ): Module<T, V> {
-        val rawWeights: Gemma4Weights<T, V> = when (val wp = weightsProvider) {
+        val weights: Gemma4Weights<T, V> = when (val wp = weightsProvider) {
             is WeightsProvider.GgufSource -> {
-                val loader = Gemma4WeightLoader(wp.sourceProvider, quantPolicy = wp.quantPolicy)
+                val loader = Gemma4WeightLoader(wp.sourceProvider)
                 loader.loadToMap<T, V>(ctx)
             }
             is WeightsProvider.GgufRandomAccess -> {
-                val loader = Gemma4WeightLoader(wp.randomAccessProvider, quantPolicy = wp.quantPolicy)
+                val loader = Gemma4WeightLoader(wp.randomAccessProvider, weightForm = wp.weightForm)
                 loader.loadToMapStreaming<T, V>(ctx)
             }
             is WeightsProvider.SafeTensorsIndex -> {
@@ -145,24 +150,6 @@ public class GemmaNetworkLoader @PublishedApi internal constructor(
                 wp.weights as Gemma4Weights<T, V>
             }
         }
-
-        // NATIVE_OPTIMIZED yields raw-byte quant tensors the network mapper can't
-        // consume directly. Pack them (heap Q4/5/6_K + FP32 fallback) here — this
-        // is commonMain so it works on Kotlin/Native (the board) as well as the
-        // JVM, and replaces the JVM-only `convertGemmaWeightsToMemSeg` for the
-        // `load()` entry point.
-        val ggufPolicy = when (val wp = weightsProvider) {
-            is WeightsProvider.GgufSource -> wp.quantPolicy
-            is WeightsProvider.GgufRandomAccess -> wp.quantPolicy
-            else -> null
-        }
-        val weights: Gemma4Weights<T, V> =
-            if (ggufPolicy == QuantPolicy.NATIVE_OPTIMIZED) {
-                @Suppress("UNCHECKED_CAST")
-                convertGemmaWeightsPacked(rawWeights, ctx) as Gemma4Weights<T, V>
-            } else {
-                rawWeights
-            }
 
         return applyWeightsToNetwork(ctx, weights, maxInferenceLen)
     }

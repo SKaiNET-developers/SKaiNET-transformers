@@ -1,6 +1,5 @@
 package sk.ainet.lang.nn.transformer
 
-import sk.ainet.lang.nn.quant.PreTransposedWeight
 import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.tensor.ops.TensorOps
 import sk.ainet.lang.types.DType
@@ -10,32 +9,25 @@ import sk.ainet.lang.types.DType
  * `[out, in]` checkpoint layout.
  *
  * Intended as the single place every transformer DSL module goes through
- * when projecting against a weight parameter.
+ * when projecting against a weight parameter. Delegates to the engine
+ * primitive [TensorOps.matmulWeightTransposed], which lets backends serve
+ * the projection without materializing a transposed copy — packed block
+ * weights (heap or mapped) dispatch to their transpose-aware kernels
+ * directly.
  *
- * MIGRATION NOTE (#338 arc): the unmarked branch becomes the engine
- * primitive [TensorOps.matmulWeightTransposed] once the legacy MemSeg
- * converter lane is gone (the decoder/gemma migration phases). The flip
- * cannot be validated before then: the legacy lane's tensor data does not
- * declare a truthful block order, and the lane itself is broken at baseline
- * for pure-Q4_K/Q6_K models (transformers develop + engine 0.40.1 crashes
- * with the #993 ClassCastException on the first decode step; engines >= 0.49
- * turn that crash into silent garbage via matmulGeneric's raw-code
- * copyToFloatArray fallback — measured on Qwen2.5-1.5B). The engine-loader
- * migration replaces the lane wholesale, which is the actual fix.
- *
- * The [PreTransposedWeight] branch remains only while the legacy packing
- * layer exists (deleted with it in the gemma migration phase).
+ * Every weight reaching this seam is engine-loader-produced
+ * (`StreamingGgufParametersLoader` / SafeTensors) with a truthful logical
+ * `[out, in]` shape; the legacy MemSeg converter lane and its
+ * pre-transposed-marker branch were deleted in the #338 migration arc
+ * (gemma phase, #341).
  *
  * @param ops active tensor operations (usually `ctx.ops`)
  * @param input input tensor of shape `[..., in]`
- * @param weight projection weight in `[out, in]` layout — or `[in, out]`
- *   when its data carries the [PreTransposedWeight] marker
+ * @param weight projection weight in `[out, in]` layout
  * @return `input @ W.t()`
  */
 public fun <T : DType, V> linearProject(
     ops: TensorOps,
     input: Tensor<T, V>,
     weight: Tensor<T, V>
-): Tensor<T, V> =
-    if (weight.data is PreTransposedWeight) ops.matmul(input, weight)
-    else ops.matmul(input, ops.transpose(weight))
+): Tensor<T, V> = ops.matmulWeightTransposed(input, weight)

@@ -8,11 +8,9 @@ import kotlin.test.Test
 import kotlinx.coroutines.runBlocking
 import sk.ainet.apps.kgemma.Gemma4Ingestion
 import sk.ainet.apps.kgemma.Gemma4LoadConfig
-import sk.ainet.apps.kgemma.loadDslRuntimeNativeStreaming
 import sk.ainet.apps.kllama.GGUFTokenizer
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
-import sk.ainet.io.model.QuantPolicy
 import sk.ainet.lang.tensor.data.MemorySegmentTensorDataFactory
 import sk.ainet.lang.types.FP32
 
@@ -62,14 +60,11 @@ class Gemma4ReferenceParityDiagnostic {
                 val ingestion = Gemma4Ingestion<FP32>(
                     ctx = ctx,
                     dtype = FP32::class,
-                    config = Gemma4LoadConfig(quantPolicy = QuantPolicy.NATIVE_OPTIMIZED, allowQuantized = true)
+                    config = Gemma4LoadConfig()
                 )
-                println("Loading $path via DSL NATIVE_OPTIMIZED...")
-                val runtime = ingestion.loadDslRuntimeNativeStreaming(
-                    randomAccessProvider = { JvmRandomAccessSource.open(path.toString()) },
-                    ctx = ctx,
-                    dtype = FP32::class,
-                    arena = quantArena
+                println("Loading $path via DSL engine loader (keep-packed)...")
+                val runtime = ingestion.loadDslRuntimeStreaming(
+                    randomAccessProvider = { JvmRandomAccessSource.open(path.toString()) }
                 )
                 val tokenizer = JvmRandomAccessSource.open(path.toString()).use { source ->
                     GGUFTokenizer.fromRandomAccessSource(source)

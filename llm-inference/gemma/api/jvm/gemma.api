@@ -273,22 +273,21 @@ public final class sk/ainet/models/gemma/Gemma3nRuntime : sk/ainet/apps/llm/Deco
 }
 
 public final class sk/ainet/models/gemma/Gemma3nRuntimeWeights {
-	public fun <init> (Lsk/ainet/models/gemma/Gemma3nModelMetadata;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/List;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/Map;Lsk/ainet/models/gemma/AltUpGlobalWeights;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;)V
-	public synthetic fun <init> (Lsk/ainet/models/gemma/Gemma3nModelMetadata;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/List;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/Map;Lsk/ainet/models/gemma/AltUpGlobalWeights;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lsk/ainet/models/gemma/Gemma3nModelMetadata;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/List;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/models/gemma/AltUpGlobalWeights;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;)V
+	public synthetic fun <init> (Lsk/ainet/models/gemma/Gemma3nModelMetadata;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/List;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/models/gemma/AltUpGlobalWeights;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()Lsk/ainet/models/gemma/Gemma3nModelMetadata;
 	public final fun component10 ()Lsk/ainet/lang/tensor/Tensor;
 	public final fun component11 ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun component12 ()Lsk/ainet/lang/tensor/Tensor;
 	public final fun component2 ()Lsk/ainet/lang/tensor/Tensor;
 	public final fun component3 ()Lsk/ainet/lang/tensor/Tensor;
 	public final fun component4 ()Lsk/ainet/lang/tensor/Tensor;
 	public final fun component5 ()Ljava/util/List;
 	public final fun component6 ()Lsk/ainet/lang/tensor/Tensor;
 	public final fun component7 ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun component8 ()Ljava/util/Map;
-	public final fun component9 ()Lsk/ainet/models/gemma/AltUpGlobalWeights;
-	public final fun copy (Lsk/ainet/models/gemma/Gemma3nModelMetadata;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/List;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/Map;Lsk/ainet/models/gemma/AltUpGlobalWeights;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;)Lsk/ainet/models/gemma/Gemma3nRuntimeWeights;
-	public static synthetic fun copy$default (Lsk/ainet/models/gemma/Gemma3nRuntimeWeights;Lsk/ainet/models/gemma/Gemma3nModelMetadata;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/List;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/Map;Lsk/ainet/models/gemma/AltUpGlobalWeights;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;ILjava/lang/Object;)Lsk/ainet/models/gemma/Gemma3nRuntimeWeights;
+	public final fun component8 ()Lsk/ainet/models/gemma/AltUpGlobalWeights;
+	public final fun component9 ()Lsk/ainet/lang/tensor/Tensor;
+	public final fun copy (Lsk/ainet/models/gemma/Gemma3nModelMetadata;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/List;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/models/gemma/AltUpGlobalWeights;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;)Lsk/ainet/models/gemma/Gemma3nRuntimeWeights;
+	public static synthetic fun copy$default (Lsk/ainet/models/gemma/Gemma3nRuntimeWeights;Lsk/ainet/models/gemma/Gemma3nModelMetadata;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/List;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/models/gemma/AltUpGlobalWeights;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;ILjava/lang/Object;)Lsk/ainet/models/gemma/Gemma3nRuntimeWeights;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getAltUpGlobalWeights ()Lsk/ainet/models/gemma/AltUpGlobalWeights;
 	public final fun getFinalNorm ()Lsk/ainet/lang/tensor/Tensor;
@@ -298,7 +297,6 @@ public final class sk/ainet/models/gemma/Gemma3nRuntimeWeights {
 	public final fun getPerLayerModelProj ()Lsk/ainet/lang/tensor/Tensor;
 	public final fun getPerLayerProjNorm ()Lsk/ainet/lang/tensor/Tensor;
 	public final fun getPerLayerTokenEmbedding ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun getQuantTypes ()Ljava/util/Map;
 	public final fun getRopeFreqImag ()Lsk/ainet/lang/tensor/Tensor;
 	public final fun getRopeFreqReal ()Lsk/ainet/lang/tensor/Tensor;
 	public final fun getTokenEmbedding ()Lsk/ainet/lang/tensor/Tensor;
@@ -307,18 +305,12 @@ public final class sk/ainet/models/gemma/Gemma3nRuntimeWeights {
 }
 
 public final class sk/ainet/models/gemma/Gemma3nRuntimeWeightsKt {
-	public static final fun loadGemma3nRuntimeWeights (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lkotlin/reflect/KClass;Lsk/ainet/io/model/QuantPolicy;ZLkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static final fun loadGemma3nRuntimeWeights (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lsk/ainet/io/model/QuantPolicy;ZLkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static synthetic fun loadGemma3nRuntimeWeights$default (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lkotlin/reflect/KClass;Lsk/ainet/io/model/QuantPolicy;ZLkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
-	public static synthetic fun loadGemma3nRuntimeWeights$default (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lsk/ainet/io/model/QuantPolicy;ZLkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
-	public static final fun loadGemma3nRuntimeWeightsDequantized (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static final fun loadGemma3nRuntimeWeightsDequantized (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lkotlin/reflect/KClass;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static final fun loadGemma3nRuntimeWeightsDequantizedStreaming (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static final fun loadGemma3nRuntimeWeightsDequantizedStreaming (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lkotlin/reflect/KClass;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static final fun loadGemma3nRuntimeWeightsStreaming (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lkotlin/reflect/KClass;Lsk/ainet/io/model/QuantPolicy;ZLkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static final fun loadGemma3nRuntimeWeightsStreaming (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lsk/ainet/io/model/QuantPolicy;ZLkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static synthetic fun loadGemma3nRuntimeWeightsStreaming$default (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lkotlin/reflect/KClass;Lsk/ainet/io/model/QuantPolicy;ZLkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
-	public static synthetic fun loadGemma3nRuntimeWeightsStreaming$default (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lsk/ainet/io/model/QuantPolicy;ZLkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public static final fun loadGemma3nRuntimeWeights (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static final fun loadGemma3nRuntimeWeights (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lkotlin/reflect/KClass;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static final fun loadGemma3nRuntimeWeightsStreaming (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lkotlin/reflect/KClass;Lsk/ainet/lang/memory/plan/WeightForm;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static final fun loadGemma3nRuntimeWeightsStreaming (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lsk/ainet/lang/memory/plan/WeightForm;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun loadGemma3nRuntimeWeightsStreaming$default (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lkotlin/reflect/KClass;Lsk/ainet/lang/memory/plan/WeightForm;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public static synthetic fun loadGemma3nRuntimeWeightsStreaming$default (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lsk/ainet/lang/memory/plan/WeightForm;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 }
 
 public final class sk/ainet/models/gemma/Gemma3nSafeTensorsWeightLoader {
@@ -379,10 +371,10 @@ public final class sk/ainet/models/gemma/Gemma3nTensorNames {
 }
 
 public final class sk/ainet/models/gemma/Gemma3nWeightLoader {
-	public fun <init> (Lkotlin/jvm/functions/Function0;Lsk/ainet/io/model/QuantPolicy;)V
-	public synthetic fun <init> (Lkotlin/jvm/functions/Function0;Lsk/ainet/io/model/QuantPolicy;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public fun <init> (Lkotlin/jvm/functions/Function0;ZLsk/ainet/io/model/QuantPolicy;)V
-	public synthetic fun <init> (Lkotlin/jvm/functions/Function0;ZLsk/ainet/io/model/QuantPolicy;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lkotlin/jvm/functions/Function0;Lsk/ainet/lang/memory/plan/WeightForm;)V
+	public synthetic fun <init> (Lkotlin/jvm/functions/Function0;Lsk/ainet/lang/memory/plan/WeightForm;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lkotlin/jvm/functions/Function0;Z)V
+	public synthetic fun <init> (Lkotlin/jvm/functions/Function0;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun load (Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;Lkotlin/jvm/functions/Function2;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun loadStreaming (Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;Lkotlin/jvm/functions/Function2;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun loadToMap (Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
@@ -395,16 +387,13 @@ public final class sk/ainet/models/gemma/Gemma3nWeightMapper {
 }
 
 public final class sk/ainet/models/gemma/Gemma3nWeights {
-	public fun <init> (Lsk/ainet/models/gemma/Gemma3nModelMetadata;Ljava/util/Map;Ljava/util/Map;)V
-	public synthetic fun <init> (Lsk/ainet/models/gemma/Gemma3nModelMetadata;Ljava/util/Map;Ljava/util/Map;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lsk/ainet/models/gemma/Gemma3nModelMetadata;Ljava/util/Map;)V
 	public final fun component1 ()Lsk/ainet/models/gemma/Gemma3nModelMetadata;
 	public final fun component2 ()Ljava/util/Map;
-	public final fun component3 ()Ljava/util/Map;
-	public final fun copy (Lsk/ainet/models/gemma/Gemma3nModelMetadata;Ljava/util/Map;Ljava/util/Map;)Lsk/ainet/models/gemma/Gemma3nWeights;
-	public static synthetic fun copy$default (Lsk/ainet/models/gemma/Gemma3nWeights;Lsk/ainet/models/gemma/Gemma3nModelMetadata;Ljava/util/Map;Ljava/util/Map;ILjava/lang/Object;)Lsk/ainet/models/gemma/Gemma3nWeights;
+	public final fun copy (Lsk/ainet/models/gemma/Gemma3nModelMetadata;Ljava/util/Map;)Lsk/ainet/models/gemma/Gemma3nWeights;
+	public static synthetic fun copy$default (Lsk/ainet/models/gemma/Gemma3nWeights;Lsk/ainet/models/gemma/Gemma3nModelMetadata;Ljava/util/Map;ILjava/lang/Object;)Lsk/ainet/models/gemma/Gemma3nWeights;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getMetadata ()Lsk/ainet/models/gemma/Gemma3nModelMetadata;
-	public final fun getQuantTypes ()Ljava/util/Map;
 	public final fun getTensors ()Ljava/util/Map;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
@@ -625,21 +614,20 @@ public final class sk/ainet/models/gemma/Gemma4RopeConfig {
 }
 
 public final class sk/ainet/models/gemma/Gemma4RuntimeWeights {
-	public fun <init> (Lsk/ainet/models/gemma/Gemma4ModelMetadata;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/List;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/Map;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;)V
-	public synthetic fun <init> (Lsk/ainet/models/gemma/Gemma4ModelMetadata;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/List;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/Map;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lsk/ainet/models/gemma/Gemma4ModelMetadata;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/List;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;)V
+	public synthetic fun <init> (Lsk/ainet/models/gemma/Gemma4ModelMetadata;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/List;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()Lsk/ainet/models/gemma/Gemma4ModelMetadata;
 	public final fun component10 ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun component11 ()Lsk/ainet/lang/tensor/Tensor;
 	public final fun component2 ()Lsk/ainet/lang/tensor/Tensor;
 	public final fun component3 ()Lsk/ainet/lang/tensor/Tensor;
 	public final fun component4 ()Lsk/ainet/lang/tensor/Tensor;
 	public final fun component5 ()Ljava/util/List;
 	public final fun component6 ()Lsk/ainet/lang/tensor/Tensor;
 	public final fun component7 ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun component8 ()Ljava/util/Map;
+	public final fun component8 ()Lsk/ainet/lang/tensor/Tensor;
 	public final fun component9 ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun copy (Lsk/ainet/models/gemma/Gemma4ModelMetadata;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/List;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/Map;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;)Lsk/ainet/models/gemma/Gemma4RuntimeWeights;
-	public static synthetic fun copy$default (Lsk/ainet/models/gemma/Gemma4RuntimeWeights;Lsk/ainet/models/gemma/Gemma4ModelMetadata;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/List;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/Map;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;ILjava/lang/Object;)Lsk/ainet/models/gemma/Gemma4RuntimeWeights;
+	public final fun copy (Lsk/ainet/models/gemma/Gemma4ModelMetadata;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/List;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;)Lsk/ainet/models/gemma/Gemma4RuntimeWeights;
+	public static synthetic fun copy$default (Lsk/ainet/models/gemma/Gemma4RuntimeWeights;Lsk/ainet/models/gemma/Gemma4ModelMetadata;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/List;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;ILjava/lang/Object;)Lsk/ainet/models/gemma/Gemma4RuntimeWeights;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getFinalNorm ()Lsk/ainet/lang/tensor/Tensor;
 	public final fun getLayers ()Ljava/util/List;
@@ -648,7 +636,6 @@ public final class sk/ainet/models/gemma/Gemma4RuntimeWeights {
 	public final fun getPerLayerModelProj ()Lsk/ainet/lang/tensor/Tensor;
 	public final fun getPerLayerProjNorm ()Lsk/ainet/lang/tensor/Tensor;
 	public final fun getPerLayerTokenEmbedding ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun getQuantTypes ()Ljava/util/Map;
 	public final fun getRopeFreqImag ()Lsk/ainet/lang/tensor/Tensor;
 	public final fun getRopeFreqReal ()Lsk/ainet/lang/tensor/Tensor;
 	public final fun getTokenEmbedding ()Lsk/ainet/lang/tensor/Tensor;
@@ -657,18 +644,12 @@ public final class sk/ainet/models/gemma/Gemma4RuntimeWeights {
 }
 
 public final class sk/ainet/models/gemma/Gemma4RuntimeWeightsKt {
-	public static final fun loadGemma4RuntimeWeights (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lkotlin/reflect/KClass;Lsk/ainet/io/model/QuantPolicy;ZLkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static final fun loadGemma4RuntimeWeights (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lsk/ainet/io/model/QuantPolicy;ZLkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static synthetic fun loadGemma4RuntimeWeights$default (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lkotlin/reflect/KClass;Lsk/ainet/io/model/QuantPolicy;ZLkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
-	public static synthetic fun loadGemma4RuntimeWeights$default (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lsk/ainet/io/model/QuantPolicy;ZLkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
-	public static final fun loadGemma4RuntimeWeightsDequantized (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static final fun loadGemma4RuntimeWeightsDequantized (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lkotlin/reflect/KClass;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static final fun loadGemma4RuntimeWeightsDequantizedStreaming (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static final fun loadGemma4RuntimeWeightsDequantizedStreaming (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lkotlin/reflect/KClass;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static final fun loadGemma4RuntimeWeightsStreaming (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lkotlin/reflect/KClass;Lsk/ainet/io/model/QuantPolicy;ZLkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static final fun loadGemma4RuntimeWeightsStreaming (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lsk/ainet/io/model/QuantPolicy;ZLkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static synthetic fun loadGemma4RuntimeWeightsStreaming$default (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lkotlin/reflect/KClass;Lsk/ainet/io/model/QuantPolicy;ZLkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
-	public static synthetic fun loadGemma4RuntimeWeightsStreaming$default (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lsk/ainet/io/model/QuantPolicy;ZLkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public static final fun loadGemma4RuntimeWeights (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static final fun loadGemma4RuntimeWeights (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lkotlin/reflect/KClass;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static final fun loadGemma4RuntimeWeightsStreaming (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lkotlin/reflect/KClass;Lsk/ainet/lang/memory/plan/WeightForm;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static final fun loadGemma4RuntimeWeightsStreaming (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lsk/ainet/lang/memory/plan/WeightForm;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun loadGemma4RuntimeWeightsStreaming$default (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lkotlin/reflect/KClass;Lsk/ainet/lang/memory/plan/WeightForm;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public static synthetic fun loadGemma4RuntimeWeightsStreaming$default (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lsk/ainet/lang/memory/plan/WeightForm;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 }
 
 public final class sk/ainet/models/gemma/Gemma4SafeTensorsMappedPle {
@@ -727,14 +708,18 @@ public final class sk/ainet/models/gemma/Gemma4TensorNames {
 }
 
 public final class sk/ainet/models/gemma/Gemma4WeightLoader {
-	public fun <init> (Lkotlin/jvm/functions/Function0;Lsk/ainet/io/model/QuantPolicy;Z)V
-	public synthetic fun <init> (Lkotlin/jvm/functions/Function0;Lsk/ainet/io/model/QuantPolicy;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public fun <init> (Lkotlin/jvm/functions/Function0;ZLsk/ainet/io/model/QuantPolicy;)V
-	public synthetic fun <init> (Lkotlin/jvm/functions/Function0;ZLsk/ainet/io/model/QuantPolicy;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lkotlin/jvm/functions/Function0;Lsk/ainet/lang/memory/plan/WeightForm;Z)V
+	public synthetic fun <init> (Lkotlin/jvm/functions/Function0;Lsk/ainet/lang/memory/plan/WeightForm;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lkotlin/jvm/functions/Function0;Z)V
+	public synthetic fun <init> (Lkotlin/jvm/functions/Function0;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun load (Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;Lkotlin/jvm/functions/Function2;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun loadStreaming (Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;Lkotlin/jvm/functions/Function2;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun loadToMap (Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun loadToMapStreaming (Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class sk/ainet/models/gemma/Gemma4WeightLoaderKt {
+	public static final fun getGEMMA_DEQUANTIZE_ALL ()Lsk/ainet/lang/memory/plan/WeightForm;
 }
 
 public final class sk/ainet/models/gemma/Gemma4WeightMapper {
@@ -743,25 +728,16 @@ public final class sk/ainet/models/gemma/Gemma4WeightMapper {
 }
 
 public final class sk/ainet/models/gemma/Gemma4Weights {
-	public fun <init> (Lsk/ainet/models/gemma/Gemma4ModelMetadata;Ljava/util/Map;Ljava/util/Map;Ljava/util/Map;)V
-	public synthetic fun <init> (Lsk/ainet/models/gemma/Gemma4ModelMetadata;Ljava/util/Map;Ljava/util/Map;Ljava/util/Map;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lsk/ainet/models/gemma/Gemma4ModelMetadata;Ljava/util/Map;)V
 	public final fun component1 ()Lsk/ainet/models/gemma/Gemma4ModelMetadata;
 	public final fun component2 ()Ljava/util/Map;
-	public final fun component3 ()Ljava/util/Map;
-	public final fun component4 ()Ljava/util/Map;
-	public final fun copy (Lsk/ainet/models/gemma/Gemma4ModelMetadata;Ljava/util/Map;Ljava/util/Map;Ljava/util/Map;)Lsk/ainet/models/gemma/Gemma4Weights;
-	public static synthetic fun copy$default (Lsk/ainet/models/gemma/Gemma4Weights;Lsk/ainet/models/gemma/Gemma4ModelMetadata;Ljava/util/Map;Ljava/util/Map;Ljava/util/Map;ILjava/lang/Object;)Lsk/ainet/models/gemma/Gemma4Weights;
+	public final fun copy (Lsk/ainet/models/gemma/Gemma4ModelMetadata;Ljava/util/Map;)Lsk/ainet/models/gemma/Gemma4Weights;
+	public static synthetic fun copy$default (Lsk/ainet/models/gemma/Gemma4Weights;Lsk/ainet/models/gemma/Gemma4ModelMetadata;Ljava/util/Map;ILjava/lang/Object;)Lsk/ainet/models/gemma/Gemma4Weights;
 	public fun equals (Ljava/lang/Object;)Z
-	public final fun getLogicalShapes ()Ljava/util/Map;
 	public final fun getMetadata ()Lsk/ainet/models/gemma/Gemma4ModelMetadata;
-	public final fun getQuantTypes ()Ljava/util/Map;
 	public final fun getTensors ()Ljava/util/Map;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
-}
-
-public final class sk/ainet/models/gemma/GemmaMemSegConverterKt {
-	public static final fun convertGemmaWeightsToMemSeg (Lsk/ainet/models/gemma/Gemma4Weights;Lsk/ainet/context/ExecutionContext;Ljava/lang/foreign/Arena;)Lsk/ainet/models/gemma/Gemma4Weights;
 }
 
 public final class sk/ainet/models/gemma/GemmaModel : sk/ainet/lang/nn/Module {
@@ -825,10 +801,10 @@ public final class sk/ainet/models/gemma/GemmaNetworkLoader {
 }
 
 public final class sk/ainet/models/gemma/GemmaNetworkLoader$Companion {
-	public final fun fromGguf (Lkotlin/jvm/functions/Function0;Lsk/ainet/io/model/QuantPolicy;Z)Lsk/ainet/models/gemma/GemmaNetworkLoader;
-	public static synthetic fun fromGguf$default (Lsk/ainet/models/gemma/GemmaNetworkLoader$Companion;Lkotlin/jvm/functions/Function0;Lsk/ainet/io/model/QuantPolicy;ZILjava/lang/Object;)Lsk/ainet/models/gemma/GemmaNetworkLoader;
-	public final fun fromGgufRandomAccess (Lkotlin/jvm/functions/Function0;Lsk/ainet/io/model/QuantPolicy;Z)Lsk/ainet/models/gemma/GemmaNetworkLoader;
-	public static synthetic fun fromGgufRandomAccess$default (Lsk/ainet/models/gemma/GemmaNetworkLoader$Companion;Lkotlin/jvm/functions/Function0;Lsk/ainet/io/model/QuantPolicy;ZILjava/lang/Object;)Lsk/ainet/models/gemma/GemmaNetworkLoader;
+	public final fun fromGguf (Lkotlin/jvm/functions/Function0;Z)Lsk/ainet/models/gemma/GemmaNetworkLoader;
+	public static synthetic fun fromGguf$default (Lsk/ainet/models/gemma/GemmaNetworkLoader$Companion;Lkotlin/jvm/functions/Function0;ZILjava/lang/Object;)Lsk/ainet/models/gemma/GemmaNetworkLoader;
+	public final fun fromGgufRandomAccess (Lkotlin/jvm/functions/Function0;Lsk/ainet/lang/memory/plan/WeightForm;Z)Lsk/ainet/models/gemma/GemmaNetworkLoader;
+	public static synthetic fun fromGgufRandomAccess$default (Lsk/ainet/models/gemma/GemmaNetworkLoader$Companion;Lkotlin/jvm/functions/Function0;Lsk/ainet/lang/memory/plan/WeightForm;ZILjava/lang/Object;)Lsk/ainet/models/gemma/GemmaNetworkLoader;
 	public final fun fromSafeTensors (Ljava/lang/String;Z)Lsk/ainet/models/gemma/GemmaNetworkLoader;
 	public static synthetic fun fromSafeTensors$default (Lsk/ainet/models/gemma/GemmaNetworkLoader$Companion;Ljava/lang/String;ZILjava/lang/Object;)Lsk/ainet/models/gemma/GemmaNetworkLoader;
 	public final fun fromWeights (Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/gemma/Gemma4Weights;Lkotlin/reflect/KClass;Z)Lsk/ainet/lang/nn/Module;
@@ -839,26 +815,24 @@ public abstract interface class sk/ainet/models/gemma/GemmaNetworkLoader$Weights
 }
 
 public final class sk/ainet/models/gemma/GemmaNetworkLoader$WeightsProvider$GgufRandomAccess : sk/ainet/models/gemma/GemmaNetworkLoader$WeightsProvider {
-	public fun <init> (Lkotlin/jvm/functions/Function0;Lsk/ainet/io/model/QuantPolicy;)V
+	public fun <init> (Lkotlin/jvm/functions/Function0;Lsk/ainet/lang/memory/plan/WeightForm;)V
 	public final fun component1 ()Lkotlin/jvm/functions/Function0;
-	public final fun component2 ()Lsk/ainet/io/model/QuantPolicy;
-	public final fun copy (Lkotlin/jvm/functions/Function0;Lsk/ainet/io/model/QuantPolicy;)Lsk/ainet/models/gemma/GemmaNetworkLoader$WeightsProvider$GgufRandomAccess;
-	public static synthetic fun copy$default (Lsk/ainet/models/gemma/GemmaNetworkLoader$WeightsProvider$GgufRandomAccess;Lkotlin/jvm/functions/Function0;Lsk/ainet/io/model/QuantPolicy;ILjava/lang/Object;)Lsk/ainet/models/gemma/GemmaNetworkLoader$WeightsProvider$GgufRandomAccess;
+	public final fun component2 ()Lsk/ainet/lang/memory/plan/WeightForm;
+	public final fun copy (Lkotlin/jvm/functions/Function0;Lsk/ainet/lang/memory/plan/WeightForm;)Lsk/ainet/models/gemma/GemmaNetworkLoader$WeightsProvider$GgufRandomAccess;
+	public static synthetic fun copy$default (Lsk/ainet/models/gemma/GemmaNetworkLoader$WeightsProvider$GgufRandomAccess;Lkotlin/jvm/functions/Function0;Lsk/ainet/lang/memory/plan/WeightForm;ILjava/lang/Object;)Lsk/ainet/models/gemma/GemmaNetworkLoader$WeightsProvider$GgufRandomAccess;
 	public fun equals (Ljava/lang/Object;)Z
-	public final fun getQuantPolicy ()Lsk/ainet/io/model/QuantPolicy;
 	public final fun getRandomAccessProvider ()Lkotlin/jvm/functions/Function0;
+	public final fun getWeightForm ()Lsk/ainet/lang/memory/plan/WeightForm;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
 }
 
 public final class sk/ainet/models/gemma/GemmaNetworkLoader$WeightsProvider$GgufSource : sk/ainet/models/gemma/GemmaNetworkLoader$WeightsProvider {
-	public fun <init> (Lkotlin/jvm/functions/Function0;Lsk/ainet/io/model/QuantPolicy;)V
+	public fun <init> (Lkotlin/jvm/functions/Function0;)V
 	public final fun component1 ()Lkotlin/jvm/functions/Function0;
-	public final fun component2 ()Lsk/ainet/io/model/QuantPolicy;
-	public final fun copy (Lkotlin/jvm/functions/Function0;Lsk/ainet/io/model/QuantPolicy;)Lsk/ainet/models/gemma/GemmaNetworkLoader$WeightsProvider$GgufSource;
-	public static synthetic fun copy$default (Lsk/ainet/models/gemma/GemmaNetworkLoader$WeightsProvider$GgufSource;Lkotlin/jvm/functions/Function0;Lsk/ainet/io/model/QuantPolicy;ILjava/lang/Object;)Lsk/ainet/models/gemma/GemmaNetworkLoader$WeightsProvider$GgufSource;
+	public final fun copy (Lkotlin/jvm/functions/Function0;)Lsk/ainet/models/gemma/GemmaNetworkLoader$WeightsProvider$GgufSource;
+	public static synthetic fun copy$default (Lsk/ainet/models/gemma/GemmaNetworkLoader$WeightsProvider$GgufSource;Lkotlin/jvm/functions/Function0;ILjava/lang/Object;)Lsk/ainet/models/gemma/GemmaNetworkLoader$WeightsProvider$GgufSource;
 	public fun equals (Ljava/lang/Object;)Z
-	public final fun getQuantPolicy ()Lsk/ainet/io/model/QuantPolicy;
 	public final fun getSourceProvider ()Lkotlin/jvm/functions/Function0;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
@@ -891,10 +865,6 @@ public final class sk/ainet/models/gemma/GemmaNetworkLoaderKt {
 	public static synthetic fun applyWeightsToNetworkNonReified$default (Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/gemma/Gemma4Weights;Lkotlin/reflect/KClass;ZLjava/lang/Integer;ILjava/lang/Object;)Lsk/ainet/lang/nn/Module;
 }
 
-public final class sk/ainet/models/gemma/GemmaPackedWeightsKt {
-	public static final fun convertGemmaWeightsPacked (Lsk/ainet/models/gemma/Gemma4Weights;Lsk/ainet/context/ExecutionContext;)Lsk/ainet/models/gemma/Gemma4Weights;
-}
-
 public final class sk/ainet/models/gemma/GemmaPerLayerTokenEmbedTensorData : sk/ainet/lang/tensor/data/RowDequantSource, sk/ainet/lang/tensor/data/TensorData {
 	public fun <init> (Lsk/ainet/lang/tensor/Shape;Lsk/ainet/io/gguf/GGMLQuantizationType;[B)V
 	public fun copyToFloatArray ()[F
@@ -902,9 +872,11 @@ public final class sk/ainet/models/gemma/GemmaPerLayerTokenEmbedTensorData : sk/
 	public fun get ([I)Ljava/lang/Float;
 	public synthetic fun get ([I)Ljava/lang/Object;
 	public final fun getBytesPerRow ()I
+	public fun getEncoding ()Lsk/ainet/lang/tensor/storage/TensorEncoding;
 	public final fun getPackedBytes ()[B
 	public final fun getQuantType ()Lsk/ainet/io/gguf/GGMLQuantizationType;
 	public fun getShape ()Lsk/ainet/lang/tensor/Shape;
+	public fun getView ()Lsk/ainet/lang/memory/TensorView;
 	public fun set ([IF)V
 	public synthetic fun set ([ILjava/lang/Object;)V
 }
@@ -988,7 +960,9 @@ public final class sk/ainet/models/gemma/SafeTensorsPerLayerTokenEmbedTensorData
 	public fun dequantRow (I)[F
 	public fun get ([I)Ljava/lang/Float;
 	public synthetic fun get ([I)Ljava/lang/Object;
+	public fun getEncoding ()Lsk/ainet/lang/tensor/storage/TensorEncoding;
 	public fun getShape ()Lsk/ainet/lang/tensor/Shape;
+	public fun getView ()Lsk/ainet/lang/memory/TensorView;
 	public fun set ([IF)V
 	public synthetic fun set ([ILjava/lang/Object;)V
 }

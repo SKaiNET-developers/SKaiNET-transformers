@@ -10,10 +10,7 @@ import sk.ainet.apps.llm.Tokenizer
 import sk.ainet.apps.llm.UnifiedModelLoader
 import sk.ainet.apps.llm.generate
 import sk.ainet.models.apertus.ApertusNetworkLoader
-import sk.ainet.models.gemma.Gemma4WeightLoader
-import sk.ainet.models.gemma.Gemma4Weights
 import sk.ainet.models.gemma.GemmaNetworkLoader
-import sk.ainet.models.gemma.convertGemmaWeightsToMemSeg
 import sk.ainet.apps.llm.backend.BackendRegistry
 import sk.ainet.apps.llm.backend.bestAvailable
 import sk.ainet.apps.llm.tokenizer.TokenizerFactory
@@ -22,7 +19,6 @@ import sk.ainet.backend.api.kernel.KernelPacks
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.exec.kernel.FfmRowMajorKernelPack
 import sk.ainet.io.JvmRandomAccessSource
-import sk.ainet.io.model.QuantPolicy
 import sk.ainet.lang.tensor.data.MemorySegmentTensorDataFactory
 import sk.ainet.lang.types.FP32
 import sk.ainet.models.llama.DecoderGgufWeightLoader
@@ -158,10 +154,6 @@ fun main(args: Array<String>) {
         // best provider's FP32/prepacked kernels into KernelDispatch; the FFM
         // row-major pack serves canonical packed weights — mapped OR un-prepacked
         // heap — zero-copy, which is what makes WeightForm(residency = MAPPED) fast.
-        // 0.51 view-keyed kernel tiers (#338 arc): KernelPacks wires the reference +
-        // best provider's FP32/prepacked kernels into KernelDispatch; the FFM
-        // row-major pack serves canonical packed weights — mapped OR un-prepacked
-        // heap — zero-copy, which is what makes WeightForm(residency = MAPPED) fast.
         @OptIn(sk.ainet.lang.memory.ExperimentalMemoryApi::class)
         run {
             KernelPacks.install()
@@ -191,17 +183,13 @@ fun main(args: Array<String>) {
         // diverged from the checkpoint's intent. The DSL path is correct
         // for Apertus too. See APERTUS_ROLLOUT.md (PR 1).
         val runtime: InferenceRuntime<FP32> = if (modelInfo.family == ModelFamily.GEMMA) {
-            println("Loading Gemma GGUF model from $modelPath via gemmaNetwork() + OptimizedLLMRuntime (NATIVE_OPTIMIZED)...")
+            println("Loading Gemma GGUF model from $modelPath via gemmaNetwork() + OptimizedLLMRuntime (engine loader, keep-packed)...")
             if (cliArgs.contextLength != null) {
                 println("  --context flag currently ignored on the Gemma path; uses model default capped to 4096.")
             }
-            val rawWeights = Gemma4WeightLoader(
-                randomAccessProvider = { JvmRandomAccessSource.open(modelPath.toString()) },
-                quantPolicy = QuantPolicy.NATIVE_OPTIMIZED
-            ).loadToMapStreaming<FP32, Float>(ctx, FP32::class)
-            @Suppress("UNCHECKED_CAST")
-            val converted = convertGemmaWeightsToMemSeg(rawWeights, ctx, quantArena) as Gemma4Weights<FP32, Float>
-            val model = GemmaNetworkLoader.fromWeights(ctx, converted, FP32::class)
+            val model = GemmaNetworkLoader.fromGguf(
+                randomAccessProvider = { JvmRandomAccessSource.open(modelPath.toString()) }
+            ).load<FP32, Float>(ctx)
             OptimizedLLMRuntime(model, ctx, OptimizedLLMMode.DIRECT, FP32::class)
         } else if (modelInfo.family == ModelFamily.APERTUS) {
             println("Loading Apertus GGUF model from $modelPath via apertusNetwork() + OptimizedLLMRuntime (engine loader, keep-packed)...")

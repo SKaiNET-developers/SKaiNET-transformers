@@ -21,7 +21,7 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import sk.ainet.apps.kgemma.Gemma4Ingestion
 import sk.ainet.apps.kgemma.Gemma4LoadConfig
-import sk.ainet.apps.kgemma.loadDslRuntimeNativeStreaming
+import sk.ainet.models.gemma.GEMMA_DEQUANTIZE_ALL
 import sk.ainet.apps.kllama.GGUFTokenizer
 import sk.ainet.apps.kllama.chat.AgentListener
 import sk.ainet.apps.kllama.chat.ChatSession
@@ -31,7 +31,6 @@ import sk.ainet.apps.kllama.chat.ToolCall
 import sk.ainet.apps.kllama.chat.ToolDefinition
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
-import sk.ainet.io.model.QuantPolicy
 import sk.ainet.lang.tensor.data.MemorySegmentTensorDataFactory
 import sk.ainet.lang.types.FP32
 
@@ -148,33 +147,25 @@ class Gemma4E2BToolCallSmokeTest {
             val ctx = DirectCpuExecutionContext(tensorDataFactory = memSegFactory)
             val quantArena = Arena.ofShared()
             try {
-                // NATIVE_OPTIMIZED: keep Q4_K weights quantized in memory and use the
-                // dot-product Q4_K kernel during matmul. ~5× faster than
-                // DEQUANTIZE_TO_FP32 with equivalent output quality (the RoPE fix
-                // makes both paths produce the same top-1 token). Override via
-                // GEMMA4_TOOLCALL_QUANT=fp32 if a numerical-precision regression
-                // is suspected.
-                val quantPolicy = if (System.getenv("GEMMA4_TOOLCALL_QUANT")?.lowercase() == "fp32") {
-                    QuantPolicy.DEQUANTIZE_TO_FP32
+                // Keep-packed (engine-loader default): Q4_K weights stay
+                // quantized in memory and dispatch to the packed matmul
+                // kernels. Override via GEMMA4_TOOLCALL_QUANT=fp32 if a
+                // numerical-precision regression is suspected.
+                val weightForm = if (System.getenv("GEMMA4_TOOLCALL_QUANT")?.lowercase() == "fp32") {
+                    GEMMA_DEQUANTIZE_ALL
                 } else {
-                    QuantPolicy.NATIVE_OPTIMIZED
+                    null
                 }
                 val ingestion = Gemma4Ingestion<FP32>(
                     ctx = ctx,
                     dtype = FP32::class,
-                    config = Gemma4LoadConfig(
-                        quantPolicy = quantPolicy,
-                        allowQuantized = true
-                    )
+                    config = Gemma4LoadConfig(weightForm = weightForm)
                 )
 
-                println("Loading Gemma 4 from $path via DSL NATIVE_OPTIMIZED...")
+                println("Loading Gemma 4 from $path via DSL engine loader (keep-packed)...")
                 memDump("before-load")
-                val runtime = ingestion.loadDslRuntimeNativeStreaming(
-                    randomAccessProvider = { JvmRandomAccessSource.open(path.toString()) },
-                    ctx = ctx,
-                    dtype = FP32::class,
-                    arena = quantArena
+                val runtime = ingestion.loadDslRuntimeStreaming(
+                    randomAccessProvider = { JvmRandomAccessSource.open(path.toString()) }
                 )
                 memDump("after-load")
 

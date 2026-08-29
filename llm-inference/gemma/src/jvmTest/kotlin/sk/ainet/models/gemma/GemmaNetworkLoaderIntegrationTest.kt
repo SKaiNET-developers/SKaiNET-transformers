@@ -24,10 +24,10 @@ import sk.ainet.lang.types.FP32
  * with `-Dgemma4.e2b.gguf=/abs/path/to/model.gguf`.
  *
  * **Scope (load-free).** Phase 5a's `GemmaNetworkLoader` only supports
- * `QuantPolicy.DEQUANTIZE_TO_FP32`, which expands a Q4_K_M Gemma 4 E2B
+ * `GEMMA_DEQUANTIZE_ALL`, which expands a Q4_K_M Gemma 4 E2B
  * checkpoint (~3 GB on disk) to ~20 GB of FP32 weights in memory. That
  * doesn't fit on a typical developer laptop. Moving the DSL/DAG path onto
- * `QuantPolicy.NATIVE_OPTIMIZED` requires quant-aware matmul dispatch on the
+ * keep-packed requires quant-aware matmul dispatch on the
  * DAG executor (see `ISSUE-skainet-8b-oom.md` §Solution C) and is not yet
  * wired up.
  *

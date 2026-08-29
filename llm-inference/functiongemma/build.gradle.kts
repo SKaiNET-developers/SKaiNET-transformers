@@ -24,6 +24,10 @@ plugins {
 // Targets mirror moonshine's (jvm for authoring/export, linux{X64,Arm64} for
 // host tooling).
 kotlin {
+    compilerOptions {
+        optIn.add("sk.ainet.lang.memory.ExperimentalMemoryApi")
+    }
+
     jvm()
     linuxX64()
     linuxArm64()

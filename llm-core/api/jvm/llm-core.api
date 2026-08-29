@@ -546,11 +546,6 @@ public final class sk/ainet/apps/llm/weights/BertSafeTensorsNameResolver : sk/ai
 	public fun resolve (Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
 }
 
-public final class sk/ainet/apps/llm/weights/GgmlQuantEncodingsKt {
-	public static final fun hasPackedMatmulKernel (Lsk/ainet/io/gguf/GGMLQuantizationType;)Z
-	public static final fun toBlockEncoding (Lsk/ainet/io/gguf/GGMLQuantizationType;)Lsk/ainet/lang/tensor/storage/TensorEncoding;
-}
-
 public final class sk/ainet/apps/llm/weights/LlamaGGUFNameResolver : sk/ainet/io/weights/WeightNameResolver {
 	public fun <init> ()V
 	public fun resolve (Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
@@ -559,6 +554,15 @@ public final class sk/ainet/apps/llm/weights/LlamaGGUFNameResolver : sk/ainet/io
 public final class sk/ainet/apps/llm/weights/LlamaSafeTensorsNameResolver : sk/ainet/io/weights/WeightNameResolver {
 	public fun <init> ()V
 	public fun resolve (Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+}
+
+public final class sk/ainet/io/model/QuantPolicy : java/lang/Enum {
+	public static final field DEQUANTIZE_TO_FP32 Lsk/ainet/io/model/QuantPolicy;
+	public static final field NATIVE_OPTIMIZED Lsk/ainet/io/model/QuantPolicy;
+	public static final field RAW_BYTES Lsk/ainet/io/model/QuantPolicy;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lsk/ainet/io/model/QuantPolicy;
+	public static fun values ()[Lsk/ainet/io/model/QuantPolicy;
 }
 
 public abstract interface class sk/ainet/lang/nn/dsl/decoder/DecoderModelMetadata {

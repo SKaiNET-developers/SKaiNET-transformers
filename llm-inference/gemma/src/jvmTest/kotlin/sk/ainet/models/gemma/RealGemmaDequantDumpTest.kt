@@ -4,7 +4,6 @@ import org.junit.jupiter.api.Tag
 import kotlinx.coroutines.runBlocking
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
-import sk.ainet.io.model.QuantPolicy
 import sk.ainet.lang.types.FP32
 import java.io.File
 import kotlin.test.Test
@@ -21,7 +20,7 @@ class RealGemmaDequantDumpTest {
         val ctx = DirectCpuExecutionContext.create()
         val weights = Gemma4WeightLoader(
             randomAccessProvider = { JvmRandomAccessSource.open(path) },
-            quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
+            weightForm = GEMMA_DEQUANTIZE_ALL,
         ).loadToMapStreaming<FP32, Float>(ctx, FP32::class)
         val m = weights.metadata
         println("ROPE full.base=${m.ropeParametersFull.base} sliding.base=${m.ropeParametersSliding.base}")

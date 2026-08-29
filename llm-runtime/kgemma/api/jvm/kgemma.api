@@ -71,15 +71,13 @@ public final class sk/ainet/apps/kgemma/Gemma3nIngestion {
 
 public final class sk/ainet/apps/kgemma/Gemma3nLoadConfig {
 	public fun <init> ()V
-	public fun <init> (Lsk/ainet/io/model/QuantPolicy;Z)V
-	public synthetic fun <init> (Lsk/ainet/io/model/QuantPolicy;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public final fun component1 ()Lsk/ainet/io/model/QuantPolicy;
-	public final fun component2 ()Z
-	public final fun copy (Lsk/ainet/io/model/QuantPolicy;Z)Lsk/ainet/apps/kgemma/Gemma3nLoadConfig;
-	public static synthetic fun copy$default (Lsk/ainet/apps/kgemma/Gemma3nLoadConfig;Lsk/ainet/io/model/QuantPolicy;ZILjava/lang/Object;)Lsk/ainet/apps/kgemma/Gemma3nLoadConfig;
+	public fun <init> (Lsk/ainet/lang/memory/plan/WeightForm;)V
+	public synthetic fun <init> (Lsk/ainet/lang/memory/plan/WeightForm;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Lsk/ainet/lang/memory/plan/WeightForm;
+	public final fun copy (Lsk/ainet/lang/memory/plan/WeightForm;)Lsk/ainet/apps/kgemma/Gemma3nLoadConfig;
+	public static synthetic fun copy$default (Lsk/ainet/apps/kgemma/Gemma3nLoadConfig;Lsk/ainet/lang/memory/plan/WeightForm;ILjava/lang/Object;)Lsk/ainet/apps/kgemma/Gemma3nLoadConfig;
 	public fun equals (Ljava/lang/Object;)Z
-	public final fun getAllowQuantized ()Z
-	public final fun getQuantPolicy ()Lsk/ainet/io/model/QuantPolicy;
+	public final fun getWeightForm ()Lsk/ainet/lang/memory/plan/WeightForm;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
 }
@@ -102,22 +100,15 @@ public final class sk/ainet/apps/kgemma/Gemma4Ingestion {
 	public final fun loadStreaming (Lkotlin/jvm/functions/Function0;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
-public final class sk/ainet/apps/kgemma/Gemma4IngestionJvmKt {
-	public static final fun loadDslRuntimeNative (Lsk/ainet/apps/kgemma/Gemma4Ingestion;Lkotlin/jvm/functions/Function0;Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;Ljava/lang/foreign/Arena;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static final fun loadDslRuntimeNativeStreaming (Lsk/ainet/apps/kgemma/Gemma4Ingestion;Lkotlin/jvm/functions/Function0;Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;Ljava/lang/foreign/Arena;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-}
-
 public final class sk/ainet/apps/kgemma/Gemma4LoadConfig {
 	public fun <init> ()V
-	public fun <init> (Lsk/ainet/io/model/QuantPolicy;Z)V
-	public synthetic fun <init> (Lsk/ainet/io/model/QuantPolicy;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public final fun component1 ()Lsk/ainet/io/model/QuantPolicy;
-	public final fun component2 ()Z
-	public final fun copy (Lsk/ainet/io/model/QuantPolicy;Z)Lsk/ainet/apps/kgemma/Gemma4LoadConfig;
-	public static synthetic fun copy$default (Lsk/ainet/apps/kgemma/Gemma4LoadConfig;Lsk/ainet/io/model/QuantPolicy;ZILjava/lang/Object;)Lsk/ainet/apps/kgemma/Gemma4LoadConfig;
+	public fun <init> (Lsk/ainet/lang/memory/plan/WeightForm;)V
+	public synthetic fun <init> (Lsk/ainet/lang/memory/plan/WeightForm;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Lsk/ainet/lang/memory/plan/WeightForm;
+	public final fun copy (Lsk/ainet/lang/memory/plan/WeightForm;)Lsk/ainet/apps/kgemma/Gemma4LoadConfig;
+	public static synthetic fun copy$default (Lsk/ainet/apps/kgemma/Gemma4LoadConfig;Lsk/ainet/lang/memory/plan/WeightForm;ILjava/lang/Object;)Lsk/ainet/apps/kgemma/Gemma4LoadConfig;
 	public fun equals (Ljava/lang/Object;)Z
-	public final fun getAllowQuantized ()Z
-	public final fun getQuantPolicy ()Lsk/ainet/io/model/QuantPolicy;
+	public final fun getWeightForm ()Lsk/ainet/lang/memory/plan/WeightForm;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
 }

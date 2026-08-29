@@ -15,8 +15,8 @@ import kotlin.test.assertEquals
  * [RowDequantSource]-backed weight through per-row dequant — dequantising ONLY the rows actually looked up
  * this step — instead of materialising the whole table to FP32. That is what keeps FunctionGemma's Q8_0
  * `token_embd` at its ~178 MB packed footprint on the 1.9 GB board instead of inflating to ~0.67 GB and OOMing
- * (see `GemmaPackedWeights.dequantNoTranspose`, which wraps row-sliceable Q-quant token_embd as a
- * [GemmaPerLayerTokenEmbedTensorData] — a `RowDequantSource`).
+ * (the loaders wrap row-sliceable Q-quant tables as
+ * [GemmaPerLayerTokenEmbedTensorData] — a `RowDequantSource` — via `wrapGemmaPleIfPacked`).
  *
  * The spy weight FAILS LOUDLY on any full-table access (`get`), so if [Embedding] ever regressed to the dense
  * path this test would throw rather than silently pass. Lives in the gemma module for the `DirectCpuExecutionContext`
