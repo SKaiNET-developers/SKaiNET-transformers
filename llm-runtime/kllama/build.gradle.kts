@@ -110,7 +110,17 @@ kotlin {
             implementation(libs.skainet.io.gguf)
         }
 
-        val jvmMain by getting
+        val jvmMain by getting {
+            dependencies {
+                // KernelPacks (view-keyed dispatch install) + FfmRowMajorKernelPack (zero-copy
+                // row-major matmul for MAPPED/keep-packed weights, #338 arc). Without these,
+                // DecoderGgufWeightLoader's default MAPPED weights fall to KernelDispatch's
+                // decoding reference kernel: correct, but dramatically slower — the gap
+                // skainet-cli's Main.kt closes with the same two install calls.
+                implementation(libs.skainet.backend.api)
+                implementation(libs.skainet.backend.nativeCpu)
+            }
+        }
         val jvmTest by getting {
             dependencies {
                 implementation(project.dependencies.platform(project(":llm-bom")))
