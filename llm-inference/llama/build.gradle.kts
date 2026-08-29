@@ -53,10 +53,7 @@ kotlin {
             implementation(libs.skainet.io.gguf)
             implementation(libs.skainet.io.safetensors)
             implementation(libs.skainet.compile.core)
-            // api, not implementation: the loader API surfaces QuantPolicy
-            // (transformers-owned since the 0.40 engine removed it), so
-            // consumers of this module need llm-core on their compile classpath.
-            api(project(":llm-core"))
+            implementation(project(":llm-core"))
             implementation(libs.kotlinx.io.core)
             implementation(libs.kotlinx.coroutines)
         }

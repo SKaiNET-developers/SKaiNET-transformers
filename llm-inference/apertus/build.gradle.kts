@@ -53,7 +53,7 @@ kotlin {
             implementation(libs.skainet.io.gguf)
             implementation(libs.skainet.io.safetensors)
             implementation(libs.skainet.compile.core)
-            api(project(":llm-core")) // loader API surfaces QuantPolicy (transformers-owned since engine 0.40)
+            implementation(project(":llm-core"))
             implementation(libs.kotlinx.io.core)
             implementation(libs.kotlinx.coroutines)
         }
