@@ -28,7 +28,9 @@ dependencies {
 
     // SKaiNET core libraries
     implementation(libs.skainet.lang.core)
+    implementation(libs.skainet.backend.api)
     implementation(libs.skainet.backend.cpu)
+    implementation(libs.skainet.backend.nativeCpu)
     implementation(libs.skainet.io.core)
     implementation(libs.skainet.io.gguf)
     implementation(libs.kotlinx.io.core)

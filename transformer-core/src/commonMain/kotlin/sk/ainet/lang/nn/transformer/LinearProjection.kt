@@ -12,19 +12,19 @@ import sk.ainet.lang.types.DType
  * Intended as the single place every transformer DSL module goes through
  * when projecting against a weight parameter.
  *
- * This is Solution C from `ISSUE-skainet-8b-oom.md` (#184 hoist 3): a
- * converter that already delivers the weight in the transposed `[in, out]`
- * layout marks its tensor data with [PreTransposedWeight] (e.g. via
- * [sk.ainet.lang.nn.quant.BlockQuantPacking.packPreTransposed]), and this
- * helper skips `ops.transpose` for it, dispatching `ops.matmul(x, W)`
- * directly — for packed quant weights that avoids even the engine's lazy
- * shape-swap transpose wrapper on every forward. Unmarked weights take the
- * classic `ops.matmul(x, ops.transpose(W))` path, where the engine's packed
- * `ops.transpose` support remains the fallback.
+ * MIGRATION NOTE (#338 arc): the unmarked branch becomes the engine
+ * primitive [TensorOps.matmulWeightTransposed] once the legacy MemSeg
+ * converter lane is gone (the decoder/gemma migration phases). The flip
+ * cannot be validated before then: the legacy lane's tensor data does not
+ * declare a truthful block order, and the lane itself is broken at baseline
+ * for pure-Q4_K/Q6_K models (transformers develop + engine 0.40.1 crashes
+ * with the #993 ClassCastException on the first decode step; engines >= 0.49
+ * turn that crash into silent garbage via matmulGeneric's raw-code
+ * copyToFloatArray fallback — measured on Qwen2.5-1.5B). The engine-loader
+ * migration replaces the lane wholesale, which is the actual fix.
  *
- * A shape-only heuristic (`W.shape[0] == x.shape[-1]`) is unsafe for square
- * projections (e.g. `dim == qDim` on GQA-free configs), hence the
- * explicit-marker requirement.
+ * The [PreTransposedWeight] branch remains only while the legacy packing
+ * layer exists (deleted with it in the gemma migration phase).
  *
  * @param ops active tensor operations (usually `ctx.ops`)
  * @param input input tensor of shape `[..., in]`
