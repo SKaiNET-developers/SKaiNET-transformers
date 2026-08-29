@@ -174,8 +174,8 @@ class BitNetPackedGgufLoadTest {
     }
 
     private fun loadWidened(file: File): Module<FP32, Float> = runBlocking {
-        val metadata = sk.ainet.io.gguf.StreamingGGUFReader.open(JvmRandomAccessSource.open(file.path)).use {
-            BitNetPackedGgufLoader.metadataFrom(it.fields, it.tensors)
+        val metadata = sk.ainet.io.gguf.StreamingGGUFReader.open(JvmRandomAccessSource.open(file.path)).use { reader ->
+            sk.ainet.models.llama.decoderMetadataFromGguf(reader.fields, reader.tensors)
         }
         val tensors = LinkedHashMap<String, Tensor<FP32, Float>>()
         StreamingGgufParametersLoader(

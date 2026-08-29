@@ -146,8 +146,9 @@ public class DecoderGgufWeightLoader private constructor(
      *   served zero-copy from file-backed pages (heap-staged where the
      *   platform or encoding cannot map); pass
      *   `WeightForm(encoding = EncodingRequest.DequantizeTo(FP32), shape = WeightShapeOrientation.OUT_IN)`
-     *   to fully dequantize (the legacy eager runtime path). The token embedding
-     *   is always dequantized regardless — `Embedding.gather()` needs element access.
+     *   to fully dequantize (the legacy eager runtime path). A packed token
+     *   embedding is rewrapped as a row-dequant source on delivery — see
+     *   [embeddingReady].
      */
     public constructor(
         randomAccessProvider: () -> RandomAccessSource,
@@ -318,7 +319,7 @@ public class DecoderGgufWeightLoader private constructor(
         val wanted: Set<String>
         val tiedEmbeddings: Boolean
         StreamingGGUFReader.open(randomAccessProvider.invoke()).use { reader ->
-            metadata = metadataFromStreamingGguf(reader.fields, reader.tensors)
+            metadata = decoderMetadataFromGguf(reader.fields, reader.tensors)
             validateMetadata(metadata)
 
             val required = requiredTensorNames(metadata)
@@ -425,97 +426,10 @@ public class DecoderGgufWeightLoader private constructor(
         }
     }
 
-    /**
-     * Extract metadata from StreamingGGUFReader fields (which are direct values, not ReaderField).
-     */
-    private fun metadataFromStreamingGguf(
-        fields: Map<String, Any?>,
-        tensors: List<StreamingTensorInfo>
-    ): LlamaModelMetadata {
-        val arch = (fields["general.architecture"] as? String) ?: "unknown"
-        val prefix = arch
 
-        val embeddingLength = fields["$prefix.embedding_length"]?.toIntValue()
-            ?: inferEmbeddingFromStreamingTensor(tensors)
-        val contextLength = fields["$prefix.context_length"]?.toIntValue() ?: 0
-        val blockCount = fields["$prefix.block_count"]?.toIntValue() ?: 0
-        val headCount = fields["$prefix.attention.head_count"]?.toIntValue() ?: 0
-        val kvHeadCount = fields["$prefix.attention.head_count_kv"]?.toIntValue() ?: headCount
-        val feedForwardLength = fields["$prefix.feed_forward_length"]?.toIntValue() ?: 0
-        var ropeDim = fields["$prefix.rope.dimension_count"]?.toIntValue()
-        val vocabSize = fields["$prefix.vocab_size"]?.toIntValue()
-            ?: inferVocabFromStreamingTensor(tensors)
-        val ropeFreqBase = fields["$prefix.rope.freq_base"]?.toFloatValue() ?: 10_000f
-        val rmsNormEps = fields["$prefix.attention.layer_norm_rms_epsilon"]?.toFloatValue() ?: 1e-5f
-        val bosTokenId = fields["tokenizer.ggml.bos_token_id"]?.toIntValue() ?: 1
-        val eosTokenId = fields["tokenizer.ggml.eos_token_id"]?.toIntValue() ?: 2
 
-        // Infer head_dim from Q weight shape when rope dimension not set
-        // Q weight: [q_dim, dim] where q_dim = nHeads * headDim
-        if (ropeDim == null && headCount > 0) {
-            val qTensor = tensors.firstOrNull { it.name == "blk.0.attn_q.weight" }
-            if (qTensor != null && qTensor.shape.size == 2) {
-                val qDim = qTensor.shape.firstOrNull { it.toInt() != embeddingLength }?.toInt()
-                    ?: qTensor.shape[0].toInt() // square weight: both dims equal embeddingLength
-                val inferredHeadDim = qDim / headCount
-                if (inferredHeadDim > 0 && inferredHeadDim * headCount == qDim) {
-                    ropeDim = inferredHeadDim
-                }
-            }
-        }
 
-        return LlamaModelMetadata(
-            architecture = arch,
-            embeddingLength = embeddingLength,
-            contextLength = contextLength,
-            blockCount = blockCount,
-            headCount = headCount,
-            kvHeadCount = kvHeadCount,
-            feedForwardLength = feedForwardLength,
-            ropeDimensionCount = ropeDim,
-            vocabSize = vocabSize,
-            ropeFreqBase = ropeFreqBase,
-            rmsNormEps = rmsNormEps,
-            bosTokenId = bosTokenId,
-            eosTokenId = eosTokenId
-        )
-    }
 
-    private fun Any?.toIntValue(): Int? = when (this) {
-        is Int -> this
-        is UInt -> this.toInt()
-        is Long -> this.toInt()
-        is ULong -> this.toInt()
-        is Short -> this.toInt()
-        is UShort -> this.toInt()
-        is Byte -> this.toInt()
-        is UByte -> this.toInt()
-        else -> null
-    }
-
-    private fun Any?.toFloatValue(): Float? = when (this) {
-        is Float -> this
-        is Double -> this.toFloat()
-        is Int -> this.toFloat()
-        is UInt -> this.toFloat()
-        is Long -> this.toFloat()
-        is ULong -> this.toFloat()
-        else -> null
-    }
-
-    private fun inferEmbeddingFromStreamingTensor(tensors: List<StreamingTensorInfo>): Int {
-        val token = tensors.firstOrNull { it.name == LlamaTensorNames.TOKEN_EMBEDDINGS }
-            ?: error("Cannot infer embedding length without token embeddings tensor")
-        return token.shape.map { it.toInt() }.minOrNull()
-            ?: error("Cannot infer embedding length from tensor shape ${token.shape}")
-    }
-
-    private fun inferVocabFromStreamingTensor(tensors: List<StreamingTensorInfo>): Int {
-        val token = tensors.firstOrNull { it.name == LlamaTensorNames.TOKEN_EMBEDDINGS }
-            ?: error("Cannot infer vocab size without token embeddings tensor")
-        return token.shape.map { it.toInt() }.maxOrNull()
-            ?: error("Cannot infer vocab size from tensor shape ${token.shape}")
-    }
 
     private fun validateStreamingTensorShape(name: String, tensor: StreamingTensorInfo, metadata: LlamaModelMetadata) {
         val dims = tensor.shape.map { it.toInt() }

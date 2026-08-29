@@ -47,7 +47,6 @@ public class LlamaRuntime<T : DType>(
     private val dtype: KClass<T>,
     private val eps: Float = 1e-5f,
     random: Random = Random.Default,
-    private val graphAccelerator: GraphAccelerator<T>? = null
 ) : DecoderRuntime<T>(random), LlamaRuntimeInterface<T> {
 
     private companion object {
@@ -134,17 +133,10 @@ public class LlamaRuntime<T : DType>(
     override fun runLayer(layerIdx: Int, x: Tensor<T, Float>): Tensor<T, Float> {
         val layer = weights.layers[layerIdx]
 
-        // QKV: try compiled graph first, fall back to individual ops
-        var (q, k, v) = graphAccelerator?.runQKV(layerIdx, x)?.let {
-            Triple(it.q, it.k, it.v)
-        } ?: run {
-            val attnNorm = attnNorms[layerIdx].forward(x, ctx)
-            Triple(
-                linearProject(attnNorm, layer.wq),
-                linearProject(attnNorm, layer.wk),
-                linearProject(attnNorm, layer.wv)
-            )
-        }
+        val attnNorm = attnNorms[layerIdx].forward(x, ctx)
+        var q = linearProject(attnNorm, layer.wq)
+        var k = linearProject(attnNorm, layer.wk)
+        val v = linearProject(attnNorm, layer.wv)
 
         // QK-norm (Qwen3, Apertus-style): per-head RMSNorm on Q and K before RoPE
         if (hasQKNorm) {
@@ -158,14 +150,11 @@ public class LlamaRuntime<T : DType>(
         // Output projection + residual
         val afterAttn = x + linearProject(attnOut, layer.wo)
 
-        // FFN: try compiled graph first, fall back to individual ops
-        return graphAccelerator?.runFFN(layerIdx, afterAttn) ?: run {
-            val ffnNorm = ffnNorms[layerIdx].forward(afterAttn, ctx)
-            val gate = linearProject(ffnNorm, layer.ffnGate).silu()
-            val up = linearProject(ffnNorm, layer.ffnUp)
-            val ffnOut = linearProject(gate * up, layer.ffnDown)
-            afterAttn + ffnOut
-        }
+        val ffnNorm = ffnNorms[layerIdx].forward(afterAttn, ctx)
+        val gate = linearProject(ffnNorm, layer.ffnGate).silu()
+        val up = linearProject(ffnNorm, layer.ffnUp)
+        val ffnOut = linearProject(gate * up, layer.ffnDown)
+        return afterAttn + ffnOut
     }
 
     override fun outputNorm(x: Tensor<T, Float>): Tensor<T, Float> =

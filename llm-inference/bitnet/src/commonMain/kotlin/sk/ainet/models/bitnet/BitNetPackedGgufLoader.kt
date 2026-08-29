@@ -5,7 +5,6 @@ import sk.ainet.io.RandomAccessSource
 import sk.ainet.io.gguf.I2sGgufLayout
 import sk.ainet.io.gguf.StreamingGGUFReader
 import sk.ainet.io.gguf.StreamingGgufParametersLoader
-import sk.ainet.io.gguf.StreamingTensorInfo
 import sk.ainet.lang.memory.plan.EncodingRequest
 import sk.ainet.lang.memory.plan.WeightForm
 import sk.ainet.lang.memory.plan.WeightResidency
@@ -16,6 +15,7 @@ import sk.ainet.lang.tensor.storage.TensorEncoding
 import sk.ainet.lang.types.FP32
 import sk.ainet.models.llama.DecoderGgufWeights
 import sk.ainet.models.llama.LlamaModelMetadata
+import sk.ainet.models.llama.decoderMetadataFromGguf
 
 /**
  * The **packed** BitNet load path (transformers#337): a ternary **I2_S** GGUF loads through the
@@ -66,9 +66,10 @@ public object BitNetPackedGgufLoader {
         planesLmHead: Boolean = true,
         debug: Boolean = false,
     ): Loaded {
-        // Pass 1 — metadata from the GGUF KV directory.
+        // Pass 1 — metadata from the GGUF KV directory, via the shared
+        // decoder-family parser (#346).
         val metadata = StreamingGGUFReader.open(sourceProvider()).use { reader ->
-            metadataFrom(reader.fields, reader.tensors)
+            decoderMetadataFromGguf(reader.fields, reader.tensors)
         }
         require(metadata.architecture in BITNET_ARCHITECTURES) {
             "BitNetPackedGgufLoader: architecture '${metadata.architecture}' is not a BitNet " +
@@ -105,46 +106,4 @@ public object BitNetPackedGgufLoader {
         return Loaded(model, metadata)
     }
 
-    /**
-     * Metadata from the llama.cpp-convention KV fields (`{arch}.embedding_length`, …) — the same
-     * keys `DecoderGgufWeightLoader` reads; duplicated here because that parser is private and
-     * this loader deliberately bypasses it (the engine loader owns the tensor bytes).
-     */
-    internal fun metadataFrom(
-        fields: Map<String, Any?>,
-        tensors: List<StreamingTensorInfo>,
-    ): LlamaModelMetadata {
-        val arch = (fields["general.architecture"] as? String) ?: "unknown"
-        fun int(key: String): Int? = when (val v = fields[key]) {
-            is Int -> v; is UInt -> v.toInt(); is Long -> v.toInt(); is ULong -> v.toInt()
-            is Short -> v.toInt(); is UShort -> v.toInt(); else -> null
-        }
-        fun float(key: String): Float? = when (val v = fields[key]) {
-            is Float -> v; is Double -> v.toFloat(); else -> null
-        }
-
-        val embeddingLength = int("$arch.embedding_length")
-            ?: tensors.firstOrNull { it.name == "token_embd.weight" }?.shape?.get(0)?.toInt() ?: 0
-        val headCount = int("$arch.attention.head_count") ?: 0
-        var ropeDim = int("$arch.rope.dimension_count")
-        if (ropeDim == null && headCount > 0) ropeDim = embeddingLength / headCount
-        val vocabSize = int("$arch.vocab_size")
-            ?: tensors.firstOrNull { it.name == "token_embd.weight" }?.shape?.get(1)?.toInt() ?: 0
-
-        return LlamaModelMetadata(
-            architecture = arch,
-            embeddingLength = embeddingLength,
-            contextLength = int("$arch.context_length") ?: 0,
-            blockCount = int("$arch.block_count") ?: 0,
-            headCount = headCount,
-            kvHeadCount = int("$arch.attention.head_count_kv") ?: headCount,
-            feedForwardLength = int("$arch.feed_forward_length") ?: 0,
-            ropeDimensionCount = ropeDim,
-            vocabSize = vocabSize,
-            ropeFreqBase = float("$arch.rope.freq_base") ?: 10_000f,
-            rmsNormEps = float("$arch.attention.layer_norm_rms_epsilon") ?: 1e-5f,
-            bosTokenId = int("tokenizer.ggml.bos_token_id") ?: 1,
-            eosTokenId = int("tokenizer.ggml.eos_token_id") ?: 2,
-        )
-    }
 }

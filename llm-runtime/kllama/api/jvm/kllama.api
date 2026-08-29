@@ -15,14 +15,6 @@ public final class sk/ainet/apps/kllama/CpuBackendProvider : sk/ainet/apps/llm/b
 	public fun isAvailable ()Z
 }
 
-public final class sk/ainet/apps/kllama/FusedQKVAccelerator : sk/ainet/models/llama/GraphAccelerator {
-	public fun <init> (Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/llama/LlamaRuntimeWeights;Lkotlin/reflect/KClass;F)V
-	public synthetic fun <init> (Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/llama/LlamaRuntimeWeights;Lkotlin/reflect/KClass;FILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public fun close ()V
-	public fun runFFN (ILsk/ainet/lang/tensor/Tensor;)Lsk/ainet/lang/tensor/Tensor;
-	public fun runQKV (ILsk/ainet/lang/tensor/Tensor;)Lsk/ainet/models/llama/GraphAccelerator$QKVResult;
-}
-
 public final class sk/ainet/apps/kllama/KvCacheJvmKt {
 	public static final fun createOptimalKvCache (III)Lsk/ainet/apps/llm/KvCache;
 }

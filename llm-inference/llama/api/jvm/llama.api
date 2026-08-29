@@ -8,6 +8,10 @@ public final class sk/ainet/models/llama/AttentionBackend$DefaultImpls {
 	public static fun batchAttention (Lsk/ainet/models/llama/AttentionBackend;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;II)Lsk/ainet/lang/tensor/Tensor;
 }
 
+public final class sk/ainet/models/llama/DecoderGgufMetadataKt {
+	public static final fun decoderMetadataFromGguf (Ljava/util/Map;Ljava/util/List;)Lsk/ainet/models/llama/LlamaModelMetadata;
+}
+
 public final class sk/ainet/models/llama/DecoderGgufWeightLoader {
 	public fun <init> (Lkotlin/jvm/functions/Function0;Ljava/util/Set;Lsk/ainet/lang/types/DTypePolicy;)V
 	public synthetic fun <init> (Lkotlin/jvm/functions/Function0;Ljava/util/Set;Lsk/ainet/lang/types/DTypePolicy;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
@@ -45,27 +49,6 @@ public final class sk/ainet/models/llama/DecoderSafeTensorsLoader {
 	public synthetic fun <init> (Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;Lsk/ainet/models/llama/LlamaModelMetadata;ZLsk/ainet/lang/types/DTypePolicy;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun load (Lkotlin/jvm/functions/Function0;)Lsk/ainet/models/llama/LlamaRuntimeWeights;
 	public final fun loadToMap (Lkotlin/jvm/functions/Function0;)Lsk/ainet/models/llama/DecoderGgufWeights;
-}
-
-public abstract interface class sk/ainet/models/llama/GraphAccelerator {
-	public abstract fun close ()V
-	public abstract fun runFFN (ILsk/ainet/lang/tensor/Tensor;)Lsk/ainet/lang/tensor/Tensor;
-	public abstract fun runQKV (ILsk/ainet/lang/tensor/Tensor;)Lsk/ainet/models/llama/GraphAccelerator$QKVResult;
-}
-
-public final class sk/ainet/models/llama/GraphAccelerator$QKVResult {
-	public fun <init> (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;)V
-	public final fun component1 ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun component2 ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun component3 ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun copy (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;)Lsk/ainet/models/llama/GraphAccelerator$QKVResult;
-	public static synthetic fun copy$default (Lsk/ainet/models/llama/GraphAccelerator$QKVResult;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;ILjava/lang/Object;)Lsk/ainet/models/llama/GraphAccelerator$QKVResult;
-	public fun equals (Ljava/lang/Object;)Z
-	public final fun getK ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun getQ ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun getV ()Lsk/ainet/lang/tensor/Tensor;
-	public fun hashCode ()I
-	public fun toString ()Ljava/lang/String;
 }
 
 public final class sk/ainet/models/llama/HfTensorNameMapper {
@@ -237,8 +220,8 @@ public final class sk/ainet/models/llama/LlamaNetworkLoader$WeightsProvider$Safe
 
 public final class sk/ainet/models/llama/LlamaRuntime : sk/ainet/apps/llm/DecoderRuntime, sk/ainet/models/llama/LlamaRuntimeInterface {
 	public static final field DEFAULT_BOS_TOKEN I
-	public fun <init> (Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/llama/LlamaRuntimeWeights;Lsk/ainet/models/llama/AttentionBackend;Lkotlin/reflect/KClass;FLkotlin/random/Random;Lsk/ainet/models/llama/GraphAccelerator;)V
-	public synthetic fun <init> (Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/llama/LlamaRuntimeWeights;Lsk/ainet/models/llama/AttentionBackend;Lkotlin/reflect/KClass;FLkotlin/random/Random;Lsk/ainet/models/llama/GraphAccelerator;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/llama/LlamaRuntimeWeights;Lsk/ainet/models/llama/AttentionBackend;Lkotlin/reflect/KClass;FLkotlin/random/Random;)V
+	public synthetic fun <init> (Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/llama/LlamaRuntimeWeights;Lsk/ainet/models/llama/AttentionBackend;Lkotlin/reflect/KClass;FLkotlin/random/Random;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun batchForward ([II)Lsk/ainet/lang/tensor/Tensor;
 	public fun generate ([IIFLkotlin/jvm/functions/Function1;)V
 	public fun getCurrentPosition ()I
