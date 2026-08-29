@@ -64,6 +64,26 @@ public abstract class KVCache<T : DType, V>(
         // This passthrough exists for Module tree traversal / tracing compatibility.
         return input
     }
+
+    /**
+     * [t] with its data guaranteed to outlive the current forward step.
+     *
+     * Under a per-step memory scope (#343: `OptimizedLLMRuntime` runs DIRECT
+     * decode inside a `ForwardScope`), every tensor produced during the step
+     * — including the concatenated K/V history a cache wants to keep — is a
+     * slab view that dies at the step boundary (`scope.reset()`). Cache
+     * state is the one thing that must survive the step, so it is copied
+     * out to plain ambient heap storage here — the module-level analogue of
+     * `ForwardScope.retain`. Without an active scope this is the identity:
+     * no copy, exactly the pre-#343 behavior.
+     */
+    @OptIn(sk.ainet.lang.memory.ExperimentalMemoryApi::class)
+    protected fun detachFromStep(t: Tensor<T, V>, ctx: ExecutionContext): Tensor<T, V> {
+        if (ctx.memoryScope == sk.ainet.lang.memory.Scope.Ambient) return t
+        val data = DenseFloatArrayTensorData<T>(t.shape, t.data.copyToFloatArray())
+        @Suppress("UNCHECKED_CAST")
+        return ctx.fromData(data as sk.ainet.lang.tensor.data.TensorData<T, V>, t.dtype)
+    }
 }
 
 /**
@@ -93,8 +113,9 @@ public class AppendKVCache<T : DType, V>(
         val fullK = if (prevK != null) ops.concat(listOf(prevK, newKey), dim = prevK.rank - 2) else newKey
         val fullV = if (prevV != null) ops.concat(listOf(prevV, newValue), dim = prevV.rank - 2) else newValue
 
-        cachedKeys = fullK
-        cachedValues = fullV
+        // The kept history must survive the step boundary — see detachFromStep.
+        cachedKeys = detachFromStep(fullK, ctx)
+        cachedValues = detachFromStep(fullV, ctx)
         cachePosition += newKey.shape[newKey.rank - 2]
 
         return fullK to fullV
@@ -156,8 +177,9 @@ public class SlidingWindowKVCache<T : DType, V>(
             joinedK to joinedV
         }
 
-        cachedKeys = trimmedK
-        cachedValues = trimmedV
+        // The kept window must survive the step boundary — see detachFromStep.
+        cachedKeys = detachFromStep(trimmedK, ctx)
+        cachedValues = detachFromStep(trimmedV, ctx)
         cachePosition += newKey.shape[seqDim]
 
         return trimmedK to trimmedV

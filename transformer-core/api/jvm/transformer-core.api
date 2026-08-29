@@ -187,6 +187,7 @@ public final class sk/ainet/lang/nn/transformer/GeGLUFFN : sk/ainet/lang/nn/Modu
 public abstract class sk/ainet/lang/nn/transformer/KVCache : sk/ainet/lang/nn/Module {
 	public fun <init> (IIILjava/lang/String;)V
 	public synthetic fun <init> (IIILjava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	protected final fun detachFromStep (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/context/ExecutionContext;)Lsk/ainet/lang/tensor/Tensor;
 	public final fun getHeadDim ()I
 	public final fun getMaxSeqLen ()I
 	public fun getModules ()Ljava/util/List;
