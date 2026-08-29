@@ -127,6 +127,7 @@ public abstract interface class sk/ainet/apps/llm/KvCache {
 public final class sk/ainet/apps/llm/ModelFamily : java/lang/Enum {
 	public static final field APERTUS Lsk/ainet/apps/llm/ModelFamily;
 	public static final field BERT Lsk/ainet/apps/llm/ModelFamily;
+	public static final field BITNET Lsk/ainet/apps/llm/ModelFamily;
 	public static final field GEMMA Lsk/ainet/apps/llm/ModelFamily;
 	public static final field LLAMA Lsk/ainet/apps/llm/ModelFamily;
 	public static final field QWEN Lsk/ainet/apps/llm/ModelFamily;
@@ -233,10 +234,25 @@ public final class sk/ainet/apps/llm/RopeUtilsKt {
 }
 
 public final class sk/ainet/apps/llm/SamplingUtilsKt {
+	public static final fun sampleFromCandidates (Ljava/util/List;FLkotlin/random/Random;)I
+	public static synthetic fun sampleFromCandidates$default (Ljava/util/List;FLkotlin/random/Random;ILjava/lang/Object;)I
 	public static final fun sampleFromLogits ([FFLkotlin/random/Random;)I
 	public static synthetic fun sampleFromLogits$default ([FFLkotlin/random/Random;ILjava/lang/Object;)I
 	public static final fun softmaxInPlace ([FI)V
 	public static synthetic fun softmaxInPlace$default ([FIILjava/lang/Object;)V
+}
+
+public final class sk/ainet/apps/llm/ScoredToken {
+	public fun <init> (IF)V
+	public final fun component1 ()I
+	public final fun component2 ()F
+	public final fun copy (IF)Lsk/ainet/apps/llm/ScoredToken;
+	public static synthetic fun copy$default (Lsk/ainet/apps/llm/ScoredToken;IFILjava/lang/Object;)Lsk/ainet/apps/llm/ScoredToken;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getScore ()F
+	public final fun getToken ()I
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
 }
 
 public abstract interface class sk/ainet/apps/llm/Tokenizer {
@@ -563,6 +579,14 @@ public final class sk/ainet/io/model/QuantPolicy : java/lang/Enum {
 	public static fun getEntries ()Lkotlin/enums/EnumEntries;
 	public static fun valueOf (Ljava/lang/String;)Lsk/ainet/io/model/QuantPolicy;
 	public static fun values ()[Lsk/ainet/io/model/QuantPolicy;
+}
+
+public final class sk/ainet/lang/nn/dsl/decoder/DecoderFfnKind : java/lang/Enum {
+	public static final field RELU2_SUBLN Lsk/ainet/lang/nn/dsl/decoder/DecoderFfnKind;
+	public static final field SWIGLU Lsk/ainet/lang/nn/dsl/decoder/DecoderFfnKind;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lsk/ainet/lang/nn/dsl/decoder/DecoderFfnKind;
+	public static fun values ()[Lsk/ainet/lang/nn/dsl/decoder/DecoderFfnKind;
 }
 
 public abstract interface class sk/ainet/lang/nn/dsl/decoder/DecoderModelMetadata {

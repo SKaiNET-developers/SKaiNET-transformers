@@ -4,10 +4,11 @@ import kotlinx.io.Source
 import sk.ainet.apps.llm.DTypePolicyValidation
 import sk.ainet.context.ExecutionContext
 import sk.ainet.io.RandomAccessSource
-import sk.ainet.io.model.QuantPolicy
 import sk.ainet.io.weights.MappingConfig
 import sk.ainet.io.weights.WeightMapper
 import sk.ainet.io.weights.WeightTensor
+import sk.ainet.lang.memory.ExperimentalMemoryApi
+import sk.ainet.lang.memory.plan.WeightForm
 import sk.ainet.lang.nn.Module
 import sk.ainet.lang.types.DType
 import sk.ainet.lang.types.DTypePolicy
@@ -55,12 +56,13 @@ public class BitNetNetworkLoader @PublishedApi internal constructor(
     internal sealed interface WeightsProvider {
         data class GgufSource(
             val sourceProvider: () -> Source,
-            val quantPolicy: QuantPolicy
         ) : WeightsProvider
 
+        @OptIn(ExperimentalMemoryApi::class)
         data class GgufRandomAccess(
             val randomAccessProvider: () -> RandomAccessSource,
-            val quantPolicy: QuantPolicy
+            /** `null` = the decoder loader's keep-packed MAPPED default. */
+            val weightForm: WeightForm?,
         ) : WeightsProvider
 
         data class Preloaded<T : DType, V>(
@@ -69,23 +71,27 @@ public class BitNetNetworkLoader @PublishedApi internal constructor(
     }
 
     public companion object {
-        /** Load from a GGUF file via sequential Source (models under 2GB). */
+        /** Load from a GGUF file via sequential Source (models under 2GB; always dequantizes). */
         public fun fromGguf(
             sourceProvider: () -> Source,
-            quantPolicy: QuantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
             debug: Boolean = false
         ): BitNetNetworkLoader = BitNetNetworkLoader(
-            WeightsProvider.GgufSource(sourceProvider, quantPolicy), debug
+            WeightsProvider.GgufSource(sourceProvider), debug
         )
 
-        /** Load from a GGUF file via streaming RandomAccessSource (any size). */
+        /**
+         * Load from a GGUF file via streaming RandomAccessSource (any size).
+         * [weightForm] `null` = the decoder loader's keep-packed MAPPED default;
+         * pass [sk.ainet.models.llama.DECODER_DEQUANTIZE_ALL] for dense FP32.
+         */
+        @OptIn(ExperimentalMemoryApi::class)
         @JvmName("fromGgufRandomAccess")
         public fun fromGguf(
             randomAccessProvider: () -> RandomAccessSource,
-            quantPolicy: QuantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
+            weightForm: WeightForm? = null,
             debug: Boolean = false
         ): BitNetNetworkLoader = BitNetNetworkLoader(
-            WeightsProvider.GgufRandomAccess(randomAccessProvider, quantPolicy), debug
+            WeightsProvider.GgufRandomAccess(randomAccessProvider, weightForm), debug
         )
 
         /** Build from already-loaded [DecoderGgufWeights] (GGUF-canonical tensor names). */
@@ -108,19 +114,19 @@ public class BitNetNetworkLoader @PublishedApi internal constructor(
         val weights: DecoderGgufWeights<T, V> = when (val wp = weightsProvider) {
             is WeightsProvider.GgufSource -> {
                 val loader = DecoderGgufWeightLoader(
-                    wp.sourceProvider,
-                    quantPolicy = wp.quantPolicy,
+                    sourceProvider = wp.sourceProvider,
                     acceptedArchitectures = BITNET_ARCHITECTURES,
                     dtypePolicy = dtypePolicy,
                 )
                 loader.loadToMap<T, V>(ctx)
             }
             is WeightsProvider.GgufRandomAccess -> {
+                @OptIn(ExperimentalMemoryApi::class)
                 val loader = DecoderGgufWeightLoader(
-                    wp.randomAccessProvider,
-                    quantPolicy = wp.quantPolicy,
+                    randomAccessProvider = wp.randomAccessProvider,
                     acceptedArchitectures = BITNET_ARCHITECTURES,
                     dtypePolicy = dtypePolicy,
+                    weightForm = wp.weightForm,
                 )
                 loader.loadToMapStreaming<T, V>(ctx)
             }

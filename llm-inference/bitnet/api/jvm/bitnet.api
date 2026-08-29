@@ -1,0 +1,94 @@
+public final class sk/ainet/models/bitnet/BitNetGGUFNameResolver : sk/ainet/io/weights/WeightNameResolver {
+	public fun <init> ()V
+	public fun resolve (Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+}
+
+public final class sk/ainet/models/bitnet/BitNetNetworkLoader {
+	public static final field Companion Lsk/ainet/models/bitnet/BitNetNetworkLoader$Companion;
+	public fun <init> (Lsk/ainet/models/bitnet/BitNetNetworkLoader$WeightsProvider;Z)V
+	public synthetic fun <init> (Lsk/ainet/models/bitnet/BitNetNetworkLoader$WeightsProvider;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getDebug ()Z
+	public final fun getDtypePolicy ()Lsk/ainet/lang/types/DTypePolicy;
+	public final fun getWeightsProvider ()Lsk/ainet/models/bitnet/BitNetNetworkLoader$WeightsProvider;
+	public final fun withDtypePolicy (Lsk/ainet/lang/types/DTypePolicy;)Lsk/ainet/models/bitnet/BitNetNetworkLoader;
+}
+
+public final class sk/ainet/models/bitnet/BitNetNetworkLoader$Companion {
+	public final fun fromGguf (Lkotlin/jvm/functions/Function0;Z)Lsk/ainet/models/bitnet/BitNetNetworkLoader;
+	public static synthetic fun fromGguf$default (Lsk/ainet/models/bitnet/BitNetNetworkLoader$Companion;Lkotlin/jvm/functions/Function0;ZILjava/lang/Object;)Lsk/ainet/models/bitnet/BitNetNetworkLoader;
+	public final fun fromGgufRandomAccess (Lkotlin/jvm/functions/Function0;Lsk/ainet/lang/memory/plan/WeightForm;Z)Lsk/ainet/models/bitnet/BitNetNetworkLoader;
+	public static synthetic fun fromGgufRandomAccess$default (Lsk/ainet/models/bitnet/BitNetNetworkLoader$Companion;Lkotlin/jvm/functions/Function0;Lsk/ainet/lang/memory/plan/WeightForm;ZILjava/lang/Object;)Lsk/ainet/models/bitnet/BitNetNetworkLoader;
+}
+
+public abstract interface class sk/ainet/models/bitnet/BitNetNetworkLoader$WeightsProvider {
+}
+
+public final class sk/ainet/models/bitnet/BitNetNetworkLoader$WeightsProvider$GgufRandomAccess : sk/ainet/models/bitnet/BitNetNetworkLoader$WeightsProvider {
+	public fun <init> (Lkotlin/jvm/functions/Function0;Lsk/ainet/lang/memory/plan/WeightForm;)V
+	public final fun component1 ()Lkotlin/jvm/functions/Function0;
+	public final fun component2 ()Lsk/ainet/lang/memory/plan/WeightForm;
+	public final fun copy (Lkotlin/jvm/functions/Function0;Lsk/ainet/lang/memory/plan/WeightForm;)Lsk/ainet/models/bitnet/BitNetNetworkLoader$WeightsProvider$GgufRandomAccess;
+	public static synthetic fun copy$default (Lsk/ainet/models/bitnet/BitNetNetworkLoader$WeightsProvider$GgufRandomAccess;Lkotlin/jvm/functions/Function0;Lsk/ainet/lang/memory/plan/WeightForm;ILjava/lang/Object;)Lsk/ainet/models/bitnet/BitNetNetworkLoader$WeightsProvider$GgufRandomAccess;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getRandomAccessProvider ()Lkotlin/jvm/functions/Function0;
+	public final fun getWeightForm ()Lsk/ainet/lang/memory/plan/WeightForm;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/models/bitnet/BitNetNetworkLoader$WeightsProvider$GgufSource : sk/ainet/models/bitnet/BitNetNetworkLoader$WeightsProvider {
+	public fun <init> (Lkotlin/jvm/functions/Function0;)V
+	public final fun component1 ()Lkotlin/jvm/functions/Function0;
+	public final fun copy (Lkotlin/jvm/functions/Function0;)Lsk/ainet/models/bitnet/BitNetNetworkLoader$WeightsProvider$GgufSource;
+	public static synthetic fun copy$default (Lsk/ainet/models/bitnet/BitNetNetworkLoader$WeightsProvider$GgufSource;Lkotlin/jvm/functions/Function0;ILjava/lang/Object;)Lsk/ainet/models/bitnet/BitNetNetworkLoader$WeightsProvider$GgufSource;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getSourceProvider ()Lkotlin/jvm/functions/Function0;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/models/bitnet/BitNetNetworkLoader$WeightsProvider$Preloaded : sk/ainet/models/bitnet/BitNetNetworkLoader$WeightsProvider {
+	public fun <init> (Lsk/ainet/models/llama/DecoderGgufWeights;)V
+	public final fun component1 ()Lsk/ainet/models/llama/DecoderGgufWeights;
+	public final fun copy (Lsk/ainet/models/llama/DecoderGgufWeights;)Lsk/ainet/models/bitnet/BitNetNetworkLoader$WeightsProvider$Preloaded;
+	public static synthetic fun copy$default (Lsk/ainet/models/bitnet/BitNetNetworkLoader$WeightsProvider$Preloaded;Lsk/ainet/models/llama/DecoderGgufWeights;ILjava/lang/Object;)Lsk/ainet/models/bitnet/BitNetNetworkLoader$WeightsProvider$Preloaded;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getWeights ()Lsk/ainet/models/llama/DecoderGgufWeights;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/models/bitnet/BitNetNetworkLoaderKt {
+	public static final fun getBITNET_ARCHITECTURES ()Ljava/util/Set;
+}
+
+public final class sk/ainet/models/bitnet/BitNetPackedGgufLoader {
+	public static final field INSTANCE Lsk/ainet/models/bitnet/BitNetPackedGgufLoader;
+	public final fun load (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lsk/ainet/io/gguf/I2sGgufLayout;ZZLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun load$default (Lsk/ainet/models/bitnet/BitNetPackedGgufLoader;Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lsk/ainet/io/gguf/I2sGgufLayout;ZZLkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public final fun loadWithMetadata (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lsk/ainet/io/gguf/I2sGgufLayout;ZZLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun loadWithMetadata$default (Lsk/ainet/models/bitnet/BitNetPackedGgufLoader;Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lsk/ainet/io/gguf/I2sGgufLayout;ZZLkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+}
+
+public final class sk/ainet/models/bitnet/BitNetPackedGgufLoader$Loaded {
+	public fun <init> (Lsk/ainet/lang/nn/Module;Lsk/ainet/models/llama/LlamaModelMetadata;)V
+	public final fun component1 ()Lsk/ainet/lang/nn/Module;
+	public final fun component2 ()Lsk/ainet/models/llama/LlamaModelMetadata;
+	public final fun copy (Lsk/ainet/lang/nn/Module;Lsk/ainet/models/llama/LlamaModelMetadata;)Lsk/ainet/models/bitnet/BitNetPackedGgufLoader$Loaded;
+	public static synthetic fun copy$default (Lsk/ainet/models/bitnet/BitNetPackedGgufLoader$Loaded;Lsk/ainet/lang/nn/Module;Lsk/ainet/models/llama/LlamaModelMetadata;ILjava/lang/Object;)Lsk/ainet/models/bitnet/BitNetPackedGgufLoader$Loaded;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getMetadata ()Lsk/ainet/models/llama/LlamaModelMetadata;
+	public final fun getModel ()Lsk/ainet/lang/nn/Module;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/models/bitnet/BitNetTwoStageDecode {
+	public static final field DEFAULT_CANDIDATES I
+	public static final field INSTANCE Lsk/ainet/models/bitnet/BitNetTwoStageDecode;
+	public final fun exactScore (Lsk/ainet/lang/tensor/data/BitNetPlanesTensorData;[FI)F
+	public final fun stage1Scores (Lsk/ainet/lang/tensor/data/BitNetPlanesTensorData;[F)[F
+	public final fun topK (Lsk/ainet/lang/tensor/data/BitNetPlanesTensorData;[FII)Ljava/util/List;
+	public static synthetic fun topK$default (Lsk/ainet/models/bitnet/BitNetTwoStageDecode;Lsk/ainet/lang/tensor/data/BitNetPlanesTensorData;[FIIILjava/lang/Object;)Ljava/util/List;
+}
+

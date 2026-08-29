@@ -8,6 +8,7 @@ import sk.ainet.io.gguf.StreamingGgufParametersLoader
 import sk.ainet.io.gguf.StreamingTensorInfo
 import sk.ainet.lang.memory.plan.EncodingRequest
 import sk.ainet.lang.memory.plan.WeightForm
+import sk.ainet.lang.memory.plan.WeightResidency
 import sk.ainet.lang.memory.plan.WeightShapeOrientation
 import sk.ainet.lang.nn.Module
 import sk.ainet.lang.tensor.Tensor
@@ -76,10 +77,18 @@ public object BitNetPackedGgufLoader {
 
         // Pass 2 — tensors through the engine loader: keep everything as stored (ternary stays
         // packed), shapes in [out, in] orientation, and the lm_head requantized to planes.
+        // MAPPED residency is a *request* like everywhere else in the arc: the 0.51 engine
+        // serves a trailer-scaled SEQUENTIAL I2_S file zero-copy from the mapping (#1203),
+        // while a GROUP-flavor file (stock BitNet.cpp) must be repacked and heap-stages until
+        // SKaiNET#1198's sidecar — the loader decides, this loader just states the form.
         val keepPacked = WeightForm(
             encoding = EncodingRequest.KeepAsStored,
             shape = WeightShapeOrientation.OUT_IN,
+            residency = WeightResidency.MAPPED,
         )
+        // No MAPPED here, deliberately: a requantization can never be served from the file's
+        // pages, and `BitNetPlanesTensorData` is heap-only by design — which is exactly what
+        // keeps `BitNetTwoStageDecode` type-safe (it branches on that concrete type).
         val planes = WeightForm(
             encoding = EncodingRequest.RequantizeTo(TensorEncoding.BITNET_PLANES),
             shape = WeightShapeOrientation.OUT_IN,
