@@ -8,6 +8,12 @@ pluginManagement {
 
 dependencyResolutionManagement {
     repositories {
+        // Local-dev lane: `-PskainetMavenLocal` resolves sk.ainet artifacts from
+        // ~/.m2 (an unsigned `publishToMavenLocal` of the SKaiNET repo) ahead of
+        // Maven Central — how unreleased engine features are validated here.
+        if (providers.gradleProperty("skainetMavenLocal").isPresent) {
+            mavenLocal { content { includeGroupByRegex("""sk\.ainet.*""") } }
+        }
         google()
         mavenCentral()
     }

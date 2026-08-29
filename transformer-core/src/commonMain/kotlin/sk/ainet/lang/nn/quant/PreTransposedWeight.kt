@@ -1,5 +1,6 @@
 package sk.ainet.lang.nn.quant
 
+import sk.ainet.lang.tensor.storage.TensorEncoding
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.data.Q4_0BlockTensorData
 import sk.ainet.lang.tensor.data.Q4_0TensorData
@@ -62,6 +63,9 @@ internal class PreTransposedQ4_K(private val d: Q4_KBlockTensorData) :
     override val shape: Shape get() = d.shape
     override val blockCount: Int get() = d.blockCount
     override val packedData: ByteArray get() = d.packedData
+    // 0.49.0+: TensorData.encoding (nullable) vs PackedBlockStorage.encoding (non-null) — resolve
+    // the diamond to the delegate; the non-null type legally narrows the nullable declaration.
+    override val encoding: TensorEncoding get() = d.encoding
 }
 
 internal class PreTransposedQ5_K(private val d: Q5_KBlockTensorData) :
@@ -69,6 +73,9 @@ internal class PreTransposedQ5_K(private val d: Q5_KBlockTensorData) :
     override val shape: Shape get() = d.shape
     override val blockCount: Int get() = d.blockCount
     override val packedData: ByteArray get() = d.packedData
+    // 0.49.0+: TensorData.encoding (nullable) vs PackedBlockStorage.encoding (non-null) — resolve
+    // the diamond to the delegate; the non-null type legally narrows the nullable declaration.
+    override val encoding: TensorEncoding get() = d.encoding
 }
 
 internal class PreTransposedQ6_K(private val d: Q6_KBlockTensorData) :
@@ -76,6 +83,9 @@ internal class PreTransposedQ6_K(private val d: Q6_KBlockTensorData) :
     override val shape: Shape get() = d.shape
     override val blockCount: Int get() = d.blockCount
     override val packedData: ByteArray get() = d.packedData
+    // 0.49.0+: TensorData.encoding (nullable) vs PackedBlockStorage.encoding (non-null) — resolve
+    // the diamond to the delegate; the non-null type legally narrows the nullable declaration.
+    override val encoding: TensorEncoding get() = d.encoding
 }
 
 internal class PreTransposedQ8_0(private val d: Q8_0BlockTensorData) :
@@ -83,6 +93,9 @@ internal class PreTransposedQ8_0(private val d: Q8_0BlockTensorData) :
     override val shape: Shape get() = d.shape
     override val blockCount: Int get() = d.blockCount
     override val packedData: ByteArray get() = d.packedData
+    // 0.49.0+: TensorData.encoding (nullable) vs PackedBlockStorage.encoding (non-null) — resolve
+    // the diamond to the delegate; the non-null type legally narrows the nullable declaration.
+    override val encoding: TensorEncoding get() = d.encoding
 }
 
 internal class PreTransposedQ4_0(private val d: Q4_0BlockTensorData) :
@@ -90,6 +103,9 @@ internal class PreTransposedQ4_0(private val d: Q4_0BlockTensorData) :
     override val shape: Shape get() = d.shape
     override val blockCount: Int get() = d.blockCount
     override val packedData: ByteArray get() = d.packedData
+    // 0.49.0+: TensorData.encoding (nullable) vs PackedBlockStorage.encoding (non-null) — resolve
+    // the diamond to the delegate; the non-null type legally narrows the nullable declaration.
+    override val encoding: TensorEncoding get() = d.encoding
 }
 
 internal class PreTransposedQ5_0(private val d: Q5_0BlockTensorData) :
@@ -97,6 +113,9 @@ internal class PreTransposedQ5_0(private val d: Q5_0BlockTensorData) :
     override val shape: Shape get() = d.shape
     override val blockCount: Int get() = d.blockCount
     override val packedData: ByteArray get() = d.packedData
+    // 0.49.0+: TensorData.encoding (nullable) vs PackedBlockStorage.encoding (non-null) — resolve
+    // the diamond to the delegate; the non-null type legally narrows the nullable declaration.
+    override val encoding: TensorEncoding get() = d.encoding
 }
 
 internal class PreTransposedQ5_1(private val d: Q5_1BlockTensorData) :
@@ -104,4 +123,7 @@ internal class PreTransposedQ5_1(private val d: Q5_1BlockTensorData) :
     override val shape: Shape get() = d.shape
     override val blockCount: Int get() = d.blockCount
     override val packedData: ByteArray get() = d.packedData
+    // 0.49.0+: TensorData.encoding (nullable) vs PackedBlockStorage.encoding (non-null) — resolve
+    // the diamond to the delegate; the non-null type legally narrows the nullable declaration.
+    override val encoding: TensorEncoding get() = d.encoding
 }
