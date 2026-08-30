@@ -10,8 +10,8 @@ public final class sk/ainet/lang/nn/dsl/ATTENTION$DefaultImpls {
 }
 
 public final class sk/ainet/lang/nn/dsl/AttentionImpl : sk/ainet/lang/nn/dsl/ATTENTION {
-	public fun <init> (Lsk/ainet/context/ExecutionContext;IIIZZZDLjava/lang/Float;ZZLjava/lang/String;Ljava/lang/Integer;ILkotlin/reflect/KClass;)V
-	public synthetic fun <init> (Lsk/ainet/context/ExecutionContext;IIIZZZDLjava/lang/Float;ZZLjava/lang/String;Ljava/lang/Integer;ILkotlin/reflect/KClass;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lsk/ainet/context/ExecutionContext;IIIZZZDZDLjava/lang/Float;ZZLjava/lang/String;Ljava/lang/Integer;ILkotlin/reflect/KClass;)V
+	public synthetic fun <init> (Lsk/ainet/context/ExecutionContext;IIIZZZDZDLjava/lang/Float;ZZLjava/lang/String;Ljava/lang/Integer;ILkotlin/reflect/KClass;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun create ()Lsk/ainet/lang/nn/transformer/MultiHeadAttention;
 	public fun getExecutionContext ()Lsk/ainet/context/ExecutionContext;
 	public fun kvCache (III)V
@@ -20,6 +20,10 @@ public final class sk/ainet/lang/nn/dsl/AttentionImpl : sk/ainet/lang/nn/dsl/ATT
 }
 
 public final class sk/ainet/lang/nn/dsl/TransformerDslKt {
+	public static final fun bitNetFFN (Lsk/ainet/lang/nn/dsl/NeuralNetworkDslImpl;IIFLjava/lang/String;)V
+	public static final fun bitNetFFN (Lsk/ainet/lang/nn/dsl/StageImpl;IIFLjava/lang/String;)V
+	public static synthetic fun bitNetFFN$default (Lsk/ainet/lang/nn/dsl/NeuralNetworkDslImpl;IIFLjava/lang/String;ILjava/lang/Object;)V
+	public static synthetic fun bitNetFFN$default (Lsk/ainet/lang/nn/dsl/StageImpl;IIFLjava/lang/String;ILjava/lang/Object;)V
 	public static final fun embedding (Lsk/ainet/lang/nn/dsl/NeuralNetworkDslImpl;IILjava/lang/String;)V
 	public static final fun embedding (Lsk/ainet/lang/nn/dsl/StageImpl;IILjava/lang/String;)V
 	public static synthetic fun embedding$default (Lsk/ainet/lang/nn/dsl/NeuralNetworkDslImpl;IILjava/lang/String;ILjava/lang/Object;)V
@@ -29,9 +33,9 @@ public final class sk/ainet/lang/nn/dsl/TransformerDslKt {
 	public static synthetic fun geGluFFN$default (Lsk/ainet/lang/nn/dsl/NeuralNetworkDslImpl;IILjava/lang/String;ILjava/lang/Object;)V
 	public static synthetic fun geGluFFN$default (Lsk/ainet/lang/nn/dsl/StageImpl;IILjava/lang/String;ILjava/lang/Object;)V
 	public static final fun multiHeadAttention (Lsk/ainet/lang/nn/dsl/NeuralNetworkDslImpl;IIIZZFZLjava/lang/String;Ljava/lang/Integer;ILkotlin/jvm/functions/Function1;)V
-	public static final fun multiHeadAttention (Lsk/ainet/lang/nn/dsl/StageImpl;IIIZZZFLjava/lang/Float;ZZLjava/lang/String;Ljava/lang/Integer;ILkotlin/jvm/functions/Function1;)V
+	public static final fun multiHeadAttention (Lsk/ainet/lang/nn/dsl/StageImpl;IIIZZZFZFLjava/lang/Float;ZZLjava/lang/String;Ljava/lang/Integer;ILkotlin/jvm/functions/Function1;)V
 	public static synthetic fun multiHeadAttention$default (Lsk/ainet/lang/nn/dsl/NeuralNetworkDslImpl;IIIZZFZLjava/lang/String;Ljava/lang/Integer;ILkotlin/jvm/functions/Function1;ILjava/lang/Object;)V
-	public static synthetic fun multiHeadAttention$default (Lsk/ainet/lang/nn/dsl/StageImpl;IIIZZZFLjava/lang/Float;ZZLjava/lang/String;Ljava/lang/Integer;ILkotlin/jvm/functions/Function1;ILjava/lang/Object;)V
+	public static synthetic fun multiHeadAttention$default (Lsk/ainet/lang/nn/dsl/StageImpl;IIIZZZFZFLjava/lang/Float;ZZLjava/lang/String;Ljava/lang/Integer;ILkotlin/jvm/functions/Function1;ILjava/lang/Object;)V
 	public static final fun residual (Lsk/ainet/lang/nn/dsl/NeuralNetworkDslImpl;)V
 	public static final fun residual (Lsk/ainet/lang/nn/dsl/StageImpl;)V
 	public static final fun rmsNorm (Lsk/ainet/lang/nn/dsl/NeuralNetworkDslImpl;IFLjava/lang/String;Z)V
@@ -113,15 +117,34 @@ public final class sk/ainet/lang/nn/normalization/RMSNormalization : sk/ainet/la
 	public fun getParams ()Ljava/util/List;
 }
 
-public final class sk/ainet/lang/nn/quant/BlockQuantPacking {
-	public static final field INSTANCE Lsk/ainet/lang/nn/quant/BlockQuantPacking;
-	public final fun blockLayoutFor (Lsk/ainet/lang/tensor/storage/TensorEncoding;)Lkotlin/Pair;
-	public final fun pack ([BLsk/ainet/lang/tensor/storage/TensorEncoding;Lsk/ainet/lang/tensor/Shape;)Lsk/ainet/lang/tensor/data/TensorData;
-	public final fun packPreTransposed ([BLsk/ainet/lang/tensor/storage/TensorEncoding;Lsk/ainet/lang/tensor/Shape;)Lsk/ainet/lang/tensor/data/TensorData;
-	public final fun relayoutRowMajorToBlockMajor ([BLsk/ainet/lang/tensor/Shape;II)[B
+public final class sk/ainet/lang/nn/quant/PackedRowDequantTensorData : sk/ainet/lang/tensor/data/RowDequantSource, sk/ainet/lang/tensor/data/TensorData, sk/ainet/lang/tensor/storage/PackedBlockStorage {
+	public static final field Companion Lsk/ainet/lang/nn/quant/PackedRowDequantTensorData$Companion;
+	public synthetic fun <init> (Lsk/ainet/lang/tensor/data/TensorData;Lsk/ainet/lang/tensor/storage/PackedBlockStorage;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun copyToFloatArray ()[F
+	public fun dequantRow (I)[F
+	public fun dequantizeBlock (I[FI)V
+	public fun get ([I)Ljava/lang/Float;
+	public synthetic fun get ([I)Ljava/lang/Object;
+	public fun getBlockCount ()I
+	public fun getBlockOrder ()Lsk/ainet/lang/memory/BlockOrder;
+	public fun getBlockSize ()I
+	public fun getElementCount ()J
+	public fun getEncoding ()Lsk/ainet/lang/tensor/storage/TensorEncoding;
+	public fun getPackedData ()[B
+	public fun getPackedStorage ()Lsk/ainet/lang/memory/Storage;
+	public fun getPackedView ()Lsk/ainet/lang/memory/TensorView;
+	public fun getPhysicalBytes ()J
+	public fun getShape ()Lsk/ainet/lang/tensor/Shape;
+	public fun getView ()Lsk/ainet/lang/memory/TensorView;
+	public fun set ([IF)V
+	public synthetic fun set ([ILjava/lang/Object;)V
+	public fun toFloatArray ()[F
+	public fun toTensorStorage (Lsk/ainet/lang/tensor/storage/LogicalDType;Lsk/ainet/lang/tensor/storage/Placement;)Lsk/ainet/lang/tensor/storage/TensorStorage;
+	public fun toTensorStorage (Lsk/ainet/lang/types/DType;Lsk/ainet/lang/tensor/storage/Placement;)Lsk/ainet/lang/tensor/storage/TensorStorage;
 }
 
-public abstract interface class sk/ainet/lang/nn/quant/PreTransposedWeight {
+public final class sk/ainet/lang/nn/quant/PackedRowDequantTensorData$Companion {
+	public final fun wrapIfRowDequantable (Lsk/ainet/lang/tensor/data/TensorData;)Lsk/ainet/lang/tensor/data/TensorData;
 }
 
 public final class sk/ainet/lang/nn/transformer/AppendKVCache : sk/ainet/lang/nn/transformer/KVCache {
@@ -139,6 +162,18 @@ public final class sk/ainet/lang/nn/transformer/AttentionKV {
 	public final fun getV ()Lsk/ainet/lang/tensor/Tensor;
 }
 
+public final class sk/ainet/lang/nn/transformer/BitNetFFN : sk/ainet/lang/nn/Module, sk/ainet/lang/nn/topology/ModuleParameters {
+	public fun <init> (IIDLjava/lang/String;Lkotlin/reflect/KClass;)V
+	public synthetic fun <init> (IIDLjava/lang/String;Lkotlin/reflect/KClass;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getDim ()I
+	public final fun getHiddenDim ()I
+	public fun getModules ()Ljava/util/List;
+	public fun getName ()Ljava/lang/String;
+	public fun getParams ()Ljava/util/List;
+	public final fun getSubNorm ()Lsk/ainet/lang/nn/normalization/RMSNormalization;
+	public final fun getSubNormEps ()D
+}
+
 public final class sk/ainet/lang/nn/transformer/GeGLUFFN : sk/ainet/lang/nn/Module, sk/ainet/lang/nn/topology/ModuleParameters {
 	public fun <init> (IILjava/lang/String;Lkotlin/reflect/KClass;)V
 	public synthetic fun <init> (IILjava/lang/String;Lkotlin/reflect/KClass;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
@@ -152,6 +187,7 @@ public final class sk/ainet/lang/nn/transformer/GeGLUFFN : sk/ainet/lang/nn/Modu
 public abstract class sk/ainet/lang/nn/transformer/KVCache : sk/ainet/lang/nn/Module {
 	public fun <init> (IIILjava/lang/String;)V
 	public synthetic fun <init> (IIILjava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	protected final fun detachFromStep (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/context/ExecutionContext;)Lsk/ainet/lang/tensor/Tensor;
 	public final fun getHeadDim ()I
 	public final fun getMaxSeqLen ()I
 	public fun getModules ()Ljava/util/List;
@@ -177,12 +213,14 @@ public final class sk/ainet/lang/nn/transformer/LinearProjectionKt {
 }
 
 public final class sk/ainet/lang/nn/transformer/MultiHeadAttention : sk/ainet/lang/nn/Module, sk/ainet/lang/nn/topology/ModuleParameters {
-	public fun <init> (IIIZZZDLjava/lang/Float;ZZLjava/lang/String;Lsk/ainet/lang/nn/transformer/RoPE;Lsk/ainet/lang/nn/transformer/KVCache;Ljava/lang/Integer;Ljava/lang/Integer;ILkotlin/reflect/KClass;)V
-	public synthetic fun <init> (IIIZZZDLjava/lang/Float;ZZLjava/lang/String;Lsk/ainet/lang/nn/transformer/RoPE;Lsk/ainet/lang/nn/transformer/KVCache;Ljava/lang/Integer;Ljava/lang/Integer;ILkotlin/reflect/KClass;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (IIIZZZDZDLjava/lang/Float;ZZLjava/lang/String;Lsk/ainet/lang/nn/transformer/RoPE;Lsk/ainet/lang/nn/transformer/KVCache;Ljava/lang/Integer;Ljava/lang/Integer;ILkotlin/reflect/KClass;)V
+	public synthetic fun <init> (IIIZZZDZDLjava/lang/Float;ZZLjava/lang/String;Lsk/ainet/lang/nn/transformer/RoPE;Lsk/ainet/lang/nn/transformer/KVCache;Ljava/lang/Integer;Ljava/lang/Integer;ILkotlin/reflect/KClass;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun forward (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/context/ExecutionContext;)Lsk/ainet/lang/tensor/Tensor;
 	public final fun forwardWithKV (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/context/ExecutionContext;Lsk/ainet/lang/tensor/Tensor;)Lsk/ainet/lang/nn/transformer/AttentionKV;
 	public static synthetic fun forwardWithKV$default (Lsk/ainet/lang/nn/transformer/MultiHeadAttention;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/context/ExecutionContext;Lsk/ainet/lang/tensor/Tensor;ILjava/lang/Object;)Lsk/ainet/lang/nn/transformer/AttentionKV;
 	public final fun getAttentionScale ()Ljava/lang/Float;
+	public final fun getAttnSubNorm ()Z
+	public final fun getAttnSubNormEps ()D
 	public final fun getBias ()Z
 	public final fun getCausal ()Z
 	public final fun getDim ()I
@@ -203,6 +241,7 @@ public final class sk/ainet/lang/nn/transformer/MultiHeadAttention : sk/ainet/la
 	public final fun getRightContext ()I
 	public final fun getRope ()Lsk/ainet/lang/nn/transformer/RoPE;
 	public final fun getSlidingWindow ()Ljava/lang/Integer;
+	public final fun getSubNorm ()Lsk/ainet/lang/nn/normalization/RMSNormalization;
 	public final fun getVNormNoScale ()Z
 	public final fun setKvCache (Lsk/ainet/lang/nn/transformer/KVCache;)V
 	public final fun setRope (Lsk/ainet/lang/nn/transformer/RoPE;)V

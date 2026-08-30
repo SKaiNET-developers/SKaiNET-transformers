@@ -81,7 +81,6 @@ public class Gemma3nSafeTensorsWeightLoader(
         return Gemma3nWeights(
             metadata = metadata,
             tensors = tensorsByGgufName,
-            quantTypes = emptyMap() // SafeTensors doesn't use GGML quantization
         )
     }
 

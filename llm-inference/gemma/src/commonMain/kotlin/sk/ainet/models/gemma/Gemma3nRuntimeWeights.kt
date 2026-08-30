@@ -3,8 +3,8 @@ package sk.ainet.models.gemma
 import kotlinx.io.Source
 import sk.ainet.context.ExecutionContext
 import sk.ainet.io.RandomAccessSource
-import sk.ainet.io.gguf.GGMLQuantizationType
-import sk.ainet.io.model.QuantPolicy
+import sk.ainet.lang.memory.ExperimentalMemoryApi
+import sk.ainet.lang.memory.plan.WeightForm
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.types.DType
@@ -67,7 +67,6 @@ public data class Gemma3nRuntimeWeights<T : DType>(
     val layers: List<Gemma3nLayerWeights<T>>,
     val finalNorm: Tensor<T, Float>,
     val lmHead: Tensor<T, Float>,
-    val quantTypes: Map<String, GGMLQuantizationType> = emptyMap(),
     /** Global AltUp weights, present only for E4B models (numAltupInputs > 1). */
     val altUpGlobalWeights: AltUpGlobalWeights<T>? = null,
     // ---- E4B global per-layer embedding tensors ----
@@ -84,8 +83,7 @@ public data class Gemma3nRuntimeWeights<T : DType>(
  */
 public data class Gemma3nWeights<T : DType, V>(
     val metadata: Gemma3nModelMetadata,
-    val tensors: Map<String, Tensor<T, V>>,
-    val quantTypes: Map<String, GGMLQuantizationType> = emptyMap()
+    val tensors: Map<String, Tensor<T, V>>
 )
 
 /**
@@ -154,10 +152,9 @@ public object Gemma3nWeightMapper {
 
         fun getOptional(name: String): Tensor<T, Float>? = weights.tensors[name]
 
-        fun isQuant(name: String): Boolean = weights.quantTypes[name] != null
-
+        // Shape checks run for every tensor: packed engine-loader tensors
+        // carry their true logical [out, in] shapes, same as dense ones.
         fun Tensor<*, *>.requireShape(expected: Shape, label: String, tensorName: String) {
-            if (isQuant(tensorName)) return
             if (shape != expected) {
                 error("$label expected shape $expected but was $shape")
             }
@@ -297,7 +294,6 @@ public object Gemma3nWeightMapper {
             layers = layers,
             finalNorm = finalNorm,
             lmHead = lmHead,
-            quantTypes = weights.quantTypes,
             altUpGlobalWeights = altUpGlobalWeights,
             perLayerTokenEmbedding = getOptional(Gemma3nTensorNames.PER_LAYER_TOKEN_EMBD),
             perLayerModelProj = getOptional(Gemma3nTensorNames.PER_LAYER_MODEL_PROJ),
@@ -307,111 +303,50 @@ public object Gemma3nWeightMapper {
 }
 
 /**
- * Convenience loader: reads weights from GGUF source, maps them into runtime structure.
+ * Convenience loader: reads weights from GGUF source (sequential — always
+ * dequantized to dense floats), maps them into runtime structure.
  */
 public suspend fun <T : DType> loadGemma3nRuntimeWeights(
     ctx: ExecutionContext,
     sourceProvider: () -> Source,
-    dtype: KClass<T>,
-    quantPolicy: QuantPolicy = QuantPolicy.RAW_BYTES,
-    allowQuantized: Boolean = false
+    dtype: KClass<T>
 ): Gemma3nRuntimeWeights<T> {
-    val loader = Gemma3nWeightLoader(
-        sourceProvider = sourceProvider,
-        quantPolicy = quantPolicy
-    )
+    val loader = Gemma3nWeightLoader(sourceProvider = sourceProvider)
     val loaded = loader.loadToMap<T, Float>(ctx, dtype)
-    if (!allowQuantized && loaded.quantTypes.isNotEmpty()) {
-        error("Quantized weights detected (${loaded.quantTypes.size}). Pass allowQuantized=true to consume raw quant tensors.")
-    }
     return Gemma3nWeightMapper.map(loaded)
 }
 
 /** Backward-compatible overload defaulting to FP32. */
 public suspend fun loadGemma3nRuntimeWeights(
     ctx: ExecutionContext,
-    sourceProvider: () -> Source,
-    quantPolicy: QuantPolicy = QuantPolicy.RAW_BYTES,
-    allowQuantized: Boolean = false
-): Gemma3nRuntimeWeights<FP32> = loadGemma3nRuntimeWeights(ctx, sourceProvider, FP32::class, quantPolicy, allowQuantized)
-
-/**
- * Load Gemma 3n runtime weights with dequantization.
- */
-public suspend fun <T : DType> loadGemma3nRuntimeWeightsDequantized(
-    ctx: ExecutionContext,
-    sourceProvider: () -> Source,
-    dtype: KClass<T>
-): Gemma3nRuntimeWeights<T> {
-    val loader = Gemma3nWeightLoader(
-        sourceProvider = sourceProvider,
-        quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32
-    )
-    val loaded = loader.loadToMap<T, Float>(ctx, dtype)
-    if (loaded.quantTypes.isNotEmpty()) {
-        error("Unsupported quantized tensors remain after dequant attempt: ${loaded.quantTypes}")
-    }
-    return Gemma3nWeightMapper.map(loaded)
-}
-
-/** Backward-compatible overload defaulting to FP32. */
-public suspend fun loadGemma3nRuntimeWeightsDequantized(
-    ctx: ExecutionContext,
     sourceProvider: () -> Source
-): Gemma3nRuntimeWeights<FP32> = loadGemma3nRuntimeWeightsDequantized(ctx, sourceProvider, FP32::class)
+): Gemma3nRuntimeWeights<FP32> = loadGemma3nRuntimeWeights(ctx, sourceProvider, FP32::class)
 
 // ============== Streaming API (for large files >2GB) ==============
 
 /**
- * Load Gemma 3n runtime weights using streaming API.
+ * Load Gemma 3n runtime weights via the engine loader. Default form keeps
+ * quantized tensors packed; pass [GEMMA_DEQUANTIZE_ALL] for dense FP32.
  */
+@ExperimentalMemoryApi
 public suspend fun <T : DType> loadGemma3nRuntimeWeightsStreaming(
     ctx: ExecutionContext,
     randomAccessProvider: () -> RandomAccessSource,
     dtype: KClass<T>,
-    quantPolicy: QuantPolicy = QuantPolicy.RAW_BYTES,
-    allowQuantized: Boolean = false
+    weightForm: WeightForm? = null
 ): Gemma3nRuntimeWeights<T> {
     val loader = Gemma3nWeightLoader(
         randomAccessProvider = randomAccessProvider,
-        quantPolicy = quantPolicy
+        weightForm = weightForm
     )
     val loaded = loader.loadToMapStreaming<T, Float>(ctx, dtype)
-    if (!allowQuantized && loaded.quantTypes.isNotEmpty()) {
-        error("Quantized weights detected (${loaded.quantTypes.size}). Pass allowQuantized=true to consume raw quant tensors.")
-    }
     return Gemma3nWeightMapper.map(loaded)
 }
 
 /** Backward-compatible overload defaulting to FP32. */
+@ExperimentalMemoryApi
 public suspend fun loadGemma3nRuntimeWeightsStreaming(
     ctx: ExecutionContext,
     randomAccessProvider: () -> RandomAccessSource,
-    quantPolicy: QuantPolicy = QuantPolicy.RAW_BYTES,
-    allowQuantized: Boolean = false
-): Gemma3nRuntimeWeights<FP32> = loadGemma3nRuntimeWeightsStreaming(ctx, randomAccessProvider, FP32::class, quantPolicy, allowQuantized)
-
-/**
- * Load Gemma 3n runtime weights using streaming API with dequantization.
- */
-public suspend fun <T : DType> loadGemma3nRuntimeWeightsDequantizedStreaming(
-    ctx: ExecutionContext,
-    randomAccessProvider: () -> RandomAccessSource,
-    dtype: KClass<T>
-): Gemma3nRuntimeWeights<T> {
-    val loader = Gemma3nWeightLoader(
-        randomAccessProvider = randomAccessProvider,
-        quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32
-    )
-    val loaded = loader.loadToMapStreaming<T, Float>(ctx, dtype)
-    if (loaded.quantTypes.isNotEmpty()) {
-        error("Unsupported quantized tensors remain after dequant attempt: ${loaded.quantTypes}")
-    }
-    return Gemma3nWeightMapper.map(loaded)
-}
-
-/** Backward-compatible overload defaulting to FP32. */
-public suspend fun loadGemma3nRuntimeWeightsDequantizedStreaming(
-    ctx: ExecutionContext,
-    randomAccessProvider: () -> RandomAccessSource
-): Gemma3nRuntimeWeights<FP32> = loadGemma3nRuntimeWeightsDequantizedStreaming(ctx, randomAccessProvider, FP32::class)
+    weightForm: WeightForm? = null
+): Gemma3nRuntimeWeights<FP32> = loadGemma3nRuntimeWeightsStreaming(ctx, randomAccessProvider, FP32::class, weightForm)

@@ -113,18 +113,20 @@ public final class sk/ainet/models/bert/PooledExecutionContext : sk/ainet/contex
 	public fun getHooks ()Lsk/ainet/lang/nn/hooks/ForwardHooks;
 	public fun getInTraining ()Z
 	public fun getMemoryInfo ()Lsk/ainet/context/MemoryInfo;
-	public fun getMemoryPlanner ()Lsk/ainet/lang/tensor/storage/MemoryPlanner;
+	public fun getMemoryScope ()Lsk/ainet/lang/memory/Scope;
 	public fun getMemoryTracker ()Lsk/ainet/lang/tensor/storage/MemoryTracker;
 	public fun getObservers ()Lsk/ainet/context/ExecutionObserverRegistry;
 	public fun getOps ()Lsk/ainet/lang/tensor/ops/TensorOps;
 	public fun getPhase ()Lsk/ainet/context/Phase;
 	public fun getScratch ()Lsk/ainet/lang/tensor/scratch/ScratchPool;
 	public fun getTensorDataFactory ()Lsk/ainet/lang/tensor/data/TensorDataFactory;
+	public fun getTraceSink ()Lsk/ainet/lang/memory/trace/TraceSink;
 	public fun isRecording ()Z
 	public fun ones (Lsk/ainet/lang/tensor/Shape;Lkotlin/reflect/KClass;)Lsk/ainet/lang/tensor/Tensor;
 	public fun placeholder (Lsk/ainet/lang/tensor/Shape;Lkotlin/reflect/KClass;)Lsk/ainet/lang/tensor/Tensor;
 	public fun registerObserver (Lsk/ainet/context/ExecutionObserver;)V
 	public fun unregisterObserver (Lsk/ainet/context/ExecutionObserver;)V
+	public fun withTensorDataFactory (Lsk/ainet/lang/tensor/data/TensorDataFactory;)Lsk/ainet/context/ExecutionContext;
 	public fun wrapByteArray (Lsk/ainet/lang/tensor/Shape;Lkotlin/reflect/KClass;[B)Lsk/ainet/lang/tensor/Tensor;
 	public fun wrapFloatArray (Lsk/ainet/lang/tensor/Shape;Lkotlin/reflect/KClass;[F)Lsk/ainet/lang/tensor/Tensor;
 	public fun wrapIntArray (Lsk/ainet/lang/tensor/Shape;Lkotlin/reflect/KClass;[I)Lsk/ainet/lang/tensor/Tensor;

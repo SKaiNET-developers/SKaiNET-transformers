@@ -8,7 +8,8 @@ import sk.ainet.apps.llm.OptimizedLLMMode
 import sk.ainet.apps.llm.OptimizedLLMRuntime
 import sk.ainet.context.ExecutionContext
 import sk.ainet.io.RandomAccessSource
-import sk.ainet.io.model.QuantPolicy
+import sk.ainet.lang.memory.ExperimentalMemoryApi
+import sk.ainet.lang.memory.plan.WeightForm
 import sk.ainet.lang.types.DType
 import sk.ainet.models.gemma.Gemma4RuntimeWeights
 import sk.ainet.models.gemma.Gemma4SafeTensorsWeightLoader
@@ -21,10 +22,17 @@ import sk.ainet.models.gemma.loadGemma4RuntimeWeightsStreaming
 
 /**
  * Load configuration for Gemma 4 models.
+ *
+ * @param weightForm streaming-lane materialization request. `null` (default)
+ *   keeps quantized tensors packed in their stored block encoding with
+ *   logical `[out, in]` shapes; pass
+ *   [sk.ainet.models.gemma.GEMMA_DEQUANTIZE_ALL] for a dense FP32 load
+ *   (the export/tracing path). The sequential [Source] lane always
+ *   dequantizes.
  */
+@OptIn(ExperimentalMemoryApi::class)
 public data class Gemma4LoadConfig(
-    val quantPolicy: QuantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
-    val allowQuantized: Boolean = false
+    val weightForm: WeightForm? = null
 )
 
 /**
@@ -35,11 +43,11 @@ public data class Gemma4LoadConfig(
  * (≤ 8.94e-8 across 1-layer global, mixed sliding+global, and shared-KV
  * configurations); the hand-coded path has since been retired.
  *
- * `loadDslRuntime*` currently requires `DEQUANTIZE_TO_FP32` for K-series
- * quants (~20 GB for Gemma 4 E2B Q4_K_M until a K-kernel lands). Q4_0/Q8_0
- * stay packed via the NATIVE path (see `loadDslRuntimeNative*` in the JVM
- * sibling file).
+ * `loadDslRuntime*` route through the engine loader: quantized weights stay
+ * packed in their stored block encoding by default and dispatch to the
+ * packed matmul kernels via `linearProject` / `matmulWeightTransposed`.
  */
+@OptIn(ExperimentalMemoryApi::class)
 public class Gemma4Ingestion<T : DType>(
     private val ctx: ExecutionContext,
     private val dtype: KClass<T>,
@@ -52,9 +60,7 @@ public class Gemma4Ingestion<T : DType>(
         return loadGemma4RuntimeWeights(
             ctx = ctx,
             sourceProvider = sourceProvider,
-            dtype = dtype,
-            quantPolicy = config.quantPolicy,
-            allowQuantized = config.allowQuantized
+            dtype = dtype
         )
     }
 
@@ -63,8 +69,7 @@ public class Gemma4Ingestion<T : DType>(
             ctx = ctx,
             randomAccessProvider = randomAccessProvider,
             dtype = dtype,
-            quantPolicy = config.quantPolicy,
-            allowQuantized = config.allowQuantized
+            weightForm = config.weightForm
         )
     }
 
@@ -75,25 +80,25 @@ public class Gemma4Ingestion<T : DType>(
     // --- DSL path: gemmaNetwork() + OptimizedLLMRuntime ---
 
     /**
-     * Load a Gemma 4 GGUF via sequential [Source] and return the DSL-based
-     * [InferenceRuntime]. Requires `QuantPolicy.DEQUANTIZE_TO_FP32` at the
-     * moment for K-series quants.
+     * Load a Gemma 4 GGUF via sequential [Source] (dequantized to dense
+     * floats) and return the DSL-based [InferenceRuntime].
      */
     public suspend fun loadDslRuntime(sourceProvider: () -> Source): InferenceRuntime<T> {
-        requireDequantPolicy("loadDslRuntime")
         val weights = Gemma4WeightLoader(
-            sourceProvider = sourceProvider,
-            quantPolicy = config.quantPolicy
+            sourceProvider = sourceProvider
         ).loadToMap<T, Float>(ctx, dtype)
         return buildDslRuntime(weights)
     }
 
-    /** Same as [loadDslRuntime] but via a random-access source (models > 2 GB). */
+    /**
+     * Same as [loadDslRuntime] but via a random-access source (any size)
+     * through the engine loader — quantized weights stay packed by default
+     * (see [Gemma4LoadConfig.weightForm]).
+     */
     public suspend fun loadDslRuntimeStreaming(randomAccessProvider: () -> RandomAccessSource): InferenceRuntime<T> {
-        requireDequantPolicy("loadDslRuntimeStreaming")
         val weights = Gemma4WeightLoader(
             randomAccessProvider = randomAccessProvider,
-            quantPolicy = config.quantPolicy
+            weightForm = config.weightForm
         ).loadToMapStreaming<T, Float>(ctx, dtype)
         return buildDslRuntime(weights)
     }
@@ -113,13 +118,5 @@ public class Gemma4Ingestion<T : DType>(
     public fun buildDslRuntime(weights: Gemma4Weights<T, Float>): InferenceRuntime<T> {
         val model = GemmaNetworkLoader.fromWeights(ctx, weights, dtype)
         return OptimizedLLMRuntime(model, ctx, OptimizedLLMMode.DIRECT, dtype, random = Random.Default)
-    }
-
-    private fun requireDequantPolicy(caller: String) {
-        require(config.quantPolicy == QuantPolicy.DEQUANTIZE_TO_FP32) {
-            "$caller currently only supports QuantPolicy.DEQUANTIZE_TO_FP32. " +
-                "The DSL / ComputeGraph path does not yet consume K-series quantized tensors " +
-                "directly. Use the NATIVE DSL path (loadDslRuntimeNative*) for Q4_0/Q8_0."
-        }
     }
 }

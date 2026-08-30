@@ -8,7 +8,9 @@ import sk.ainet.models.gemma.Gemma3nConfig
 import sk.ainet.models.gemma.Gemma3nRuntime
 import sk.ainet.models.gemma.Gemma3nRuntimeWeights
 import sk.ainet.models.gemma.createOptimalGemma3nKvCache
-import sk.ainet.io.model.QuantPolicy
+import sk.ainet.lang.memory.ExperimentalMemoryApi
+import sk.ainet.lang.memory.plan.WeightForm
+import sk.ainet.models.gemma.GEMMA_DEQUANTIZE_ALL
 import sk.ainet.models.gemma.loadGemma3nRuntimeWeights
 import sk.ainet.models.gemma.loadGemma3nRuntimeWeightsFromSafeTensors
 import sk.ainet.models.gemma.loadGemma3nRuntimeWeightsStreaming
@@ -18,12 +20,14 @@ import kotlin.reflect.KClass
 /**
  * Load configuration for Gemma 3n models.
  *
- * @property quantPolicy How to handle quantized tensors
- * @property allowQuantized If false, error on encountering quantized tensors
+ * @property weightForm streaming-lane materialization request. Defaults to
+ *   [GEMMA_DEQUANTIZE_ALL] (dense FP32) because the hand-coded
+ *   [Gemma3nRuntime] consumes dense tensors; pass `null` to keep quantized
+ *   tensors packed for DSL-path consumers.
  */
+@OptIn(ExperimentalMemoryApi::class)
 public data class Gemma3nLoadConfig(
-    val quantPolicy: QuantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
-    val allowQuantized: Boolean = false
+    val weightForm: WeightForm? = GEMMA_DEQUANTIZE_ALL
 )
 
 /**
@@ -36,6 +40,7 @@ public data class Gemma3nLoadConfig(
  * @param dtype Target data type for tensors (FP32 or FP16)
  * @param config Load configuration
  */
+@OptIn(ExperimentalMemoryApi::class)
 public class Gemma3nIngestion<T : DType>(
     private val ctx: ExecutionContext,
     private val dtype: KClass<T>,
@@ -49,16 +54,12 @@ public class Gemma3nIngestion<T : DType>(
      *
      * @param sourceProvider Factory function that provides the Source
      * @return Loaded runtime weights
-     * @throws IllegalStateException if metadata/tensors are missing or quantized tensors are present
-     * when [config.allowQuantized] is false.
      */
     public suspend fun load(sourceProvider: () -> Source): Gemma3nRuntimeWeights<T> {
         return loadGemma3nRuntimeWeights(
             ctx = ctx,
             sourceProvider = sourceProvider,
-            dtype = dtype,
-            quantPolicy = config.quantPolicy,
-            allowQuantized = config.allowQuantized
+            dtype = dtype
         )
     }
 
@@ -69,16 +70,13 @@ public class Gemma3nIngestion<T : DType>(
      *
      * @param randomAccessProvider Factory that provides RandomAccessSource to the GGUF file
      * @return Loaded runtime weights
-     * @throws IllegalStateException if metadata/tensors are missing or quantized tensors are present
-     * when [config.allowQuantized] is false.
      */
     public suspend fun loadStreaming(randomAccessProvider: () -> RandomAccessSource): Gemma3nRuntimeWeights<T> {
         return loadGemma3nRuntimeWeightsStreaming(
             ctx = ctx,
             randomAccessProvider = randomAccessProvider,
             dtype = dtype,
-            quantPolicy = config.quantPolicy,
-            allowQuantized = config.allowQuantized
+            weightForm = config.weightForm
         )
     }
 

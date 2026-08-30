@@ -9,7 +9,7 @@ import sk.ainet.apps.llm.OptimizedLLMMode
 import sk.ainet.apps.llm.OptimizedLLMRuntime
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
-import sk.ainet.io.model.QuantPolicy
+import sk.ainet.models.llama.DECODER_DEQUANTIZE_ALL
 import sk.ainet.models.llama.LlamaNetworkLoader
 import sk.ainet.models.llama.LlamaRuntime
 import sk.ainet.lang.types.FP32
@@ -82,8 +82,6 @@ class RuntimeEquivalenceTest {
                 ctx = ctx,
                 dtype = FP32::class,
                 config = LlamaLoadConfig(
-                    quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
-                    allowQuantized = true
                 )
             )
             val oldWeights = ingestion.loadStreaming {
@@ -96,7 +94,7 @@ class RuntimeEquivalenceTest {
             // --- New path: OptimizedLLMRuntime DIRECT ---
             val dslModel = LlamaNetworkLoader.fromGguf(
                 randomAccessProvider = { JvmRandomAccessSource.open(MODEL_PATH.toString()) },
-                quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32
+                weightForm = DECODER_DEQUANTIZE_ALL
             ).load<FP32, Float>(ctx)
 
             val newRuntime = OptimizedLLMRuntime(
@@ -133,7 +131,7 @@ class RuntimeEquivalenceTest {
             // --- DIRECT mode ---
             val directModel = LlamaNetworkLoader.fromGguf(
                 randomAccessProvider = { JvmRandomAccessSource.open(MODEL_PATH.toString()) },
-                quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32
+                weightForm = DECODER_DEQUANTIZE_ALL
             ).load<FP32, Float>(ctx)
 
             val directRuntime = OptimizedLLMRuntime(
@@ -146,7 +144,7 @@ class RuntimeEquivalenceTest {
             // --- OPTIMIZED mode ---
             val optimizedModel = LlamaNetworkLoader.fromGguf(
                 randomAccessProvider = { JvmRandomAccessSource.open(MODEL_PATH.toString()) },
-                quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32
+                weightForm = DECODER_DEQUANTIZE_ALL
             ).load<FP32, Float>(ctx)
 
             val optimizedRuntime = OptimizedLLMRuntime(
@@ -208,8 +206,6 @@ class RuntimeEquivalenceTest {
                 ctx = ctx,
                 dtype = FP32::class,
                 config = LlamaLoadConfig(
-                    quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
-                    allowQuantized = true
                 )
             )
             val oldWeights = ingestion.loadStreaming {
@@ -221,7 +217,7 @@ class RuntimeEquivalenceTest {
 
             val directModel = LlamaNetworkLoader.fromGguf(
                 randomAccessProvider = { JvmRandomAccessSource.open(MODEL_PATH.toString()) },
-                quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32
+                weightForm = DECODER_DEQUANTIZE_ALL
             ).load<FP32, Float>(ctx)
             val directRuntime = OptimizedLLMRuntime(
                 model = directModel,
@@ -234,7 +230,7 @@ class RuntimeEquivalenceTest {
             try {
                 val optimizedModel = LlamaNetworkLoader.fromGguf(
                     randomAccessProvider = { JvmRandomAccessSource.open(MODEL_PATH.toString()) },
-                    quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32
+                    weightForm = DECODER_DEQUANTIZE_ALL
                 ).load<FP32, Float>(ctx)
                 val rt = OptimizedLLMRuntime(
                     model = optimizedModel,

@@ -1,13 +1,43 @@
 package sk.ainet.models.gemma
 
+import sk.ainet.context.ExecutionContext
 import sk.ainet.io.gguf.GGMLQuantizationType
 import sk.ainet.io.gguf.GGML_QUANT_SIZES
 import sk.ainet.io.gguf.dequant.DequantOps
+import sk.ainet.lang.memory.BlockOrder
+import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.tensor.data.RowDequantSource
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.data.TensorData
+import sk.ainet.lang.tensor.storage.PackedBlockStorage
 import sk.ainet.lang.types.DType
 import sk.ainet.lang.types.FP32
+import kotlin.reflect.KClass
+
+/**
+ * Rewrap an engine-delivered packed `per_layer_token_embd` tensor as a
+ * [GemmaPerLayerTokenEmbedTensorData] row-dequant source, so
+ * [PerLayerEmbedding.compute] dequantizes only the rows it gathers instead
+ * of materializing the multi-GB table as FP32. Falls through to the
+ * delivered tensor for forms this wrapper can't serve (dense FP32 delivery,
+ * non-canonical block order, off-heap storage without a heap byte view).
+ */
+@Suppress("UNCHECKED_CAST")
+internal fun <T : DType, V> wrapGemmaPleIfPacked(
+    ctx: ExecutionContext,
+    dtype: KClass<T>,
+    tensor: Tensor<T, V>,
+    ggufType: GGMLQuantizationType?,
+): Tensor<T, V> {
+    val data = tensor.data
+    if (ggufType == null || data !is PackedBlockStorage) return tensor
+    if (data.blockOrder != BlockOrder.ROW_MAJOR) return tensor
+    val bytes = runCatching { data.packedData }.getOrNull() ?: return tensor
+    val wrapped = runCatching {
+        GemmaPerLayerTokenEmbedTensorData(tensor.shape, ggufType, bytes)
+    }.getOrNull() ?: return tensor
+    return ctx.fromData(wrapped as TensorData<T, V>, dtype)
+}
 
 /**
  * [TensorData] wrapper for the Gemma 4 `per_layer_token_embd` weight when

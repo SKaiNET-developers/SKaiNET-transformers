@@ -8,6 +8,12 @@ pluginManagement {
 
 dependencyResolutionManagement {
     repositories {
+        // Local-dev lane: `-PskainetMavenLocal` resolves sk.ainet artifacts from
+        // ~/.m2 (an unsigned `publishToMavenLocal` of the SKaiNET repo) ahead of
+        // Maven Central — how unreleased engine features are validated here.
+        if (providers.gradleProperty("skainetMavenLocal").isPresent) {
+            mavenLocal { content { includeGroupByRegex("""sk\.ainet.*""") } }
+        }
         google()
         mavenCentral()
     }
@@ -30,6 +36,7 @@ include("llm-agent")
 include("llm-providers")
 include("llm-inference:llama")
 include("llm-inference:qwen")
+include("llm-inference:bitnet")
 include("llm-inference:gemma")
 // FunctionGemma function-calling product module: export spec + harness + contract
 // manifest for the DSL -> StableHLO -> IREE pipeline (whisper/moonshine pattern).

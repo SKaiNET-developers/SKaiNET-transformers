@@ -23,12 +23,15 @@ dependencies {
     // Inference modules (for network loaders)
     implementation(project(":llm-inference:llama"))
     implementation(project(":llm-inference:qwen"))
+    implementation(project(":llm-inference:bitnet"))
     implementation(project(":llm-inference:gemma"))
     implementation(project(":llm-inference:apertus"))
 
     // SKaiNET core libraries
     implementation(libs.skainet.lang.core)
+    implementation(libs.skainet.backend.api)
     implementation(libs.skainet.backend.cpu)
+    implementation(libs.skainet.backend.nativeCpu)
     implementation(libs.skainet.io.core)
     implementation(libs.skainet.io.gguf)
     implementation(libs.kotlinx.io.core)

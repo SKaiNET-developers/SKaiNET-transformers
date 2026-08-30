@@ -5,7 +5,6 @@ import sk.ainet.context.ExecutionContext
 import sk.ainet.io.RandomAccessSource
 import sk.ainet.models.llama.LlamaModelMetadata
 import sk.ainet.models.llama.LlamaRuntimeWeights
-import sk.ainet.io.model.QuantPolicy
 import sk.ainet.models.llama.loadLlamaRuntimeWeights
 import sk.ainet.models.llama.DecoderSafeTensorsLoader
 import sk.ainet.models.llama.loadLlamaRuntimeWeightsStreaming
@@ -14,11 +13,10 @@ import kotlin.reflect.KClass
 
 /**
  * Thin facade around the GGUF loader that sets sensible defaults for the KLLama app.
- * Default policy dequantizes to FP32 to ensure parity before quant-aware kernels are wired.
+ * The legacy eager runtime consumes dense FP32 tensors, so every load path here
+ * fully dequantizes.
  */
 public data class LlamaLoadConfig(
-    val quantPolicy: QuantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
-    val allowQuantized: Boolean = false,
     val acceptedArchitectures: Set<String> = setOf("llama")
 )
 
@@ -33,16 +31,13 @@ public class LlamaIngestion<T : DType>(
      * Uses sequential loading - loads entire file into memory.
      * Suitable for models under 2GB.
      *
-     * @throws IllegalStateException if metadata/tensors are missing or quantized tensors are present
-     * when [config.allowQuantized] is false.
+     * @throws IllegalStateException if metadata/tensors are missing.
      */
     public suspend fun load(sourceProvider: () -> Source): LlamaRuntimeWeights<T> {
         return loadLlamaRuntimeWeights(
             ctx = ctx,
             sourceProvider = sourceProvider,
-            dtype = dtype,
-            quantPolicy = config.quantPolicy,
-            allowQuantized = config.allowQuantized
+            dtype = dtype
         )
     }
 
@@ -52,16 +47,13 @@ public class LlamaIngestion<T : DType>(
      * Suitable for models of any size (100+ GB) that exceed Java array limits.
      *
      * @param randomAccessProvider Factory that provides RandomAccessSource to the GGUF file
-     * @throws IllegalStateException if metadata/tensors are missing or quantized tensors are present
-     * when [config.allowQuantized] is false.
+     * @throws IllegalStateException if metadata/tensors are missing.
      */
     public suspend fun loadStreaming(randomAccessProvider: () -> RandomAccessSource): LlamaRuntimeWeights<T> {
         return loadLlamaRuntimeWeightsStreaming(
             ctx = ctx,
             randomAccessProvider = randomAccessProvider,
             dtype = dtype,
-            quantPolicy = config.quantPolicy,
-            allowQuantized = config.allowQuantized,
             acceptedArchitectures = config.acceptedArchitectures
         )
     }

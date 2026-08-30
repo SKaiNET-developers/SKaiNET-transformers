@@ -6,7 +6,6 @@ import sk.ainet.compile.hlo.StableHloConverterFactory
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.context.ExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
-import sk.ainet.io.model.QuantPolicy
 import sk.ainet.lang.graph.DefaultExecutionTape
 import sk.ainet.lang.graph.DefaultGraphExecutionContext
 import sk.ainet.lang.nn.Module
@@ -18,6 +17,7 @@ import sk.ainet.lang.tensor.data.TensorData
 import sk.ainet.lang.tensor.ops.VoidTensorOps
 import sk.ainet.lang.tensor.storage.BufferHandle
 import sk.ainet.lang.types.FP32
+import sk.ainet.models.gemma.GEMMA_DEQUANTIZE_ALL
 import sk.ainet.models.gemma.Gemma4WeightLoader
 import sk.ainet.models.gemma.GemmaModel
 import sk.ainet.models.gemma.GemmaNetworkLoader
@@ -169,7 +169,7 @@ public object FunctionGemmaExportHarness {
         val ctx = DirectCpuExecutionContext.create()
         val weights = Gemma4WeightLoader(
             randomAccessProvider = { JvmRandomAccessSource.open(gguf) },
-            quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
+            weightForm = GEMMA_DEQUANTIZE_ALL,
         ).loadToMapStreaming<FP32, Float>(ctx, FP32::class)
         // gemma3 uses FULL rotary; the gguf omits rope.partial_rotary_factor (loader defaults to a
         // Gemma-4 0.25 that mis-rotates global layers). Force it.
@@ -285,7 +285,7 @@ public object FunctionGemmaExportHarness {
         val ctx = DirectCpuExecutionContext.create()
         val weights = Gemma4WeightLoader(
             randomAccessProvider = { JvmRandomAccessSource.open(gguf) },
-            quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
+            weightForm = GEMMA_DEQUANTIZE_ALL,
         ).loadToMapStreaming<FP32, Float>(ctx, FP32::class)
         val md = weights.metadata
         val patched = weights.copy(
@@ -395,7 +395,7 @@ public object FunctionGemmaExportHarness {
         val ctx = DirectCpuExecutionContext.create()
         val weights = Gemma4WeightLoader(
             randomAccessProvider = { JvmRandomAccessSource.open(gguf) },
-            quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
+            weightForm = GEMMA_DEQUANTIZE_ALL,
         ).loadToMapStreaming<FP32, Float>(ctx, FP32::class)
         val md = weights.metadata
         val patched = weights.copy(

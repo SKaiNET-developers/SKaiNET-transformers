@@ -80,9 +80,11 @@ and Kotlin/Native, no `expect`/`actual` in your own code:
 [source,kotlin]
 ----
 val ctx = DirectCpuExecutionContext.create()
+KernelPacks.install()            // view-keyed kernel tiers (reference + best provider)
+JniMappedKernelPack.install()    // serve MAPPED packed weights zero-copy via the JNI kernels
+
 val weights = DecoderGgufWeightLoader(
     randomAccessProvider = { AndroidRandomAccessSource.open(gguf.path) },
-    quantPolicy = QuantPolicy.NATIVE_OPTIMIZED,        // keep weights packed for the NEON kernels
     acceptedArchitectures = setOf("llama", "mistral"),  // SmolLM2 is llama-family
 ).loadToMapStreaming<FP32, Float>(ctx)
 
@@ -107,11 +109,15 @@ val result = runtime.generateUntilStop(
 `AndroidRandomAccessSource.open(...)` streams the GGUF via positional
 `FileChannel` reads (API 1, no JNI) instead of materializing the whole
 file — the fix for the classic "148 MB model, `OutOfMemoryError` on a
-256 MB ART heap" failure mode. `QuantPolicy.NATIVE_OPTIMIZED` is what
-keeps weights in their packed on-disk format so the JNI kernels — which
-expect packed Q8_0/Q4_0/etc. buffers, not dequantized FP32 — actually get
-used; `DEQUANTIZE_TO_FP32` works too but throws away both the memory
-savings and the acceleration.
+256 MB ART heap" failure mode. The loader's default `WeightForm` keeps
+quantized weights in their packed on-disk encoding with **MAPPED**
+residency: the bytes are served zero-copy from file-backed pages,
+outside the ART heap cap entirely (a 1.0 GB model decodes under a
+256 MB cap — engine issue skainet#1189's measured result), and the
+`JniMappedKernelPack` kernels read them where they lie. To dequantize
+everything to dense FP32 instead (the export/debug lane), pass
+`weightForm = DECODER_DEQUANTIZE_ALL` — it works, but throws away the
+memory savings and the acceleration.
 
 == Step 3: Confirm it's actually accelerated
 
@@ -155,7 +161,7 @@ is a smaller, CI-oriented version of the same loop, useful as a minimal
 | Problem | What to check
 
 | `OutOfMemoryError` on model load
-| Confirm you're using `AndroidRandomAccessSource` + `loadToMapStreaming`, not a sequential `Source` + `loadToMap` — the sequential path materializes the whole file. Also confirm `QuantPolicy.NATIVE_OPTIMIZED`, not `DEQUANTIZE_TO_FP32` (4x the memory for FP32 weights).
+| Confirm you're using `AndroidRandomAccessSource` + `loadToMapStreaming`, not a sequential `Source` + `loadToMap` — the sequential path materializes the whole file (and always dequantizes). Also confirm you didn't pass `DECODER_DEQUANTIZE_ALL` as the weight form (4–8x the memory of the packed default).
 
 | `KernelRegistry.bestAvailable()` reports `"scalar"` on a real device
 | Check `skainet-backend-jni-cpu` is on the *runtime* classpath (not `compileOnly`), and that your APK's ABI filters include `arm64-v8a`. Check logcat for `UnsatisfiedLinkError` around app start.
