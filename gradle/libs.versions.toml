@@ -1,8 +1,8 @@
 [versions]
 skainet = "0.51.0"
 agp = "9.3.2"
-jacksonDatabind = "2.22.1"
-jsonSchemaValidator = "3.0.6"
+jacksonDatabind = "2.22.2"
+jsonSchemaValidator = "3.0.7"
 jsonSchemaValidatorVersion = "0.5.5"
 junit = "4.13.2"
 junitJupiter = "6.1.3"
