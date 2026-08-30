@@ -30,6 +30,7 @@ kotlin {
     linuxX64()
     linuxArm64()
     macosArm64()
+    androidNativeArm32()
 
     jvm()
 
@@ -99,6 +100,7 @@ kotlin {
         val linuxX64Main by getting { dependsOn(nativeMain) }
         val linuxArm64Main by getting { dependsOn(nativeMain) }
         val macosArm64Main by getting { dependsOn(nativeMain) }
+        val androidNativeArm32Main by getting { dependsOn(nativeMain) }
 
         if (!project.hasProperty("buildFatJar")) {
             val androidMain by getting { dependsOn(registryBasedMain) }
