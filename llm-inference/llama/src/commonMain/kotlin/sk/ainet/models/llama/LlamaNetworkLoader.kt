@@ -4,8 +4,9 @@ import kotlinx.io.Source
 import sk.ainet.apps.llm.DTypePolicyValidation
 import sk.ainet.context.ExecutionContext
 import sk.ainet.io.RandomAccessSource
-import sk.ainet.io.model.QuantPolicy
 import sk.ainet.io.weights.LlamaGGUFNameResolver
+import sk.ainet.lang.memory.ExperimentalMemoryApi
+import sk.ainet.lang.memory.plan.WeightForm
 import sk.ainet.io.weights.MappingConfig
 import sk.ainet.io.weights.WeightMapper
 import sk.ainet.io.weights.WeightTensor
@@ -39,6 +40,7 @@ import kotlin.jvm.JvmName
  * val model = LlamaNetworkLoader.fromWeights(llamaWeights, debug = true)
  * ```
  */
+@OptIn(ExperimentalMemoryApi::class)
 public class LlamaNetworkLoader @PublishedApi internal constructor(
     @PublishedApi internal val weightsProvider: WeightsProvider,
     @PublishedApi internal val debug: Boolean = false
@@ -46,13 +48,12 @@ public class LlamaNetworkLoader @PublishedApi internal constructor(
     @PublishedApi
     internal sealed interface WeightsProvider {
         data class GgufSource(
-            val sourceProvider: () -> Source,
-            val quantPolicy: QuantPolicy
+            val sourceProvider: () -> Source
         ) : WeightsProvider
 
         data class GgufRandomAccess(
             val randomAccessProvider: () -> RandomAccessSource,
-            val quantPolicy: QuantPolicy
+            val weightForm: WeightForm?
         ) : WeightsProvider
 
         data class SafeTensors(
@@ -93,20 +94,19 @@ public class LlamaNetworkLoader @PublishedApi internal constructor(
         /** Load from a GGUF file via sequential Source (models under 2GB). */
         public fun fromGguf(
             sourceProvider: () -> Source,
-            quantPolicy: QuantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
             debug: Boolean = false
         ): LlamaNetworkLoader = LlamaNetworkLoader(
-            WeightsProvider.GgufSource(sourceProvider, quantPolicy), debug
+            WeightsProvider.GgufSource(sourceProvider), debug
         )
 
         /** Load from a GGUF file via streaming RandomAccessSource (any size). */
         @JvmName("fromGgufRandomAccess")
         public fun fromGguf(
             randomAccessProvider: () -> RandomAccessSource,
-            quantPolicy: QuantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
-            debug: Boolean = false
+            debug: Boolean = false,
+            weightForm: WeightForm? = null
         ): LlamaNetworkLoader = LlamaNetworkLoader(
-            WeightsProvider.GgufRandomAccess(randomAccessProvider, quantPolicy), debug
+            WeightsProvider.GgufRandomAccess(randomAccessProvider, weightForm), debug
         )
 
         /** Load from a SafeTensors file. Requires metadata (not embedded in SafeTensors). */
@@ -140,13 +140,13 @@ public class LlamaNetworkLoader @PublishedApi internal constructor(
         val weights: DecoderGgufWeights<T, V> = when (val wp = weightsProvider) {
             is WeightsProvider.GgufSource -> {
                 val loader = DecoderGgufWeightLoader(
-                    wp.sourceProvider, quantPolicy = wp.quantPolicy, dtypePolicy = dtypePolicy,
+                    wp.sourceProvider, dtypePolicy = dtypePolicy,
                 )
                 loader.loadToMap<T, V>(ctx)
             }
             is WeightsProvider.GgufRandomAccess -> {
                 val loader = DecoderGgufWeightLoader(
-                    wp.randomAccessProvider, quantPolicy = wp.quantPolicy, dtypePolicy = dtypePolicy,
+                    wp.randomAccessProvider, dtypePolicy = dtypePolicy, weightForm = wp.weightForm,
                 )
                 loader.loadToMapStreaming<T, V>(ctx)
             }
@@ -161,18 +161,7 @@ public class LlamaNetworkLoader @PublishedApi internal constructor(
             }
         }
 
-        // NATIVE_OPTIMIZED keeps quantized tensors as raw 1-D bytes; convert them to the packed /
-        // FP32 forms the DSL matmul + gather paths consume (mirrors the Gemma packed path).
-        val ggufPolicy = (weightsProvider as? WeightsProvider.GgufSource)?.quantPolicy
-            ?: (weightsProvider as? WeightsProvider.GgufRandomAccess)?.quantPolicy
-        val finalWeights: DecoderGgufWeights<T, V> = if (ggufPolicy == QuantPolicy.NATIVE_OPTIMIZED) {
-            @Suppress("UNCHECKED_CAST")
-            convertLlamaWeightsPacked(weights, ctx) as DecoderGgufWeights<T, V>
-        } else {
-            weights
-        }
-
-        return applyWeightsToNetwork(finalWeights)
+        return applyWeightsToNetwork(weights)
     }
 
     /**

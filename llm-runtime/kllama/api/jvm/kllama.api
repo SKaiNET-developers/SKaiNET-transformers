@@ -15,14 +15,6 @@ public final class sk/ainet/apps/kllama/CpuBackendProvider : sk/ainet/apps/llm/b
 	public fun isAvailable ()Z
 }
 
-public final class sk/ainet/apps/kllama/FusedQKVAccelerator : sk/ainet/models/llama/GraphAccelerator {
-	public fun <init> (Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/llama/LlamaRuntimeWeights;Lkotlin/reflect/KClass;F)V
-	public synthetic fun <init> (Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/llama/LlamaRuntimeWeights;Lkotlin/reflect/KClass;FILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public fun close ()V
-	public fun runFFN (ILsk/ainet/lang/tensor/Tensor;)Lsk/ainet/lang/tensor/Tensor;
-	public fun runQKV (ILsk/ainet/lang/tensor/Tensor;)Lsk/ainet/models/llama/GraphAccelerator$QKVResult;
-}
-
 public final class sk/ainet/apps/kllama/KvCacheJvmKt {
 	public static final fun createOptimalKvCache (III)Lsk/ainet/apps/llm/KvCache;
 }
@@ -43,17 +35,13 @@ public final class sk/ainet/apps/kllama/LlamaIngestion {
 
 public final class sk/ainet/apps/kllama/LlamaLoadConfig {
 	public fun <init> ()V
-	public fun <init> (Lsk/ainet/io/model/QuantPolicy;ZLjava/util/Set;)V
-	public synthetic fun <init> (Lsk/ainet/io/model/QuantPolicy;ZLjava/util/Set;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public final fun component1 ()Lsk/ainet/io/model/QuantPolicy;
-	public final fun component2 ()Z
-	public final fun component3 ()Ljava/util/Set;
-	public final fun copy (Lsk/ainet/io/model/QuantPolicy;ZLjava/util/Set;)Lsk/ainet/apps/kllama/LlamaLoadConfig;
-	public static synthetic fun copy$default (Lsk/ainet/apps/kllama/LlamaLoadConfig;Lsk/ainet/io/model/QuantPolicy;ZLjava/util/Set;ILjava/lang/Object;)Lsk/ainet/apps/kllama/LlamaLoadConfig;
+	public fun <init> (Ljava/util/Set;)V
+	public synthetic fun <init> (Ljava/util/Set;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/util/Set;
+	public final fun copy (Ljava/util/Set;)Lsk/ainet/apps/kllama/LlamaLoadConfig;
+	public static synthetic fun copy$default (Lsk/ainet/apps/kllama/LlamaLoadConfig;Ljava/util/Set;ILjava/lang/Object;)Lsk/ainet/apps/kllama/LlamaLoadConfig;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getAcceptedArchitectures ()Ljava/util/Set;
-	public final fun getAllowQuantized ()Z
-	public final fun getQuantPolicy ()Lsk/ainet/io/model/QuantPolicy;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
 }

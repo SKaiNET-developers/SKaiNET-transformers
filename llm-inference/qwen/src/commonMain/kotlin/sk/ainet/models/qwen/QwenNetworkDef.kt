@@ -34,9 +34,11 @@ public inline fun <reified T : DType, V> qwenNetwork(
     metadata: LlamaModelMetadata,
     maxInferenceLen: Int = minOf(metadata.contextLength, 4096),
     qkNorm: Boolean = true,
+    attnBias: Boolean = false,
 ): Module<T, V> = decoderTransformerNetwork<T, V>(
     metadata = metadata,
     qkNorm = qkNorm,
+    attnBias = attnBias,
     ropeMode = RoPEMode.SPLIT_HALF,
     maxInferenceLen = maxInferenceLen,
 )

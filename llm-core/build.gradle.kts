@@ -10,6 +10,12 @@ plugins {
 }
 
 kotlin {
+    // SKaiNET 0.49.0 memory APIs (forwardScope, ResolvedGguf, AndroidGguf) are
+    // @ExperimentalMemoryApi; this module hosts the decode-loop and loader adoption (#338 arc).
+    compilerOptions {
+        optIn.add("sk.ainet.lang.memory.ExperimentalMemoryApi")
+    }
+
     android {
         namespace = "sk.ainet.apps.llm"
         compileSdk = libs.versions.android.compileSdk.get().toInt()

@@ -4,7 +4,6 @@ import kotlinx.io.Source
 import sk.ainet.apps.llm.DTypePolicyValidation
 import sk.ainet.context.ExecutionContext
 import sk.ainet.io.RandomAccessSource
-import sk.ainet.io.model.QuantPolicy
 import sk.ainet.io.weights.LlamaGGUFNameResolver
 import sk.ainet.io.weights.MappingConfig
 import sk.ainet.io.weights.WeightMapper
@@ -40,8 +39,10 @@ public class ApertusNetworkLoader @PublishedApi internal constructor(
 
     /** See [sk.ainet.models.llama.LlamaNetworkLoader.withDtypePolicy]. */
     public fun withDtypePolicy(policy: DTypePolicy): ApertusNetworkLoader {
-        // As Gemma: `ApertusWeightLoader` / `ApertusSingleSafeTensorsLoader` widen every narrow
-        // float to FP32, so this loader keeps nothing packed and promises nothing.
+        // `ApertusWeightLoader` / `ApertusSingleSafeTensorsLoader` widen every narrow
+        // float (F16/BF16) to FP32, so no narrow float dtype survives loading. Quantized
+        // block encodings kept packed by the engine loader advertise FP32 and are
+        // outside DTypePolicy's scope.
         DTypePolicyValidation.validate(policy, "ApertusNetworkLoader.withDtypePolicy", keepNative = emptySet())
         this.dtypePolicy = policy
         return this
@@ -50,13 +51,11 @@ public class ApertusNetworkLoader @PublishedApi internal constructor(
     @PublishedApi
     internal sealed interface WeightsProvider {
         data class GgufSource(
-            val sourceProvider: () -> Source,
-            val quantPolicy: QuantPolicy
+            val sourceProvider: () -> Source
         ) : WeightsProvider
 
         data class GgufRandomAccess(
-            val randomAccessProvider: () -> RandomAccessSource,
-            val quantPolicy: QuantPolicy
+            val randomAccessProvider: () -> RandomAccessSource
         ) : WeightsProvider
 
         data class SafeTensorsSingle(
@@ -73,20 +72,18 @@ public class ApertusNetworkLoader @PublishedApi internal constructor(
         /** Load from a GGUF file via sequential Source (models under 2GB). */
         public fun fromGguf(
             sourceProvider: () -> Source,
-            quantPolicy: QuantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
             debug: Boolean = false
         ): ApertusNetworkLoader = ApertusNetworkLoader(
-            WeightsProvider.GgufSource(sourceProvider, quantPolicy), debug
+            WeightsProvider.GgufSource(sourceProvider), debug
         )
 
         /** Load from a GGUF file via streaming RandomAccessSource (any size). */
         @kotlin.jvm.JvmName("fromGgufRandomAccess")
         public fun fromGguf(
             randomAccessProvider: () -> RandomAccessSource,
-            quantPolicy: QuantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
             debug: Boolean = false
         ): ApertusNetworkLoader = ApertusNetworkLoader(
-            WeightsProvider.GgufRandomAccess(randomAccessProvider, quantPolicy), debug
+            WeightsProvider.GgufRandomAccess(randomAccessProvider), debug
         )
 
         /** Load from a single SafeTensors file. */
@@ -116,11 +113,11 @@ public class ApertusNetworkLoader @PublishedApi internal constructor(
     ): Module<T, V> {
         val weights: ApertusWeights<T, V> = when (val wp = weightsProvider) {
             is WeightsProvider.GgufSource -> {
-                val loader = ApertusWeightLoader.fromSource(wp.sourceProvider, wp.quantPolicy)
+                val loader = ApertusWeightLoader.fromSource(wp.sourceProvider)
                 loader.loadToMap<T, V>(ctx)
             }
             is WeightsProvider.GgufRandomAccess -> {
-                val loader = ApertusWeightLoader.fromRandomAccess(wp.randomAccessProvider, wp.quantPolicy)
+                val loader = ApertusWeightLoader.fromRandomAccess(wp.randomAccessProvider)
                 loader.loadToMap<T, V>(ctx)
             }
             is WeightsProvider.SafeTensorsSingle -> {

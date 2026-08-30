@@ -12,7 +12,6 @@ import sk.ainet.apps.kllama.chat.Gemma4ChatTemplate
 import sk.ainet.apps.llm.tokenizer.GGUFTokenizer
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.context.ExecutionContext
-import sk.ainet.io.model.QuantPolicy
 import sk.ainet.lang.tensor.data.MemorySegmentTensorDataFactory
 import sk.ainet.lang.types.FP32
 import sk.ainet.llm.api.ChatOptions
@@ -95,10 +94,7 @@ public object Gemma4ChatModel {
         val ingestion = Gemma4Ingestion<FP32>(
             ctx = ctx,
             dtype = FP32::class,
-            config = Gemma4LoadConfig(
-                quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
-                allowQuantized = false,
-            ),
+            config = Gemma4LoadConfig(),
         )
 
         // Two-step load so we can inject the mmap'd PLE token-embedding

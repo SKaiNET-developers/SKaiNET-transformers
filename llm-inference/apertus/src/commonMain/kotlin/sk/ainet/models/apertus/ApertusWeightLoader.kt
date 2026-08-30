@@ -9,15 +9,19 @@ import sk.ainet.io.gguf.GGUFReader
 import sk.ainet.io.gguf.ReaderField
 import sk.ainet.io.gguf.ReaderTensor
 import sk.ainet.io.gguf.StreamingGGUFReader
+import sk.ainet.io.gguf.StreamingGgufParametersLoader
 import sk.ainet.io.gguf.StreamingTensorInfo
 import sk.ainet.io.gguf.dequant.DequantOps
-import sk.ainet.io.model.QuantPolicy
+import sk.ainet.lang.memory.ExperimentalMemoryApi
+import sk.ainet.lang.memory.plan.EncodingRequest
+import sk.ainet.lang.memory.plan.WeightForm
+import sk.ainet.lang.memory.plan.WeightResidency
+import sk.ainet.lang.memory.plan.WeightShapeOrientation
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.types.DType
 import sk.ainet.lang.types.FP16
 import sk.ainet.lang.types.FP32
-import sk.ainet.lang.types.Int8
 import kotlin.reflect.KClass
 
 /**
@@ -28,35 +32,36 @@ import kotlin.reflect.KClass
  * - xIELU scalar params: `blk.N.mlp.act_fn.{alpha_p,alpha_n,beta,eps}` (scalar BF16/F32)
  * - No `ffn_gate` (ungated MLP)
  * - Metadata prefix `apertus.*` instead of `llama.*`
+ *
+ * The random-access path delegates tensor materialization to the engine's
+ * [StreamingGgufParametersLoader]: quantized projection matrices keep their
+ * stored block encoding as packed
+ * [sk.ainet.lang.tensor.storage.PackedBlockStorage] tensors with logical
+ * `[out, in]` shapes, ready for the packed matmul kernels. The token
+ * embedding is dequantized to a dense FP32 `[vocab, dim]` tensor because
+ * `Embedding.gather()` needs real element access.
+ *
+ * The sequential [Source] path (non-seekable inputs) dequantizes everything
+ * to dense floats.
  */
 public class ApertusWeightLoader private constructor(
     private val sourceProvider: (() -> Source)?,
-    private val randomAccessProvider: (() -> RandomAccessSource)?,
-    private val quantPolicy: QuantPolicy = QuantPolicy.RAW_BYTES,
-    private val preTransposed: Boolean = false
+    private val randomAccessProvider: (() -> RandomAccessSource)?
 ) {
 
     public companion object {
         public fun fromSource(
-            sourceProvider: () -> Source,
-            quantPolicy: QuantPolicy = QuantPolicy.RAW_BYTES,
-            preTransposed: Boolean = false
+            sourceProvider: () -> Source
         ): ApertusWeightLoader = ApertusWeightLoader(
             sourceProvider = sourceProvider,
-            randomAccessProvider = null,
-            quantPolicy = quantPolicy,
-            preTransposed = preTransposed
+            randomAccessProvider = null
         )
 
         public fun fromRandomAccess(
-            randomAccessProvider: () -> RandomAccessSource,
-            quantPolicy: QuantPolicy = QuantPolicy.RAW_BYTES,
-            preTransposed: Boolean = false
+            randomAccessProvider: () -> RandomAccessSource
         ): ApertusWeightLoader = ApertusWeightLoader(
             sourceProvider = null,
-            randomAccessProvider = randomAccessProvider,
-            quantPolicy = quantPolicy,
-            preTransposed = preTransposed
+            randomAccessProvider = randomAccessProvider
         )
     }
 
@@ -77,20 +82,6 @@ public class ApertusWeightLoader private constructor(
     public suspend inline fun <reified T : DType, V> loadToMap(
         ctx: ExecutionContext
     ): ApertusWeights<T, V> = loadToMap(ctx, T::class)
-
-    /**
-     * Load weights for lazy dequantization: small tensors (norms, embeddings)
-     * are dequantized to FP32; large projection matrices stay as raw quantized bytes.
-     */
-    public suspend fun loadQuantized(
-        ctx: ExecutionContext
-    ): ApertusQuantizedWeights {
-        return if (randomAccessProvider != null) {
-            loadQuantizedFromStreamingGguf(ctx)
-        } else {
-            loadQuantizedFromGguf(ctx)
-        }
-    }
 
     // ============== Sequential loading ==============
 
@@ -115,36 +106,15 @@ public class ApertusWeightLoader private constructor(
         val tensorByName = reader.tensors.associateBy { it.name }
         val byName = linkedMapOf<String, Tensor<T, V>>()
         val xieluParams = mutableMapOf<Int, ApertusXIELUParams>()
-        val quantTypes = linkedMapOf<String, GGMLQuantizationType>()
-        val logicalShapes = linkedMapOf<String, Shape>()
-        val quantBytes = linkedMapOf<String, ByteArray>()
-        val nativeOptimized = quantPolicy == QuantPolicy.NATIVE_OPTIMIZED
 
-        // Load required tensors
         requiredTensorNames(metadata).forEach { name ->
             val rt = tensorByName[name]
                 ?: error("Missing required tensor in GGUF payload: $name")
-            if (nativeOptimized && shouldDeferToConverterReader(name, rt)) {
-                val raw = if (rt.data.isEmpty()) reader.materialize(rt) else rt.data
-                quantBytes[name] = DequantOps.toByteArray(raw, rt.name)
-                trackQuantInfo(name, rt, quantTypes, logicalShapes)
-            } else {
-                byName[name] = loadReaderTensor(ctx, dtype, reader, rt, name)
-                trackQuantInfo(name, rt, quantTypes, logicalShapes)
-            }
+            byName[name] = readerTensorToDense(ctx, dtype, reader, rt)
         }
 
-        // Load optional rope_freqs tensor
         tensorByName[ApertusTensorNames.ROPE_FREQS]?.let { rt ->
-            if (nativeOptimized && shouldDeferToConverterReader(ApertusTensorNames.ROPE_FREQS, rt)) {
-                val raw = if (rt.data.isEmpty()) reader.materialize(rt) else rt.data
-                quantBytes[ApertusTensorNames.ROPE_FREQS] = DequantOps.toByteArray(raw, rt.name)
-                trackQuantInfo(ApertusTensorNames.ROPE_FREQS, rt, quantTypes, logicalShapes)
-            } else {
-                byName[ApertusTensorNames.ROPE_FREQS] =
-                    loadReaderTensor(ctx, dtype, reader, rt, ApertusTensorNames.ROPE_FREQS)
-                trackQuantInfo(ApertusTensorNames.ROPE_FREQS, rt, quantTypes, logicalShapes)
-            }
+            byName[ApertusTensorNames.ROPE_FREQS] = readerTensorToDense(ctx, dtype, reader, rt)
         }
 
         // Extract xIELU params: try metadata fields first, then per-layer tensors
@@ -156,98 +126,111 @@ public class ApertusWeightLoader private constructor(
         return ApertusWeights(
             metadata = metadata,
             tensors = byName,
-            xieluParams = xieluParams,
-            preTransposed = preTransposed,
-            quantTypes = quantTypes,
-            logicalShapes = logicalShapes,
-            quantBytes = quantBytes
+            xieluParams = xieluParams
         )
     }
 
-    // ============== Streaming loading ==============
+    // ============== Streaming loading (engine loader) ==============
 
-    private fun <T : DType, V> loadFromStreamingGguf(
+    @OptIn(ExperimentalMemoryApi::class)
+    private suspend fun <T : DType, V> loadFromStreamingGguf(
         ctx: ExecutionContext,
         dtype: KClass<T>
     ): ApertusWeights<T, V> {
-        require(dtype == FP32::class || dtype == FP16::class) {
-            "Apertus GGUF loader supports FP32 and FP16 (got ${dtype.simpleName})"
+        require(dtype == FP32::class) {
+            "Apertus engine-backed GGUF loading delivers FP32-typed tensors (got ${dtype.simpleName})"
         }
         requireNotNull(randomAccessProvider) {
             "Streaming loading requires randomAccessProvider constructor."
         }
 
-        val source = randomAccessProvider.invoke()
-        return StreamingGGUFReader.open(source).use { reader ->
-            val metadata = metadataFromStreamingGguf(reader.fields, reader.tensors)
+        // Header pass: metadata, xIELU params, required-tensor check.
+        val metadata: ApertusModelMetadata
+        val xieluParams = mutableMapOf<Int, ApertusXIELUParams>()
+        StreamingGGUFReader.open(randomAccessProvider.invoke()).use { reader ->
+            metadata = metadataFromStreamingGguf(reader.fields, reader.tensors)
             validateMetadata(metadata)
 
             val tensorByName = reader.tensors.associateBy { it.name }
-            val byName = linkedMapOf<String, Tensor<T, V>>()
-            val xieluParams = mutableMapOf<Int, ApertusXIELUParams>()
-            val quantTypes = linkedMapOf<String, GGMLQuantizationType>()
-            val logicalShapes = linkedMapOf<String, Shape>()
-            val quantBytes = linkedMapOf<String, ByteArray>()
-            val nativeOptimized = quantPolicy == QuantPolicy.NATIVE_OPTIMIZED
-
-            requiredTensorNames(metadata).forEach { name ->
-                val st = tensorByName[name]
-                    ?: error("Missing required tensor in GGUF payload: $name")
-                if (nativeOptimized && shouldDeferToConverter(name, st)) {
-                    // The JVM `ApertusMemSegConverter` will wrap these bytes in
-                    // the right block-major TensorData. Skip the intermediate
-                    // byte-shape `Int8` tensor — it'd just double the heap
-                    // footprint and gets immediately discarded by the converter.
-                    quantBytes[name] = reader.loadTensorData(st)
-                    trackQuantInfo(name, st, quantTypes, logicalShapes)
-                } else {
-                    byName[name] = loadStreamingTensor(ctx, dtype, reader, st, name)
-                    trackQuantInfo(name, st, quantTypes, logicalShapes)
-                }
+            val missing = requiredTensorNames(metadata).filter { it !in tensorByName }
+            require(missing.isEmpty()) {
+                "Missing required tensor(s) in GGUF payload: ${missing.joinToString()}"
             }
 
-            // Load optional rope_freqs tensor
-            tensorByName[ApertusTensorNames.ROPE_FREQS]?.let { st ->
-                if (nativeOptimized && shouldDeferToConverter(ApertusTensorNames.ROPE_FREQS, st)) {
-                    quantBytes[ApertusTensorNames.ROPE_FREQS] = reader.loadTensorData(st)
-                    trackQuantInfo(ApertusTensorNames.ROPE_FREQS, st, quantTypes, logicalShapes)
-                } else {
-                    byName[ApertusTensorNames.ROPE_FREQS] =
-                        loadStreamingTensor(ctx, dtype, reader, st, ApertusTensorNames.ROPE_FREQS)
-                    trackQuantInfo(ApertusTensorNames.ROPE_FREQS, st, quantTypes, logicalShapes)
-                }
-            }
-
-            // Extract xIELU params: try metadata fields first, then per-layer tensors
             extractXIELUParamsFromStreamingMeta(reader.fields, metadata.blockCount, xieluParams)
             if (xieluParams.isEmpty()) {
                 extractXIELUParamsFromStreaming(reader, tensorByName, metadata.blockCount, xieluParams)
             }
-
-            ApertusWeights(
-                metadata = metadata,
-                tensors = byName,
-                xieluParams = xieluParams,
-                preTransposed = preTransposed,
-                quantTypes = quantTypes,
-                logicalShapes = logicalShapes,
-                quantBytes = quantBytes
-            )
         }
+
+        // Payload pass: the engine loader materializes every tensor in its
+        // requested form; keep the ones the apertus network consumes (the
+        // xIELU scalars were already captured above).
+        val wanted = requiredTensorNames(metadata).toMutableSet()
+        wanted += ApertusTensorNames.ROPE_FREQS
+        val byName = linkedMapOf<String, Tensor<T, V>>()
+        val engineLoader = StreamingGgufParametersLoader(
+            sourceProvider = randomAccessProvider,
+            // MAPPED residency default (#342 arc, P5): servable encodings are
+            // served zero-copy from file-backed pages; the engine heap-stages
+            // the rest.
+            weightForm = WeightForm(
+                shape = WeightShapeOrientation.OUT_IN,
+                residency = WeightResidency.MAPPED,
+            ),
+            weightFormFor = { name ->
+                if (name == ApertusTensorNames.TOKEN_EMBEDDINGS) {
+                    WeightForm(
+                        encoding = EncodingRequest.DequantizeTo(FP32),
+                        shape = WeightShapeOrientation.OUT_IN
+                    )
+                } else {
+                    null
+                }
+            }
+        )
+        engineLoader.load(ctx, dtype) { name: String, tensor: Tensor<T, V> ->
+            if (name in wanted) byName[name] = tensor
+        }
+
+        return ApertusWeights(
+            metadata = metadata,
+            tensors = byName,
+            xieluParams = xieluParams
+        )
     }
 
-    /**
-     * Records the original GGUF tensor type and logical `[out, in]` shape so
-     * the JVM-side `ApertusMemSegConverter` can wrap each tensor in the right
-     * block-major TensorData. We only track tensors that are actually
-     * quantized — F32 / F16 / BF16 don't need converter dispatch.
-     *
-     * The token embedding is always force-dequant'd to FP32 in
-     * [loadStreamingTensor] / [loadReaderTensor] (for the gather lookup), so
-     * we deliberately skip it here even though the GGUF tensor type is Q4_K /
-     * Q6_K. This keeps the converter from re-wrapping a tensor that's
-     * already in the right form.
-     */
+    private fun validateMetadata(metadata: ApertusModelMetadata) {
+        require(metadata.embeddingLength > 0) { "Invalid embedding length ${metadata.embeddingLength}" }
+        require(metadata.blockCount > 0) { "Invalid block count ${metadata.blockCount}" }
+        require(metadata.headCount > 0) { "Invalid head count ${metadata.headCount}" }
+        require(metadata.contextLength > 0) { "Invalid context length ${metadata.contextLength}" }
+        require(metadata.vocabSize > 0) { "Invalid vocab size ${metadata.vocabSize}" }
+    }
+
+    private fun requiredTensorNames(metadata: ApertusModelMetadata): List<String> {
+        val names = mutableListOf<String>()
+        names += ApertusTensorNames.TOKEN_EMBEDDINGS
+        names += ApertusTensorNames.OUTPUT_NORM
+        names += ApertusTensorNames.OUTPUT_WEIGHT
+
+        repeat(metadata.blockCount) { layer ->
+            names += ApertusTensorNames.attnNorm(layer)
+            names += ApertusTensorNames.attnQ(layer)
+            names += ApertusTensorNames.attnK(layer)
+            names += ApertusTensorNames.attnV(layer)
+            names += ApertusTensorNames.attnOut(layer)
+            names += ApertusTensorNames.attnQNorm(layer)
+            names += ApertusTensorNames.attnKNorm(layer)
+            names += ApertusTensorNames.ffnNorm(layer)
+            names += ApertusTensorNames.ffnDown(layer)
+            names += ApertusTensorNames.ffnUp(layer)
+        }
+        return names
+    }
+
+    // ============== Tensor conversion (sequential path) ==============
+
     /**
      * Convert a GGUF-stored shape `[in, out]` to the logical PyTorch
      * `[out, in]` shape every downstream API in this codebase assumes
@@ -259,152 +242,14 @@ public class ApertusWeightLoader private constructor(
     private fun logicalShape(ggufDims: List<UInt>): Shape =
         Shape(*ggufDims.map { it.toInt() }.reversed().toIntArray())
 
-    /**
-     * Whether the JVM-side `ApertusMemSegConverter` will replace the tensor's
-     * stored value, in which case the loader skips the intermediate
-     * byte-shape `Int8` wrapping to avoid double-buffering 5 GB of bytes on
-     * Apertus-8B-class models. The converter handles every quantized type
-     * except `TOKEN_EMBEDDINGS` (already force-dequant'd by the loader).
-     */
-    private fun shouldDeferToConverter(name: String, st: StreamingTensorInfo): Boolean {
-        if (name == ApertusTensorNames.TOKEN_EMBEDDINGS) return false
-        return when (st.tensorType) {
-            GGMLQuantizationType.F32,
-            GGMLQuantizationType.F16,
-            GGMLQuantizationType.BF16 -> false
-            else -> true
-        }
-    }
-
-    private fun shouldDeferToConverterReader(name: String, rt: ReaderTensor): Boolean {
-        if (name == ApertusTensorNames.TOKEN_EMBEDDINGS) return false
-        return when (rt.tensorType) {
-            GGMLQuantizationType.F32,
-            GGMLQuantizationType.F16,
-            GGMLQuantizationType.BF16 -> false
-            else -> true
-        }
-    }
-
-    private fun trackQuantInfo(
-        name: String,
-        st: StreamingTensorInfo,
-        quantTypes: MutableMap<String, GGMLQuantizationType>,
-        logicalShapes: MutableMap<String, Shape>
-    ) {
-        if (name == ApertusTensorNames.TOKEN_EMBEDDINGS) return
-        if (st.tensorType == GGMLQuantizationType.F32) return
-        if (st.tensorType == GGMLQuantizationType.F16) return
-        if (st.tensorType == GGMLQuantizationType.BF16) return
-        quantTypes[name] = st.tensorType
-        logicalShapes[name] = logicalShape(st.shape)
-    }
-
-    private fun trackQuantInfo(
-        name: String,
-        rt: ReaderTensor,
-        quantTypes: MutableMap<String, GGMLQuantizationType>,
-        logicalShapes: MutableMap<String, Shape>
-    ) {
-        if (name == ApertusTensorNames.TOKEN_EMBEDDINGS) return
-        if (rt.tensorType == GGMLQuantizationType.F32) return
-        if (rt.tensorType == GGMLQuantizationType.F16) return
-        if (rt.tensorType == GGMLQuantizationType.BF16) return
-        quantTypes[name] = rt.tensorType
-        logicalShapes[name] = logicalShape(rt.shape)
-    }
-
-    // ============== Quantized (lazy-dequant) loading ==============
-
-    /**
-     * Tensor names that are always dequantized to FP32 (small or needed for lookup).
-     */
-    private fun alwaysFP32Names(metadata: ApertusModelMetadata): Set<String> {
-        val names = mutableSetOf<String>()
-        names += ApertusTensorNames.TOKEN_EMBEDDINGS
-        names += ApertusTensorNames.OUTPUT_NORM
-        names += ApertusTensorNames.ROPE_FREQS
-        repeat(metadata.blockCount) { layer ->
-            names += ApertusTensorNames.attnNorm(layer)
-            names += ApertusTensorNames.attnQNorm(layer)
-            names += ApertusTensorNames.attnKNorm(layer)
-            names += ApertusTensorNames.ffnNorm(layer)
-        }
-        return names
-    }
-
-    private fun loadQuantizedFromGguf(ctx: ExecutionContext): ApertusQuantizedWeights {
-        requireNotNull(sourceProvider) { "Sequential loading requires sourceProvider." }
-        val reader = sourceProvider.invoke().buffered().use { src ->
-            GGUFReader(src, loadTensorData = true)
-        }
-        val metadata = metadataFromGguf(reader.fields, reader.tensors)
-        validateMetadata(metadata)
-
-        val tensorByName = reader.tensors.associateBy { it.name }
-        val fp32 = linkedMapOf<String, Tensor<FP32, Float>>()
-        val quantized = linkedMapOf<String, QuantizedTensor>()
-        val xieluParams = mutableMapOf<Int, ApertusXIELUParams>()
-        val fp32Names = alwaysFP32Names(metadata)
-
-        requiredTensorNames(metadata).forEach { name ->
-            val rt = tensorByName[name] ?: error("Missing tensor: $name")
-            if (name in fp32Names) {
-                fp32[name] = readerTensorToFP32(ctx, reader, rt)
-            } else {
-                quantized[name] = readerTensorToQuantized(reader, rt)
-            }
-        }
-        // Optional rope_freqs
-        tensorByName[ApertusTensorNames.ROPE_FREQS]?.let { rt ->
-            fp32[ApertusTensorNames.ROPE_FREQS] = readerTensorToFP32(ctx, reader, rt)
-        }
-        extractXIELUParams(reader.fields, metadata.blockCount, xieluParams)
-        if (xieluParams.isEmpty()) {
-            extractXIELUParamsFromReader(reader, tensorByName, metadata.blockCount, xieluParams)
-        }
-        return ApertusQuantizedWeights(metadata, fp32, quantized, xieluParams)
-    }
-
-    private fun loadQuantizedFromStreamingGguf(ctx: ExecutionContext): ApertusQuantizedWeights {
-        requireNotNull(randomAccessProvider) { "Streaming loading requires randomAccessProvider." }
-        val source = randomAccessProvider.invoke()
-        return StreamingGGUFReader.open(source).use { reader ->
-            val metadata = metadataFromStreamingGguf(reader.fields, reader.tensors)
-            validateMetadata(metadata)
-
-            val tensorByName = reader.tensors.associateBy { it.name }
-            val fp32 = linkedMapOf<String, Tensor<FP32, Float>>()
-            val quantized = linkedMapOf<String, QuantizedTensor>()
-            val xieluParams = mutableMapOf<Int, ApertusXIELUParams>()
-            val fp32Names = alwaysFP32Names(metadata)
-
-            requiredTensorNames(metadata).forEach { name ->
-                val st = tensorByName[name] ?: error("Missing tensor: $name")
-                if (name in fp32Names) {
-                    fp32[name] = streamingTensorToFP32(ctx, reader, st)
-                } else {
-                    quantized[name] = streamingTensorToQuantized(reader, st)
-                }
-            }
-            tensorByName[ApertusTensorNames.ROPE_FREQS]?.let { st ->
-                fp32[ApertusTensorNames.ROPE_FREQS] = streamingTensorToFP32(ctx, reader, st)
-            }
-            extractXIELUParamsFromStreamingMeta(reader.fields, metadata.blockCount, xieluParams)
-            if (xieluParams.isEmpty()) {
-                extractXIELUParamsFromStreaming(reader, tensorByName, metadata.blockCount, xieluParams)
-            }
-            ApertusQuantizedWeights(metadata, fp32, quantized, xieluParams)
-        }
-    }
-
-    /** Dequant any GGUF tensor to FP32 (for small tensors like norms). */
+    /** Dequantize any GGUF tensor to a dense tensor of the requested dtype. */
     @Suppress("UNCHECKED_CAST")
-    private fun readerTensorToFP32(
+    private fun <T : DType, V> readerTensorToDense(
         ctx: ExecutionContext,
+        dtype: KClass<T>,
         reader: GGUFReader,
         rt: ReaderTensor
-    ): Tensor<FP32, Float> {
+    ): Tensor<T, V> {
         val shape = logicalShape(rt.shape)
         val raw = if (rt.data.isEmpty()) reader.materialize(rt) else rt.data
         val floats = when (rt.tensorType) {
@@ -416,42 +261,7 @@ public class ApertusWeightLoader private constructor(
                 DequantOps.dequantFromBytes(bytes, rt.tensorType, rt.nElements)
             }
         }
-        return createTensor(ctx, FP32::class, shape, floats)
-    }
-
-    /** Keep a tensor as raw quantized bytes for lazy dequantization. */
-    private fun readerTensorToQuantized(reader: GGUFReader, rt: ReaderTensor): QuantizedTensor {
-        val shape = logicalShape(rt.shape)
-        val raw = if (rt.data.isEmpty()) reader.materialize(rt) else rt.data
-        val bytes = DequantOps.toByteArray(raw, rt.name)
-        return QuantizedTensor(bytes, rt.tensorType, shape, rt.nElements)
-    }
-
-    /** Dequant a streaming tensor to FP32 (for small tensors). */
-    private fun streamingTensorToFP32(
-        ctx: ExecutionContext,
-        reader: StreamingGGUFReader,
-        st: StreamingTensorInfo
-    ): Tensor<FP32, Float> {
-        val shape = logicalShape(st.shape)
-        val bytes = reader.loadTensorData(st)
-        val floats = when (st.tensorType) {
-            GGMLQuantizationType.F32 -> DequantOps.bytesToFloatArray(bytes)
-            GGMLQuantizationType.F16 -> DequantOps.dequantF16FromBytes(bytes)
-            GGMLQuantizationType.BF16 -> DequantOps.dequantBF16FromBytes(bytes)
-            else -> DequantOps.dequantFromBytes(bytes, st.tensorType, st.nElements.toInt())
-        }
-        return createTensor(ctx, FP32::class, shape, floats)
-    }
-
-    /** Keep a streaming tensor as raw quantized bytes for lazy dequantization. */
-    private fun streamingTensorToQuantized(
-        reader: StreamingGGUFReader,
-        st: StreamingTensorInfo
-    ): QuantizedTensor {
-        val shape = logicalShape(st.shape)
-        val bytes = reader.loadTensorData(st)
-        return QuantizedTensor(bytes, st.tensorType, shape, st.nElements.toInt())
+        return createTensor(ctx, dtype, shape, floats)
     }
 
     // ============== xIELU parameter extraction ==============
@@ -663,246 +473,12 @@ public class ApertusWeightLoader private constructor(
         )
     }
 
-    private fun validateMetadata(metadata: ApertusModelMetadata) {
-        require(metadata.embeddingLength > 0) { "Invalid embedding length ${metadata.embeddingLength}" }
-        require(metadata.blockCount > 0) { "Invalid block count ${metadata.blockCount}" }
-        require(metadata.headCount > 0) { "Invalid head count ${metadata.headCount}" }
-        require(metadata.contextLength > 0) { "Invalid context length ${metadata.contextLength}" }
-        require(metadata.vocabSize > 0) { "Invalid vocab size ${metadata.vocabSize}" }
-    }
-
-    private fun requiredTensorNames(metadata: ApertusModelMetadata): List<String> {
-        val names = mutableListOf<String>()
-        names += ApertusTensorNames.TOKEN_EMBEDDINGS
-        names += ApertusTensorNames.OUTPUT_NORM
-        names += ApertusTensorNames.OUTPUT_WEIGHT
-
-        repeat(metadata.blockCount) { layer ->
-            names += ApertusTensorNames.attnNorm(layer)
-            names += ApertusTensorNames.attnQ(layer)
-            names += ApertusTensorNames.attnK(layer)
-            names += ApertusTensorNames.attnV(layer)
-            names += ApertusTensorNames.attnOut(layer)
-            names += ApertusTensorNames.attnQNorm(layer)
-            names += ApertusTensorNames.attnKNorm(layer)
-            names += ApertusTensorNames.ffnNorm(layer)
-            names += ApertusTensorNames.ffnDown(layer)
-            names += ApertusTensorNames.ffnUp(layer)
-        }
-        return names
-    }
-
-    // ============== Tensor conversion ==============
-
-    /**
-     * NATIVE_OPTIMIZED stores quantized tensors as byte-level rank-1 buffers so the
-     * native FFM kernels can address the raw block layout directly. That works for
-     * matmul (the kernel knows the logical shape from metadata) but breaks the
-     * token embedding, where `Embedding.gather()` requires the logical rank-2
-     * `[vocab, dim]` shape. Force `token_embd.weight` through the dequant path so
-     * the embedding lookup gets a real `[vocab, dim]` FP32/FP16 tensor regardless
-     * of the policy chosen for the rest of the model.
-     */
-    private fun <T : DType, V> loadStreamingTensor(
-        ctx: ExecutionContext,
-        dtype: KClass<T>,
-        reader: StreamingGGUFReader,
-        st: StreamingTensorInfo,
-        name: String
-    ): Tensor<T, V> {
-        if (name == ApertusTensorNames.TOKEN_EMBEDDINGS &&
-            quantPolicy == QuantPolicy.NATIVE_OPTIMIZED &&
-            st.tensorType != GGMLQuantizationType.F32 &&
-            st.tensorType != GGMLQuantizationType.F16 &&
-            st.tensorType != GGMLQuantizationType.BF16
-        ) {
-            val shape = logicalShape(st.shape)
-            val bytes = reader.loadTensorData(st)
-            val floats = DequantOps.dequantFromBytes(bytes, st.tensorType, st.nElements.toInt())
-            return createTensor(ctx, dtype, shape, floats)
-        }
-        return streamingTensorToTensor(ctx, dtype, reader, st)
-    }
-
-    private fun <T : DType, V> loadReaderTensor(
-        ctx: ExecutionContext,
-        dtype: KClass<T>,
-        reader: GGUFReader,
-        rt: ReaderTensor,
-        name: String
-    ): Tensor<T, V> {
-        if (name == ApertusTensorNames.TOKEN_EMBEDDINGS &&
-            quantPolicy == QuantPolicy.NATIVE_OPTIMIZED &&
-            rt.tensorType != GGMLQuantizationType.F32 &&
-            rt.tensorType != GGMLQuantizationType.F16 &&
-            rt.tensorType != GGMLQuantizationType.BF16
-        ) {
-            val shape = logicalShape(rt.shape)
-            val raw = if (rt.data.isEmpty()) reader.materialize(rt) else rt.data
-            val bytes: ByteArray = DequantOps.toByteArray(raw, rt.name)
-            val floats = DequantOps.dequantFromBytes(bytes, rt.tensorType, rt.nElements)
-            return createTensor(ctx, dtype, shape, floats)
-        }
-        return readerTensorToTensor(ctx, dtype, reader, rt)
-    }
-
-    @Suppress("UNCHECKED_CAST")
-    private fun <T : DType, V> readerTensorToTensor(
-        ctx: ExecutionContext,
-        dtype: KClass<T>,
-        reader: GGUFReader,
-        rt: ReaderTensor
-    ): Tensor<T, V> {
-        val shape = logicalShape(rt.shape)
-        return when (rt.tensorType) {
-            GGMLQuantizationType.F32 -> {
-                val floats = (if (rt.data.isEmpty()) reader.materialize(rt) else rt.data) as List<Float>
-                createTensor(ctx, dtype, shape, floats.toFloatArray())
-            }
-
-            GGMLQuantizationType.F16,
-            GGMLQuantizationType.BF16 -> {
-                when (quantPolicy) {
-                    QuantPolicy.RAW_BYTES -> {
-                        require(dtype == Int8::class) {
-                            "F16/BF16 tensor ${rt.name} requires dtype Int8 with quantPolicy=RAW_BYTES"
-                        }
-                        val raw = if (rt.data.isEmpty()) reader.materialize(rt) else rt.data
-                        val bytes: ByteArray = DequantOps.toByteArray(raw, rt.name)
-                        ctx.fromByteArray<Int8, Byte>(shape, Int8::class, bytes) as Tensor<T, V>
-                    }
-                    QuantPolicy.DEQUANTIZE_TO_FP32,
-                    QuantPolicy.NATIVE_OPTIMIZED -> {
-                        val raw = if (rt.data.isEmpty()) reader.materialize(rt) else rt.data
-                        val floats = when (rt.tensorType) {
-                            GGMLQuantizationType.F16 -> DequantOps.dequantF16(raw)
-                            GGMLQuantizationType.BF16 -> DequantOps.dequantBF16(raw)
-                            else -> error("Unreachable")
-                        }
-                        createTensor(ctx, dtype, shape, floats)
-                    }
-                }
-            }
-
-            GGMLQuantizationType.Q4_0, GGMLQuantizationType.Q4_1,
-            GGMLQuantizationType.Q5_0, GGMLQuantizationType.Q5_1,
-            GGMLQuantizationType.Q8_0, GGMLQuantizationType.Q8_1,
-            GGMLQuantizationType.Q2_K, GGMLQuantizationType.Q3_K,
-            GGMLQuantizationType.Q4_K, GGMLQuantizationType.Q5_K,
-            GGMLQuantizationType.Q6_K, GGMLQuantizationType.Q8_K,
-            GGMLQuantizationType.IQ4_NL, GGMLQuantizationType.IQ4_XS,
-            GGMLQuantizationType.TQ1_0, GGMLQuantizationType.TQ2_0 -> {
-                when (quantPolicy) {
-                    QuantPolicy.RAW_BYTES, QuantPolicy.NATIVE_OPTIMIZED -> {
-                        val raw = if (rt.data.isEmpty()) reader.materialize(rt) else rt.data
-                        val bytes: ByteArray = DequantOps.toByteArray(raw, rt.name)
-                        ctx.fromByteArray<Int8, Byte>(shape, Int8::class, bytes) as Tensor<T, V>
-                    }
-                    QuantPolicy.DEQUANTIZE_TO_FP32 -> {
-                        val raw = if (rt.data.isEmpty()) reader.materialize(rt) else rt.data
-                        val bytes: ByteArray = DequantOps.toByteArray(raw, rt.name)
-                        val floats = DequantOps.dequantFromBytes(bytes, rt.tensorType, rt.nElements)
-                        createTensor(ctx, dtype, shape, floats)
-                    }
-                }
-            }
-
-            else -> {
-                println("WARNING: Unhandled tensor type ${rt.tensorType} for '${rt.name}'. Storing as raw bytes.")
-                val raw = if (rt.data.isEmpty()) reader.materialize(rt) else rt.data
-                val bytes: ByteArray = DequantOps.toByteArray(raw, rt.name)
-                ctx.fromByteArray<Int8, Byte>(shape, Int8::class, bytes) as Tensor<T, V>
-            }
-        }
-    }
-
-    @Suppress("UNCHECKED_CAST")
-    internal fun <T : DType, V> streamingTensorToTensor(
-        ctx: ExecutionContext,
-        dtype: KClass<T>,
-        reader: StreamingGGUFReader,
-        st: StreamingTensorInfo
-    ): Tensor<T, V> {
-        val shape = logicalShape(st.shape)
-        val bytes = reader.loadTensorData(st)
-
-        return when (st.tensorType) {
-            GGMLQuantizationType.F32 -> {
-                val floats = DequantOps.bytesToFloatArray(bytes)
-                createTensor(ctx, dtype, shape, floats)
-            }
-
-            GGMLQuantizationType.F16,
-            GGMLQuantizationType.BF16 -> {
-                when (quantPolicy) {
-                    QuantPolicy.RAW_BYTES -> {
-                        require(dtype == Int8::class) {
-                            "F16/BF16 tensor ${st.name} requires dtype Int8 with quantPolicy=RAW_BYTES"
-                        }
-                        ctx.fromByteArray<Int8, Byte>(shape, Int8::class, bytes) as Tensor<T, V>
-                    }
-                    QuantPolicy.DEQUANTIZE_TO_FP32,
-                    QuantPolicy.NATIVE_OPTIMIZED -> {
-                        val floats = when (st.tensorType) {
-                            GGMLQuantizationType.F16 -> DequantOps.dequantF16FromBytes(bytes)
-                            GGMLQuantizationType.BF16 -> DequantOps.dequantBF16FromBytes(bytes)
-                            else -> error("Unreachable")
-                        }
-                        createTensor(ctx, dtype, shape, floats)
-                    }
-                }
-            }
-
-            GGMLQuantizationType.Q4_0, GGMLQuantizationType.Q4_1,
-            GGMLQuantizationType.Q5_0, GGMLQuantizationType.Q5_1,
-            GGMLQuantizationType.Q8_0, GGMLQuantizationType.Q8_1,
-            GGMLQuantizationType.Q2_K, GGMLQuantizationType.Q3_K,
-            GGMLQuantizationType.Q4_K, GGMLQuantizationType.Q5_K,
-            GGMLQuantizationType.Q6_K, GGMLQuantizationType.Q8_K,
-            GGMLQuantizationType.IQ4_NL, GGMLQuantizationType.IQ4_XS,
-            GGMLQuantizationType.TQ1_0, GGMLQuantizationType.TQ2_0 -> {
-                when (quantPolicy) {
-                    QuantPolicy.RAW_BYTES -> {
-                        require(dtype == Int8::class) {
-                            "Quantized tensor ${st.name} requires dtype Int8 with quantPolicy=RAW_BYTES"
-                        }
-                        ctx.fromByteArray<Int8, Byte>(shape, Int8::class, bytes) as Tensor<T, V>
-                    }
-                    QuantPolicy.NATIVE_OPTIMIZED -> {
-                        // Store raw quantized bytes; dtype can be FP32 (mixed mode).
-                        // Streaming reader preserves logical shape, so use byte-level shape.
-                        val byteShape = Shape(bytes.size)
-                        @Suppress("UNCHECKED_CAST")
-                        ctx.fromByteArray<Int8, Byte>(byteShape, Int8::class, bytes) as Tensor<T, V>
-                    }
-                    QuantPolicy.DEQUANTIZE_TO_FP32 -> {
-                        val floats = DequantOps.dequantFromBytes(bytes, st.tensorType, st.nElements.toInt())
-                        createTensor(ctx, dtype, shape, floats)
-                    }
-                }
-            }
-
-            else -> {
-                println("WARNING: Unhandled tensor type ${st.tensorType} for '${st.name}'. Storing as raw bytes.")
-                ctx.fromByteArray<Int8, Byte>(shape, Int8::class, bytes) as Tensor<T, V>
-            }
-        }
-    }
-
     /**
      * Create a tensor from dequantized float data.
      *
      * Builds a `Tensor<T, V>` from the dequantized FP32 floats. The caller is
      * expected to have already converted the GGUF dim list to the logical
      * PyTorch `[out, in]` shape via [logicalShape] — no transpose happens here.
-     *
-     * Earlier revisions of this method transposed the 2D data on the
-     * assumption that the loader passed it the raw GGUF `[in, out]` shape
-     * (treated as column-major). That pre-dated the fix to reverse shapes in
-     * the loader; the transpose here was actively scrambling tensor data on
-     * top of an already-reversed layout, but unit tests never caught it
-     * because they construct weights via [ApertusNetworkLoader.fromWeights]
-     * with synthetic FP32 tensors, bypassing this path entirely.
      */
     @Suppress("UNCHECKED_CAST")
     private fun <T : DType, V> createTensor(
@@ -1056,25 +632,17 @@ public class ApertusWeightLoader private constructor(
 public suspend fun <T : DType> loadApertusRuntimeWeights(
     ctx: ExecutionContext,
     sourceProvider: () -> Source,
-    dtype: KClass<T>,
-    quantPolicy: QuantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
-    preTransposed: Boolean = false
+    dtype: KClass<T>
 ): ApertusRuntimeWeights<T> {
-    val loader = ApertusWeightLoader.fromSource(
-        sourceProvider = sourceProvider,
-        quantPolicy = quantPolicy,
-        preTransposed = preTransposed
-    )
+    val loader = ApertusWeightLoader.fromSource(sourceProvider)
     val loaded = loader.loadToMap<T, Float>(ctx, dtype)
     return ApertusWeightMapper.map(loaded)
 }
 
 public suspend fun loadApertusRuntimeWeights(
     ctx: ExecutionContext,
-    sourceProvider: () -> Source,
-    quantPolicy: QuantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
-    preTransposed: Boolean = false
-): ApertusRuntimeWeights<FP32> = loadApertusRuntimeWeights(ctx, sourceProvider, FP32::class, quantPolicy, preTransposed)
+    sourceProvider: () -> Source
+): ApertusRuntimeWeights<FP32> = loadApertusRuntimeWeights(ctx, sourceProvider, FP32::class)
 
 /**
  * Load Apertus runtime weights from a GGUF source (streaming, for large files).
@@ -1082,51 +650,14 @@ public suspend fun loadApertusRuntimeWeights(
 public suspend fun <T : DType> loadApertusRuntimeWeightsStreaming(
     ctx: ExecutionContext,
     randomAccessProvider: () -> RandomAccessSource,
-    dtype: KClass<T>,
-    quantPolicy: QuantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
-    preTransposed: Boolean = false
+    dtype: KClass<T>
 ): ApertusRuntimeWeights<T> {
-    val loader = ApertusWeightLoader.fromRandomAccess(
-        randomAccessProvider = randomAccessProvider,
-        quantPolicy = quantPolicy,
-        preTransposed = preTransposed
-    )
+    val loader = ApertusWeightLoader.fromRandomAccess(randomAccessProvider)
     val loaded = loader.loadToMap<T, Float>(ctx, dtype)
     return ApertusWeightMapper.map(loaded)
 }
 
 public suspend fun loadApertusRuntimeWeightsStreaming(
     ctx: ExecutionContext,
-    randomAccessProvider: () -> RandomAccessSource,
-    quantPolicy: QuantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
-    preTransposed: Boolean = false
-): ApertusRuntimeWeights<FP32> = loadApertusRuntimeWeightsStreaming(ctx, randomAccessProvider, FP32::class, quantPolicy, preTransposed)
-
-// ============== Quantized (lazy-dequant) convenience loaders ==============
-
-/**
- * Load Apertus weights for lazy dequantization from a GGUF source (sequential).
- *
- * Small tensors (norms, embeddings) are dequantized to FP32.
- * Large projection matrices stay quantized and are dequantized per-layer at runtime.
- */
-public suspend fun loadApertusQuantizedWeights(
-    ctx: ExecutionContext,
-    sourceProvider: () -> Source
-): ApertusQuantizedRuntimeWeights {
-    val loader = ApertusWeightLoader.fromSource(sourceProvider = sourceProvider)
-    val loaded = loader.loadQuantized(ctx)
-    return ApertusQuantizedWeightMapper.map(loaded)
-}
-
-/**
- * Load Apertus weights for lazy dequantization from a GGUF source (streaming).
- */
-public suspend fun loadApertusQuantizedWeightsStreaming(
-    ctx: ExecutionContext,
     randomAccessProvider: () -> RandomAccessSource
-): ApertusQuantizedRuntimeWeights {
-    val loader = ApertusWeightLoader.fromRandomAccess(randomAccessProvider = randomAccessProvider)
-    val loaded = loader.loadQuantized(ctx)
-    return ApertusQuantizedWeightMapper.map(loaded)
-}
+): ApertusRuntimeWeights<FP32> = loadApertusRuntimeWeightsStreaming(ctx, randomAccessProvider, FP32::class)

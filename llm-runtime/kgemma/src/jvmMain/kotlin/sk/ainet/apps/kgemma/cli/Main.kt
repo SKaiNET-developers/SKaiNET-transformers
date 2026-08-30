@@ -4,8 +4,6 @@ import sk.ainet.apps.kgemma.Gemma3nIngestion
 import sk.ainet.apps.kgemma.Gemma3nLoadConfig
 import sk.ainet.apps.kgemma.Gemma4Ingestion
 import sk.ainet.apps.kgemma.Gemma4LoadConfig
-import sk.ainet.apps.kgemma.loadDslRuntimeNative
-import sk.ainet.apps.kgemma.loadDslRuntimeNativeStreaming
 import sk.ainet.apps.kllama.GGUFTokenizer
 import sk.ainet.apps.kllama.chat.ChatSession
 import sk.ainet.apps.kllama.chat.ModelMetadata
@@ -14,10 +12,8 @@ import sk.ainet.apps.llm.Tokenizer
 import sk.ainet.apps.llm.generate
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
-import sk.ainet.io.model.QuantPolicy
 import sk.ainet.lang.tensor.data.MemorySegmentTensorDataFactory
 import sk.ainet.lang.types.FP32
-import java.lang.foreign.Arena
 import java.nio.file.Path
 import kotlinx.coroutines.runBlocking
 import kotlin.io.path.exists
@@ -174,12 +170,8 @@ fun main(args: Array<String>) {
 
         val memSegFactory = MemorySegmentTensorDataFactory()
         val ctx = DirectCpuExecutionContext(tensorDataFactory = memSegFactory)
-        // Arena owns all Q4/Q8 MemorySegment tensor buffers produced by the
-        // DSL+NATIVE_OPTIMIZED path. Closed on JVM exit alongside the factory.
-        val quantArena = Arena.ofShared()
 
         Runtime.getRuntime().addShutdownHook(Thread {
-            quantArena.close()
             memSegFactory.close()
         })
 
@@ -191,20 +183,14 @@ fun main(args: Array<String>) {
                 val ingestion = Gemma4Ingestion<FP32>(
                     ctx = ctx,
                     dtype = FP32::class,
-                    config = Gemma4LoadConfig(
-                        quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
-                        allowQuantized = true
-                    )
+                    config = Gemma4LoadConfig()
                 )
-                val runtimeLabel = "gemmaNetwork() + OptimizedLLMRuntime (DSL, NATIVE_OPTIMIZED Q4_0/Q8_0 + dequant K-series)"
+                val runtimeLabel = "gemmaNetwork() + OptimizedLLMRuntime (DSL, engine loader, keep-packed)"
                 when (format) {
                     ModelFormat.GGUF -> {
                         println("Loading Gemma 4 GGUF model from $modelPath via $runtimeLabel (streaming)...")
-                        ingestion.loadDslRuntimeNativeStreaming(
-                            randomAccessProvider = { JvmRandomAccessSource.open(modelPath.toString()) },
-                            ctx = ctx,
-                            dtype = FP32::class,
-                            arena = quantArena
+                        ingestion.loadDslRuntimeStreaming(
+                            randomAccessProvider = { JvmRandomAccessSource.open(modelPath.toString()) }
                         )
                     }
                     ModelFormat.SAFETENSORS -> {
@@ -221,10 +207,7 @@ fun main(args: Array<String>) {
                 val ingestion = Gemma3nIngestion<FP32>(
                     ctx = ctx,
                     dtype = FP32::class,
-                    config = Gemma3nLoadConfig(
-                        quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
-                        allowQuantized = true
-                    )
+                    config = Gemma3nLoadConfig()
                 )
                 when (format) {
                     ModelFormat.GGUF -> {

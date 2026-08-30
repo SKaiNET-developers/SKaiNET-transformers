@@ -5,7 +5,6 @@ import kotlinx.coroutines.runBlocking
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.context.ExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
-import sk.ainet.io.model.QuantPolicy
 import sk.ainet.lang.nn.Module
 import sk.ainet.lang.nn.transformer.MultiHeadAttention
 import sk.ainet.lang.types.FP32
@@ -28,7 +27,7 @@ class RealGemmaEagerAbTest {
         val ctx = DirectCpuExecutionContext.create()
         val weights = Gemma4WeightLoader(
             randomAccessProvider = { JvmRandomAccessSource.open(path) },
-            quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
+            weightForm = GEMMA_DEQUANTIZE_ALL,
         ).loadToMapStreaming<FP32, Float>(ctx, FP32::class)
         val partial = (System.getProperty("partialRotary") ?: "1.0").toFloat()
         val patched = weights.copy(

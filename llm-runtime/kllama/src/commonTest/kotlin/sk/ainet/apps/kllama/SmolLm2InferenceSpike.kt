@@ -10,7 +10,7 @@ import sk.ainet.apps.llm.generate
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.RandomAccessSource
 import sk.ainet.io.gguf.createRandomAccessSource
-import sk.ainet.io.model.QuantPolicy
+import sk.ainet.models.llama.DECODER_DEQUANTIZE_ALL
 import sk.ainet.lang.types.FP32
 import sk.ainet.models.llama.LlamaNetworkLoader
 import kotlin.test.Test
@@ -33,8 +33,8 @@ expect fun readEnv(name: String): String?
  *
  * Uses the DSL path — `LlamaNetworkLoader.fromGguf(...).load()` +
  * `OptimizedLLMRuntime(DIRECT)` — which is the only Llama loader that honors
- * `QuantPolicy.NATIVE_OPTIMIZED` (packed weights via `convertLlamaWeightsPacked`,
- * commonMain since engine 0.32.0). The tokenizer is read from the GGUF's own
+ * the engine loader's keep-packed default (packed block
+ * tensor data since engine 0.49.0). The tokenizer is read from the GGUF's own
  * metadata (`GGUFTokenizer.fromSource`), so only the model path is needed.
  *
  * Gated: skips cleanly unless `SMOLLM2_MODEL` points at an existing `.gguf`.
@@ -64,9 +64,11 @@ class SmolLm2InferenceSpike {
             println("[skip] SMOLLM2_MODEL=$modelPath is not an existing .gguf — skipping.")
             return@runTest
         }
-        val quant = when (readEnv("SMOLLM2_QUANT")?.trim()?.lowercase()) {
-            "dequant" -> QuantPolicy.DEQUANTIZE_TO_FP32
-            else -> QuantPolicy.NATIVE_OPTIMIZED
+        // "native" (default) keeps quantized tensors packed via the engine loader;
+        // "dequant" requests dense FP32.
+        val quantForm = when (readEnv("SMOLLM2_QUANT")?.trim()?.lowercase()) {
+            "dequant" -> DECODER_DEQUANTIZE_ALL
+            else -> null
         }
         val steps = readEnv("SMOLLM2_STEPS")?.trim()?.toIntOrNull() ?: 44
 
@@ -91,7 +93,7 @@ class SmolLm2InferenceSpike {
                 ?: error("createRandomAccessSource returned null for $modelPath on this platform")
         }
         val (model, loadElapsed) = measureTimedValue {
-            LlamaNetworkLoader.fromGguf(racProvider, quant).load<FP32, Float>(ctx)
+            LlamaNetworkLoader.fromGguf(racProvider, weightForm = quantForm).load<FP32, Float>(ctx)
         }
         val runtime = OptimizedLLMRuntime(
             model = model,
@@ -116,7 +118,7 @@ class SmolLm2InferenceSpike {
         } else {
             Double.POSITIVE_INFINITY
         }
-        println("=== SmolLM2-135M inference spike (${quant.name}) ===")
+        println("=== SmolLM2-135M inference spike (${if (quantForm == null) "keep-packed" else "dequant"}) ===")
         println("load: ${loadElapsed.inWholeMilliseconds} ms")
         println("decode: $generated tokens in ${decodeElapsed.inWholeMilliseconds} ms")
         println("tok/s: ${(tokPerSec * 100).toLong() / 100.0}")

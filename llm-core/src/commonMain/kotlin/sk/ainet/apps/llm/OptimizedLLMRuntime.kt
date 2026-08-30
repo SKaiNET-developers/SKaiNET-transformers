@@ -50,8 +50,28 @@ public class OptimizedLLMRuntime<T : DType>(
     private val mode: OptimizedLLMMode = OptimizedLLMMode.DIRECT,
     private val dtype: KClass<T>,
     public val bos: Int = 1,
-    private val random: Random = Random.Default
+    private val random: Random = Random.Default,
+    /**
+     * Slab size (floats) for the per-step [sk.ainet.lang.memory.ForwardScope]
+     * on the DIRECT path (#343). Steady-state decode bump-allocates its
+     * activations from this slab and recycles them every step — zero new
+     * heap bytes per token once warm. A step that outgrows the slab
+     * overflows to tracked heap storage (freed at the step boundary and
+     * counted in `ForwardScope.overflowBytes`), so undersizing is a
+     * performance report, never an error. `0` disables the scope entirely.
+     */
+    private val forwardSlabFloats: Int = DEFAULT_FORWARD_SLAB_FLOATS,
 ) : InferenceRuntime<T> {
+
+    public companion object {
+        /**
+         * 8M floats (32 MB): comfortably holds a decode step of every model
+         * this repo ships (activations scale with embedding/FFN width plus
+         * one vocab-sized logits row) and a 256-token prefill chunk of the
+         * small ones; larger prefill chunks overflow gracefully.
+         */
+        public const val DEFAULT_FORWARD_SLAB_FLOATS: Int = 8 * 1024 * 1024
+    }
 
     public val dim: Int get() = modelDim
     public val vocabSize: Int get() = modelVocabSize
@@ -84,6 +104,45 @@ public class OptimizedLLMRuntime<T : DType>(
         modelNLayers = info.nLayers
     }
 
+    // ---- Forward scope (#343): per-step activation slab on the DIRECT path ----
+
+    @OptIn(sk.ainet.lang.memory.ExperimentalMemoryApi::class)
+    private var stepScope: sk.ainet.lang.memory.ForwardScope? = null
+
+    @OptIn(sk.ainet.lang.memory.ExperimentalMemoryApi::class)
+    private var stepScopeCtx: ExecutionContext? = null
+
+    /**
+     * The scope's counters (`peakFloats`, `overflowBytes`, `steps`) for
+     * plan-vs-actual checks and tests; `null` until the first DIRECT
+     * forward, or when the scope is disabled / the mode never uses it.
+     */
+    @sk.ainet.lang.memory.ExperimentalMemoryApi
+    public val forwardScopeMetrics: sk.ainet.lang.memory.ForwardScope? get() = stepScope
+
+    /**
+     * The context a DIRECT forward step runs in. First call arms the scope;
+     * every later call `reset()`s it — invalidating the PREVIOUS step's
+     * activations, including its logits tensor. The reset sits at the entry
+     * of the next forward, which for every generation loop is strictly
+     * after `sampleFromLogits` consumed those logits; a caller holding a
+     * logits tensor across forwards fails loudly (`StorageClosedException`),
+     * never silently. KV-cache state is untouched: the cache copies into
+     * its own model-lifetime rings, and only step-scoped views die here.
+     */
+    @OptIn(sk.ainet.lang.memory.ExperimentalMemoryApi::class)
+    private fun stepCtx(): ExecutionContext {
+        if (mode != OptimizedLLMMode.DIRECT || forwardSlabFloats <= 0) return ctx
+        val scope = stepScope
+        if (scope != null) {
+            scope.reset()
+            return stepScopeCtx!!
+        }
+        val s = sk.ainet.lang.memory.ForwardScope(forwardSlabFloats, ctx.traceSink)
+        stepScope = s
+        return sk.ainet.context.ScopedExecutionContext(ctx, s).also { stepScopeCtx = it }
+    }
+
     // ---- InferenceRuntime implementation ----
 
     /**
@@ -100,8 +159,10 @@ public class OptimizedLLMRuntime<T : DType>(
                 // HYBRID uses the same model.forward() path as DIRECT, but
                 // HybridTransformerBlock instances internally dispatch to
                 // compiled subgraphs for compute-heavy operations.
+                // DIRECT runs inside the per-step forward scope (#343):
+                // stepCtx() recycles the previous step's activations first.
                 val input = createTokenTensor(tokenId)
-                model.forward(input, ctx)
+                model.forward(input, stepCtx())
             }
             OptimizedLLMMode.OPTIMIZED -> {
                 executeOptimized(tokenId)
@@ -143,21 +204,24 @@ public class OptimizedLLMRuntime<T : DType>(
         val shape = Shape(intArrayOf(tokenIds.size))
         val data = DenseFloatArrayTensorData<T>(shape, FloatArray(tokenIds.size) { tokenIds[it].toFloat() })
         val input: Tensor<T, Float> = VoidOpsTensor(data = data, dtype = dtype)
-        val full = model.forward(input, ctx)
+        val fctx = stepCtx()
+        val full = model.forward(input, fctx)
         position += tokenIds.size
 
         // Slice the last row [N-1, :] → [vocab]. Match the single-token
         // contract so callers don't need to know whether they got a
         // batched vs single-step result.
         val n = tokenIds.size
-        val lastRow = ctx.ops.narrow(full, 0, n - 1, 1)
+        val lastRow = fctx.ops.narrow(full, 0, n - 1, 1)
         return lastRow
     }
 
-    /** Reset to initial state (clear KV caches, rewind position to 0). */
+    /** Reset to initial state (clear KV caches, rewind position to 0, recycle the step slab). */
+    @OptIn(sk.ainet.lang.memory.ExperimentalMemoryApi::class)
     override fun reset() {
         resetModuleState(model)
         position = 0
+        stepScope?.reset()
     }
 
     // ---- Convenience generation ----

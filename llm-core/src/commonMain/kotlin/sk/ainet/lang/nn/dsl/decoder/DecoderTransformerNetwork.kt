@@ -10,6 +10,7 @@ import sk.ainet.lang.nn.dsl.multiHeadAttention
 import sk.ainet.lang.nn.dsl.residual
 import sk.ainet.lang.nn.dsl.rmsNorm
 import sk.ainet.lang.nn.dsl.sequential
+import sk.ainet.lang.nn.dsl.bitNetFFN
 import sk.ainet.lang.nn.dsl.swiGluFFN
 import sk.ainet.lang.nn.transformer.RoPEMode
 import sk.ainet.lang.nn.transformer.VoidDense
@@ -55,14 +56,31 @@ import sk.ainet.lang.types.DTypePolicy
  *   compile step is taught to consume per-module dtype metadata. Default
  *   [DTypePolicy.Any] preserves the current adaptive behaviour.
  */
+/**
+ * Which FFN variant a decoder block uses — the `ffnKind` parameter this builder's KDoc
+ * promised for the first non-SwiGLU model. BitNet b1.58 is that model.
+ */
+public enum class DecoderFfnKind {
+    /** `down(silu(gate(x)) * up(x))` — Llama / Qwen / Mistral / Gemma. */
+    SWIGLU,
+
+    /** `down(subNorm(relu(gate(x))² * up(x)))` — BitNet b1.58 (squared ReLU + `ffn_sub_norm`). */
+    RELU2_SUBLN,
+}
+
 public inline fun <reified T : DType, V> decoderTransformerNetwork(
     metadata: DecoderModelMetadata,
     ropeBase: Float = metadata.ropeFreqBase,
     eps: Float = metadata.rmsNormEps,
     qkNorm: Boolean = false,
     qkNormUnitOffset: Boolean = false,
+    /** Q/K/V/O projection biases — real tensors in Qwen2/Qwen2.5 GGUFs (absent in LLaMA/Qwen3). */
+    attnBias: Boolean = false,
     ropeMode: RoPEMode = RoPEMode.INTERLEAVED,
     maxInferenceLen: Int = minOf(metadata.contextLength, 4096),
+    ffnKind: DecoderFfnKind = DecoderFfnKind.SWIGLU,
+    /** BitNet-style `attn_sub_norm` between the attention output and o_proj. */
+    attnSubNorm: Boolean = false,
     @Suppress("UNUSED_PARAMETER") dtypePolicy: DTypePolicy = DTypePolicy.Any,
 ): Module<T, V> {
     val dim = metadata.embeddingLength
@@ -90,6 +108,9 @@ public inline fun <reified T : DType, V> decoderTransformerNetwork(
                 qkNorm = qkNorm,
                 qkNormUnitOffset = qkNormUnitOffset,
                 qkNormEps = eps,
+                bias = attnBias,
+                attnSubNorm = attnSubNorm,
+                attnSubNormEps = eps,
                 id = "attn",
             ) {
                 rope(headDim, seqLen, mode = ropeMode, base = ropeBase)
@@ -98,7 +119,10 @@ public inline fun <reified T : DType, V> decoderTransformerNetwork(
             stage.residual()
 
             stage.rmsNorm(dim, eps, id = "ffn_norm")
-            stage.swiGluFFN(dim, ffnDim, id = "ffn")
+            when (ffnKind) {
+                DecoderFfnKind.SWIGLU -> stage.swiGluFFN(dim, ffnDim, id = "ffn")
+                DecoderFfnKind.RELU2_SUBLN -> stage.bitNetFFN(dim, ffnDim, subNormEps = eps, id = "ffn")
+            }
             stage.residual()
 
             dslImpl.modules += HybridTransformerBlock(stage.modules.toList(), name = "blk.$layer")

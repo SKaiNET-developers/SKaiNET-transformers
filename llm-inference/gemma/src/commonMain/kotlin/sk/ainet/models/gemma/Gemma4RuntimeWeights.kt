@@ -3,8 +3,8 @@ package sk.ainet.models.gemma
 import kotlinx.io.Source
 import sk.ainet.context.ExecutionContext
 import sk.ainet.io.RandomAccessSource
-import sk.ainet.io.gguf.GGMLQuantizationType
-import sk.ainet.io.model.QuantPolicy
+import sk.ainet.lang.memory.ExperimentalMemoryApi
+import sk.ainet.lang.memory.plan.WeightForm
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.types.DType
@@ -47,7 +47,6 @@ public data class Gemma4RuntimeWeights<T : DType>(
     val layers: List<Gemma4LayerWeights<T>>,
     val finalNorm: Tensor<T, Float>,
     val lmHead: Tensor<T, Float>,
-    val quantTypes: Map<String, GGMLQuantizationType> = emptyMap(),
     /** Per-layer token embedding [perLayerDim * blockCount, vocabSize] (optional PLE) */
     val perLayerTokenEmbedding: Tensor<T, Float>? = null,
     /** Per-layer model projection [hiddenSize, perLayerDim * blockCount] (optional PLE) */
@@ -58,24 +57,14 @@ public data class Gemma4RuntimeWeights<T : DType>(
 
 /**
  * Raw weights loaded from GGUF, before mapping to runtime structure.
+ *
+ * Every tensor carries its true logical shape — quantized weights arrive
+ * from the engine loader as packed block tensor data with `[out, in]`
+ * shapes, dense tensors as plain FP32.
  */
 public data class Gemma4Weights<T : DType, V>(
     val metadata: Gemma4ModelMetadata,
-    val tensors: Map<String, Tensor<T, V>>,
-    val quantTypes: Map<String, GGMLQuantizationType> = emptyMap(),
-    /**
-     * Original 2-D logical shape of each tensor as reported by GGUF.
-     *
-     * Populated by the loader for `NATIVE_OPTIMIZED` quant policy, where
-     * quantized tensors are stored with a 1-D byte shape (the packed
-     * representation doesn't satisfy `byte_count == logical_volume`).
-     * Downstream converters (e.g. `GemmaMemSegConverter`) need the real
-     * `[rows, cols]` shape to build packed tensor-data variants, since
-     * model metadata alone is unreliable for Gemma 4 — `feed_forward_length`
-     * is a single scalar while real FFN widths vary across layers
-     * (E2B: 6144 for blk.0–14, 12288 for blk.15+).
-     */
-    val logicalShapes: Map<String, sk.ainet.lang.tensor.Shape> = emptyMap()
+    val tensors: Map<String, Tensor<T, V>>
 )
 
 /**
@@ -129,10 +118,9 @@ public object Gemma4WeightMapper {
 
         fun getOptional(name: String): Tensor<T, Float>? = weights.tensors[name]
 
-        fun isQuant(name: String): Boolean = weights.quantTypes[name] != null
-
+        // Shape checks run for every tensor: packed engine-loader tensors
+        // carry their true logical [out, in] shapes, same as dense ones.
         fun Tensor<*, *>.requireShape(expected: Shape, label: String, tensorName: String) {
-            if (isQuant(tensorName)) return
             if (shape != expected) {
                 error("$label expected shape $expected but was $shape")
             }
@@ -229,7 +217,6 @@ public object Gemma4WeightMapper {
             layers = layers,
             finalNorm = finalNorm,
             lmHead = lmHead,
-            quantTypes = weights.quantTypes,
             perLayerTokenEmbedding = getOptional(Gemma4TensorNames.PER_LAYER_TOKEN_EMBD),
             perLayerModelProj = getOptional(Gemma4TensorNames.PER_LAYER_MODEL_PROJ),
             perLayerProjNorm = getOptional(Gemma4TensorNames.PER_LAYER_PROJ_NORM)
@@ -238,111 +225,50 @@ public object Gemma4WeightMapper {
 }
 
 /**
- * Convenience loader: reads weights from GGUF source, maps them into runtime structure.
+ * Convenience loader: reads weights from GGUF source (sequential — always
+ * dequantized to dense floats), maps them into runtime structure.
  */
 public suspend fun <T : DType> loadGemma4RuntimeWeights(
     ctx: ExecutionContext,
     sourceProvider: () -> Source,
-    dtype: KClass<T>,
-    quantPolicy: QuantPolicy = QuantPolicy.RAW_BYTES,
-    allowQuantized: Boolean = false
+    dtype: KClass<T>
 ): Gemma4RuntimeWeights<T> {
-    val loader = Gemma4WeightLoader(
-        sourceProvider = sourceProvider,
-        quantPolicy = quantPolicy
-    )
+    val loader = Gemma4WeightLoader(sourceProvider = sourceProvider)
     val loaded = loader.loadToMap<T, Float>(ctx, dtype)
-    if (!allowQuantized && loaded.quantTypes.isNotEmpty()) {
-        error("Quantized weights detected (${loaded.quantTypes.size}). Pass allowQuantized=true to consume raw quant tensors.")
-    }
     return Gemma4WeightMapper.map(loaded)
 }
 
 /** Backward-compatible overload defaulting to FP32. */
 public suspend fun loadGemma4RuntimeWeights(
     ctx: ExecutionContext,
-    sourceProvider: () -> Source,
-    quantPolicy: QuantPolicy = QuantPolicy.RAW_BYTES,
-    allowQuantized: Boolean = false
-): Gemma4RuntimeWeights<FP32> = loadGemma4RuntimeWeights(ctx, sourceProvider, FP32::class, quantPolicy, allowQuantized)
-
-/**
- * Load Gemma 4 runtime weights with dequantization.
- */
-public suspend fun <T : DType> loadGemma4RuntimeWeightsDequantized(
-    ctx: ExecutionContext,
-    sourceProvider: () -> Source,
-    dtype: KClass<T>
-): Gemma4RuntimeWeights<T> {
-    val loader = Gemma4WeightLoader(
-        sourceProvider = sourceProvider,
-        quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32
-    )
-    val loaded = loader.loadToMap<T, Float>(ctx, dtype)
-    if (loaded.quantTypes.isNotEmpty()) {
-        error("Unsupported quantized tensors remain after dequant attempt: ${loaded.quantTypes}")
-    }
-    return Gemma4WeightMapper.map(loaded)
-}
-
-/** Backward-compatible overload defaulting to FP32. */
-public suspend fun loadGemma4RuntimeWeightsDequantized(
-    ctx: ExecutionContext,
     sourceProvider: () -> Source
-): Gemma4RuntimeWeights<FP32> = loadGemma4RuntimeWeightsDequantized(ctx, sourceProvider, FP32::class)
+): Gemma4RuntimeWeights<FP32> = loadGemma4RuntimeWeights(ctx, sourceProvider, FP32::class)
 
 // ============== Streaming API (for large files >2GB) ==============
 
 /**
- * Load Gemma 4 runtime weights using streaming API.
+ * Load Gemma 4 runtime weights via the engine loader. Default form keeps
+ * quantized tensors packed; pass [GEMMA_DEQUANTIZE_ALL] for dense FP32.
  */
+@ExperimentalMemoryApi
 public suspend fun <T : DType> loadGemma4RuntimeWeightsStreaming(
     ctx: ExecutionContext,
     randomAccessProvider: () -> RandomAccessSource,
     dtype: KClass<T>,
-    quantPolicy: QuantPolicy = QuantPolicy.RAW_BYTES,
-    allowQuantized: Boolean = false
+    weightForm: WeightForm? = null
 ): Gemma4RuntimeWeights<T> {
     val loader = Gemma4WeightLoader(
         randomAccessProvider = randomAccessProvider,
-        quantPolicy = quantPolicy
+        weightForm = weightForm
     )
     val loaded = loader.loadToMapStreaming<T, Float>(ctx, dtype)
-    if (!allowQuantized && loaded.quantTypes.isNotEmpty()) {
-        error("Quantized weights detected (${loaded.quantTypes.size}). Pass allowQuantized=true to consume raw quant tensors.")
-    }
     return Gemma4WeightMapper.map(loaded)
 }
 
 /** Backward-compatible overload defaulting to FP32. */
+@ExperimentalMemoryApi
 public suspend fun loadGemma4RuntimeWeightsStreaming(
     ctx: ExecutionContext,
     randomAccessProvider: () -> RandomAccessSource,
-    quantPolicy: QuantPolicy = QuantPolicy.RAW_BYTES,
-    allowQuantized: Boolean = false
-): Gemma4RuntimeWeights<FP32> = loadGemma4RuntimeWeightsStreaming(ctx, randomAccessProvider, FP32::class, quantPolicy, allowQuantized)
-
-/**
- * Load Gemma 4 runtime weights using streaming API with dequantization.
- */
-public suspend fun <T : DType> loadGemma4RuntimeWeightsDequantizedStreaming(
-    ctx: ExecutionContext,
-    randomAccessProvider: () -> RandomAccessSource,
-    dtype: KClass<T>
-): Gemma4RuntimeWeights<T> {
-    val loader = Gemma4WeightLoader(
-        randomAccessProvider = randomAccessProvider,
-        quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32
-    )
-    val loaded = loader.loadToMapStreaming<T, Float>(ctx, dtype)
-    if (loaded.quantTypes.isNotEmpty()) {
-        error("Unsupported quantized tensors remain after dequant attempt: ${loaded.quantTypes}")
-    }
-    return Gemma4WeightMapper.map(loaded)
-}
-
-/** Backward-compatible overload defaulting to FP32. */
-public suspend fun loadGemma4RuntimeWeightsDequantizedStreaming(
-    ctx: ExecutionContext,
-    randomAccessProvider: () -> RandomAccessSource
-): Gemma4RuntimeWeights<FP32> = loadGemma4RuntimeWeightsDequantizedStreaming(ctx, randomAccessProvider, FP32::class)
+    weightForm: WeightForm? = null
+): Gemma4RuntimeWeights<FP32> = loadGemma4RuntimeWeightsStreaming(ctx, randomAccessProvider, FP32::class, weightForm)

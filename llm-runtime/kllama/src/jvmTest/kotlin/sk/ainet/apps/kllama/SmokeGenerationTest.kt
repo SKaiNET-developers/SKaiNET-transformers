@@ -8,7 +8,7 @@ import sk.ainet.apps.llm.OptimizedLLMMode
 import sk.ainet.apps.llm.OptimizedLLMRuntime
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
-import sk.ainet.io.model.QuantPolicy
+import sk.ainet.models.llama.DECODER_DEQUANTIZE_ALL
 import sk.ainet.models.llama.LlamaNetworkLoader
 import sk.ainet.lang.types.FP32
 import java.nio.file.Path
@@ -39,7 +39,7 @@ class SmokeGenerationTest {
             println("Loading model (new DSL path)...")
             val model = LlamaNetworkLoader.fromGguf(
                 randomAccessProvider = { JvmRandomAccessSource.open(MODEL_PATH.toString()) },
-                quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32
+                weightForm = DECODER_DEQUANTIZE_ALL
             ).load<FP32, Float>(ctx)
 
             val runtime = OptimizedLLMRuntime(

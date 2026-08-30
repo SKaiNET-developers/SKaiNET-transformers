@@ -2,6 +2,7 @@ package sk.ainet.models.llama
 
 import org.junit.Test
 import kotlin.test.assertContentEquals
+import sk.ainet.io.gguf.dequant.DequantOps
 
 class LlamaQuantDequantTest {
 
@@ -15,7 +16,7 @@ class LlamaQuantDequantTest {
                 else -> 0x88.toByte()
             }
         }.toList()
-        val out = DecoderGgufWeightLoader.dequantQ4_0(raw, 32)
+        val out = DequantOps.dequantQ4_0(raw, 32)
         assertContentEquals(FloatArray(32) { 0f }.toList(), out.toList())
     }
 
@@ -28,7 +29,7 @@ class LlamaQuantDequantTest {
                 else -> (idx - 1).toByte() // 1..32
             }
         }.toList()
-        val out = DecoderGgufWeightLoader.dequantQ8_0(raw, 32)
+        val out = DequantOps.dequantQ8_0(raw, 32)
         val expected = FloatArray(32) { (it + 1).toFloat() }
         assertContentEquals(expected.toList(), out.toList())
     }
@@ -43,7 +44,7 @@ class LlamaQuantDequantTest {
                 else -> 0x00
             }
         }.toList()
-        val out = DecoderGgufWeightLoader.dequantQ5_0(raw, 32)
+        val out = DequantOps.dequantQ5_0(raw, 32)
         assertContentEquals(FloatArray(32) { 0f }.toList(), out.toList())
     }
 
@@ -56,7 +57,7 @@ class LlamaQuantDequantTest {
                 else -> 0x00
             }
         }.toList()
-        val out = DecoderGgufWeightLoader.dequantQ4_1(raw, 32)
+        val out = DequantOps.dequantQ4_1(raw, 32)
         assertContentEquals(FloatArray(32) { 2f }.toList(), out.toList())
     }
 
@@ -73,7 +74,7 @@ class LlamaQuantDequantTest {
         raw[4] = 0x00; raw[5] = 0x00; raw[6] = 0x00; raw[7] = 0x00
         // qs[0..3] = 1, 2, 3, 4
         raw[8] = 0x01; raw[9] = 0x02; raw[10] = 0x03; raw[11] = 0x04
-        val out = DecoderGgufWeightLoader.dequantQ8_1(raw.toList(), 32)
+        val out = DequantOps.dequantQ8_1(raw.toList(), 32)
         val expected = FloatArray(32) { idx ->
             when (idx) {
                 0 -> 1f; 1 -> 2f; 2 -> 3f; 3 -> 4f
@@ -92,7 +93,7 @@ class LlamaQuantDequantTest {
                 else -> 0x88.toByte()
             }
         }.toList()
-        val out = DecoderGgufWeightLoader.dequantIQ4NL(raw, 32)
+        val out = DequantOps.dequantIQ4NL(raw, 32)
         assertContentEquals(FloatArray(32) { 1f }.toList(), out.toList())
     }
 
@@ -105,7 +106,7 @@ class LlamaQuantDequantTest {
         raw[4] = 0x01 // scales_l first nibble -> ls 33 for block 0
         // qs = 0x88 so value = 1 when dl != 0
         repeat(128) { raw[8 + it] = 0x88.toByte() }
-        val out = DecoderGgufWeightLoader.dequantIQ4XS(raw.toList(), 256)
+        val out = DequantOps.dequantIQ4XS(raw.toList(), 256)
         val expected = FloatArray(256) { idx -> if (idx < 32) 1f else 0f }
         assertContentEquals(expected.toList(), out.toList())
     }
@@ -120,7 +121,7 @@ class LlamaQuantDequantTest {
         raw[4] = 0xF0.toByte()
         // block 0 codes = 1 (0b01) for all 16 values -> bytes 0x55
         repeat(4) { raw[20 + it] = 0x55.toByte() }
-        val out = DecoderGgufWeightLoader.dequantQ2K(raw.toList(), 256)
+        val out = DequantOps.dequantQ2K(raw.toList(), 256)
         val expected = FloatArray(256) { if (it < 16) 1f else 0f }
         assertContentEquals(expected.toList(), out.toList())
     }
@@ -134,7 +135,7 @@ class LlamaQuantDequantTest {
         repeat(64) { raw[34 + it] = 0xFF.toByte() }
         // scales all 0x3F -> scale index 63 for every block
         repeat(12) { raw[98 + it] = 0xFF.toByte() }
-        val out = DecoderGgufWeightLoader.dequantQ3K(raw.toList(), 256)
+        val out = DequantOps.dequantQ3K(raw.toList(), 256)
         val expected = FloatArray(256) { 6f } // q=3, scale=d*1=2 => 6
         assertContentEquals(expected.toList(), out.toList())
     }
@@ -150,7 +151,7 @@ class LlamaQuantDequantTest {
         raw[5] = 0x01
         // block 0 codes = 15 -> bytes 0xFF for first 32 bytes of qs (64 vals)
         repeat(32) { raw[16 + it] = 0xFF.toByte() }
-        val out = DecoderGgufWeightLoader.dequantQ4K(raw.toList(), 256)
+        val out = DequantOps.dequantQ4K(raw.toList(), 256)
         val expected = FloatArray(256) { if (it < 64) 15f else 0f }
         assertContentEquals(expected.toList(), out.toList())
     }
@@ -166,7 +167,7 @@ class LlamaQuantDequantTest {
         // qh high bits set for first 32 weights
         repeat(4) { raw[16 + it] = 0xFF.toByte() }
         // qs low nibbles zero
-        val out = DecoderGgufWeightLoader.dequantQ5K(raw.toList(), 256)
+        val out = DequantOps.dequantQ5K(raw.toList(), 256)
         val expected = FloatArray(256) { if (it < 32) 16f else 0f }
         assertContentEquals(expected.toList(), out.toList())
     }
@@ -202,7 +203,7 @@ class LlamaQuantDequantTest {
         repeat(128) { raw[it] = 0x11.toByte() }
         repeat(64) { raw[128 + it] = 0xAA.toByte() }
 
-        val out = DecoderGgufWeightLoader.dequantQ6K(raw.toList(), 256)
+        val out = DequantOps.dequantQ6K(raw.toList(), 256)
         val expected = FloatArray(256) { 1f }
         assertContentEquals(expected.toList(), out.toList())
     }
@@ -213,7 +214,7 @@ class LlamaQuantDequantTest {
         // d = 1.0f
         raw[0] = 0x00; raw[1] = 0x00; raw[2] = 0x80.toByte(); raw[3] = 0x3F
         raw[4] = 0x01; raw[5] = 0x02; raw[6] = 0x03; raw[7] = 0x04
-        val out = DecoderGgufWeightLoader.dequantQ8K(raw.toList(), 256)
+        val out = DequantOps.dequantQ8K(raw.toList(), 256)
         val expected = FloatArray(256) { idx ->
             when (idx) {
                 0 -> 1f
@@ -234,7 +235,7 @@ class LlamaQuantDequantTest {
         val raw = ByteArray(66) { 0x00 }
         raw[64] = 0x00  // scale low byte
         raw[65] = 0x3C  // scale high byte (f16 1.0)
-        val out = DecoderGgufWeightLoader.dequantTQ2_0(raw.toList(), 256)
+        val out = DequantOps.dequantTQ2_0(raw.toList(), 256)
         assertContentEquals(FloatArray(256) { -1f }.toList(), out.toList())
     }
 
@@ -244,7 +245,7 @@ class LlamaQuantDequantTest {
         // Scale = 1.0
         val raw = ByteArray(66) { 0x55 }
         raw[64] = 0x00; raw[65] = 0x3C
-        val out = DecoderGgufWeightLoader.dequantTQ2_0(raw.toList(), 256)
+        val out = DequantOps.dequantTQ2_0(raw.toList(), 256)
         assertContentEquals(FloatArray(256) { 0f }.toList(), out.toList())
     }
 
@@ -254,7 +255,7 @@ class LlamaQuantDequantTest {
         // Scale = 1.0
         val raw = ByteArray(66) { 0xAA.toByte() }
         raw[64] = 0x00; raw[65] = 0x3C
-        val out = DecoderGgufWeightLoader.dequantTQ2_0(raw.toList(), 256)
+        val out = DequantOps.dequantTQ2_0(raw.toList(), 256)
         assertContentEquals(FloatArray(256) { 1f }.toList(), out.toList())
     }
 
@@ -263,7 +264,7 @@ class LlamaQuantDequantTest {
         // All twos (+1) with scale = 2.0 (0x4000)
         val raw = ByteArray(66) { 0xAA.toByte() }
         raw[64] = 0x00; raw[65] = 0x40  // f16 2.0
-        val out = DecoderGgufWeightLoader.dequantTQ2_0(raw.toList(), 256)
+        val out = DequantOps.dequantTQ2_0(raw.toList(), 256)
         assertContentEquals(FloatArray(256) { 2f }.toList(), out.toList())
     }
 
@@ -275,7 +276,7 @@ class LlamaQuantDequantTest {
         val raw = ByteArray(66) { 0x55 }  // default to zeros
         raw[0] = 0xE4.toByte()  // 11_10_01_00: v0=-1, v1=0, v2=+1, v3=+2 (if 3 is allowed)
         raw[64] = 0x00; raw[65] = 0x3C  // scale = 1.0
-        val out = DecoderGgufWeightLoader.dequantTQ2_0(raw.toList(), 256)
+        val out = DequantOps.dequantTQ2_0(raw.toList(), 256)
         // First 4 elements: (0-1)=-1, (1-1)=0, (2-1)=+1, (3-1)=+2
         kotlin.test.assertEquals(-1f, out[0], 0.001f)
         kotlin.test.assertEquals(0f, out[1], 0.001f)
@@ -290,7 +291,7 @@ class LlamaQuantDequantTest {
         // All 2-bit bytes = 0 means remaining 16 values are also -1
         val raw = ByteArray(54) { 0x00 }
         raw[52] = 0x00; raw[53] = 0x3C  // scale = 1.0
-        val out = DecoderGgufWeightLoader.dequantTQ1_0(raw.toList(), 256)
+        val out = DequantOps.dequantTQ1_0(raw.toList(), 256)
         assertContentEquals(FloatArray(256) { -1f }.toList(), out.toList())
     }
 
@@ -303,7 +304,7 @@ class LlamaQuantDequantTest {
         repeat(48) { raw[it] = 0x79 }  // base-3 all ones
         repeat(4) { raw[48 + it] = 0x55 }  // 2-bit all ones
         raw[52] = 0x00; raw[53] = 0x3C  // scale = 1.0
-        val out = DecoderGgufWeightLoader.dequantTQ1_0(raw.toList(), 256)
+        val out = DequantOps.dequantTQ1_0(raw.toList(), 256)
         assertContentEquals(FloatArray(256) { 0f }.toList(), out.toList())
     }
 
@@ -315,7 +316,7 @@ class LlamaQuantDequantTest {
         repeat(48) { raw[it] = 0xF2.toByte() }  // base-3 all twos
         repeat(4) { raw[48 + it] = 0xAA.toByte() }  // 2-bit all twos
         raw[52] = 0x00; raw[53] = 0x3C  // scale = 1.0
-        val out = DecoderGgufWeightLoader.dequantTQ1_0(raw.toList(), 256)
+        val out = DequantOps.dequantTQ1_0(raw.toList(), 256)
         assertContentEquals(FloatArray(256) { 1f }.toList(), out.toList())
     }
 
@@ -326,7 +327,7 @@ class LlamaQuantDequantTest {
         repeat(48) { raw[it] = 0xF2.toByte() }  // base-3 all twos
         repeat(4) { raw[48 + it] = 0xAA.toByte() }  // 2-bit all twos
         raw[52] = 0x00; raw[53] = 0x40  // scale = 2.0
-        val out = DecoderGgufWeightLoader.dequantTQ1_0(raw.toList(), 256)
+        val out = DequantOps.dequantTQ1_0(raw.toList(), 256)
         assertContentEquals(FloatArray(256) { 2f }.toList(), out.toList())
     }
 
@@ -338,7 +339,7 @@ class LlamaQuantDequantTest {
         raw[0] = 0x66  // first 5 values: -1, 0, +1, -1, 0
         repeat(4) { raw[48 + it] = 0x55 }  // 2-bit all ones
         raw[52] = 0x00; raw[53] = 0x3C  // scale = 1.0
-        val out = DecoderGgufWeightLoader.dequantTQ1_0(raw.toList(), 256)
+        val out = DequantOps.dequantTQ1_0(raw.toList(), 256)
         kotlin.test.assertEquals(-1f, out[0], 0.001f)
         kotlin.test.assertEquals(0f, out[1], 0.001f)
         kotlin.test.assertEquals(1f, out[2], 0.001f)

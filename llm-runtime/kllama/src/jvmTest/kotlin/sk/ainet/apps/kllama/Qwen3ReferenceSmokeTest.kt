@@ -10,10 +10,10 @@ import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Assumptions.assumeTrue
 import sk.ainet.apps.llm.OptimizedLLMMode
+import sk.ainet.models.llama.DECODER_DEQUANTIZE_ALL
 import sk.ainet.apps.llm.OptimizedLLMRuntime
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
-import sk.ainet.io.model.QuantPolicy
 import sk.ainet.lang.types.FP32
 import sk.ainet.models.qwen.QwenNetworkLoader
 
@@ -57,7 +57,7 @@ class Qwen3ReferenceSmokeTest {
             println("[smoke-reference] Loading Qwen3 model (Q8_0, DEQUANTIZE_TO_FP32)")
             val model = QwenNetworkLoader.fromGguf(
                 randomAccessProvider = { JvmRandomAccessSource.open(modelPath.toString()) },
-                quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
+                weightForm = DECODER_DEQUANTIZE_ALL,
             ).load<FP32, Float>(ctx)
 
             val runtime = OptimizedLLMRuntime(

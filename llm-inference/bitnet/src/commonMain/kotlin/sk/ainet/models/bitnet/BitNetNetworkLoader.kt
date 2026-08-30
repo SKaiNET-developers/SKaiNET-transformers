@@ -1,0 +1,191 @@
+package sk.ainet.models.bitnet
+
+import kotlinx.io.Source
+import sk.ainet.apps.llm.DTypePolicyValidation
+import sk.ainet.context.ExecutionContext
+import sk.ainet.io.RandomAccessSource
+import sk.ainet.io.weights.MappingConfig
+import sk.ainet.io.weights.WeightMapper
+import sk.ainet.io.weights.WeightTensor
+import sk.ainet.lang.memory.ExperimentalMemoryApi
+import sk.ainet.lang.memory.plan.WeightForm
+import sk.ainet.lang.nn.Module
+import sk.ainet.lang.types.DType
+import sk.ainet.lang.types.DTypePolicy
+import sk.ainet.models.llama.DECODER_NARROW_KEEP_NATIVE
+import sk.ainet.models.llama.DecoderGgufWeightLoader
+import sk.ainet.models.llama.DecoderGgufWeights
+import kotlin.jvm.JvmName
+
+/**
+ * End-to-end loader that builds a [bitnetNetwork] module and populates it with weights from a
+ * GGUF file via [WeightMapper] + [BitNetGGUFNameResolver].
+ *
+ * BitNet uses the Llama-family GGUF layout plus per-layer `attn_sub_norm` / `ffn_sub_norm`
+ * tensors, so loading delegates to [DecoderGgufWeightLoader] with the BitNet name resolver.
+ * 2B4T ties `output.weight` to `token_embd.weight`; the decoder loader's tied-embeddings
+ * fallback covers that.
+ *
+ * Baseline scope (transformers#336): F32/F16/BF16 GGUFs load exactly. A ternary **I2_S** GGUF is
+ * the engine loader's job — `StreamingGgufParametersLoader(i2sLayout = …)` materializes packed
+ * `BITNET_B1_58` tensors (SKaiNET#1140) that dispatch straight to the ternary kernels; wiring
+ * that path through this loader (and `RequantizeTo(BITNET_PLANES)` for `output.weight`) is
+ * transformers#337.
+ */
+@PublishedApi
+internal val BITNET_ARCHITECTURES: Set<String> = setOf("bitnet", "bitnet-25", "bitnet-b1.58")
+
+public class BitNetNetworkLoader @PublishedApi internal constructor(
+    @PublishedApi internal val weightsProvider: WeightsProvider,
+    @PublishedApi internal val debug: Boolean = false
+) {
+    /** See [LlamaNetworkLoader.dtypePolicy]. */
+    public var dtypePolicy: DTypePolicy = DTypePolicy.Any
+        private set
+
+    /** See [LlamaNetworkLoader.withDtypePolicy]. */
+    public fun withDtypePolicy(policy: DTypePolicy): BitNetNetworkLoader {
+        DTypePolicyValidation.validate(
+            policy, "BitNetNetworkLoader.withDtypePolicy", keepNative = DECODER_NARROW_KEEP_NATIVE,
+        )
+        this.dtypePolicy = policy
+        return this
+    }
+
+    @PublishedApi
+    internal sealed interface WeightsProvider {
+        data class GgufSource(
+            val sourceProvider: () -> Source,
+        ) : WeightsProvider
+
+        @OptIn(ExperimentalMemoryApi::class)
+        data class GgufRandomAccess(
+            val randomAccessProvider: () -> RandomAccessSource,
+            /** `null` = the decoder loader's keep-packed MAPPED default. */
+            val weightForm: WeightForm?,
+        ) : WeightsProvider
+
+        data class Preloaded<T : DType, V>(
+            val weights: DecoderGgufWeights<T, V>
+        ) : WeightsProvider
+    }
+
+    public companion object {
+        /** Load from a GGUF file via sequential Source (models under 2GB; always dequantizes). */
+        public fun fromGguf(
+            sourceProvider: () -> Source,
+            debug: Boolean = false
+        ): BitNetNetworkLoader = BitNetNetworkLoader(
+            WeightsProvider.GgufSource(sourceProvider), debug
+        )
+
+        /**
+         * Load from a GGUF file via streaming RandomAccessSource (any size).
+         * [weightForm] `null` = the decoder loader's keep-packed MAPPED default;
+         * pass [sk.ainet.models.llama.DECODER_DEQUANTIZE_ALL] for dense FP32.
+         */
+        @OptIn(ExperimentalMemoryApi::class)
+        @JvmName("fromGgufRandomAccess")
+        public fun fromGguf(
+            randomAccessProvider: () -> RandomAccessSource,
+            weightForm: WeightForm? = null,
+            debug: Boolean = false
+        ): BitNetNetworkLoader = BitNetNetworkLoader(
+            WeightsProvider.GgufRandomAccess(randomAccessProvider, weightForm), debug
+        )
+
+        /** Build from already-loaded [DecoderGgufWeights] (GGUF-canonical tensor names). */
+        public inline fun <reified T : DType, V> fromWeights(
+            weights: DecoderGgufWeights<T, V>,
+            debug: Boolean = false
+        ): Module<T, V> = BitNetNetworkLoader(
+            WeightsProvider.Preloaded(weights), debug
+        ).applyWeightsToNetwork(weights)
+    }
+
+    /**
+     * Load weights and build a fully initialized DSL network.
+     *
+     * @throws IllegalArgumentException if required weights could not be mapped.
+     */
+    public suspend inline fun <reified T : DType, V> load(
+        ctx: ExecutionContext
+    ): Module<T, V> {
+        val weights: DecoderGgufWeights<T, V> = when (val wp = weightsProvider) {
+            is WeightsProvider.GgufSource -> {
+                val loader = DecoderGgufWeightLoader(
+                    sourceProvider = wp.sourceProvider,
+                    acceptedArchitectures = BITNET_ARCHITECTURES,
+                    dtypePolicy = dtypePolicy,
+                )
+                loader.loadToMap<T, V>(ctx)
+            }
+            is WeightsProvider.GgufRandomAccess -> {
+                @OptIn(ExperimentalMemoryApi::class)
+                val loader = DecoderGgufWeightLoader(
+                    randomAccessProvider = wp.randomAccessProvider,
+                    acceptedArchitectures = BITNET_ARCHITECTURES,
+                    dtypePolicy = dtypePolicy,
+                    weightForm = wp.weightForm,
+                )
+                loader.loadToMapStreaming<T, V>(ctx)
+            }
+            is WeightsProvider.Preloaded<*, *> -> {
+                @Suppress("UNCHECKED_CAST")
+                wp.weights as DecoderGgufWeights<T, V>
+            }
+        }
+
+        return applyWeightsToNetwork(weights)
+    }
+
+    /** Build the DSL network from metadata and map all weights. */
+    @PublishedApi
+    internal inline fun <reified T : DType, V> applyWeightsToNetwork(
+        weights: DecoderGgufWeights<T, V>
+    ): Module<T, V> {
+        val model = bitnetNetwork<T, V>(weights.metadata)
+
+        // Tied embeddings (BitNet-2B4T ships no output.weight): serve the lm_head from
+        // token_embd — the same fallback DecoderGgufWeightLoader applies, needed here too
+        // because the packed path (BitNetPackedGgufLoader) bypasses that loader entirely.
+        val boundTensors =
+            if ("output.weight" !in weights.tensors && "token_embd.weight" in weights.tensors) {
+                weights.tensors + ("output.weight" to weights.tensors.getValue("token_embd.weight"))
+            } else {
+                weights.tensors
+            }
+
+        val weightTensors = boundTensors.map { (name, tensor) ->
+            WeightTensor(
+                name = name,
+                shape = tensor.shape.dimensions.toList(),
+                tensor = tensor
+            )
+        }
+
+        val config = MappingConfig(
+            usePathBasedMatching = false,
+            fallbackToShapeMatching = false,
+            debug = debug,
+            nameResolver = BitNetGGUFNameResolver()
+        )
+
+        val result = WeightMapper.applyWeights(model, weightTensors, config)
+
+        // BitNet has no bias tensors; zero-initialized bias params stay unmapped by design.
+        val unmappedNonBias = result.missingParams.filter { !it.contains(".bias") }
+        require(unmappedNonBias.isEmpty()) {
+            buildString {
+                appendLine("Failed to map ${unmappedNonBias.size} weight parameters:")
+                unmappedNonBias.forEach { appendLine("  - $it") }
+                if (result.unusedTensors.isNotEmpty()) {
+                    appendLine("Unused tensors (${result.unusedTensors.size}):")
+                    result.unusedTensors.take(10).forEach { appendLine("  - $it") }
+                }
+            }.trim()
+        }
+
+        return model
+    }
+}

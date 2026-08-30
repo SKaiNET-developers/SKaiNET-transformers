@@ -4,10 +4,10 @@ import kotlinx.coroutines.runBlocking
 import sk.ainet.apps.kllama.GGUFTokenizer
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
-import sk.ainet.io.model.QuantPolicy
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.types.FP32
+import sk.ainet.models.gemma.GEMMA_DEQUANTIZE_ALL
 import sk.ainet.models.gemma.Gemma4WeightLoader
 import sk.ainet.models.gemma.GemmaModel
 import sk.ainet.models.gemma.GemmaNetworkLoader
@@ -44,7 +44,7 @@ class FunctionGemmaWithPastCpuTest {
             val tok = GGUFTokenizer.fromRandomAccessSource(JvmRandomAccessSource.open(gguf))
             val weights = Gemma4WeightLoader(
                 randomAccessProvider = { JvmRandomAccessSource.open(gguf) },
-                quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
+                weightForm = GEMMA_DEQUANTIZE_ALL,
             ).loadToMapStreaming<FP32, Float>(ctx, FP32::class)
             // gemma3 uses FULL rotary; force it (the gguf omits the factor — see FunctionGemmaExport).
             val patched = weights.copy(

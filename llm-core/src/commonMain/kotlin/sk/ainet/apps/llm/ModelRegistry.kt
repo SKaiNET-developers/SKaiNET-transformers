@@ -28,6 +28,7 @@ public object ModelRegistry {
             arch.startsWith("qwen") -> ModelFamily.QWEN
             arch.startsWith("gemma") -> ModelFamily.GEMMA
             arch == "apertus" -> ModelFamily.APERTUS
+            arch.startsWith("bitnet") -> ModelFamily.BITNET
             arch == "bert" -> ModelFamily.BERT
             arch == "voxtral" -> ModelFamily.VOXTRAL
             else -> ModelFamily.UNKNOWN
@@ -64,6 +65,7 @@ public enum class ModelFamily(
     QWEN("qwen", "Qwen", true, "qwen"),
     GEMMA("gemma", "Gemma", true, "gemma"),
     APERTUS("apertus", "Apertus", true, "apertus"),
+    BITNET("bitnet", "BitNet b1.58", false, null),
     BERT("bert", "BERT", false, null),
     VOXTRAL("voxtral", "Voxtral TTS", false, null),
     UNKNOWN("unknown", "Unknown", false, null);
@@ -75,6 +77,9 @@ public enum class ModelFamily(
             QWEN -> setOf("qwen2", "qwen3", "qwen35")
             GEMMA -> setOf("gemma", "gemma2", "gemma3", "gemma3n")
             APERTUS -> setOf("apertus")
+            // "bitnet" is BitNet.cpp's llama.cpp arch id; "bitnet-25" its 2B4T-era
+            // variant; "bitnet-b1.58" appears in community conversions.
+            BITNET -> setOf("bitnet", "bitnet-25", "bitnet-b1.58")
             BERT -> setOf("bert")
             VOXTRAL -> setOf("voxtral")
             UNKNOWN -> emptySet()
