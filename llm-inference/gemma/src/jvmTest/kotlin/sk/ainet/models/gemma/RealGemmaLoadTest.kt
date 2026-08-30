@@ -4,7 +4,6 @@ import org.junit.jupiter.api.Tag
 import kotlinx.coroutines.runBlocking
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
-import sk.ainet.io.model.QuantPolicy
 import sk.ainet.lang.types.FP32
 import kotlin.test.Test
 
@@ -15,7 +14,7 @@ import kotlin.test.Test
  * + weight tensors for the upcoming real-config trace + arg mapping.
  *
  * FP32 dequant here is a correctness-first choice (clean FP32 A/B); production
- * would keep weights packed (QuantPolicy.NATIVE_OPTIMIZED) for memory/NPU.
+ * keeps weights packed (the engine loader's keep-packed default) for memory/NPU.
  */
 @Tag("integration")
 class RealGemmaLoadTest {
@@ -25,7 +24,7 @@ class RealGemmaLoadTest {
         val ctx = DirectCpuExecutionContext.create()
         val loader = Gemma4WeightLoader(
             randomAccessProvider = { JvmRandomAccessSource.open(path) },
-            quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
+            weightForm = GEMMA_DEQUANTIZE_ALL,
         )
         val w = loader.loadToMapStreaming<FP32, Float>(ctx, FP32::class)
         val m = w.metadata

@@ -10,11 +10,11 @@ import sk.ainet.apps.llm.OptimizedLLMMode
 import sk.ainet.apps.llm.OptimizedLLMRuntime
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
-import sk.ainet.io.model.QuantPolicy
 import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.tensor.data.DenseFloatArrayTensorData
 import sk.ainet.lang.tensor.data.MemorySegmentTensorData
 import sk.ainet.lang.types.FP32
+import sk.ainet.models.llama.DECODER_DEQUANTIZE_ALL
 import sk.ainet.models.llama.LlamaNetworkLoader
 
 /**
@@ -72,7 +72,7 @@ class BatchedPrefillEquivalenceTest {
             val autoLogits = run {
                 val model = LlamaNetworkLoader.fromGguf(
                     randomAccessProvider = { JvmRandomAccessSource.open(MODEL_PATH.toString()) },
-                    quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32
+                    weightForm = DECODER_DEQUANTIZE_ALL
                 ).load<FP32, Float>(ctx)
                 val runtime = OptimizedLLMRuntime(
                     model = model,
@@ -91,7 +91,7 @@ class BatchedPrefillEquivalenceTest {
             val batchLogits = run {
                 val model = LlamaNetworkLoader.fromGguf(
                     randomAccessProvider = { JvmRandomAccessSource.open(MODEL_PATH.toString()) },
-                    quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32
+                    weightForm = DECODER_DEQUANTIZE_ALL
                 ).load<FP32, Float>(ctx)
                 val runtime = OptimizedLLMRuntime(
                     model = model,
@@ -144,7 +144,7 @@ class BatchedPrefillEquivalenceTest {
             val autoLogits = run {
                 val model = LlamaNetworkLoader.fromGguf(
                     randomAccessProvider = { JvmRandomAccessSource.open(MODEL_PATH.toString()) },
-                    quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32
+                    weightForm = DECODER_DEQUANTIZE_ALL
                 ).load<FP32, Float>(ctx)
                 val runtime = OptimizedLLMRuntime(
                     model = model, ctx = ctx,
@@ -157,7 +157,7 @@ class BatchedPrefillEquivalenceTest {
             val batchLogits = run {
                 val model = LlamaNetworkLoader.fromGguf(
                     randomAccessProvider = { JvmRandomAccessSource.open(MODEL_PATH.toString()) },
-                    quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32
+                    weightForm = DECODER_DEQUANTIZE_ALL
                 ).load<FP32, Float>(ctx)
                 val runtime = OptimizedLLMRuntime(
                     model = model, ctx = ctx,

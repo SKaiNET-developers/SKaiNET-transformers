@@ -1,9 +1,7 @@
 package sk.ainet.models.apertus
 
-import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.types.DType
-import sk.ainet.lang.types.FP32
 
 /**
  * Model metadata for Apertus architecture.
@@ -70,8 +68,7 @@ public data class ApertusRuntimeWeights<T : DType>(
     val layers: List<ApertusLayerWeights<T>>,
     val outputNorm: Tensor<T, Float>,
     val outputWeight: Tensor<T, Float>,
-    val ropeFreqs: Tensor<T, Float>? = null,
-    val preTransposed: Boolean = false
+    val ropeFreqs: Tensor<T, Float>? = null
 )
 
 /**
@@ -95,73 +92,19 @@ public object ApertusTensorNames {
     public fun ffnUp(layer: Int): String = "blk.$layer.ffn_up.weight"
 }
 
-// ============== Quantized (lazy-dequant) weight structures ==============
-
-/**
- * Per-layer weights with large projection matrices stored in quantized form.
- *
- * Small tensors (norms) are kept as FP32 since they're negligible in size.
- * Large 2D weight matrices stay quantized until execution time, saving 4-8x memory.
- */
-public data class ApertusQuantizedLayerWeights(
-    // Small tensors — always FP32
-    val attnNorm: Tensor<FP32, Float>,
-    val qNorm: Tensor<FP32, Float>,
-    val kNorm: Tensor<FP32, Float>,
-    val ffnNorm: Tensor<FP32, Float>,
-    val xieluParams: ApertusXIELUParams,
-    // Large projection matrices — quantized, dequantized at execution time
-    val wq: QuantizedTensor,
-    val wk: QuantizedTensor,
-    val wv: QuantizedTensor,
-    val wo: QuantizedTensor,
-    val ffnUp: QuantizedTensor,
-    val ffnDown: QuantizedTensor
-)
-
-/**
- * Complete model weights for Apertus with lazy dequantization.
- *
- * Token embedding is kept FP32 (needed for integer-indexed lookup).
- * Output weight and all per-layer projection matrices remain quantized.
- */
-public data class ApertusQuantizedRuntimeWeights(
-    val metadata: ApertusModelMetadata,
-    val tokenEmbedding: Tensor<FP32, Float>,
-    val layers: List<ApertusQuantizedLayerWeights>,
-    val outputNorm: Tensor<FP32, Float>,
-    val outputWeight: QuantizedTensor,
-    val ropeFreqs: Tensor<FP32, Float>? = null
-)
-
 /**
  * Intermediate weight container used during loading.
  *
- * @property quantTypes For each tensor that was quantized in the source GGUF,
- *   the original [sk.ainet.io.gguf.GGMLQuantizationType]. Empty when the
- *   loader fully dequantized everything (e.g. `QuantPolicy.DEQUANTIZE_TO_FP32`).
- *   Populated under `NATIVE_OPTIMIZED` so the JVM-side
- *   `ApertusMemSegConverter` can wrap each tensor in the right
- *   block-major TensorData (Q4_KBlockTensorData / Q6_KBlockTensorData / …)
- *   before the model runs.
- * @property logicalShapes Logical `[out, in]` shapes of every tensor, indexed
- *   by tensor name. Under `NATIVE_OPTIMIZED` the actual stored
- *   `tensors[name].shape` is byte-level rank-1, so the converter needs the
- *   logical shape from this side-map to compute the relayout target shape.
- * @property quantBytes Raw quantized payload bytes keyed by tensor name.
- *   The loader stashes these alongside the byte-shape tensors in `tensors`
- *   so the converter can re-wrap them in the right `Q*_KBlockTensorData`
- *   without having to dig the bytes back out of the loader's intermediate
- *   `Int8 [byteCount]` tensor.
+ * Tensors are keyed by GGUF name with logical `[out, in]` shapes. On the
+ * engine-backed streaming path, quantized projection matrices keep their
+ * stored block encoding as packed
+ * [sk.ainet.lang.tensor.storage.PackedBlockStorage] data; the sequential
+ * path delivers dense floats.
  */
 public data class ApertusWeights<T : DType, V>(
     val metadata: ApertusModelMetadata,
     val tensors: Map<String, Tensor<T, V>>,
-    val xieluParams: Map<Int, ApertusXIELUParams> = emptyMap(),
-    val preTransposed: Boolean = false,
-    val quantTypes: Map<String, sk.ainet.io.gguf.GGMLQuantizationType> = emptyMap(),
-    val logicalShapes: Map<String, sk.ainet.lang.tensor.Shape> = emptyMap(),
-    val quantBytes: Map<String, ByteArray> = emptyMap()
+    val xieluParams: Map<Int, ApertusXIELUParams> = emptyMap()
 )
 
 /**
@@ -212,65 +155,7 @@ public object ApertusWeightMapper {
             layers = layers,
             outputNorm = outputNorm,
             outputWeight = outputWeight,
-            ropeFreqs = ropeFreqs,
-            preTransposed = weights.preTransposed
+            ropeFreqs = ropeFreqs
         )
     }
 }
-
-/**
- * Maps loaded quantized weight containers to [ApertusQuantizedRuntimeWeights].
- */
-public object ApertusQuantizedWeightMapper {
-
-    public fun map(weights: ApertusQuantizedWeights): ApertusQuantizedRuntimeWeights {
-        val metadata = weights.metadata
-
-        fun getTensor(name: String): Tensor<FP32, Float> =
-            weights.fp32Tensors[name] ?: error("Missing FP32 tensor: $name")
-
-        fun getQuantized(name: String): QuantizedTensor =
-            weights.quantizedTensors[name] ?: error("Missing quantized tensor: $name")
-
-        val layers = (0 until metadata.blockCount).map { layer ->
-            val xieluParams = weights.xieluParams[layer]
-                ?: error("Missing xIELU params for layer $layer")
-
-            ApertusQuantizedLayerWeights(
-                attnNorm = getTensor(ApertusTensorNames.attnNorm(layer)),
-                qNorm = getTensor(ApertusTensorNames.attnQNorm(layer)),
-                kNorm = getTensor(ApertusTensorNames.attnKNorm(layer)),
-                ffnNorm = getTensor(ApertusTensorNames.ffnNorm(layer)),
-                xieluParams = xieluParams,
-                wq = getQuantized(ApertusTensorNames.attnQ(layer)),
-                wk = getQuantized(ApertusTensorNames.attnK(layer)),
-                wv = getQuantized(ApertusTensorNames.attnV(layer)),
-                wo = getQuantized(ApertusTensorNames.attnOut(layer)),
-                ffnUp = getQuantized(ApertusTensorNames.ffnUp(layer)),
-                ffnDown = getQuantized(ApertusTensorNames.ffnDown(layer))
-            )
-        }
-
-        return ApertusQuantizedRuntimeWeights(
-            metadata = metadata,
-            tokenEmbedding = getTensor(ApertusTensorNames.TOKEN_EMBEDDINGS),
-            layers = layers,
-            outputNorm = getTensor(ApertusTensorNames.OUTPUT_NORM),
-            outputWeight = getQuantized(ApertusTensorNames.OUTPUT_WEIGHT),
-            ropeFreqs = weights.fp32Tensors[ApertusTensorNames.ROPE_FREQS]
-        )
-    }
-}
-
-/**
- * Intermediate container for quantized weight loading.
- *
- * Small tensors (norms, embeddings) go into [fp32Tensors].
- * Large weight matrices go into [quantizedTensors].
- */
-public data class ApertusQuantizedWeights(
-    val metadata: ApertusModelMetadata,
-    val fp32Tensors: Map<String, Tensor<FP32, Float>>,
-    val quantizedTensors: Map<String, QuantizedTensor>,
-    val xieluParams: Map<Int, ApertusXIELUParams> = emptyMap()
-)

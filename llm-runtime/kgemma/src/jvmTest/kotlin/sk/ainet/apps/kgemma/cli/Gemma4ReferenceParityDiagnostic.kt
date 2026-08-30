@@ -1,6 +1,5 @@
 package sk.ainet.apps.kgemma.cli
 
-import java.lang.foreign.Arena
 import java.nio.file.Path
 import kotlin.io.path.exists
 import kotlin.io.path.isDirectory
@@ -8,11 +7,9 @@ import kotlin.test.Test
 import kotlinx.coroutines.runBlocking
 import sk.ainet.apps.kgemma.Gemma4Ingestion
 import sk.ainet.apps.kgemma.Gemma4LoadConfig
-import sk.ainet.apps.kgemma.loadDslRuntimeNativeStreaming
 import sk.ainet.apps.kllama.GGUFTokenizer
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
-import sk.ainet.io.model.QuantPolicy
 import sk.ainet.lang.tensor.data.MemorySegmentTensorDataFactory
 import sk.ainet.lang.types.FP32
 
@@ -57,19 +54,15 @@ class Gemma4ReferenceParityDiagnostic {
         runBlocking {
             val memSegFactory = MemorySegmentTensorDataFactory()
             val ctx = DirectCpuExecutionContext(tensorDataFactory = memSegFactory)
-            val quantArena = Arena.ofShared()
             try {
                 val ingestion = Gemma4Ingestion<FP32>(
                     ctx = ctx,
                     dtype = FP32::class,
-                    config = Gemma4LoadConfig(quantPolicy = QuantPolicy.NATIVE_OPTIMIZED, allowQuantized = true)
+                    config = Gemma4LoadConfig()
                 )
-                println("Loading $path via DSL NATIVE_OPTIMIZED...")
-                val runtime = ingestion.loadDslRuntimeNativeStreaming(
-                    randomAccessProvider = { JvmRandomAccessSource.open(path.toString()) },
-                    ctx = ctx,
-                    dtype = FP32::class,
-                    arena = quantArena
+                println("Loading $path via DSL engine loader (keep-packed)...")
+                val runtime = ingestion.loadDslRuntimeStreaming(
+                    randomAccessProvider = { JvmRandomAccessSource.open(path.toString()) }
                 )
                 val tokenizer = JvmRandomAccessSource.open(path.toString()).use { source ->
                     GGUFTokenizer.fromRandomAccessSource(source)
@@ -141,7 +134,6 @@ class Gemma4ReferenceParityDiagnostic {
                 println()
                 println("Match against reference? Look for substrings: ' =', '100', '\$1'")
             } finally {
-                quantArena.close()
                 memSegFactory.close()
             }
         }

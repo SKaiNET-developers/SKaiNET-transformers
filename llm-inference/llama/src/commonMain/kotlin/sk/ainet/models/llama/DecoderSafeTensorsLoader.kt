@@ -113,8 +113,7 @@ public class DecoderSafeTensorsLoader<T : DType>(
                             // The declared dtype generic stays `T` (typically
                             // FP32) because consumers don't care about the
                             // physical encoding — the get/set surface still
-                            // returns Float. Mirrors the
-                            // `GemmaMemSegConverter` pattern for Q4/Q8.
+                            // returns Float.
                             val data = narrowData(canonicalName, targetShape, bytes, Bf16Codec)
                             @Suppress("UNCHECKED_CAST")
                             ctx.fromData(data as TensorData<T, Float>, dtype) as Tensor<T, Float>

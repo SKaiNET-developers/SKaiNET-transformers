@@ -12,8 +12,8 @@ import sk.ainet.apps.llm.PrefillStrategy
 import sk.ainet.apps.llm.generate
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
-import sk.ainet.io.model.QuantPolicy
 import sk.ainet.lang.types.FP32
+import sk.ainet.models.llama.DECODER_DEQUANTIZE_ALL
 import sk.ainet.models.llama.LlamaNetworkLoader
 
 /**
@@ -58,7 +58,7 @@ class PrefillStrategyEquivalenceTest {
             run {
                 val model = LlamaNetworkLoader.fromGguf(
                     randomAccessProvider = { JvmRandomAccessSource.open(MODEL_PATH.toString()) },
-                    quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32
+                    weightForm = DECODER_DEQUANTIZE_ALL
                 ).load<FP32, Float>(ctx)
                 val runtime = OptimizedLLMRuntime(
                     model = model, ctx = ctx,
@@ -77,7 +77,7 @@ class PrefillStrategyEquivalenceTest {
             run {
                 val model = LlamaNetworkLoader.fromGguf(
                     randomAccessProvider = { JvmRandomAccessSource.open(MODEL_PATH.toString()) },
-                    quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32
+                    weightForm = DECODER_DEQUANTIZE_ALL
                 ).load<FP32, Float>(ctx)
                 val runtime = OptimizedLLMRuntime(
                     model = model, ctx = ctx,
@@ -119,7 +119,7 @@ class PrefillStrategyEquivalenceTest {
             run {
                 val model = LlamaNetworkLoader.fromGguf(
                     randomAccessProvider = { JvmRandomAccessSource.open(MODEL_PATH.toString()) },
-                    quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32
+                    weightForm = DECODER_DEQUANTIZE_ALL
                 ).load<FP32, Float>(ctx)
                 val runtime = OptimizedLLMRuntime(
                     model = model, ctx = ctx,
@@ -138,7 +138,7 @@ class PrefillStrategyEquivalenceTest {
             run {
                 val model = LlamaNetworkLoader.fromGguf(
                     randomAccessProvider = { JvmRandomAccessSource.open(MODEL_PATH.toString()) },
-                    quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32
+                    weightForm = DECODER_DEQUANTIZE_ALL
                 ).load<FP32, Float>(ctx)
                 val runtime = OptimizedLLMRuntime(
                     model = model, ctx = ctx,

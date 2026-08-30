@@ -114,6 +114,7 @@ Options:
   --demo            Tool calling demo (add prompt for single-shot)
   --template=NAME   Chat template override: llama3, chatml, qwen, gemma
   --context=N       Cap context length to N tokens
+  --explain-load    Print per-weight placement decisions (mapped/heap and why) before loading
   -h, --help        Show help
 ----
 

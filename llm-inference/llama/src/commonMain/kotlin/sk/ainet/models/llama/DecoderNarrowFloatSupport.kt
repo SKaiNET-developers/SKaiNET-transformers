@@ -18,7 +18,7 @@ import sk.ainet.lang.types.FP16
  * lossy round-trip.
  *
  * One caveat this coarse capability set cannot express: on the GGUF side, KEEP_NATIVE applies
- * only under `QuantPolicy.DEQUANTIZE_TO_FP32` / `NATIVE_OPTIMIZED` with an `FP32` element type.
- * `QuantPolicy.RAW_BYTES` hands every non-F32 tensor back as raw `Int8` bytes and is unaffected.
+ * only with an `FP32` element type — the packed tensor presents FP32 to consumers while
+ * keeping the on-disk 16-bit bytes.
  */
 public val DECODER_NARROW_KEEP_NATIVE: Set<DType> = setOf(BF16, FP16)

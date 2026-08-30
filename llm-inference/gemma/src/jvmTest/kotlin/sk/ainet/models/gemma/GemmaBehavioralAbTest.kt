@@ -15,7 +15,6 @@ import sk.ainet.apps.llm.OptimizedLLMRuntime
 import sk.ainet.apps.llm.tokenizer.GGUFTokenizer
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
-import sk.ainet.io.model.QuantPolicy
 import sk.ainet.lang.types.FP32
 import java.io.File
 import kotlin.test.Test
@@ -47,7 +46,7 @@ class GemmaBehavioralAbTest {
         val tokenizer = GGUFTokenizer.fromSource(SystemFileSystem.source(Path(gguf)).buffered())
         val weights = Gemma4WeightLoader(
             randomAccessProvider = { JvmRandomAccessSource.open(gguf) },
-            quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
+            weightForm = GEMMA_DEQUANTIZE_ALL,
         ).loadToMapStreaming<FP32, Float>(ctx, FP32::class)
         val model = GemmaNetworkLoader.fromWeights(ctx, weights, FP32::class)
         val runtime = OptimizedLLMRuntime(

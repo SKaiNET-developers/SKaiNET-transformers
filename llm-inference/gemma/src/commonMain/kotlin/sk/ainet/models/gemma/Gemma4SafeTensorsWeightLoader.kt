@@ -64,8 +64,7 @@ public class Gemma4SafeTensorsWeightLoader(
 
         return Gemma4Weights(
             metadata = metadata,
-            tensors = tensorsByGgufName,
-            quantTypes = emptyMap()
+            tensors = tensorsByGgufName
         )
     }
 

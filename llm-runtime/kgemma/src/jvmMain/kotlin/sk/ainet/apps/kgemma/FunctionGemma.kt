@@ -8,8 +8,8 @@ import sk.ainet.apps.llm.OptimizedLLMRuntime
 import sk.ainet.apps.llm.generate
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
-import sk.ainet.io.model.QuantPolicy
 import sk.ainet.lang.types.FP32
+import sk.ainet.models.gemma.GEMMA_DEQUANTIZE_ALL
 import sk.ainet.models.gemma.Gemma4WeightLoader
 import sk.ainet.models.gemma.GemmaNetworkLoader
 import sk.ainet.apps.kllama.chat.ChatMessage
@@ -84,7 +84,7 @@ public class FunctionGemma private constructor(
             val ctx = DirectCpuExecutionContext.create()
             val weights = Gemma4WeightLoader(
                 randomAccessProvider = { JvmRandomAccessSource.open(gguf) },
-                quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
+                weightForm = GEMMA_DEQUANTIZE_ALL,
             ).loadToMapStreaming<FP32, Float>(ctx, FP32::class)
             val patched = weights.copy(
                 metadata = weights.metadata.copy(

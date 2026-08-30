@@ -10,24 +10,30 @@ import sk.ainet.apps.llm.Tokenizer
 import sk.ainet.apps.llm.UnifiedModelLoader
 import sk.ainet.apps.llm.generate
 import sk.ainet.models.apertus.ApertusNetworkLoader
-import sk.ainet.models.gemma.Gemma4WeightLoader
-import sk.ainet.models.gemma.Gemma4Weights
 import sk.ainet.models.gemma.GemmaNetworkLoader
-import sk.ainet.models.gemma.convertGemmaWeightsToMemSeg
 import sk.ainet.apps.llm.backend.BackendRegistry
 import sk.ainet.apps.llm.backend.bestAvailable
 import sk.ainet.apps.llm.tokenizer.TokenizerFactory
 import sk.ainet.apps.kllama.chat.ModelMetadata
+import sk.ainet.backend.api.kernel.KernelPacks
 import sk.ainet.context.DirectCpuExecutionContext
+import sk.ainet.exec.kernel.FfmRowMajorKernelPack
 import sk.ainet.io.JvmRandomAccessSource
-import sk.ainet.io.model.QuantPolicy
-import sk.ainet.lang.tensor.data.MemorySegmentTensorDataFactory
+import sk.ainet.io.gguf.StreamingGGUFReader
+import sk.ainet.io.gguf.planInput
+import sk.ainet.lang.memory.plan.Budget
+import sk.ainet.lang.memory.plan.MemoryPlans
+import sk.ainet.lang.memory.plan.WeightForm
+import sk.ainet.lang.memory.plan.WeightResidency
+import sk.ainet.lang.memory.plan.WeightShapeOrientation
 import sk.ainet.lang.types.FP32
-import sk.ainet.models.llama.DecoderGgufMemSegConverter
 import sk.ainet.models.llama.DecoderGgufWeightLoader
 import sk.ainet.models.llama.LlamaNetworkLoader
+import sk.ainet.exec.kernel.NativeTernaryF32GemvKernel
+import sk.ainet.exec.kernel.NativeTernaryLmheadKernel
+import sk.ainet.models.bitnet.BitNetNetworkLoader
+import sk.ainet.models.bitnet.BitNetPackedGgufLoader
 import sk.ainet.models.qwen.QwenNetworkLoader
-import java.lang.foreign.Arena
 import java.nio.file.Path
 import kotlin.io.path.exists
 import kotlin.io.path.extension
@@ -44,7 +50,8 @@ private data class CliArgs(
     val agentMode: Boolean,
     val demoMode: Boolean,
     val templateName: String?,
-    val contextLength: Int?
+    val contextLength: Int?,
+    val explainLoad: Boolean,
 )
 
 private fun usage(errorMessage: String? = null): Nothing {
@@ -63,6 +70,7 @@ private fun usage(errorMessage: String? = null): Nothing {
     println("  --demo              Tool calling demo with file listing and calculator")
     println("  --template=NAME     Chat template: llama3, chatml, qwen, gemma (auto-detected if omitted)")
     println("  --context=N         Cap context length to N tokens")
+    println("  --explain-load      Print per-weight placement decisions (mapped/heap and why) before loading")
     println("  -h, --help          Show this help")
     println()
     println("Supported architectures (auto-detected from GGUF metadata):")
@@ -87,6 +95,7 @@ private fun parseArgs(args: Array<String>): CliArgs {
     var demoMode = false
     var templateName: String? = null
     var contextLength: Int? = null
+    var explainLoad = false
 
     var idx = 0
     fun nextValue(flag: String): String {
@@ -111,6 +120,7 @@ private fun parseArgs(args: Array<String>): CliArgs {
             arg == "--chat" -> chatMode = true
             arg == "--agent" -> agentMode = true
             arg == "--demo" -> demoMode = true
+            arg == "--explain-load" -> explainLoad = true
             arg.startsWith("--template=") -> templateName = arg.substringAfter("=")
             arg.startsWith("--context=") -> {
                 val value = arg.substringAfter("=")
@@ -131,7 +141,7 @@ private fun parseArgs(args: Array<String>): CliArgs {
         usage("Prompt is required (or use --chat/--agent/--demo mode).")
     }
 
-    return CliArgs(modelPath, steps, temperature, prompt, chatMode, agentMode, demoMode, templateName, contextLength)
+    return CliArgs(modelPath, steps, temperature, prompt, chatMode, agentMode, demoMode, templateName, contextLength, explainLoad)
 }
 
 fun main(args: Array<String>) {
@@ -153,15 +163,60 @@ fun main(args: Array<String>) {
         val provider = BackendRegistry.bestAvailable()
         println("Backend: ${provider.displayName}")
 
-        // Set up execution context
-        val quantArena = Arena.ofShared()
-        val memSegFactory = MemorySegmentTensorDataFactory()
-        val ctx = DirectCpuExecutionContext(tensorDataFactory = memSegFactory)
+        // 0.51 view-keyed kernel tiers (#338 arc): KernelPacks wires the reference +
+        // best provider's FP32/prepacked kernels into KernelDispatch; the FFM
+        // row-major pack serves canonical packed weights — mapped OR un-prepacked
+        // heap — zero-copy, which is what makes WeightForm(residency = MAPPED) fast.
+        @OptIn(sk.ainet.lang.memory.ExperimentalMemoryApi::class)
+        run {
+            KernelPacks.install()
+            FfmRowMajorKernelPack.install()
+        }
 
-        Runtime.getRuntime().addShutdownHook(Thread {
-            quantArena.close()
-            memSegFactory.close()
-        })
+        // Memory plan before anything is allocated: header-only arithmetic
+        // priced with the same form the loaders below request for every
+        // tensor — MAPPED keep-packed; even the token embedding stays at its
+        // packed footprint (rewrapped as a row-dequant source, not inflated
+        // to dense FP32) — against the JVM heap cap. Mapped weights page
+        // against device RAM, not this budget (#1189) — the whole point of
+        // the MAPPED default.
+        @OptIn(sk.ainet.lang.memory.ExperimentalMemoryApi::class)
+        run {
+            val mappedDefault = WeightForm(
+                shape = WeightShapeOrientation.OUT_IN,
+                residency = WeightResidency.MAPPED,
+            )
+            val planInput = JvmRandomAccessSource.open(modelPath.toString()).use { source ->
+                StreamingGGUFReader.open(source).planInput(
+                    ctx = cliArgs.contextLength,
+                    formFor = { mappedDefault },
+                )
+            }
+            val plan = MemoryPlans.plan(
+                planInput,
+                Budget(Runtime.getRuntime().maxMemory(), "JVM max heap (-Xmx)"),
+            )
+            println(plan.render())
+            if (cliArgs.explainLoad) {
+                // One line per weight: where it lands (mmap page cache vs heap)
+                // and why — the same AllocationResolver the plan itself uses.
+                println("Placements (--explain-load):")
+                for (line in planInput.weights.map {
+                    sk.ainet.lang.memory.plan.AllocationResolver.explain(it, sk.ainet.lang.memory.plan.PlannerProfile.DESKTOP)
+                }) {
+                    println("  $line")
+                }
+            }
+            if (plan.fits == false) {
+                System.err.println("WARNING: planned heap use exceeds the JVM heap cap — the load may OOM. See suggestions above.")
+            }
+        }
+
+        // Set up execution context. Weights no longer go through a hand-managed
+        // MemorySegment Arena — the engine loader owns residency (mapped pages
+        // or heap arrays) per the requested WeightForm, and activations live on
+        // the default heap factory.
+        val ctx = DirectCpuExecutionContext()
 
         // Load model based on detected family. All families route through
         // the DSL pipeline (per-family network() builder +
@@ -176,60 +231,71 @@ fun main(args: Array<String>) {
         // diverged from the checkpoint's intent. The DSL path is correct
         // for Apertus too. See APERTUS_ROLLOUT.md (PR 1).
         val runtime: InferenceRuntime<FP32> = if (modelInfo.family == ModelFamily.GEMMA) {
-            println("Loading Gemma GGUF model from $modelPath via gemmaNetwork() + OptimizedLLMRuntime (NATIVE_OPTIMIZED)...")
+            println("Loading Gemma GGUF model from $modelPath via gemmaNetwork() + OptimizedLLMRuntime (engine loader, keep-packed, mapped)...")
             if (cliArgs.contextLength != null) {
                 println("  --context flag currently ignored on the Gemma path; uses model default capped to 4096.")
             }
-            val rawWeights = Gemma4WeightLoader(
-                randomAccessProvider = { JvmRandomAccessSource.open(modelPath.toString()) },
-                quantPolicy = QuantPolicy.NATIVE_OPTIMIZED
-            ).loadToMapStreaming<FP32, Float>(ctx, FP32::class)
-            @Suppress("UNCHECKED_CAST")
-            val converted = convertGemmaWeightsToMemSeg(rawWeights, ctx, quantArena) as Gemma4Weights<FP32, Float>
-            val model = GemmaNetworkLoader.fromWeights(ctx, converted, FP32::class)
+            val model = GemmaNetworkLoader.fromGguf(
+                randomAccessProvider = { JvmRandomAccessSource.open(modelPath.toString()) }
+            ).load<FP32, Float>(ctx)
             OptimizedLLMRuntime(model, ctx, OptimizedLLMMode.DIRECT, FP32::class)
         } else if (modelInfo.family == ModelFamily.APERTUS) {
-            println("Loading Apertus GGUF model from $modelPath via apertusNetwork() + OptimizedLLMRuntime (NATIVE_OPTIMIZED)...")
+            println("Loading Apertus GGUF model from $modelPath via apertusNetwork() + OptimizedLLMRuntime (engine loader, keep-packed, mapped)...")
             if (cliArgs.contextLength != null) {
                 println("  --context flag currently ignored on the Apertus path; uses model default.")
             }
             val model = ApertusNetworkLoader.fromGguf(
-                randomAccessProvider = { JvmRandomAccessSource.open(modelPath.toString()) },
-                quantPolicy = QuantPolicy.NATIVE_OPTIMIZED
+                randomAccessProvider = { JvmRandomAccessSource.open(modelPath.toString()) }
             ).load<FP32, Float>(ctx)
             OptimizedLLMRuntime(model, ctx, OptimizedLLMMode.DIRECT, FP32::class)
+        } else if (modelInfo.family == ModelFamily.BITNET) {
+            // BitNet b1.58: the packed I2_S path (transformers#337). Ternary projections load as
+            // 2-bit BITNET_B1_58 tensors (0.25 B/weight) through the SKaiNET engine loader, and
+            // dispatch runs them on the vendored NeoGPU NEON kernels installed below — the exact
+            // f32 path, no requantization error. A file with tied embeddings serves the lm_head
+            // from token_embd; one with output.weight gets the fused BITNET_PLANES format.
+            println("Loading BitNet GGUF model from $modelPath via BitNetPackedGgufLoader (packed I2_S, GROUP_128 flavor)...")
+            if (cliArgs.contextLength != null) {
+                println("  --context flag currently ignored on the BitNet path; uses model default capped to 4096.")
+            }
+            NativeTernaryF32GemvKernel.install { println("[skainet] $it") }
+            NativeTernaryLmheadKernel.install { println("[skainet] $it") }
+            val loaded = BitNetPackedGgufLoader.loadWithMetadata(
+                ctx,
+                sourceProvider = { JvmRandomAccessSource.open(modelPath.toString()) },
+            )
+            OptimizedLLMRuntime(
+                model = loaded.model,
+                ctx = ctx,
+                mode = OptimizedLLMMode.DIRECT,
+                dtype = FP32::class,
+                bos = loaded.metadata.bosTokenId,
+            )
         } else {
             // LLaMA / Qwen / Mistral DSL path. DecoderGgufWeightLoader
-            // streams the GGUF, DecoderGgufMemSegConverter wraps Q4_0/Q8_0
-            // tensors as packed MemorySegment data, then the per-family
-            // network loader builds the right module:
+            // streams the GGUF through the engine loader, keeping quantized
+            // tensors in their stored block encoding as packed tensor data,
+            // then the per-family network loader builds the right module:
             //   - Qwen → qwenNetwork() (QK-norm + NEOX RoPE)
+            //   - BitNet → bitnetNetwork() (relu² FFN + sub-norms)
             //   - else → llamaNetwork() (LLaMA / Mistral default)
             val acceptedArchitectures = modelInfo.family.architectures + setOf(modelInfo.architecture)
             val loader = DecoderGgufWeightLoader(
                 randomAccessProvider = { JvmRandomAccessSource.open(modelPath.toString()) },
-                quantPolicy = QuantPolicy.NATIVE_OPTIMIZED,
                 acceptedArchitectures = acceptedArchitectures,
             )
 
-            println("Loading GGUF model from $modelPath (${modelInfo.family.displayName}, DSL streaming)...")
-            val rawWeights = loader.loadToMapStreaming<FP32, Float>(ctx)
-
-            val convertedWeights = if (rawWeights.quantTypes.isNotEmpty()) {
-                println("Converting ${rawWeights.quantTypes.size} quantized tensors to SIMD format...")
-                DecoderGgufMemSegConverter.convert(rawWeights, ctx, quantArena)
-            } else {
-                rawWeights
-            }
+            println("Loading GGUF model from $modelPath (${modelInfo.family.displayName}, DSL streaming, keep-packed, mapped)...")
+            val convertedWeights = loader.loadToMapStreaming<FP32, Float>(ctx)
 
             if (cliArgs.contextLength != null) {
                 println("Context length capped to ${cliArgs.contextLength} (model default: ${convertedWeights.metadata.contextLength})")
             }
 
-            val model = if (modelInfo.family == ModelFamily.QWEN) {
-                QwenNetworkLoader.fromWeights(convertedWeights)
-            } else {
-                LlamaNetworkLoader.fromWeights(convertedWeights)
+            val model = when (modelInfo.family) {
+                ModelFamily.QWEN -> QwenNetworkLoader.fromWeights(convertedWeights)
+                ModelFamily.BITNET -> BitNetNetworkLoader.fromWeights(convertedWeights)
+                else -> LlamaNetworkLoader.fromWeights(convertedWeights)
             }
             OptimizedLLMRuntime(
                 model = model,

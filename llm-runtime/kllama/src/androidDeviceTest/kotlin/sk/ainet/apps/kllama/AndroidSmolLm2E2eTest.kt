@@ -14,7 +14,6 @@ import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.exec.tensor.ops.KernelProfile
 import sk.ainet.io.RandomAccessSource
 import sk.ainet.io.gguf.createRandomAccessSource
-import sk.ainet.io.model.QuantPolicy
 import sk.ainet.lang.types.FP32
 import sk.ainet.models.llama.LlamaNetworkLoader
 import java.io.File
@@ -116,7 +115,7 @@ class AndroidSmolLm2E2eTest {
             }
             val (model, loadElapsed) = measureTimedValue {
                 LlamaNetworkLoader
-                    .fromGguf(racProvider, QuantPolicy.NATIVE_OPTIMIZED)
+                    .fromGguf(racProvider)
                     .load<FP32, Float>(ctx)
             }
             val runtime = OptimizedLLMRuntime(

@@ -26,6 +26,10 @@ plugins {
 // code across targets). Add native targets if/when this module gains actual
 // shared or native-specific source.
 kotlin {
+    compilerOptions {
+        optIn.add("sk.ainet.lang.memory.ExperimentalMemoryApi")
+    }
+
     jvm()
 
     sourceSets {

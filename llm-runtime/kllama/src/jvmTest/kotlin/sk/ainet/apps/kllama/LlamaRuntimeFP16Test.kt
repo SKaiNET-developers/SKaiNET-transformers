@@ -6,12 +6,13 @@ import kotlin.test.assertTrue
 import org.junit.jupiter.api.Tag
 import kotlinx.coroutines.test.runTest
 import sk.ainet.context.DirectCpuExecutionContext
+import kotlinx.io.buffered
 import sk.ainet.io.JvmRandomAccessSource
+import sk.ainet.models.llama.DECODER_DEQUANTIZE_ALL
 import sk.ainet.models.llama.LlamaLayerWeights
 import sk.ainet.models.llama.LlamaRuntime
 import sk.ainet.models.llama.LlamaModelMetadata
 import sk.ainet.models.llama.LlamaRuntimeWeights
-import sk.ainet.io.model.QuantPolicy
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.types.FP16
 import java.io.File
@@ -147,15 +148,15 @@ class LlamaRuntimeFP16Test {
         val ctx = DirectCpuExecutionContext()
         val ingestion = LlamaIngestion<FP16>(
             ctx = ctx,
-            dtype = FP16::class,
-            config = LlamaLoadConfig(
-                quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
-                allowQuantized = false
-            )
+            dtype = FP16::class
         )
 
-        val weights = ingestion.loadStreaming {
-            sk.ainet.io.JvmRandomAccessSource.open(modelFile)
+        // The engine-backed streaming path delivers FP32-typed tensors; FP16
+        // dense storage is served by the sequential Source path.
+        val weights = ingestion.load {
+            kotlinx.io.files.SystemFileSystem.source(
+                kotlinx.io.files.Path(modelFile.absolutePath)
+            ).buffered()
         }
 
         assertTrue(weights.layers.isNotEmpty(), "Should have loaded layers")

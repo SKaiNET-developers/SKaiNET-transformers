@@ -13,6 +13,7 @@ import sk.ainet.lang.nn.transformer.RoPE
 import sk.ainet.lang.nn.transformer.RoPEMode
 import sk.ainet.lang.nn.transformer.RoPEScaling
 import sk.ainet.lang.nn.transformer.GeGLUFFN
+import sk.ainet.lang.nn.transformer.BitNetFFN
 import sk.ainet.lang.nn.transformer.SwiGLUFFN
 import sk.ainet.lang.nn.transformer.XIELUActivation
 import sk.ainet.context.ExecutionContext
@@ -75,6 +76,8 @@ public class AttentionImpl<T : DType, V>(
     private val qkNorm: Boolean,
     private val qkNormUnitOffset: Boolean = false,
     private val qkNormEps: Double = 1e-5,
+    private val attnSubNorm: Boolean = false,
+    private val attnSubNormEps: Double = 1e-5,
     private val attentionScale: Float? = null,
     private val vNormNoScale: Boolean = false,
     private val bias: Boolean,
@@ -136,6 +139,8 @@ public class AttentionImpl<T : DType, V>(
             qkNorm = qkNorm,
             qkNormUnitOffset = qkNormUnitOffset,
             qkNormEps = qkNormEps,
+            attnSubNorm = attnSubNorm,
+            attnSubNormEps = attnSubNormEps,
             attentionScale = attentionScale,
             vNormNoScale = vNormNoScale,
             bias = bias,
@@ -192,6 +197,8 @@ public fun <T : DType, V> StageImpl<T, V>.multiHeadAttention(
     qkNorm: Boolean = false,
     qkNormUnitOffset: Boolean = false,
     qkNormEps: Float = 1e-5f,
+    attnSubNorm: Boolean = false,
+    attnSubNormEps: Float = 1e-5f,
     attentionScale: Float? = null,
     vNormNoScale: Boolean = false,
     bias: Boolean = false,
@@ -210,6 +217,8 @@ public fun <T : DType, V> StageImpl<T, V>.multiHeadAttention(
         qkNorm = qkNorm,
         qkNormUnitOffset = qkNormUnitOffset,
         qkNormEps = qkNormEps.toDouble(),
+        attnSubNorm = attnSubNorm,
+        attnSubNormEps = attnSubNormEps.toDouble(),
         attentionScale = attentionScale,
         vNormNoScale = vNormNoScale,
         bias = bias,
@@ -227,6 +236,17 @@ public fun <T : DType, V> StageImpl<T, V>.swiGluFFN(dim: Int, hiddenDim: Int, id
         dim = dim,
         hiddenDim = hiddenDim,
         name = getDefaultName(id, "SwiGLUFFN", modules.size)
+    )
+}
+
+/** BitNet b1.58 FFN: `down(subNorm(relu(gate(x))² * up(x)))` — see [BitNetFFN]. */
+public fun <T : DType, V> StageImpl<T, V>.bitNetFFN(dim: Int, hiddenDim: Int, subNormEps: Float = 1e-5f, id: String = "") {
+    modules += BitNetFFN<T, V>(
+        dim = dim,
+        hiddenDim = hiddenDim,
+        subNormEps = subNormEps.toDouble(),
+        name = getDefaultName(id, "BitNetFFN", modules.size),
+        dtype = kClass
     )
 }
 
@@ -324,6 +344,17 @@ public fun <T : DType, V> NeuralNetworkDslImpl<T, V>.swiGluFFN(dim: Int, hiddenD
         dim = dim,
         hiddenDim = hiddenDim,
         name = getDefaultName(id, "SwiGLUFFN", modules.size)
+    )
+}
+
+/** BitNet b1.58 FFN: `down(subNorm(relu(gate(x))² * up(x)))` — see [BitNetFFN]. */
+public fun <T : DType, V> NeuralNetworkDslImpl<T, V>.bitNetFFN(dim: Int, hiddenDim: Int, subNormEps: Float = 1e-5f, id: String = "") {
+    modules += BitNetFFN<T, V>(
+        dim = dim,
+        hiddenDim = hiddenDim,
+        subNormEps = subNormEps.toDouble(),
+        name = getDefaultName(id, "BitNetFFN", modules.size),
+        dtype = kClass
     )
 }
 
