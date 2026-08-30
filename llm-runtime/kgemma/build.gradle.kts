@@ -122,6 +122,10 @@ kotlin {
                 // here rather than in commonMain.
                 implementation(project(":llm-providers"))
                 implementation(project(":llm-api"))
+                // KernelPacks.install()/FfmRowMajorKernelPack.install() — Gemma4ChatModel's
+                // ensureKernelPacksInstalled() (mirrors KLlamaJava's).
+                implementation(libs.skainet.backend.api)
+                implementation(libs.skainet.backend.nativeCpu)
             }
         }
         val jvmTest by getting {

@@ -4,12 +4,17 @@ import sk.ainet.apps.kgemma.Gemma3nIngestion
 import sk.ainet.apps.kgemma.Gemma3nLoadConfig
 import sk.ainet.apps.kgemma.Gemma4Ingestion
 import sk.ainet.apps.kgemma.Gemma4LoadConfig
+import sk.ainet.apps.kgemma.Gemma4StopTokens
+import sk.ainet.apps.kgemma.KgemmaKernels
 import sk.ainet.apps.kllama.GGUFTokenizer
+import sk.ainet.apps.kllama.chat.ChatMessage
+import sk.ainet.apps.kllama.chat.ChatRole
 import sk.ainet.apps.kllama.chat.ChatSession
+import sk.ainet.apps.kllama.chat.Gemma4ChatTemplate
+import sk.ainet.apps.kllama.chat.GemmaChatTemplate
 import sk.ainet.apps.kllama.chat.ModelMetadata
 import sk.ainet.apps.llm.InferenceRuntime
-import sk.ainet.apps.llm.Tokenizer
-import sk.ainet.apps.llm.generate
+import sk.ainet.apps.llm.generateUntilStop
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
 import sk.ainet.lang.tensor.data.MemorySegmentTensorDataFactory
@@ -83,6 +88,7 @@ private data class CliArgs(
     val steps: Int,
     val temperature: Float,
     val agent: Boolean = false,
+    val chat: Boolean = false,
     val toolsSpec: String? = null
 )
 
@@ -92,11 +98,15 @@ private fun usage(errorMessage: String? = null): Nothing {
         System.err.println()
     }
 
-    println("Usage: kgemma <model> <prompt> [steps] [temperature] [--agent]")
+    println("Usage: kgemma <model> <prompt> [steps] [temperature] [--chat] [--agent]")
     println("  model               Path to .gguf model or SafeTensors directory (required)")
     println("  prompt              Prompt text (required)")
-    println("  steps               Generation steps (default: 32)")
+    println("  steps               Max generation steps (default: 32)")
     println("  temperature         Sampling temperature (default: 0.8)")
+    println("  --chat              Render the prompt through the model-appropriate chat")
+    println("                      template as a single user turn (no tools). Recommended")
+    println("                      for instruction-tuned checkpoints; default off feeds the")
+    println("                      raw prompt.")
     println("  --agent             Route through ChatSession with the model-appropriate")
     println("                      chat template and an agent tool registry. Default off")
     println("                      (raw runtime.generate).")
@@ -104,8 +114,8 @@ private fun usage(errorMessage: String? = null): Nothing {
     println("                      Available: ${DefaultTools.names.joinToString(", ")}.")
     println("                      Default: calculator.")
     println()
-    println("Runtime: gemmaNetwork() + OptimizedLLMRuntime (DSL, NATIVE_OPTIMIZED Q4_0/Q8_0 +")
-    println("         dequant K-series to FP32 until a K-kernel lands).")
+    println("Runtime: gemmaNetwork() + OptimizedLLMRuntime (DSL, NATIVE_OPTIMIZED Q4_0/Q5_0/Q5_1/")
+    println("         Q8_0/Q4_K/Q5_K/Q6_K via the FFM row-major kernel pack; anything else dequants).")
     println()
     println("Example:")
     println("  kgemma models/gemma-3-270m-it-Q8_0.gguf \"Hello, how are you?\" 32 0.8")
@@ -128,10 +138,12 @@ private fun parseArgs(args: Array<String>): CliArgs {
     val temperature = positional.getOrElse(3) { "0.8" }.toFloatOrNull() ?: usage("Invalid temperature '${positional[3]}'.")
 
     var agent = false
+    var chat = false
     var toolsSpec: String? = null
     for (flag in flags) {
         when {
             flag == "--agent" -> agent = true
+            flag == "--chat" -> chat = true
             flag.startsWith("--tools=") -> toolsSpec = flag.substringAfter("=")
             flag == "--help" || flag == "-h" -> usage()
             else -> usage("Unknown flag '$flag'.")
@@ -141,8 +153,11 @@ private fun parseArgs(args: Array<String>): CliArgs {
     if (toolsSpec != null && !agent) {
         usage("--tools has no effect without --agent.")
     }
+    if (chat && agent) {
+        usage("--chat and --agent are mutually exclusive (--agent already applies the chat template).")
+    }
 
-    return CliArgs(modelPath, prompt, steps, temperature, agent, toolsSpec)
+    return CliArgs(modelPath, prompt, steps, temperature, agent, chat, toolsSpec)
 }
 
 private fun detectFormat(path: Path): ModelFormat {
@@ -165,6 +180,11 @@ fun main(args: Array<String>) {
         val modelPath = cliArgs.modelPath
 
         if (!modelPath.exists()) error("Model not found: $modelPath")
+
+        // Without the 0.51 view-keyed kernel packs, MAPPED/keep-packed weights fall
+        // to the decoding reference kernel (~1000x slower). kllama installs these in
+        // #354; kgemma was the gap behind the ~0.04 tok/s Gemma 4 report.
+        KgemmaKernels.ensureInstalled()
 
         val format = detectFormat(modelPath)
 
@@ -229,7 +249,7 @@ fun main(args: Array<String>) {
         }
 
         // Load tokenizer from GGUF or from tokenizer.json in model directory
-        val tokenizer: Tokenizer = when (format) {
+        val tokenizer: GGUFTokenizer = when (format) {
             ModelFormat.GGUF -> {
                 println("Loading embedded GGUF tokenizer...")
                 JvmRandomAccessSource.open(modelPath.toString()).use { source ->
@@ -295,21 +315,56 @@ fun main(args: Array<String>) {
             println("---")
             println("agent round elapsed: ${elapsed}ms")
         } else {
-            val promptTokens = tokenizer.encode(cliArgs.prompt)
+            // Render the prompt. --chat routes a single user turn through the
+            // model-appropriate template; plain mode feeds the raw text. Either
+            // way the sequence must start with BOS — Gemma's BOS is 2, NOT the
+            // historical default of 1 (which is Gemma's <eos>; prefilling it
+            // was one root cause of the degenerate `<turn|>` generation).
+            val renderedPrompt = if (cliArgs.chat) {
+                val template = when (variant) {
+                    GemmaVariant.GEMMA4 -> Gemma4ChatTemplate()
+                    GemmaVariant.GEMMA3N -> GemmaChatTemplate()
+                }
+                template.apply(
+                    messages = listOf(ChatMessage(ChatRole.USER, cliArgs.prompt)),
+                    addGenerationPrompt = true
+                )
+            } else {
+                cliArgs.prompt
+            }
+            val encoded = tokenizer.encode(renderedPrompt)
+            val promptTokens = if (encoded.isEmpty() || encoded[0] != tokenizer.bosTokenId) {
+                intArrayOf(tokenizer.bosTokenId) + encoded
+            } else {
+                encoded
+            }
 
-            println("Generating ${cliArgs.steps} tokens with temperature=${cliArgs.temperature}...")
+            // Stop on the model's full stop set (Gemma 4: <eos>, <turn|>,
+            // chat-end), not on a step budget alone.
+            val stopIds = Gemma4StopTokens.resolve(tokenizer)
+
+            println(
+                "Generating up to ${cliArgs.steps} tokens with temperature=${cliArgs.temperature} " +
+                    "(bos=${tokenizer.bosTokenId}, stop=$stopIds, chat=${cliArgs.chat})..."
+            )
             println("---")
             print(cliArgs.prompt)
 
+            var generatedCount = 0
             val elapsed = measureTime {
-                runtime.generate(prompt = promptTokens, steps = cliArgs.steps, temperature = cliArgs.temperature) { id ->
-                    print(tokenizer.decode(id))
-                }
+                val result = runtime.generateUntilStop(
+                    prompt = promptTokens,
+                    maxTokens = cliArgs.steps,
+                    eosTokenIds = stopIds,
+                    temperature = cliArgs.temperature,
+                    onToken = { id -> print(tokenizer.decode(id)) }
+                )
+                generatedCount = result.tokens.size
             }.inWholeMilliseconds
 
-            val tokPerSec = cliArgs.steps / elapsed.toDouble() * 1000
+            val tokPerSec = if (elapsed > 0) generatedCount / elapsed.toDouble() * 1000 else 0.0
             println("\n---")
-            println("tok/s: $tokPerSec")
+            println("generated $generatedCount tokens (incl. prefill of ${promptTokens.size}); tok/s: $tokPerSec")
         }
     }
 }

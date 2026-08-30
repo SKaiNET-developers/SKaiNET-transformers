@@ -106,7 +106,7 @@ public fun <T : DType, V> gemmaNetwork(
     val nLayers = metadata.blockCount
     val seqLen = maxInferenceLen
     val vocabSize = metadata.vocabSize
-    val eps = 1e-6f
+    val eps = metadata.rmsNormEps
 
     // Gemma 4 rotates only half of head_dim on global (p-RoPE) layers; the
     // metadata field is per-scheme, but the two schemes share this fraction

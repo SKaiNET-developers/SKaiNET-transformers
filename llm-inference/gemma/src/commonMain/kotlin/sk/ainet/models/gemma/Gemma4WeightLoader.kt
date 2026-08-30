@@ -17,8 +17,11 @@ import sk.ainet.lang.memory.plan.EncodingRequest
 import sk.ainet.lang.memory.plan.WeightForm
 import sk.ainet.lang.memory.plan.WeightResidency
 import sk.ainet.lang.memory.plan.WeightShapeOrientation
+import sk.ainet.lang.nn.quant.PackedRowDequantTensorData
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.Tensor
+import sk.ainet.lang.tensor.data.TensorData
+import sk.ainet.lang.tensor.storage.PackedBlockStorage
 import sk.ainet.lang.types.DType
 import sk.ainet.lang.types.FP16
 import sk.ainet.lang.types.FP32
@@ -265,7 +268,6 @@ public class Gemma4WeightLoader private constructor(
             weightForm = defaultForm,
             weightFormFor = { name ->
                 when (name) {
-                    Gemma4TensorNames.TOKEN_EMBEDDINGS -> GEMMA_DEQUANTIZE_ALL
                     // Keep the PLE table packed regardless of the caller's
                     // form: dense FP32 is ~9 GB on E2B (and overflows the
                     // JVM array cap on E4B). Wrapped as a row-dequant
@@ -279,12 +281,19 @@ public class Gemma4WeightLoader private constructor(
         var tokenEmbedding: Tensor<T, V>? = null
         engineLoader.load(ctx, dtype) { name: String, tensor: Tensor<T, V> ->
             if (name !in wanted) return@load
-            val delivered =
-                if (name == Gemma4TensorNames.PER_LAYER_TOKEN_EMBD) {
+            val delivered = when (name) {
+                Gemma4TensorNames.PER_LAYER_TOKEN_EMBD ->
                     wrapGemmaPleIfPacked(ctx, dtype, tensor, ggufTypeByName[name])
-                } else {
-                    tensor
-                }
+                // token_embd rides the default keep-packed form like every other
+                // tensor, then is rewrapped as a row-dequant source (llama's
+                // embeddingReady pattern): Embedding gathers rows via dequantRow,
+                // and the *tied* output head still sees PackedBlockStorage for
+                // the packed matmul chain instead of a ~2.4 GB dense FP32 table
+                // running off the fast-kernel path every decode step.
+                Gemma4TensorNames.TOKEN_EMBEDDINGS ->
+                    embeddingReady(ctx, dtype, tensor)
+                else -> tensor
+            }
             if (name == Gemma4TensorNames.TOKEN_EMBEDDINGS) tokenEmbedding = delivered
             onTensorLoaded(name, delivered)
         }
@@ -299,6 +308,31 @@ public class Gemma4WeightLoader private constructor(
         }
 
         return metadata
+    }
+
+    /**
+     * The token-embedding tensor in a form `Embedding.gather` can read
+     * (mirrors llama's `DecoderGgufWeightLoader.embeddingReady`): packed
+     * deliveries are rewrapped as a [PackedRowDequantTensorData] row-dequant
+     * source; a packed table whose rows do not lie on block boundaries is
+     * dequantized outright rather than left where element access would
+     * return raw quantization codes. Dense deliveries (e.g. under a caller's
+     * [GEMMA_DEQUANTIZE_ALL] export form) pass through untouched.
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun <T : DType, V> embeddingReady(
+        ctx: ExecutionContext,
+        dtype: KClass<T>,
+        tensor: Tensor<T, V>,
+    ): Tensor<T, V> {
+        val data = tensor.data
+        if (data !is PackedBlockStorage) return tensor
+        val wrapped = PackedRowDequantTensorData.wrapIfRowDequantable(data as TensorData<FP32, Float>)
+        return if (wrapped !== data) {
+            ctx.fromData(wrapped as TensorData<T, V>, dtype)
+        } else {
+            ctx.fromFloatArray<T, V>(tensor.shape, dtype, data.toFloatArray())
+        }
     }
 
     // ============== Metadata extraction ==============
@@ -361,6 +395,12 @@ public class Gemma4WeightLoader private constructor(
             ?: ropeDimensionCount?.takeIf { globalHeadDim > 0 }?.let { it.toFloat() / globalHeadDim }
             ?: partialRotaryDefault
         val finalLogitSoftcapping = fields["$prefix.final_logit_softcapping"]?.scalarFloat() ?: 0f
+        val rmsNormEps = fields["$prefix.attention.layer_norm_rms_epsilon"]?.scalarFloat() ?: 1e-6f
+        // Token ids: without these, downstream defaults prefill BOS=1 — which is
+        // Gemma's <eos> — and generation collapses into turn-token spam (#325 arc).
+        val bosTokenId = fields["tokenizer.ggml.bos_token_id"]?.scalarInt() ?: 2
+        val eosTokenId = fields["tokenizer.ggml.eos_token_id"]?.scalarInt() ?: 1
+        val padTokenId = fields["tokenizer.ggml.padding_token_id"]?.scalarInt() ?: 0
 
         return Gemma4ModelMetadata(
             architecture = arch,
@@ -389,6 +429,10 @@ public class Gemma4WeightLoader private constructor(
             maxPositionEmbeddings = contextLength,
             perLayerEmbeddingLength = perLayerEmbeddingLength,
             perLayerIntermediateSize = perLayerIntermediateSize,
+            bosTokenId = bosTokenId,
+            eosTokenId = eosTokenId,
+            padTokenId = padTokenId,
+            rmsNormEps = rmsNormEps,
             finalLogitSoftcapping = finalLogitSoftcapping
         )
     }
@@ -448,6 +492,12 @@ public class Gemma4WeightLoader private constructor(
             ?: ropeDimensionCount?.takeIf { globalHeadDim > 0 }?.let { it.toFloat() / globalHeadDim }
             ?: partialRotaryDefault
         val finalLogitSoftcapping = fields["$prefix.final_logit_softcapping"]?.toFloatValue() ?: 0f
+        val rmsNormEps = fields["$prefix.attention.layer_norm_rms_epsilon"]?.toFloatValue() ?: 1e-6f
+        // Token ids: without these, downstream defaults prefill BOS=1 — which is
+        // Gemma's <eos> — and generation collapses into turn-token spam (#325 arc).
+        val bosTokenId = fields["tokenizer.ggml.bos_token_id"]?.toIntValue() ?: 2
+        val eosTokenId = fields["tokenizer.ggml.eos_token_id"]?.toIntValue() ?: 1
+        val padTokenId = fields["tokenizer.ggml.padding_token_id"]?.toIntValue() ?: 0
 
         return Gemma4ModelMetadata(
             architecture = arch,
@@ -475,6 +525,10 @@ public class Gemma4WeightLoader private constructor(
             ),
             perLayerEmbeddingLength = perLayerEmbeddingLength,
             perLayerIntermediateSize = perLayerIntermediateSize,
+            bosTokenId = bosTokenId,
+            eosTokenId = eosTokenId,
+            padTokenId = padTokenId,
+            rmsNormEps = rmsNormEps,
             finalLogitSoftcapping = finalLogitSoftcapping,
             maxPositionEmbeddings = contextLength
         )
