@@ -33,6 +33,10 @@ import sk.ainet.exec.kernel.NativeTernaryF32GemvKernel
 import sk.ainet.exec.kernel.NativeTernaryLmheadKernel
 import sk.ainet.models.bitnet.BitNetNetworkLoader
 import sk.ainet.models.bitnet.BitNetPackedGgufLoader
+import sk.ainet.models.bitnet.BitNetTwoStageDecode
+import sk.ainet.models.bitnet.bitnetPlanesHead
+import sk.ainet.models.bitnet.generateTwoStage
+import sk.ainet.lang.tensor.data.BitNetPlanesTensorData
 import sk.ainet.models.qwen.QwenNetworkLoader
 import java.nio.file.Path
 import kotlin.io.path.exists
@@ -230,6 +234,10 @@ fun main(args: Array<String>) {
         // activation, QK-Norm, or ungated FFN, so logits silently
         // diverged from the checkpoint's intent. The DSL path is correct
         // for Apertus too. See APERTUS_ROLLOUT.md (PR 1).
+        // Set on the BitNet path when the lm_head loaded as BITNET_PLANES — gates the
+        // two-stage decode loop at the generation site (transformers#358).
+        var bitnetTwoStageHead: BitNetPlanesTensorData? = null
+
         val runtime: InferenceRuntime<FP32> = if (modelInfo.family == ModelFamily.GEMMA) {
             println("Loading Gemma GGUF model from $modelPath via gemmaNetwork() + OptimizedLLMRuntime (engine loader, keep-packed, mapped)...")
             if (cliArgs.contextLength != null) {
@@ -266,6 +274,13 @@ fun main(args: Array<String>) {
                 ctx,
                 sourceProvider = { JvmRandomAccessSource.open(modelPath.toString()) },
             )
+            bitnetTwoStageHead = bitnetPlanesHead(loaded.model)
+            if (bitnetTwoStageHead != null) {
+                println(
+                    "Two-stage lm_head decode: enabled (BITNET_PLANES head, " +
+                        "top-${BitNetTwoStageDecode.DEFAULT_CANDIDATES} exact rescoring).",
+                )
+            }
             OptimizedLLMRuntime(
                 model = loaded.model,
                 ctx = ctx,
@@ -363,9 +378,30 @@ fun main(args: Array<String>) {
         println("---")
         print(promptText)
 
+        val twoStageHead = bitnetTwoStageHead
+        @Suppress("UNCHECKED_CAST")
+        val twoStageRuntime = if (twoStageHead != null) runtime as? OptimizedLLMRuntime<FP32> else null
         val elapsed = measureTime {
-            runtime.generate(prompt = promptTokens, steps = cliArgs.steps, temperature = cliArgs.temperature) { id ->
-                print(tokenizer.decode(id))
+            if (twoStageHead != null && twoStageRuntime != null) {
+                // transformers#358: trunk-only forwards + fused stage-1 scan + exact top-200
+                // rescoring — the full-vocab lm_head matmul never runs, prefill included.
+                twoStageRuntime.generateTwoStage(
+                    prompt = promptTokens,
+                    steps = cliArgs.steps,
+                    temperature = cliArgs.temperature,
+                    head = twoStageHead,
+                    native = if (NativeTernaryLmheadKernel.isAvailable()) {
+                        sk.ainet.models.bitnet.BitNetStage1Kernel(NativeTernaryLmheadKernel::lmheadStage1)
+                    } else {
+                        null
+                    },
+                ) { id ->
+                    print(tokenizer.decode(id))
+                }
+            } else {
+                runtime.generate(prompt = promptTokens, steps = cliArgs.steps, temperature = cliArgs.temperature) { id ->
+                    print(tokenizer.decode(id))
+                }
             }
         }.inWholeMilliseconds
 

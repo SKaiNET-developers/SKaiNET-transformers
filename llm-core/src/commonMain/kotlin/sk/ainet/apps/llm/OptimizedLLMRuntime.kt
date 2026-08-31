@@ -174,6 +174,45 @@ public class OptimizedLLMRuntime<T : DType>(
     }
 
     /**
+     * Single-token forward that stops **before the model's final module** — the lm_head
+     * projection — returning the last-position hidden state (`[1, dim]`) instead of logits
+     * (transformers#358).
+     *
+     * This is the pre-lm_head hook a candidate-based decode needs: score the vocabulary
+     * outside the module tree (e.g. `BitNetTwoStageDecode` over a `BITNET_PLANES` head) and
+     * hand `sampleFromCandidates` a candidate list, never materializing full-vocab logits.
+     * It is equally useful for prompt ingestion, where logits are discarded anyway — skipping
+     * the head saves a full-vocab projection per prefill position.
+     *
+     * State semantics are identical to [forward]: the KV cache and [position] advance exactly
+     * as they would on a full step — only the final, stateless projection is skipped. The top
+     * module executes its children in order ([sk.ainet.lang.nn.topology.MLP] semantics), so
+     * this runs `modules.dropLast(1)` inside the same per-step forward scope; like a logits
+     * tensor, the returned hidden state is only valid until the next forward begins.
+     *
+     * Module-tree path only (DIRECT / HYBRID): OPTIMIZED mode compiles the whole graph,
+     * head included — there is no partial execution to offer there.
+     */
+    public fun forwardHidden(tokenId: Int): Tensor<T, Float> {
+        require(position < seqLen) { "Context length exceeded: pos=$position seqLen=$seqLen" }
+        require(mode != OptimizedLLMMode.OPTIMIZED) {
+            "forwardHidden runs the module tree; OPTIMIZED mode executes the compiled full graph"
+        }
+        val trunk = model.modules
+        require(trunk.size >= 2) {
+            "forwardHidden needs a top-level module pipeline ending in the lm_head; " +
+                "got ${trunk.size} child module(s)"
+        }
+        var hidden = createTokenTensor(tokenId)
+        val stepCtx = stepCtx()
+        for (i in 0 until trunk.size - 1) {
+            hidden = trunk[i].forward(hidden, stepCtx)
+        }
+        position++
+        return hidden
+    }
+
+    /**
      * Single batched forward over [tokenIds]. Builds an `[N]`-shaped input
      * tensor, feeds it through the model in one shot, and returns the
      * logits at the LAST position only — shape `[vocab]`, same contract as

@@ -63,6 +63,30 @@ class BitNetTwoStageDecodeTest {
     }
 
     @Test
+    fun nativeStage1MatchesTheKotlinReference() {
+        // The fused lmhead_stage1 kernel and the portable loop implement the same contract
+        // (#358); skip quietly where the bundled native library is not available.
+        if (!sk.ainet.exec.kernel.NativeTernaryLmheadKernel.isAvailable()) return
+        val n = 48; val k = 32
+        val w = weight(n, k, seed = 13)
+        val rng = Random(17)
+        repeat(3) { trial ->
+            val h = FloatArray(k) { rng.nextFloat() - 0.5f }
+            val ref = BitNetTwoStageDecode.stage1Scores(w, h)
+            val native = BitNetTwoStageDecode.stage1Scores(
+                w, h,
+                native = BitNetStage1Kernel(sk.ainet.exec.kernel.NativeTernaryLmheadKernel::lmheadStage1),
+            )
+            for (r in 0 until n) {
+                assertTrue(
+                    abs(ref[r] - native[r]) <= 1e-4f * maxOf(1f, abs(ref[r])),
+                    "trial $trial row $r: native ${native[r]} vs reference ${ref[r]}",
+                )
+            }
+        }
+    }
+
+    @Test
     fun sampleFromCandidatesIsGreedyAtZeroTemperatureAndStaysInTheList() {
         val candidates = listOf(ScoredToken(3, 1.0f), ScoredToken(17, 2.5f), ScoredToken(9, -0.5f))
         assertEquals(17, sampleFromCandidates(candidates, temperature = 0f))

@@ -7,6 +7,28 @@ import sk.ainet.lang.tensor.data.BitNetPlanesTensorData
 import sk.ainet.lang.tensor.storage.TensorEncoding
 
 /**
+ * Stage-1 scorer contract: one fused pass over planes 0–3 with the FP16 row scales applied —
+ * the signature of the engine's `TernaryLmheadNative.lmheadStage1` symbol, restated here so
+ * this module's common code needs no dependency on the backend-api artifact (which does not
+ * publish every native target this module builds for). A JVM caller plugs the vendored kernel
+ * in as a method reference: `BitNetStage1Kernel(NativeTernaryLmheadKernel::lmheadStage1)`.
+ */
+public fun interface BitNetStage1Kernel {
+    public fun stage1(
+        activation: FloatArray,
+        activationOffset: Int,
+        weight: ByteArray,
+        planesByteOffset: Int,
+        planeStrideBytes: Int,
+        rowScaleByteOffset: Int,
+        inputDim: Int,
+        outputDim: Int,
+        out: FloatArray,
+        outOffset: Int,
+    )
+}
+
+/**
  * NeoGPU's two-stage lm_head (transformers#337, upstream `hs_ml_infer.c` Stage 1/Stage 2): score
  * the full vocabulary cheaply with **planes 0–3** of a [TensorEncoding.BITNET_PLANES] weight,
  * keep the top candidates, and rescore only those rows **exactly** (all 8 planes).
@@ -38,11 +60,32 @@ public object BitNetTwoStageDecode {
      * Stage-1 scores — planes 0–3 with the FP16 row scales applied — for all [weight] rows
      * against [hidden]. This is exactly what the fused NEON kernel computes in one pass; the
      * Kotlin loop here is the portable reference of the same contract.
+     *
+     * Pass [native] (e.g. the FFM `NativeTernaryLmheadKernel`, when available) to run stage 1
+     * as **one** fused `lmhead_stage1` call — the same symbol the exact planes matmul makes two
+     * calls to, so a stage-1-only scan halves the kernel work per decode step (#358). `null`
+     * keeps the portable Kotlin loop; both produce the same contract.
      */
-    public fun stage1Scores(weight: BitNetPlanesTensorData, hidden: FloatArray): FloatArray {
+    public fun stage1Scores(
+        weight: BitNetPlanesTensorData,
+        hidden: FloatArray,
+        native: BitNetStage1Kernel? = null,
+    ): FloatArray {
         val n = weight.rows
         val k = weight.cols
         require(hidden.size == k) { "hidden has ${hidden.size} elements, weight expects $k" }
+        if (native != null) {
+            val out = FloatArray(n)
+            native.stage1(
+                activation = hidden, activationOffset = 0,
+                weight = weight.packedData, planesByteOffset = 0,
+                planeStrideBytes = TensorEncoding.BITNET_PLANES.planeStrideBytes(n, k),
+                rowScaleByteOffset = TensorEncoding.BITNET_PLANES.rowScalesByteOffset(n, k),
+                inputDim = k, outputDim = n,
+                out = out, outOffset = 0,
+            )
+            return out
+        }
         val bytes = weight.packedData
         val planeStride = TensorEncoding.BITNET_PLANES.planeStrideBytes(n, k)
         val rowBytes = k / 4
@@ -90,10 +133,12 @@ public object BitNetTwoStageDecode {
         hidden: FloatArray,
         k: Int = 8,
         maxCandidates: Int = DEFAULT_CANDIDATES,
+        /** Optional fused stage-1 kernel — see [stage1Scores]; stage 2 stays the exact decode. */
+        native: BitNetStage1Kernel? = null,
     ): List<ScoredToken> {
         val n = weight.rows
         require(k in 1..n) { "k=$k outside 1..$n" }
-        val stage1 = stage1Scores(weight, hidden)
+        val stage1 = stage1Scores(weight, hidden, native)
 
         // Per-row error bound: |exact - stage1| <= rowScale * TAIL_WEIGHT * Σ|h|.
         var hAbs = 0f

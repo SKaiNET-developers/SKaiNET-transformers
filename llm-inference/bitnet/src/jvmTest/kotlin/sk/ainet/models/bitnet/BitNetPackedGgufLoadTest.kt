@@ -329,4 +329,51 @@ class BitNetPackedGgufLoadTest {
             file.delete()
         }
     }
+
+    // ---- two-stage generation loop (transformers#358) ------------------------------------
+
+    @Test
+    fun twoStageGreedyDecodeMatchesTheFullMatmulLoop() {
+        val file = buildFile(tied = true)
+        try {
+            val prompt = intArrayOf(1, 7, 3)
+            val steps = 8
+            fun runtimeFor(model: Module<FP32, Float>) =
+                OptimizedLLMRuntime(model, ctx, OptimizedLLMMode.DIRECT, FP32::class)
+
+            // Full-vocab matmul loop (the stock generate path).
+            val fullTokens = mutableListOf<Int>()
+            runtimeFor(loadPacked(file)).generate(prompt, steps, temperature = 0f) { fullTokens += it }
+
+            // Two-stage, portable stage-1: trunk-only forwards + candidate rescoring.
+            val model2 = loadPacked(file)
+            val head2 = bitnetPlanesHead(model2)
+            assertTrue(head2 != null, "planes head must be discoverable on the loaded model")
+            val twoStageTokens = mutableListOf<Int>()
+            runtimeFor(model2).generateTwoStage(prompt, steps, temperature = 0f, head = head2) {
+                twoStageTokens += it
+            }
+            assertTrue(
+                fullTokens == twoStageTokens,
+                "greedy two-stage decode must equal the full-matmul loop: $fullTokens vs $twoStageTokens",
+            )
+
+            // Two-stage with the fused native stage-1, when the bundled library resolves.
+            if (NativeTernaryLmheadKernel.isAvailable()) {
+                val model3 = loadPacked(file)
+                val head3 = bitnetPlanesHead(model3)!!
+                val nativeTokens = mutableListOf<Int>()
+                runtimeFor(model3).generateTwoStage(
+                    prompt, steps, temperature = 0f, head = head3,
+                    native = BitNetStage1Kernel(NativeTernaryLmheadKernel::lmheadStage1),
+                ) { nativeTokens += it }
+                assertTrue(
+                    fullTokens == nativeTokens,
+                    "greedy two-stage (native stage-1) must equal the full loop: $fullTokens vs $nativeTokens",
+                )
+            }
+        } finally {
+            file.delete()
+        }
+    }
 }
