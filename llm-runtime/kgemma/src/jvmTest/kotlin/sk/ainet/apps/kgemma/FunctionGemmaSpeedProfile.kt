@@ -37,6 +37,19 @@ class FunctionGemmaSpeedProfile {
             },
         )
 
+        // What form do the weights actually land in with the BF16 policy?
+        val probeCtx = sk.ainet.context.DirectCpuExecutionContext.create()
+        val probe = kotlinx.coroutines.runBlocking {
+            sk.ainet.models.gemma.Gemma4WeightLoader(
+                randomAccessProvider = { sk.ainet.io.JvmRandomAccessSource.open(gguf) },
+                dtypePolicy = sk.ainet.lang.types.DTypePolicy.Prefer(sk.ainet.lang.types.BF16),
+            ).loadToMapStreaming<sk.ainet.lang.types.FP32, Float>(probeCtx, sk.ainet.lang.types.FP32::class)
+        }
+        for (nm in listOf("blk.0.attn_q.weight", "blk.0.ffn_gate.weight", "token_embd.weight")) {
+            val t = probe.tensors[nm]
+            println("FGSPEED form %-24s %s".format(nm, t?.let { "${it.data::class.simpleName}" } ?: "<absent>"))
+        }
+
         lateinit var fg: FunctionGemma
         val load = measureTime { fg = FunctionGemma.fromGguf(gguf, style = FunctionGemma.Style.OFFICIAL) }
 

@@ -3,6 +3,7 @@ package sk.ainet.models.gemma
 import kotlinx.io.Source
 import kotlinx.io.buffered
 import sk.ainet.context.ExecutionContext
+import sk.ainet.apps.llm.DTypePolicyValidation
 import sk.ainet.io.RandomAccessSource
 import sk.ainet.io.gguf.GGMLQuantizationType
 import sk.ainet.io.gguf.GGUFReader
@@ -23,6 +24,8 @@ import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.tensor.data.TensorData
 import sk.ainet.lang.tensor.storage.PackedBlockStorage
 import sk.ainet.lang.types.DType
+import sk.ainet.lang.types.BF16
+import sk.ainet.lang.types.DTypePolicy
 import sk.ainet.lang.types.FP16
 import sk.ainet.lang.types.FP32
 import kotlin.reflect.KClass
@@ -68,7 +71,19 @@ public class Gemma4WeightLoader private constructor(
     private val randomAccessProvider: (() -> RandomAccessSource)?,
     private val loadTensorData: Boolean = true,
     private val weightForm: WeightForm? = null,
+    private val dtypePolicy: DTypePolicy = DTypePolicy.Any,
 ) {
+    /**
+     * Keep `F16` source tensors in their on-disk 2-bytes-per-element layout instead of widening
+     * them to FP32. Resolved from [dtypePolicy] exactly as llama's `DecoderGgufWeightLoader` and
+     * the engine's `StreamingGgufParametersLoader.keepsNative` do, so a policy means the same thing
+     * whichever family loads the checkpoint.
+     */
+    private val keepF16Native: Boolean = DTypePolicyValidation.keepsNative(dtypePolicy, FP16)
+
+    /** As [keepF16Native], for `BF16` sources. Resolved independently. */
+    private val keepBf16Native: Boolean = DTypePolicyValidation.keepsNative(dtypePolicy, BF16)
+
     public constructor(
         sourceProvider: () -> Source,
         loadTensorData: Boolean = true,
@@ -78,15 +93,23 @@ public class Gemma4WeightLoader private constructor(
         loadTensorData = loadTensorData,
     )
 
+    /**
+     * @param dtypePolicy narrow-float handling. Default [DTypePolicy.Any] widens F16/BF16 sources
+     *   to FP32; a policy naming BF16 or FP16 keeps that format packed at 2 bytes per element,
+     *   which halves the bytes a decode step reads for a checkpoint stored that way — the gemma3
+     *   family ships BF16, and Gemma 4 E2B stores `per_layer_model_proj` that way.
+     */
     public constructor(
         randomAccessProvider: () -> RandomAccessSource,
         weightForm: WeightForm? = null,
         loadTensorData: Boolean = true,
+        dtypePolicy: DTypePolicy = DTypePolicy.Any,
     ) : this(
         sourceProvider = null,
         randomAccessProvider = randomAccessProvider,
         loadTensorData = loadTensorData,
         weightForm = weightForm,
+        dtypePolicy = dtypePolicy,
     )
 
     public suspend fun <T : DType, V> load(
@@ -265,6 +288,8 @@ public class Gemma4WeightLoader private constructor(
         )
         val engineLoader = StreamingGgufParametersLoader(
             sourceProvider = randomAccessProvider,
+            keepF16Native = keepF16Native && dtype == FP32::class,
+            keepBf16Native = keepBf16Native && dtype == FP32::class,
             weightForm = defaultForm,
             weightFormFor = { name ->
                 when (name) {
