@@ -113,7 +113,23 @@ public fun <T : DType, V> gemmaNetwork(
      *
      * Default derives from the checkpoint's declared architecture.
      */
-    vNorm: Boolean = metadata.architecture.startsWith("gemma4")
+    vNorm: Boolean = metadata.architecture.startsWith("gemma4"),
+    /**
+     * Explicit scale for the attention scores, or `null` for the standard `1 / sqrt(head_dim)`.
+     *
+     * **Architecture-dependent, like [vNorm].** Gemma 4 RMS-normalizes Q and K per head before
+     * the dot product, which already controls its magnitude — dividing by `sqrt(head_dim)` on top
+     * flattens the softmax by a further ~16x, and the model then spreads attention across
+     * positions instead of committing. Measured on E2B against llama.cpp: at the second token our
+     * softmax put 41% of its weight on the current token where the reference put ~1%, and the
+     * greedy first token came out `<turn|>` instead of `The`. With `1.0` the same prompt predicts
+     * `The` at 20.4 against a 14.2 runner-up, matching the reference's ~99% confidence.
+     *
+     * gemma3 keeps `null`: llama.cpp's gemma3 graph scales Q explicitly by `1/sqrt(head_dim)`
+     * (`node_9 = SCALE(Qcur)` with factor 0.0625 at head_dim 256), and FunctionGemma 270M matches
+     * llama.cpp at every prefill length with that default.
+     */
+    attnScale: Float? = if (metadata.architecture.startsWith("gemma4")) 1.0f else null
 ): Module<T, V> {
     val dim = metadata.embeddingLength
     val nHeads = metadata.headCount
@@ -180,7 +196,7 @@ public fun <T : DType, V> gemmaNetwork(
             // (HF Gemma3Attention). null => MHA's 1/sqrt(headDim) default. The
             // prior hardcoded 1.0 (a Gemma-4 "q/k-norm makes scale 1.0" claim)
             // over-sharpened softmax for >1 token => parity broke at pos>=1.
-            attentionScale = null,
+            attentionScale = attnScale,
             // Gemma 4 (unlike gemma3) DOES have v_norm: HF Gemma4TextAttention.__init__
             // declares `self.v_norm = Gemma4RMSNorm(self.head_dim, eps=..., with_scale=False)`
             // and forward() calls `value_states = self.v_norm(value_states)` right after
