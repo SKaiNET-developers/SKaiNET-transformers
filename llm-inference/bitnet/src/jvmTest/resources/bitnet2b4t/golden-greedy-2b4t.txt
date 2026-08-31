@@ -6,17 +6,19 @@
 #   build/bin/llama-server -m BitNet-b1.58-2B-4T-i2s.gguf -ngl 0 -t 4 --port 8811
 #   curl :8811/tokenize   -d '{"content": "The capital of France is", "add_special": true}'
 #   curl :8811/completion -d '{"prompt": "The capital of France is", "n_predict": 32, "temperature": 0, "top_k": 1}'
+# Arbitration reference: microsoft/bitnet-b1.58-2B-4T via HF transformers (BF16 activations,
+# greedy) — produces the identical 32-token continuation.
 #
-# NOTE: the oracle's CPU i2_s matmul quantizes ACTIVATIONS to int8 (absmax); SKaiNET's vendored
-# LUT path computes exact FP32*ternary. The greedy texts diverge at generated token 4
-# (" a city…" vs " the capital…"); the oracle's own top-5 at that position is ' a' 0.348,
-# ' known' 0.211, ' located' 0.156, ' the' 0.151 — a real logit divergence, not a tie. Which
-# implementation is closer to the BF16 reference is an open follow-up on #360; until arbitrated,
-# cross-implementation TEXT equality is deliberately NOT asserted. The asserted gates are:
-# prompt-tokenization parity with the oracle, and SKaiNET self-golden regression (both decode
-# paths must keep reproducing skainet_text exactly).
+# History (2026-08-31): the first recording of this fixture diverged from the oracle at
+# generated token 4 — the BF16 arbitration sided with the oracle, and the culprit was
+# SKaiNET's RoPE pairing (INTERLEAVED instead of the NEOX-style SPLIT_HALF that bitnet.cpp
+# assigns all three BITNET arches). With that fixed, SKaiNET (default planes lm_head),
+# bitnet.cpp, and the BF16 reference agree token-for-token on all 32 greedy tokens below.
+# The exact dense-F16 tied head flips one reference-side near-tie at token 18
+# (' also' 0.271 vs ' a' 0.211) — recorded here so a future dense-head golden isn't mistaken
+# for a regression.
 prompt=The capital of France is
 steps=32
 prompt_tokens=128000,791,6864,315,9822,374
 oracle_text= Paris. Paris is a city that is known for its rich history, culture, and architecture. It is also a major center for art, fashion, and cuisine
-skainet_text= Paris. Paris is the capital of France. Paris is a beautiful city with many famous landmarks such as the Eiffel Tower, Notre Dame Cathedral, and the
+skainet_text= Paris. Paris is a city that is known for its rich history, culture, and architecture. It is also a major center for art, fashion, and cuisine
