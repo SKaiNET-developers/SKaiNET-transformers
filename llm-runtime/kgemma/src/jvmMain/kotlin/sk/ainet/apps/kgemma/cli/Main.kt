@@ -5,7 +5,6 @@ import sk.ainet.apps.kgemma.Gemma3nLoadConfig
 import sk.ainet.apps.kgemma.Gemma4Ingestion
 import sk.ainet.apps.kgemma.Gemma4LoadConfig
 import sk.ainet.apps.kgemma.Gemma4StopTokens
-import sk.ainet.apps.kgemma.KgemmaKernels
 import sk.ainet.apps.kllama.GGUFTokenizer
 import sk.ainet.apps.kllama.chat.ChatMessage
 import sk.ainet.apps.kllama.chat.ChatRole
@@ -180,11 +179,6 @@ fun main(args: Array<String>) {
         val modelPath = cliArgs.modelPath
 
         if (!modelPath.exists()) error("Model not found: $modelPath")
-
-        // Without the 0.51 view-keyed kernel packs, MAPPED/keep-packed weights fall
-        // to the decoding reference kernel (~1000x slower). kllama installs these in
-        // #354; kgemma was the gap behind the ~0.04 tok/s Gemma 4 report.
-        KgemmaKernels.ensureInstalled()
 
         val format = detectFormat(modelPath)
 

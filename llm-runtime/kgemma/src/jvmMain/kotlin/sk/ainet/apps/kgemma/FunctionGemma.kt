@@ -137,7 +137,6 @@ public class FunctionGemma private constructor(
             partialRotary: Float = 1.0f,
             style: Style = Style.OCTOPUS_V2,
         ): FunctionGemma = runBlocking {
-            KgemmaKernels.ensureInstalled()
             val tok = GGUFTokenizer.fromRandomAccessSource(JvmRandomAccessSource.open(gguf))
             val ctx = DirectCpuExecutionContext.create()
             val weights = Gemma4WeightLoader(
