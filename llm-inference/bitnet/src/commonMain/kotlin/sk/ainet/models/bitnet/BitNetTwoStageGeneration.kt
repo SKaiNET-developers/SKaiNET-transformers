@@ -15,7 +15,7 @@ import sk.ainet.lang.types.FP32
  *
  * The decoder network template ends in the lm_head projection ([bitnetNetwork] ends in the
  * `"output"` `VoidDense`); its weight is planes-encoded when the model was loaded through
- * [BitNetPackedGgufLoader] with `planesLmHead` on (both the `output.weight` and the tied-2B4T
+ * [BitNetWeightLoader] with `planesLmHead` on (both the `output.weight` and the tied-2B4T
  * lanes, transformers#337/#357).
  */
 @OptIn(ExperimentalMemoryApi::class)

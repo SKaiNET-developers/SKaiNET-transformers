@@ -32,7 +32,7 @@ import sk.ainet.models.llama.LlamaNetworkLoader
 import sk.ainet.exec.kernel.NativeTernaryF32GemvKernel
 import sk.ainet.exec.kernel.NativeTernaryLmheadKernel
 import sk.ainet.models.bitnet.BitNetNetworkLoader
-import sk.ainet.models.bitnet.BitNetPackedGgufLoader
+import sk.ainet.models.bitnet.BitNetWeightLoader
 import sk.ainet.models.bitnet.BitNetTwoStageDecode
 import sk.ainet.models.bitnet.bitnetPlanesHead
 import sk.ainet.models.bitnet.generateTwoStage
@@ -264,13 +264,13 @@ fun main(args: Array<String>) {
             // format either way (#357): a file's own output.weight requantizes losslessly; a
             // tied-embeddings file (2B4T) gets the head materialized from token_embd — a bounded
             // 8-plane requantization, the NeoGPU lm_head design.
-            println("Loading BitNet GGUF model from $modelPath via BitNetPackedGgufLoader (packed I2_S, GROUP_128 flavor)...")
+            println("Loading BitNet GGUF model from $modelPath via BitNetWeightLoader (packed I2_S, GROUP_128 flavor)...")
             if (cliArgs.contextLength != null) {
                 println("  --context flag currently ignored on the BitNet path; uses model default capped to 4096.")
             }
             NativeTernaryF32GemvKernel.install { println("[skainet] $it") }
             NativeTernaryLmheadKernel.install { println("[skainet] $it") }
-            val loaded = BitNetPackedGgufLoader.loadWithMetadata(
+            val loaded = BitNetWeightLoader.loadWithMetadata(
                 ctx,
                 sourceProvider = { JvmRandomAccessSource.open(modelPath.toString()) },
             )

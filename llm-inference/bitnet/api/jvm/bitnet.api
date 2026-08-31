@@ -62,29 +62,33 @@ public final class sk/ainet/models/bitnet/BitNetNetworkLoaderKt {
 	public static final fun getBITNET_ARCHITECTURES ()Ljava/util/Set;
 }
 
-public final class sk/ainet/models/bitnet/BitNetPackedGgufLoader {
-	public static final field INSTANCE Lsk/ainet/models/bitnet/BitNetPackedGgufLoader;
-	public final fun load (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lsk/ainet/io/gguf/I2sGgufLayout;ZZLkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static synthetic fun load$default (Lsk/ainet/models/bitnet/BitNetPackedGgufLoader;Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lsk/ainet/io/gguf/I2sGgufLayout;ZZLkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
-	public final fun loadWithMetadata (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lsk/ainet/io/gguf/I2sGgufLayout;ZZLkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static synthetic fun loadWithMetadata$default (Lsk/ainet/models/bitnet/BitNetPackedGgufLoader;Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lsk/ainet/io/gguf/I2sGgufLayout;ZZLkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
-}
-
-public final class sk/ainet/models/bitnet/BitNetPackedGgufLoader$Loaded {
-	public fun <init> (Lsk/ainet/lang/nn/Module;Lsk/ainet/models/llama/LlamaModelMetadata;)V
-	public final fun component1 ()Lsk/ainet/lang/nn/Module;
-	public final fun component2 ()Lsk/ainet/models/llama/LlamaModelMetadata;
-	public final fun copy (Lsk/ainet/lang/nn/Module;Lsk/ainet/models/llama/LlamaModelMetadata;)Lsk/ainet/models/bitnet/BitNetPackedGgufLoader$Loaded;
-	public static synthetic fun copy$default (Lsk/ainet/models/bitnet/BitNetPackedGgufLoader$Loaded;Lsk/ainet/lang/nn/Module;Lsk/ainet/models/llama/LlamaModelMetadata;ILjava/lang/Object;)Lsk/ainet/models/bitnet/BitNetPackedGgufLoader$Loaded;
+public final class sk/ainet/models/bitnet/BitNetRuntimeWeights {
+	public fun <init> (Lsk/ainet/models/llama/LlamaModelMetadata;Ljava/util/Map;)V
+	public final fun component1 ()Lsk/ainet/models/llama/LlamaModelMetadata;
+	public final fun component2 ()Ljava/util/Map;
+	public final fun copy (Lsk/ainet/models/llama/LlamaModelMetadata;Ljava/util/Map;)Lsk/ainet/models/bitnet/BitNetRuntimeWeights;
+	public static synthetic fun copy$default (Lsk/ainet/models/bitnet/BitNetRuntimeWeights;Lsk/ainet/models/llama/LlamaModelMetadata;Ljava/util/Map;ILjava/lang/Object;)Lsk/ainet/models/bitnet/BitNetRuntimeWeights;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getMetadata ()Lsk/ainet/models/llama/LlamaModelMetadata;
-	public final fun getModel ()Lsk/ainet/lang/nn/Module;
+	public final fun getPlanesHead ()Lsk/ainet/lang/tensor/data/BitNetPlanesTensorData;
+	public final fun getTensors ()Ljava/util/Map;
 	public fun hashCode ()I
+	public final fun toModule (Z)Lsk/ainet/lang/nn/Module;
+	public static synthetic fun toModule$default (Lsk/ainet/models/bitnet/BitNetRuntimeWeights;ZILjava/lang/Object;)Lsk/ainet/lang/nn/Module;
 	public fun toString ()Ljava/lang/String;
 }
 
 public abstract interface class sk/ainet/models/bitnet/BitNetStage1Kernel {
 	public abstract fun stage1 ([FI[BIIIII[FI)V
+}
+
+public final class sk/ainet/models/bitnet/BitNetTensorNames {
+	public static final field INSTANCE Lsk/ainet/models/bitnet/BitNetTensorNames;
+	public static final field OUTPUT Ljava/lang/String;
+	public static final field OUTPUT_NORM Ljava/lang/String;
+	public static final field TOKEN_EMBEDDING Ljava/lang/String;
+	public final fun attnSubNorm (I)Ljava/lang/String;
+	public final fun ffnSubNorm (I)Ljava/lang/String;
 }
 
 public final class sk/ainet/models/bitnet/BitNetTwoStageDecode {
@@ -101,5 +105,28 @@ public final class sk/ainet/models/bitnet/BitNetTwoStageGenerationKt {
 	public static final fun bitnetPlanesHead (Lsk/ainet/lang/nn/Module;)Lsk/ainet/lang/tensor/data/BitNetPlanesTensorData;
 	public static final fun generateTwoStage (Lsk/ainet/apps/llm/OptimizedLLMRuntime;[IIFLsk/ainet/lang/tensor/data/BitNetPlanesTensorData;Lsk/ainet/models/bitnet/BitNetStage1Kernel;ILkotlin/random/Random;Lkotlin/jvm/functions/Function1;)V
 	public static synthetic fun generateTwoStage$default (Lsk/ainet/apps/llm/OptimizedLLMRuntime;[IIFLsk/ainet/lang/tensor/data/BitNetPlanesTensorData;Lsk/ainet/models/bitnet/BitNetStage1Kernel;ILkotlin/random/Random;Lkotlin/jvm/functions/Function1;ILjava/lang/Object;)V
+}
+
+public final class sk/ainet/models/bitnet/BitNetWeightLoader {
+	public static final field INSTANCE Lsk/ainet/models/bitnet/BitNetWeightLoader;
+	public final fun load (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lsk/ainet/io/gguf/I2sGgufLayout;ZZLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun load$default (Lsk/ainet/models/bitnet/BitNetWeightLoader;Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lsk/ainet/io/gguf/I2sGgufLayout;ZZLkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public final fun loadRuntimeWeights (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lsk/ainet/io/gguf/I2sGgufLayout;ZLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun loadRuntimeWeights$default (Lsk/ainet/models/bitnet/BitNetWeightLoader;Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lsk/ainet/io/gguf/I2sGgufLayout;ZLkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public final fun loadWithMetadata (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lsk/ainet/io/gguf/I2sGgufLayout;ZZLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun loadWithMetadata$default (Lsk/ainet/models/bitnet/BitNetWeightLoader;Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lsk/ainet/io/gguf/I2sGgufLayout;ZZLkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+}
+
+public final class sk/ainet/models/bitnet/BitNetWeightLoader$Loaded {
+	public fun <init> (Lsk/ainet/lang/nn/Module;Lsk/ainet/models/llama/LlamaModelMetadata;)V
+	public final fun component1 ()Lsk/ainet/lang/nn/Module;
+	public final fun component2 ()Lsk/ainet/models/llama/LlamaModelMetadata;
+	public final fun copy (Lsk/ainet/lang/nn/Module;Lsk/ainet/models/llama/LlamaModelMetadata;)Lsk/ainet/models/bitnet/BitNetWeightLoader$Loaded;
+	public static synthetic fun copy$default (Lsk/ainet/models/bitnet/BitNetWeightLoader$Loaded;Lsk/ainet/lang/nn/Module;Lsk/ainet/models/llama/LlamaModelMetadata;ILjava/lang/Object;)Lsk/ainet/models/bitnet/BitNetWeightLoader$Loaded;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getMetadata ()Lsk/ainet/models/llama/LlamaModelMetadata;
+	public final fun getModel ()Lsk/ainet/lang/nn/Module;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
 }
 
