@@ -36,7 +36,11 @@ kotlin {
 
     sourceSets {
         commonMain.dependencies {
-            implementation(project.dependencies.platform(project(":llm-bom")))
+            // `api`, not `implementation`: the platform has to travel with the dependency it
+            // versions. `skainet-lang-core` is api-exported and its alias is versionless, so a
+            // consumer that only sees it transitively (kllama-cli -> kllama -> llm-core ->
+            // transformer-core) would otherwise resolve it with no version at all.
+            api(project.dependencies.platform(project(":llm-bom")))
             api(libs.skainet.lang.core)   // public API is lang-core-typed (Tensor/Module/ExecutionContext)
         }
         commonTest.dependencies {

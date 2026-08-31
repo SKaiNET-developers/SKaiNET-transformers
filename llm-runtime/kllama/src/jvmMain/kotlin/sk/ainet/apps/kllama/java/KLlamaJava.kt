@@ -7,8 +7,11 @@ import sk.ainet.apps.kllama.*
 import sk.ainet.apps.llm.OptimizedLLMMode
 import sk.ainet.apps.llm.OptimizedLLMRuntime
 import sk.ainet.apps.llm.tokenizer.TokenizerFactory
+import sk.ainet.backend.api.kernel.KernelPacks
 import sk.ainet.context.DirectCpuExecutionContext
+import sk.ainet.exec.kernel.FfmRowMajorKernelPack
 import sk.ainet.io.JvmRandomAccessSource
+import sk.ainet.lang.memory.ExperimentalMemoryApi
 import sk.ainet.lang.tensor.data.MemorySegmentTensorDataFactory
 import sk.ainet.lang.types.FP32
 import sk.ainet.models.llama.DecoderGgufWeightLoader
@@ -16,6 +19,7 @@ import sk.ainet.models.llama.DecoderSafeTensorsLoader
 import sk.ainet.models.llama.LlamaConfigParser
 import sk.ainet.models.llama.LlamaNetworkLoader
 import java.nio.file.Path
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.io.path.exists
 import kotlin.io.path.readText
 
@@ -43,6 +47,24 @@ public object KLlamaJava {
 
     private val LLAMA_FAMILY: Set<String> = setOf("llama", "mistral")
 
+    private val kernelsInstalled = AtomicBoolean(false)
+
+    /**
+     * Installs the 0.51 view-keyed kernel tiers exactly once per process (#338 arc): the
+     * reference + best-provider FP32/prepacked kernels into `KernelDispatch`, and the FFM
+     * row-major pack that serves canonical packed weights — mapped or un-prepacked heap —
+     * zero-copy. [DecoderGgufWeightLoader]'s default `WeightForm` is MAPPED, and without this
+     * install the mapped/keep-packed weights this facade produces fall to the decoding
+     * reference kernel: correct, but dramatically slower per matmul (mirrors skainet-cli's
+     * `Main.kt` install, which this facade previously lacked).
+     */
+    @OptIn(ExperimentalMemoryApi::class)
+    private fun ensureKernelPacksInstalled() {
+        if (!kernelsInstalled.compareAndSet(false, true)) return
+        KernelPacks.install()
+        FfmRowMajorKernelPack.install()
+    }
+
     /**
      * Load a GGUF model and return a ready-to-use session.
      *
@@ -57,6 +79,7 @@ public object KLlamaJava {
     @JvmStatic
     @JvmOverloads
     public fun loadGGUF(modelPath: Path, systemPrompt: String? = null): KLlamaSession {
+        ensureKernelPacksInstalled()
         val memSegFactory = MemorySegmentTensorDataFactory()
         val ctx = DirectCpuExecutionContext(tensorDataFactory = memSegFactory)
 
@@ -105,6 +128,7 @@ public object KLlamaJava {
     @JvmStatic
     @JvmOverloads
     public fun loadSafeTensors(modelDir: Path, systemPrompt: String? = null): KLlamaSession {
+        ensureKernelPacksInstalled()
         val memSegFactory = MemorySegmentTensorDataFactory()
         val ctx = DirectCpuExecutionContext(tensorDataFactory = memSegFactory)
 

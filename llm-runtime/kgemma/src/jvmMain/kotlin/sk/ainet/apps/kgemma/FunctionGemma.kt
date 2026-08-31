@@ -136,6 +136,7 @@ public class FunctionGemma private constructor(
             partialRotary: Float = 1.0f,
             style: Style = Style.OCTOPUS_V2,
         ): FunctionGemma = runBlocking {
+            KgemmaKernels.ensureInstalled()
             val tok = GGUFTokenizer.fromRandomAccessSource(JvmRandomAccessSource.open(gguf))
             val ctx = DirectCpuExecutionContext.create()
             // Keep BF16 weights at their stored width instead of widening them to FP32. This

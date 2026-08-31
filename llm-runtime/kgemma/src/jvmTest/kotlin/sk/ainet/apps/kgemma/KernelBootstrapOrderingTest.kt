@@ -1,52 +1,80 @@
 package sk.ainet.apps.kgemma
 
 import sk.ainet.backend.api.kernel.KernelDispatch
+import sk.ainet.backend.api.kernel.KernelPacks
 import sk.ainet.backend.api.kernel.KernelRegistry
-import sk.ainet.lang.memory.ExperimentalMemoryApi
+import sk.ainet.backend.api.kernel.KernelServiceLoader
+import sk.ainet.exec.kernel.FfmRowMajorKernelPack
 import kotlin.test.Test
 import kotlin.test.assertTrue
 
 /**
- * Guards the assumption this module now relies on: **kgemma performs no kernel bootstrap of its
- * own**, because `KernelDispatch` populates itself on first use (engine-side `ensureInstalled()`
- * plus the `ViewKernelPack` ServiceLoader SPI).
+ * Model-free probe for the kernel-bootstrap ORDERING trap.
  *
- * Two ways that assumption can silently break, both of which land us back on the decoding
- * reference kernel — correct output, ~1000x slower, no error:
+ * `KernelPacks.install()` defaults its provider to `KernelRegistry.bestAvailable()`,
+ * which is `null` while the provider registry is still empty — and the registry is
+ * only populated lazily, by `DefaultCpuOpsJvm.ensureKernelProviders()`, the first
+ * time an ops instance touches a kernel. Every current bootstrap
+ * (kgemma's `KgemmaKernels`, kllama's CLI, `KLlamaJava`, `skainet-cli`) runs at
+ * process start, i.e. BEFORE any ops instance exists.
  *
- *  1. the engine dependency is downgraded to a version predating the self-heal, or
- *  2. `skainet-backend-native-cpu` drops off kgemma's **runtime** classpath, so the FFM row-major
- *     pack is no longer discoverable. Note it is a `ServiceLoader` dependency now, not a compile
- *     one — nothing in this module references it by symbol, which is exactly why it is easy to
- *     "clean up" by mistake.
+ * Prints what actually lands in `KernelDispatch` for both orderings so the
+ * difference is visible rather than assumed.
  */
-@OptIn(ExperimentalMemoryApi::class)
 class KernelBootstrapOrderingTest {
 
+    private fun snapshot(label: String) {
+        val names = KernelDispatch.kernels().map { it.name }.sorted()
+        println("BOOT %-28s n=%2d kernels=%s".format(label, names.size, names))
+    }
+
     @Test
-    fun dispatch_self_heals_without_any_bootstrap_from_this_module() {
+    fun install_before_vs_after_provider_discovery() {
+        // (1) install() with an empty provider registry — the naive bootstrap.
         KernelDispatch.clearForTesting()
         KernelRegistry.clearForTesting()
+        KernelPacks.install()
+        FfmRowMajorKernelPack.install()
+        snapshot("cold (no provider discovery)")
+        val cold = KernelDispatch.kernels().map { it.name }.toSet()
 
-        // No install call anywhere — the engine must handle it.
-        KernelDispatch.ensureInstalled()
+        // (2) The same calls, after provider discovery has run.
+        KernelDispatch.clearForTesting()
+        KernelRegistry.clearForTesting()
+        KernelServiceLoader.installAll()
+        println("BOOT providers after installAll: ${KernelRegistry.availableNames()}")
+        KernelPacks.install()
+        FfmRowMajorKernelPack.install()
+        snapshot("warm (installAll first)")
+        val warm = KernelDispatch.kernels().map { it.name }.toSet()
 
+        // The gap this test exists to pin: provider-derived tiers (dense FP32
+        // views + the input-block-major packed kernels) only appear in (2).
+        assertTrue(
+            warm.size > cold.size,
+            "expected provider discovery to add kernels; cold=$cold warm=$warm",
+        )
+        assertTrue(
+            warm.any { it.endsWith("-fp32") } && cold.none { it.endsWith("-fp32") },
+            "dense-FP32 view kernels should be the ones gained; cold=$cold warm=$warm",
+        )
+    }
+
+    /** [KgemmaKernels.ensureInstalled] must land the full warm set, not the cold one. */
+    @Test
+    fun kgemma_bootstrap_installs_the_full_set() {
+        KernelDispatch.clearForTesting()
+        KernelRegistry.clearForTesting()
+        KgemmaKernels.ensureInstalled()
+        snapshot("KgemmaKernels.ensureInstalled")
         val names = KernelDispatch.kernels().map { it.name }
-        println("BOOT self-heal n=${names.size} providers=${KernelRegistry.availableNames()} kernels=${names.sorted()}")
-
         assertTrue(
             names.any { it.endsWith("-fp32") },
-            "providers must be discovered before KernelPacks.install(), else only the reference " +
-                "kernel lands; got $names",
+            "bootstrap must discover providers before KernelPacks.install(); got $names",
         )
         assertTrue(
             names.any { it.startsWith("ffm-rowmajor-Q4_K") },
-            "the FFM row-major pack must be ServiceLoader-discoverable — check that " +
-                "skainet-backend-native-cpu is still on the runtime classpath; got $names",
-        )
-        assertTrue(
-            KernelDispatch.mappedServableEncodings().isNotEmpty(),
-            "K-quant weights should be servable zero-copy from a mapping",
+            "bootstrap must install the row-major pack that serves GGUF K-quants; got $names",
         )
     }
 }

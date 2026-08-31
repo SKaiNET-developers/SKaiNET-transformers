@@ -111,7 +111,9 @@ public class FunctionGemmaOfficialChatTemplate(
         public const val DEVELOPER_PREAMBLE: String =
             "You are a model that can do function calling with the following functions"
 
-        private val THINK_RE = Regex("""<think>(.*?)</think>""", RegexOption.DOT_MATCHES_ALL)
+        // `[\s\S]` rather than `.` + DOT_MATCHES_ALL: that RegexOption is JVM-only, and this
+        // file is commonMain. A think span routinely covers newlines.
+        private val THINK_RE = Regex("""<think>([\s\S]*?)</think>""")
 
         private const val ESC = "<escape>"
         private val STANDARD_KEYS = setOf("description", "type", "properties", "required", "nullable")
