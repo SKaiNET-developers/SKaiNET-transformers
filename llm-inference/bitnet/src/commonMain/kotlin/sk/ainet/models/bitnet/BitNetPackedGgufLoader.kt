@@ -5,12 +5,14 @@ import sk.ainet.io.RandomAccessSource
 import sk.ainet.io.gguf.I2sGgufLayout
 import sk.ainet.io.gguf.StreamingGGUFReader
 import sk.ainet.io.gguf.StreamingGgufParametersLoader
+import sk.ainet.lang.memory.ExperimentalMemoryApi
 import sk.ainet.lang.memory.plan.EncodingRequest
 import sk.ainet.lang.memory.plan.WeightForm
 import sk.ainet.lang.memory.plan.WeightResidency
 import sk.ainet.lang.memory.plan.WeightShapeOrientation
 import sk.ainet.lang.nn.Module
 import sk.ainet.lang.tensor.Tensor
+import sk.ainet.lang.tensor.data.BitNetPlanesTensorData
 import sk.ainet.lang.tensor.storage.TensorEncoding
 import sk.ainet.lang.types.FP32
 import sk.ainet.models.llama.DecoderGgufWeights
@@ -33,11 +35,21 @@ import sk.ainet.models.llama.decoderMetadataFromGguf
  * - [i2sLayout] is the converter-flavor knob (BitNet.cpp x86 = `GROUP_128`, ARM = `GROUP_64`,
  *   NeoGPU = `SEQUENTIAL`) — see the engine's `I2sGgufLayout` docs; a wrong flavor fails fast on
  *   code 3 where possible.
- * - [planesLmHead] requantizes `output.weight` to `BITNET_PLANES` at load (the fused-lm_head
- *   format). For a source whose weights are exactly ternary this is lossless: the per-row absmax
- *   normalizes codes to {−1, 0, +1} and plane 0 captures them with zero residual. A 2B4T-style
- *   file with **tied** embeddings has no `output.weight`; the tied fallback then serves the
- *   lm_head from `token_embd` as-is, and this knob has no effect.
+ * - [planesLmHead] serves the lm_head in `BITNET_PLANES` (the fused-lm_head format), covering
+ *   both head flavors (transformers#337, #357):
+ *   - A file carrying `output.weight` has it requantized at load. For a source whose weights are
+ *     exactly ternary this is lossless: the per-row absmax normalizes codes to {−1, 0, +1} and
+ *     plane 0 captures them with zero residual.
+ *   - A 2B4T-style file with **tied** embeddings has no `output.weight`; the head is then
+ *     materialized from the loaded `token_embd` rows (transformers#357) — NeoGPU's lm_head
+ *     design: the non-ternary embedding rows decompose into 8 trit planes against an FP16
+ *     per-row absmax scale, a *bounded* requantization (per-weight error ≤ ~`0.5·3⁻⁷` of the
+ *     row scale; `KernelDispatch`'s planes matmul is always the exact 8-plane product of that
+ *     encoding). [BitNetTwoStageDecode] rescoring is exact w.r.t. this stored format.
+ *   Memory trade-off, decided here deliberately: the embedding keeps its as-stored (MAPPED
+ *   where servable) form for gathers, and the planes head is a **separate heap copy** at
+ *   2 B/weight + FP16 row scales — half an FP16 head, but additional to the embedding, one-time
+ *   at load. Pass `planesLmHead = false` for the exact dense tied head (the pre-#357 behavior).
  * - Embeddings must be a non-ternary type (F32/F16/BF16) — true of every BitNet checkpoint; a
  *   packed ternary `token_embd` would gather raw codes.
  */
@@ -102,8 +114,50 @@ public object BitNetPackedGgufLoader {
             i2sLayout = i2sLayout,
         ).load<FP32, Float>(ctx, FP32::class) { name, tensor -> tensors[name] = tensor }
 
+        // Tied-embeddings head (transformers#357): 2B4T ships no output.weight, and without this
+        // the planes lane above never engages on the flagship checkpoint — the tied fallback in
+        // BitNetNetworkLoader would serve the head as the dense embedding tensor. Materialize the
+        // planes head from the loaded embedding instead; the embedding itself keeps its as-stored
+        // form for gathers.
+        if (planesLmHead && "output.weight" !in tensors) {
+            val embedding = requireNotNull(tensors["token_embd.weight"]) {
+                "BitNetPackedGgufLoader: file carries neither 'output.weight' nor 'token_embd.weight'"
+            }
+            tensors["output.weight"] = planesHeadFromEmbedding(ctx, embedding)
+        }
+
         val model = BitNetNetworkLoader.fromWeights(DecoderGgufWeights(metadata, tensors), debug)
         return Loaded(model, metadata)
+    }
+
+    /**
+     * Encode the `[vocab, dim]` [embedding] rows as a [TensorEncoding.BITNET_PLANES] lm_head
+     * (transformers#357). Reads the rows through the tensor's element accessor — the embedding
+     * arrived in whatever form the loader materialized (dense heap or mapped) — into the same
+     * FP32 staging the engine's own `RequantizeTo(BITNET_PLANES)` lane uses, so the transient
+     * cost matches the non-tied `output.weight` path: one dense-FP32 copy of the head, once,
+     * at load.
+     */
+    @OptIn(ExperimentalMemoryApi::class)
+    private fun planesHeadFromEmbedding(
+        ctx: ExecutionContext,
+        embedding: Tensor<FP32, Float>,
+    ): Tensor<FP32, Float> {
+        val shape = embedding.shape
+        require(shape.rank == 2) {
+            "BitNetPackedGgufLoader: tied lm_head needs a 2-D token_embd, got rank ${shape.rank}"
+        }
+        val rows = shape.dimensions[0]
+        val cols = shape.dimensions[1]
+        val values = FloatArray(rows * cols)
+        val data = embedding.data
+        for (r in 0 until rows) {
+            val base = r * cols
+            for (c in 0 until cols) values[base + c] = data.get(r, c)
+        }
+        val planes = BitNetPlanesTensorData.fromFloats(shape, values)
+        @Suppress("UNCHECKED_CAST")
+        return ctx.fromData(planes as sk.ainet.lang.tensor.data.TensorData<FP32, Float>, FP32::class)
     }
 
 }
