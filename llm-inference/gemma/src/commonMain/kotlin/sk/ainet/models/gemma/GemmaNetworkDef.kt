@@ -98,7 +98,22 @@ public fun <T : DType, V> gemmaNetwork(
     sandwichNorms: Boolean = true,
     layerOutputScale: Boolean = true,
     ple: Boolean = false,
-    pleSideChannelOnly: Boolean = false
+    pleSideChannelOnly: Boolean = false,
+    /**
+     * Whether attention applies Gemma 4's parameterless per-head V RMS-norm.
+     *
+     * **Architecture-dependent, not a Gemma-family constant.** HF `Gemma4TextAttention` declares
+     * `v_norm = Gemma4RMSNorm(head_dim, with_scale=False)` and applies it right after `v_proj`;
+     * **gemma3 has no such norm** — llama.cpp's gemma3 graph goes `Vcur → MUL_MAT → RESHAPE →
+     * VIEW` with nothing in between, verified against `llama-eval-callback`. Because this builder
+     * serves both families, forcing it on for everyone silently corrupts gemma3: Q and K stay
+     * bit-exact while V is rescaled, so the attention output is only slightly wrong at position 0
+     * and compounds as more values enter the weighted sum — matching llama.cpp's greedy argmax at
+     * prefill n=3 and diverging by n=8 on FunctionGemma 270M.
+     *
+     * Default derives from the checkpoint's declared architecture.
+     */
+    vNorm: Boolean = metadata.architecture.startsWith("gemma4")
 ): Module<T, V> {
     val dim = metadata.embeddingLength
     val nHeads = metadata.headCount
@@ -181,7 +196,7 @@ public fun <T : DType, V> gemmaNetwork(
             // ground-truth comparison) flow straight into the softmax-weighted sum, producing
             // an attention output ~35-60x too large, which compounds through 35 layers into a
             // final-logit distribution completely unlike the real trained model's.
-            vNormNoScale = true,
+            vNormNoScale = vNorm,
             id = "attn",
             slidingWindow = slidingWindow
         ) {
