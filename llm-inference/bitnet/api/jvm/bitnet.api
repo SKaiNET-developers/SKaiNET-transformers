@@ -83,12 +83,23 @@ public final class sk/ainet/models/bitnet/BitNetPackedGgufLoader$Loaded {
 	public fun toString ()Ljava/lang/String;
 }
 
+public abstract interface class sk/ainet/models/bitnet/BitNetStage1Kernel {
+	public abstract fun stage1 ([FI[BIIIII[FI)V
+}
+
 public final class sk/ainet/models/bitnet/BitNetTwoStageDecode {
 	public static final field DEFAULT_CANDIDATES I
 	public static final field INSTANCE Lsk/ainet/models/bitnet/BitNetTwoStageDecode;
 	public final fun exactScore (Lsk/ainet/lang/tensor/data/BitNetPlanesTensorData;[FI)F
-	public final fun stage1Scores (Lsk/ainet/lang/tensor/data/BitNetPlanesTensorData;[F)[F
-	public final fun topK (Lsk/ainet/lang/tensor/data/BitNetPlanesTensorData;[FII)Ljava/util/List;
-	public static synthetic fun topK$default (Lsk/ainet/models/bitnet/BitNetTwoStageDecode;Lsk/ainet/lang/tensor/data/BitNetPlanesTensorData;[FIIILjava/lang/Object;)Ljava/util/List;
+	public final fun stage1Scores (Lsk/ainet/lang/tensor/data/BitNetPlanesTensorData;[FLsk/ainet/models/bitnet/BitNetStage1Kernel;)[F
+	public static synthetic fun stage1Scores$default (Lsk/ainet/models/bitnet/BitNetTwoStageDecode;Lsk/ainet/lang/tensor/data/BitNetPlanesTensorData;[FLsk/ainet/models/bitnet/BitNetStage1Kernel;ILjava/lang/Object;)[F
+	public final fun topK (Lsk/ainet/lang/tensor/data/BitNetPlanesTensorData;[FIILsk/ainet/models/bitnet/BitNetStage1Kernel;)Ljava/util/List;
+	public static synthetic fun topK$default (Lsk/ainet/models/bitnet/BitNetTwoStageDecode;Lsk/ainet/lang/tensor/data/BitNetPlanesTensorData;[FIILsk/ainet/models/bitnet/BitNetStage1Kernel;ILjava/lang/Object;)Ljava/util/List;
+}
+
+public final class sk/ainet/models/bitnet/BitNetTwoStageGenerationKt {
+	public static final fun bitnetPlanesHead (Lsk/ainet/lang/nn/Module;)Lsk/ainet/lang/tensor/data/BitNetPlanesTensorData;
+	public static final fun generateTwoStage (Lsk/ainet/apps/llm/OptimizedLLMRuntime;[IIFLsk/ainet/lang/tensor/data/BitNetPlanesTensorData;Lsk/ainet/models/bitnet/BitNetStage1Kernel;ILkotlin/random/Random;Lkotlin/jvm/functions/Function1;)V
+	public static synthetic fun generateTwoStage$default (Lsk/ainet/apps/llm/OptimizedLLMRuntime;[IIFLsk/ainet/lang/tensor/data/BitNetPlanesTensorData;Lsk/ainet/models/bitnet/BitNetStage1Kernel;ILkotlin/random/Random;Lkotlin/jvm/functions/Function1;ILjava/lang/Object;)V
 }
 

@@ -78,7 +78,9 @@ public final class sk/ainet/apps/llm/GenerateResult {
 
 public final class sk/ainet/apps/llm/GenerateUntilStopKt {
 	public static final fun generateUntilStop (Lsk/ainet/apps/llm/InferenceRuntime;[IIIFLkotlin/random/Random;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function2;Lsk/ainet/apps/llm/PrefillStrategy;)Lsk/ainet/apps/llm/GenerateResult;
+	public static final fun generateUntilStop (Lsk/ainet/apps/llm/InferenceRuntime;[IILjava/util/Set;FIFLkotlin/random/Random;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function2;Lsk/ainet/apps/llm/PrefillStrategy;)Lsk/ainet/apps/llm/GenerateResult;
 	public static synthetic fun generateUntilStop$default (Lsk/ainet/apps/llm/InferenceRuntime;[IIIFLkotlin/random/Random;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function2;Lsk/ainet/apps/llm/PrefillStrategy;ILjava/lang/Object;)Lsk/ainet/apps/llm/GenerateResult;
+	public static synthetic fun generateUntilStop$default (Lsk/ainet/apps/llm/InferenceRuntime;[IILjava/util/Set;FIFLkotlin/random/Random;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function2;Lsk/ainet/apps/llm/PrefillStrategy;ILjava/lang/Object;)Lsk/ainet/apps/llm/GenerateResult;
 	public static final fun sampleFromLogits (Lsk/ainet/lang/tensor/Tensor;FLkotlin/random/Random;)I
 	public static synthetic fun sampleFromLogits$default (Lsk/ainet/lang/tensor/Tensor;FLkotlin/random/Random;ILjava/lang/Object;)I
 }
@@ -173,6 +175,7 @@ public final class sk/ainet/apps/llm/OptimizedLLMRuntime : sk/ainet/apps/llm/Inf
 	public static synthetic fun compileWith$default (Lsk/ainet/apps/llm/OptimizedLLMRuntime;ILsk/ainet/compile/opt/GraphOptimizationPipeline;ILjava/lang/Object;)Ljava/util/List;
 	public fun forward (I)Lsk/ainet/lang/tensor/Tensor;
 	public fun forwardBatched ([I)Lsk/ainet/lang/tensor/Tensor;
+	public final fun forwardHidden (I)Lsk/ainet/lang/tensor/Tensor;
 	public final fun generate ([IIFLkotlin/jvm/functions/Function1;)V
 	public final fun getBos ()I
 	public final fun getDim ()I
@@ -242,7 +245,9 @@ public final class sk/ainet/apps/llm/RopeUtilsKt {
 public final class sk/ainet/apps/llm/SamplingUtilsKt {
 	public static final fun sampleFromCandidates (Ljava/util/List;FLkotlin/random/Random;)I
 	public static synthetic fun sampleFromCandidates$default (Ljava/util/List;FLkotlin/random/Random;ILjava/lang/Object;)I
+	public static final fun sampleFromLogits ([FFIFLkotlin/random/Random;)I
 	public static final fun sampleFromLogits ([FFLkotlin/random/Random;)I
+	public static synthetic fun sampleFromLogits$default ([FFIFLkotlin/random/Random;ILjava/lang/Object;)I
 	public static synthetic fun sampleFromLogits$default ([FFLkotlin/random/Random;ILjava/lang/Object;)I
 	public static final fun softmaxInPlace ([FI)V
 	public static synthetic fun softmaxInPlace$default ([FIILjava/lang/Object;)V
@@ -355,6 +360,7 @@ public final class sk/ainet/apps/llm/tokenizer/GGUFTokenizer : sk/ainet/apps/llm
 	public fun getEosTokenId ()I
 	public final fun getTokenizerType ()Lsk/ainet/apps/llm/TokenizerType;
 	public fun getVocabSize ()I
+	public final fun tokenId (Ljava/lang/String;)Ljava/lang/Integer;
 }
 
 public final class sk/ainet/apps/llm/tokenizer/GGUFTokenizer$Companion {
