@@ -1,0 +1,22 @@
+# BitNet-b1.58-2B-4T greedy parity fixture (transformers#360)
+#
+# Oracle: microsoft/BitNet (bitnet.cpp) @ de371b7 with its pinned llama.cpp fork @ 5eb47b721,
+# built with -DBITNET_ARM_TL1=OFF (i2_s CPU path), queried via llama-server on the official
+# I2_S GGUF (microsoft/BitNet-b1.58-2B-4T-gguf, ggml-model-i2_s.gguf):
+#   build/bin/llama-server -m BitNet-b1.58-2B-4T-i2s.gguf -ngl 0 -t 4 --port 8811
+#   curl :8811/tokenize   -d '{"content": "The capital of France is", "add_special": true}'
+#   curl :8811/completion -d '{"prompt": "The capital of France is", "n_predict": 32, "temperature": 0, "top_k": 1}'
+#
+# NOTE: the oracle's CPU i2_s matmul quantizes ACTIVATIONS to int8 (absmax); SKaiNET's vendored
+# LUT path computes exact FP32*ternary. The greedy texts diverge at generated token 4
+# (" a city…" vs " the capital…"); the oracle's own top-5 at that position is ' a' 0.348,
+# ' known' 0.211, ' located' 0.156, ' the' 0.151 — a real logit divergence, not a tie. Which
+# implementation is closer to the BF16 reference is an open follow-up on #360; until arbitrated,
+# cross-implementation TEXT equality is deliberately NOT asserted. The asserted gates are:
+# prompt-tokenization parity with the oracle, and SKaiNET self-golden regression (both decode
+# paths must keep reproducing skainet_text exactly).
+prompt=The capital of France is
+steps=32
+prompt_tokens=128000,791,6864,315,9822,374
+oracle_text= Paris. Paris is a city that is known for its rich history, culture, and architecture. It is also a major center for art, fashion, and cuisine
+skainet_text= Paris. Paris is the capital of France. Paris is a beautiful city with many famous landmarks such as the Eiffel Tower, Notre Dame Cathedral, and the

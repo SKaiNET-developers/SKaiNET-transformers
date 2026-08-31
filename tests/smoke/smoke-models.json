@@ -72,6 +72,13 @@
       "prompt": "MongoDB is a NoSQL database",
       "doc": "MongoDB stores data in BSON documents",
       "reference": true
+    },
+    {
+      "name": "BitNet-b1.58-2B4T-I2S",
+      "runner": "skainet",
+      "model": "BitNet-b1.58-2B-4T-i2s.gguf",
+      "format": "gguf",
+      "steps": 16
     }
   ]
 }
