@@ -19,6 +19,7 @@ import sk.ainet.backend.api.kernel.KernelPacks
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.exec.kernel.FfmRowMajorKernelPack
 import sk.ainet.io.JvmRandomAccessSource
+import sk.ainet.io.gguf.I2sGgufLayout
 import sk.ainet.io.gguf.StreamingGGUFReader
 import sk.ainet.io.gguf.planInput
 import sk.ainet.lang.memory.plan.Budget
@@ -56,6 +57,7 @@ private data class CliArgs(
     val templateName: String?,
     val contextLength: Int?,
     val explainLoad: Boolean,
+    val i2sLayout: String?,
 )
 
 private fun usage(errorMessage: String? = null): Nothing {
@@ -75,6 +77,7 @@ private fun usage(errorMessage: String? = null): Nothing {
     println("  --template=NAME     Chat template: llama3, chatml, qwen, gemma (auto-detected if omitted)")
     println("  --context=N         Cap context length to N tokens")
     println("  --explain-load      Print per-weight placement decisions (mapped/heap and why) before loading")
+    println("  --i2s-layout=L      BitNet I2_S converter flavor: group128 (default), group64, sequential")
     println("  -h, --help          Show this help")
     println()
     println("Supported architectures (auto-detected from GGUF metadata):")
@@ -100,6 +103,7 @@ private fun parseArgs(args: Array<String>): CliArgs {
     var templateName: String? = null
     var contextLength: Int? = null
     var explainLoad = false
+    var i2sLayout: String? = null
 
     var idx = 0
     fun nextValue(flag: String): String {
@@ -125,6 +129,7 @@ private fun parseArgs(args: Array<String>): CliArgs {
             arg == "--agent" -> agentMode = true
             arg == "--demo" -> demoMode = true
             arg == "--explain-load" -> explainLoad = true
+            arg.startsWith("--i2s-layout=") -> i2sLayout = arg.substringAfter("=")
             arg.startsWith("--template=") -> templateName = arg.substringAfter("=")
             arg.startsWith("--context=") -> {
                 val value = arg.substringAfter("=")
@@ -145,7 +150,7 @@ private fun parseArgs(args: Array<String>): CliArgs {
         usage("Prompt is required (or use --chat/--agent/--demo mode).")
     }
 
-    return CliArgs(modelPath, steps, temperature, prompt, chatMode, agentMode, demoMode, templateName, contextLength, explainLoad)
+    return CliArgs(modelPath, steps, temperature, prompt, chatMode, agentMode, demoMode, templateName, contextLength, explainLoad, i2sLayout)
 }
 
 fun main(args: Array<String>) {
@@ -264,15 +269,35 @@ fun main(args: Array<String>) {
             // format either way (#357): a file's own output.weight requantizes losslessly; a
             // tied-embeddings file (2B4T) gets the head materialized from token_embd — a bounded
             // 8-plane requantization, the NeoGPU lm_head design.
-            println("Loading BitNet GGUF model from $modelPath via BitNetWeightLoader (packed I2_S, GROUP_128 flavor)...")
-            if (cliArgs.contextLength != null) {
-                println("  --context flag currently ignored on the BitNet path; uses model default capped to 4096.")
+            val i2sLayout = when (cliArgs.i2sLayout?.lowercase()) {
+                null, "group128" -> I2sGgufLayout.GROUP_128
+                "group64" -> I2sGgufLayout.GROUP_64
+                "sequential" -> I2sGgufLayout.SEQUENTIAL
+                else -> usage("Invalid --i2s-layout '${cliArgs.i2sLayout}' (group128 | group64 | sequential).")
             }
+            println("Loading BitNet GGUF model from $modelPath via BitNetWeightLoader (packed I2_S, ${i2sLayout.name} flavor)...")
+            // Load-bearing until SKaiNET#1240 ships in a consumed BOM: the engine's self-healing
+            // dispatch does not yet discover the ternary packs, so without these two lines the
+            // packed weights silently dispatch to the ~120x slower reference/int8 paths. Drop
+            // them once the BOM bump lands (tracked in #360).
             NativeTernaryF32GemvKernel.install { println("[skainet] $it") }
             NativeTernaryLmheadKernel.install { println("[skainet] $it") }
-            val loaded = BitNetWeightLoader.loadWithMetadata(
+            val weights = BitNetWeightLoader.loadRuntimeWeights(
                 ctx,
                 sourceProvider = { JvmRandomAccessSource.open(modelPath.toString()) },
+                i2sLayout = i2sLayout,
+            )
+            // --context caps the KV/RoPE allocation through bitnetNetwork's
+            // maxInferenceLen = min(contextLength, 4096) default.
+            val metadata = cliArgs.contextLength
+                ?.let { weights.metadata.copy(contextLength = minOf(it, weights.metadata.contextLength)) }
+                ?: weights.metadata
+            if (cliArgs.contextLength != null) {
+                println("Context length capped to ${metadata.contextLength} (model default: ${weights.metadata.contextLength})")
+            }
+            val loaded = BitNetWeightLoader.Loaded(
+                sk.ainet.models.bitnet.BitNetRuntimeWeights(metadata, weights.tensors).toModule(),
+                metadata,
             )
             bitnetTwoStageHead = bitnetPlanesHead(loaded.model)
             if (bitnetTwoStageHead != null) {
