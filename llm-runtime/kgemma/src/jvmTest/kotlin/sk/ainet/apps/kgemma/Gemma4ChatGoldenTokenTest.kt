@@ -53,6 +53,7 @@ class Gemma4ChatGoldenTokenTest {
         if (path.isEmpty() || System.getenv("GEMMA4_PROBE") != "1") {
             println("[skip] set GEMMA4_E2B_GGUF_PATH and GEMMA4_PROBE=1"); return
         }
+        KgemmaKernels.ensureInstalled()
         val tokenizer = JvmRandomAccessSource.open(path).use { GGUFTokenizer.fromRandomAccessSource(it) }
         val memSeg = MemorySegmentTensorDataFactory()
         val ctx = DirectCpuExecutionContext(tensorDataFactory = memSeg)
@@ -101,6 +102,7 @@ class Gemma4ChatGoldenTokenTest {
         if (path.isEmpty() || System.getenv("GEMMA4_PROBE") != "1") {
             println("[skip] set GEMMA4_E2B_GGUF_PATH and GEMMA4_PROBE=1"); return
         }
+        KgemmaKernels.ensureInstalled()
         val tokenizer = JvmRandomAccessSource.open(path).use { GGUFTokenizer.fromRandomAccessSource(it) }
         for ((label, cfg) in listOf(
             "packed(default)" to Gemma4LoadConfig(),
@@ -138,6 +140,7 @@ class Gemma4ChatGoldenTokenTest {
         if (path.isEmpty()) {
             println("[skip] GEMMA4_E2B_GGUF_PATH not set."); return
         }
+        KgemmaKernels.ensureInstalled()
 
         val tokenizer = JvmRandomAccessSource.open(path).use { GGUFTokenizer.fromRandomAccessSource(it) }
 

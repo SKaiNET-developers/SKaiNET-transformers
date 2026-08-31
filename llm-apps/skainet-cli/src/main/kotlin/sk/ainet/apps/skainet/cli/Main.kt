@@ -15,7 +15,9 @@ import sk.ainet.apps.llm.backend.BackendRegistry
 import sk.ainet.apps.llm.backend.bestAvailable
 import sk.ainet.apps.llm.tokenizer.TokenizerFactory
 import sk.ainet.apps.kllama.chat.ModelMetadata
+import sk.ainet.backend.api.kernel.KernelPacks
 import sk.ainet.context.DirectCpuExecutionContext
+import sk.ainet.exec.kernel.FfmRowMajorKernelPack
 import sk.ainet.io.JvmRandomAccessSource
 import sk.ainet.io.gguf.StreamingGGUFReader
 import sk.ainet.io.gguf.planInput
@@ -160,6 +162,16 @@ fun main(args: Array<String>) {
         // Select backend
         val provider = BackendRegistry.bestAvailable()
         println("Backend: ${provider.displayName}")
+
+        // 0.51 view-keyed kernel tiers (#338 arc): KernelPacks wires the reference +
+        // best provider's FP32/prepacked kernels into KernelDispatch; the FFM
+        // row-major pack serves canonical packed weights — mapped OR un-prepacked
+        // heap — zero-copy, which is what makes WeightForm(residency = MAPPED) fast.
+        @OptIn(sk.ainet.lang.memory.ExperimentalMemoryApi::class)
+        run {
+            KernelPacks.install()
+            FfmRowMajorKernelPack.install()
+        }
 
         // Memory plan before anything is allocated: header-only arithmetic
         // priced with the same form the loaders below request for every

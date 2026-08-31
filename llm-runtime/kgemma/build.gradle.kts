@@ -122,13 +122,8 @@ kotlin {
                 // here rather than in commonMain.
                 implementation(project(":llm-providers"))
                 implementation(project(":llm-api"))
-                // Kernel tiers for KernelDispatch. NOTHING here references these by symbol:
-                // the engine's KernelDispatch.ensureInstalled() discovers them itself
-                // (ViewKernelPack via ServiceLoader), which is why no kgemma entry point
-                // performs a kernel bootstrap any more. They must nevertheless stay on the
-                // runtime classpath — drop native-cpu and the FFM row-major pack becomes
-                // undiscoverable, silently returning every matmul to the decoding reference
-                // kernel. KernelBootstrapOrderingTest guards exactly that.
+                // KernelPacks.install()/FfmRowMajorKernelPack.install() — Gemma4ChatModel's
+                // ensureKernelPacksInstalled() (mirrors KLlamaJava's).
                 implementation(libs.skainet.backend.api)
                 implementation(libs.skainet.backend.nativeCpu)
             }

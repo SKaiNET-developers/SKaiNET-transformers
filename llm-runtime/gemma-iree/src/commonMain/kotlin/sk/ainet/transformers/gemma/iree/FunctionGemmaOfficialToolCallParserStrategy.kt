@@ -52,9 +52,10 @@ public class FunctionGemmaOfficialToolCallParserStrategy : ToolCallParserStrateg
 
     public companion object {
         /** `<start_function_call>call:name{…}<end_function_call>` — end token optional on truncation. */
+        // `[\s\S]` rather than `.` + DOT_MATCHES_ALL: that RegexOption is JVM-only, and this
+        // file is commonMain. Call bodies span newlines whenever an argument does.
         private val CALL_RE = Regex(
-            """<start_function_call>\s*call:([\w.-]+)\s*\{(.*?)}\s*(?:<end_function_call>|$)""",
-            RegexOption.DOT_MATCHES_ALL,
+            """<start_function_call>\s*call:([\w.-]+)\s*\{([\s\S]*?)}\s*(?:<end_function_call>|$)""",
         )
 
         /**

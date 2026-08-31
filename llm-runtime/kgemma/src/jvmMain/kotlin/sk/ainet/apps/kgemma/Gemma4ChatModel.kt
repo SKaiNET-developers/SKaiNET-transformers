@@ -63,6 +63,14 @@ import sk.ainet.models.gemma.Gemma4Weights
 public object Gemma4ChatModel {
 
     /**
+     * Installs the 0.51 view-keyed kernel tiers exactly once per process. Shared with the
+     * kgemma CLI via [KgemmaKernels] (mirrors `KLlamaJava.ensureKernelPacksInstalled`, #354).
+     * Without this, MAPPED/packed weights fall to the decoding reference kernel: correct, but
+     * measured hours-scale on real checkpoints rather than sub-second.
+     */
+    private fun ensureKernelPacksInstalled() = KgemmaKernels.ensureInstalled()
+
+    /**
      * Build a [SkaiNetChatModel] for a Gemma 4 GGUF checkpoint.
      *
      * Composes the same four pieces as [fromSafeTensors], sourced from GGUF instead:
@@ -97,6 +105,7 @@ public object Gemma4ChatModel {
         modelId: String? = "gemma4",
         enableThinking: Boolean = false,
     ): StreamingChatModel {
+        ensureKernelPacksInstalled()
         require(Paths.get(path).exists()) { "GGUF not found: $path" }
 
         val ingestion = Gemma4Ingestion<FP32>(
@@ -158,6 +167,7 @@ public object Gemma4ChatModel {
         modelId: String? = "gemma4",
         enableThinking: Boolean = false,
     ): StreamingChatModel {
+        ensureKernelPacksInstalled()
         val (resolvedIndex, modelDir) = resolveIndexAndDir(indexPath)
         require(resolvedIndex.exists()) {
             "SafeTensors index not found: $resolvedIndex"

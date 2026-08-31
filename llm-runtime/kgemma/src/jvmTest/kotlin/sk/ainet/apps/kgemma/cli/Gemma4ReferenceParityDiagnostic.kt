@@ -51,6 +51,13 @@ class Gemma4ReferenceParityDiagnostic {
             return
         }
 
+        // Same bootstrap every production entry point performs. Without it the
+        // keep-packed weights — including the tied lm_head, which rides
+        // token_embd's PackedBlockStorage — fall to KernelDispatch's decoding
+        // reference kernel, and a "diagnostic" run takes tens of minutes for a
+        // handful of tokens (measured) instead of seconds.
+        sk.ainet.apps.kgemma.KgemmaKernels.ensureInstalled()
+
         runBlocking {
             val memSegFactory = MemorySegmentTensorDataFactory()
             val ctx = DirectCpuExecutionContext(tensorDataFactory = memSegFactory)
