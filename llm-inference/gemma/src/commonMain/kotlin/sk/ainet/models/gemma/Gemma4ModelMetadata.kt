@@ -46,6 +46,12 @@ public data class Gemma4ModelMetadata(
     /** PAD token ID. */
     val padTokenId: Int = 0,
     /**
+     * RMS-norm epsilon. Read from `{arch}.attention.layer_norm_rms_epsilon`
+     * on the GGUF paths (mirrors llama's `DecoderGgufMetadata`); 1e-6 is the
+     * released Gemma 4 value and the fallback when the field is absent.
+     */
+    val rmsNormEps: Float = 1e-6f,
+    /**
      * Final-logit softcapping value (Gemma 4 specific). When > 0, the
      * language model head output is passed through
      * `softcap * tanh(logits / softcap)`. Gemma 4 E2B uses 30.0. Zero or

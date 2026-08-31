@@ -12,6 +12,7 @@ import sk.ainet.apps.kllama.chat.Gemma4ChatTemplate
 import sk.ainet.apps.llm.tokenizer.GGUFTokenizer
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.context.ExecutionContext
+import sk.ainet.io.JvmRandomAccessSource
 import sk.ainet.lang.tensor.data.MemorySegmentTensorDataFactory
 import sk.ainet.lang.types.FP32
 import sk.ainet.llm.api.ChatOptions
@@ -60,6 +61,77 @@ import sk.ainet.models.gemma.Gemma4Weights
  * request.
  */
 public object Gemma4ChatModel {
+
+    /**
+     * Build a [SkaiNetChatModel] for a Gemma 4 GGUF checkpoint.
+     *
+     * Composes the same four pieces as [fromSafeTensors], sourced from GGUF instead:
+     *  1. [Gemma4Ingestion.loadDslRuntimeStreaming] — streams the GGUF via a random-access
+     *     source through the engine loader; quantized (K-quant) tensors stay packed by default
+     *     (see [Gemma4LoadConfig.weightForm]), same mechanism [sk.ainet.apps.kllama.java.KLlamaJava]
+     *     uses for Llama.
+     *  2. [GGUFTokenizer.fromRandomAccessSource] — reads the tokenizer baked into the GGUF itself
+     *     (no separate `tokenizer.json` needed). Called directly rather than through
+     *     `sk.ainet.apps.llm.tokenizer.TokenizerFactory.fromGgufSource`, which delegates to the
+     *     engine's `tokenizer.ggml.model`-gated factory — that allowlist doesn't have a "gemma4"
+     *     case yet, even though `GGUFTokenizer` itself already handles Gemma 4's GGUF shape.
+     *  3. [Gemma4ChatTemplate] — same official turn format as the SafeTensors path.
+     *  4. [SkaiNetChatModel] — the neutral `ChatModel` / `StreamingChatModel` adapter.
+     *
+     * **Known limitation vs [fromSafeTensors]**: a GGUF only carries a single
+     * `tokenizer.ggml.eos_token_id` (unlike `generation_config.json`'s `eos_token_id` array, which
+     * on real Gemma 4 checkpoints lists multiple stop ids, e.g. `[1, 106]`). Passing only the
+     * tokenizer's single id risks the same "keeps emitting `<turn|>` past the natural boundary"
+     * failure mode [fromSafeTensors]'s doc comment warns about, if the GGUF's own EOS id isn't the
+     * one that matters for a given prompt shape. Verify empirically per checkpoint; a future
+     * revision could scan the GGUF's tokenizer vocab for `<turn|>`/`<end_of_turn>`-shaped entries.
+     *
+     * @param path Path to a `.gguf` file.
+     */
+    public fun fromGguf(
+        path: String,
+        ctx: ExecutionContext = DirectCpuExecutionContext(
+            tensorDataFactory = MemorySegmentTensorDataFactory()
+        ),
+        options: ChatOptions = ChatOptions.DEFAULTS,
+        modelId: String? = "gemma4",
+        enableThinking: Boolean = false,
+    ): StreamingChatModel {
+        require(Paths.get(path).exists()) { "GGUF not found: $path" }
+
+        val ingestion = Gemma4Ingestion<FP32>(
+            ctx = ctx,
+            dtype = FP32::class,
+            config = Gemma4LoadConfig(),
+        )
+        val runtime = runBlocking {
+            ingestion.loadDslRuntimeStreaming { JvmRandomAccessSource.open(path) }
+        }
+
+        // sk.ainet.apps.llm.tokenizer.TokenizerFactory.fromGgufSource delegates to the engine's
+        // sk.ainet.io.tokenizer.TokenizerFactory, which gates on tokenizer.ggml.model and doesn't
+        // recognize "gemma4" yet (throws UnsupportedTokenizerException) — even though GGUFTokenizer
+        // itself already has explicit Gemma-4-aware handling (see its addSpacePrefix doc). Call it
+        // directly to bypass the stale model-string allowlist.
+        val tokenizer = JvmRandomAccessSource.open(path).use { source ->
+            GGUFTokenizer.fromRandomAccessSource(source)
+        }
+
+        val chatTemplate = Gemma4ChatTemplate(enableThinking = enableThinking)
+        // GGUF carries only a single eos id; resolve the full Gemma 4 stop set
+        // ({<eos>, <turn|>, chat-end} per generation_config.json) from the vocab.
+        val eosTokenIds = Gemma4StopTokens.resolve(tokenizer)
+
+        val delegate = SkaiNetChatModel(
+            runtime = runtime,
+            tokenizer = tokenizer,
+            chatTemplate = chatTemplate,
+            defaultOptions = options,
+            eosTokenIds = eosTokenIds,
+            modelId = modelId,
+        )
+        return delegate
+    }
 
     /**
      * Build a [SkaiNetChatModel] for a Gemma 4 SafeTensors checkpoint.

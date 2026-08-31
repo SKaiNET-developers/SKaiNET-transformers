@@ -5,17 +5,20 @@ import sk.ainet.apps.kllama.GGUFTokenizer
 import sk.ainet.apps.llm.InferenceRuntime
 import sk.ainet.apps.llm.OptimizedLLMMode
 import sk.ainet.apps.llm.OptimizedLLMRuntime
-import sk.ainet.apps.llm.generate
+import sk.ainet.apps.llm.generateUntilStop
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
 import sk.ainet.lang.types.FP32
-import sk.ainet.models.gemma.GEMMA_DEQUANTIZE_ALL
 import sk.ainet.models.gemma.Gemma4WeightLoader
 import sk.ainet.models.gemma.GemmaNetworkLoader
 import sk.ainet.apps.kllama.chat.ChatMessage
 import sk.ainet.apps.kllama.chat.ChatRole
+import sk.ainet.apps.kllama.chat.ChatTemplate
+import sk.ainet.apps.kllama.chat.ToolDefinition
 import sk.ainet.transformers.gemma.iree.CompactCodec
 import sk.ainet.transformers.gemma.iree.FunctionGemmaChatTemplate
+import sk.ainet.transformers.gemma.iree.FunctionGemmaOfficialChatTemplate
+import sk.ainet.transformers.gemma.iree.FunctionGemmaOfficialToolCallParserStrategy
 import sk.ainet.transformers.gemma.iree.ToolCall
 import kotlin.random.Random
 
@@ -32,37 +35,83 @@ import kotlin.random.Random
  * context** (eager — runs anywhere on CPU) or the **compile target** (compiled — the SL2610
  * edge vmfb, via [FunctionGemmaExport]). Eager dequantizes Q5_K → FP32 ("works, moderate
  * speed"); the compiled path is the edge-perf artifact.
+ *
+ * Two prompt/output dialects exist behind [Style]:
+ *  - [Style.OCTOPUS_V2] — the physical-ai fine-tune's `<tool_N>(args)<end>` compact format
+ *    (the original consumer of this class; templates baked into the checkpoint's vocab).
+ *  - [Style.OFFICIAL] — Google's released `google/functiongemma-270m-it`:
+ *    `<start_function_declaration>` tool blocks in the prompt,
+ *    `<start_function_call>call:name{…}<end_function_call>` in the output. Tools are
+ *    declared per call via [callWithTools]. Recommended sampling per the model card is
+ *    temperature 1.0 / topK 64 / topP 0.95 — pass those to [callWithTools] for production;
+ *    tests keep temperature 0 for determinism.
  */
 public class FunctionGemma private constructor(
     private val ggufPath: String,
     private val runtime: InferenceRuntime<FP32>,
     private val tokenizer: GGUFTokenizer,
+    private val style: Style,
     private val bos: Int,
     private val eot: Int,
     private val eos: Int,
 ) {
+    public enum class Style { OCTOPUS_V2, OFFICIAL }
+
     public data class Turn(val text: String, val calls: List<ToolCall>)
 
-    private val chatTemplate = FunctionGemmaChatTemplate()
+    private val chatTemplate: ChatTemplate = when (style) {
+        Style.OCTOPUS_V2 -> FunctionGemmaChatTemplate()
+        Style.OFFICIAL -> FunctionGemmaOfficialChatTemplate()
+    }
+    private val officialParser = FunctionGemmaOfficialToolCallParserStrategy()
 
     /**
-     * EAGER function-calling: apply the Octopus-v2 chat template ([FunctionGemmaChatTemplate] —
-     * the exact `<start_of_turn>user\n…<end_of_turn>\n<start_of_turn>model\n` string this method
-     * used to hardcode), greedily generate the compact tool call, and parse it — entirely
-     * in-process (no iree-compile, no board).
+     * EAGER function-calling in the checkpoint's dialect. For [Style.OCTOPUS_V2] this is the
+     * historical behavior (tool vocabulary baked into the checkpoint, no declarations needed).
+     * For [Style.OFFICIAL] prefer [callWithTools]; calling this without tools renders a
+     * plain chat turn.
      */
-    public fun call(userText: String, maxTokens: Int = 24): Turn {
-        val prompt = chatTemplate.apply(listOf(ChatMessage(ChatRole.USER, userText)))
-        val ptoks = tokenizer.encode(prompt) // generate() prepends bos
-        val gen = ArrayList<Int>(maxTokens)
-        var stopped = false
-        runtime.generate(prompt = ptoks, steps = maxTokens, temperature = 0f, bosToken = bos) { id ->
-            if (!stopped) {
-                if (id == eot || id == eos) stopped = true else gen.add(id)
-            }
+    public fun call(userText: String, maxTokens: Int = 24): Turn =
+        callWithTools(userText, tools = emptyList(), maxTokens = maxTokens)
+
+    /**
+     * EAGER function-calling with in-prompt tool declarations ([Style.OFFICIAL]) or the
+     * baked-in vocabulary ([Style.OCTOPUS_V2], where [tools] is ignored by the template).
+     *
+     * @param temperature 0 = greedy (deterministic — the test default). The official model
+     *   card recommends `temperature = 1.0f, topK = 64, topP = 0.95f`.
+     */
+    public fun callWithTools(
+        userText: String,
+        tools: List<ToolDefinition>,
+        maxTokens: Int = 64,
+        temperature: Float = 0f,
+        topK: Int = 0,
+        topP: Float = 1f,
+        random: Random = Random.Default,
+    ): Turn {
+        val prompt = chatTemplate.apply(listOf(ChatMessage(ChatRole.USER, userText)), tools = tools)
+        val ptoks = tokenizer.encode(prompt)
+        val full = if (ptoks.isEmpty() || ptoks[0] != bos) intArrayOf(bos) + ptoks else ptoks
+        // Each call is a fresh single turn — without this, the KV cache still
+        // holds the previous call's turn and the new prompt is prefilled on top
+        // of it (observed as answers bleeding content across calls).
+        runtime.reset()
+        val result = runtime.generateUntilStop(
+            prompt = full,
+            maxTokens = maxTokens,
+            eosTokenIds = setOf(eot, eos),
+            temperature = temperature,
+            topK = topK,
+            topP = topP,
+            random = random,
+        )
+        val text = tokenizer.decode(result.tokens.toIntArray())
+        val calls = when (style) {
+            Style.OCTOPUS_V2 -> CompactCodec.parse(text)
+            Style.OFFICIAL -> officialParser.parseCompact(text)
         }
-        val text = tokenizer.decode(gen.toIntArray())
-        return Turn(text, CompactCodec.parse(text))
+        return Turn(text, calls)
     }
 
     /**
@@ -78,13 +127,24 @@ public class FunctionGemma private constructor(
          * Load FunctionGemma from a GGUF checkpoint for EAGER use. Tokenizer + weights come from the
          * GGUF; global-layer RoPE is forced to full rotary ([partialRotary] = 1.0 — the gemma3
          * convention the gguf omits, which the loader would otherwise default to 0.25 and mis-rotate).
+         *
+         * @param style prompt/output dialect — [Style.OCTOPUS_V2] (default, the physical-ai
+         *   fine-tune) or [Style.OFFICIAL] (google/functiongemma-270m-it).
          */
-        public fun fromGguf(gguf: String, partialRotary: Float = 1.0f): FunctionGemma = runBlocking {
+        public fun fromGguf(
+            gguf: String,
+            partialRotary: Float = 1.0f,
+            style: Style = Style.OCTOPUS_V2,
+        ): FunctionGemma = runBlocking {
             val tok = GGUFTokenizer.fromRandomAccessSource(JvmRandomAccessSource.open(gguf))
             val ctx = DirectCpuExecutionContext.create()
+            // Keep BF16 weights at their stored width instead of widening them to FP32. This
+            // checkpoint ships BF16, and a decode step is bound by the bytes it reads: halving them
+            // halves the traffic, and the bf16 matmul kernel is the fastest of the set (14.33
+            // GFLOP/s vs 7.48 for fp32 on a decode-shaped problem — bf16 decodes by a bit-shift).
             val weights = Gemma4WeightLoader(
                 randomAccessProvider = { JvmRandomAccessSource.open(gguf) },
-                weightForm = GEMMA_DEQUANTIZE_ALL,
+                dtypePolicy = sk.ainet.lang.types.DTypePolicy.Prefer(sk.ainet.lang.types.BF16),
             ).loadToMapStreaming<FP32, Float>(ctx, FP32::class)
             val patched = weights.copy(
                 metadata = weights.metadata.copy(
@@ -97,8 +157,9 @@ public class FunctionGemma private constructor(
                 ggufPath = gguf,
                 runtime = runtime,
                 tokenizer = tok,
+                style = style,
                 bos = tok.bosTokenId,
-                eot = tok.encode("<end_of_turn>").single(),
+                eot = tok.tokenId("<end_of_turn>") ?: tok.encode("<end_of_turn>").single(),
                 eos = tok.eosTokenId,
             )
         }

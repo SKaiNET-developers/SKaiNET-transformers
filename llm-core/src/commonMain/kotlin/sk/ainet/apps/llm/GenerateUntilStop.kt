@@ -51,7 +51,43 @@ public fun <T : DType> InferenceRuntime<T>.generateUntilStop(
     decode: ((Int) -> String)? = null,
     onPrefill: ((Int, Int) -> Unit)? = null,
     prefillStrategy: PrefillStrategy = PrefillStrategy.Autoregressive
+): GenerateResult = generateUntilStop(
+    prompt = prompt,
+    maxTokens = maxTokens,
+    eosTokenIds = setOf(eosTokenId),
+    temperature = temperature,
+    random = random,
+    onToken = onToken,
+    decode = decode,
+    onPrefill = onPrefill,
+    prefillStrategy = prefillStrategy
+)
+
+/**
+ * Multi-stop variant of [generateUntilStop]: generation stops on ANY id in
+ * [eosTokenIds]. Models increasingly ship several stop ids — Gemma 4's
+ * `generation_config.json` lists `[1, 106, 50]` (`<eos>`, `<turn|>`, chat-end) —
+ * and stopping on only one of them lets greedy decoding spam turn-closing
+ * tokens until [maxTokens] runs out.
+ *
+ * [topK] / [topP] enable top-k / nucleus filtering on the sampler (both off by
+ * default, preserving the historical temperature-only behavior); irrelevant
+ * under greedy decoding (`temperature <= 1e-6`).
+ */
+public fun <T : DType> InferenceRuntime<T>.generateUntilStop(
+    prompt: IntArray,
+    maxTokens: Int,
+    eosTokenIds: Set<Int>,
+    temperature: Float = 0.8f,
+    topK: Int = 0,
+    topP: Float = 1f,
+    random: Random = Random.Default,
+    onToken: ((Int) -> Unit)? = null,
+    decode: ((Int) -> String)? = null,
+    onPrefill: ((Int, Int) -> Unit)? = null,
+    prefillStrategy: PrefillStrategy = PrefillStrategy.Autoregressive
 ): GenerateResult {
+    require(eosTokenIds.isNotEmpty()) { "eosTokenIds must not be empty" }
     if (prompt.isEmpty()) {
         return GenerateResult(emptyList(), "", false)
     }
@@ -81,10 +117,15 @@ public fun <T : DType> InferenceRuntime<T>.generateUntilStop(
     var stoppedByEos = false
 
     var logits: Tensor<T, Float> = lastLogits
+    val filtered = topK > 0 || topP < 1f
     for (step in 0 until maxTokens) {
-        val nextToken = sampleFromLogits<T>(logits, temperature, random)
+        val nextToken = if (filtered) {
+            sampleFromLogits(logits.toFloatArray(), temperature, topK, topP, random)
+        } else {
+            sampleFromLogits<T>(logits, temperature, random)
+        }
 
-        if (nextToken == eosTokenId) {
+        if (nextToken in eosTokenIds) {
             stoppedByEos = true
             break
         }

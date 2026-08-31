@@ -157,7 +157,10 @@ class Gemma4ReferenceParityDiagnostic {
                 )
                 out
             }
-            else -> error("Unsupported tensor data type for logits readback: ${data::class}")
+            // Any other TensorData (e.g. StorageFloatTensorData, which the 0.51
+            // memory model produces for logits) reads back through the generic
+            // façade rather than failing the diagnostic on a container type.
+            else -> data.copyToFloatArray()
         }
     }
 }

@@ -75,7 +75,7 @@ public enum class ModelFamily(
         get() = when (this) {
             LLAMA -> setOf("llama", "mistral")
             QWEN -> setOf("qwen2", "qwen3", "qwen35")
-            GEMMA -> setOf("gemma", "gemma2", "gemma3", "gemma3n")
+            GEMMA -> setOf("gemma", "gemma2", "gemma3", "gemma3n", "gemma4")
             APERTUS -> setOf("apertus")
             // "bitnet" is BitNet.cpp's llama.cpp arch id; "bitnet-25" its 2B4T-era
             // variant; "bitnet-b1.58" appears in community conversions.

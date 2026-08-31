@@ -669,6 +669,14 @@ class GGUFTokenizer private constructor(
     override val eosTokenId: Int get() = _eosTokenId
     override val vocabSize: Int get() = vocab.size
 
+    /**
+     * Exact-vocab lookup: the id of [token]'s literal string form, or null when the
+     * vocab has no such entry. Used by stop-token resolution (e.g. Gemma 4's
+     * `<turn|>` / chat-end markers) where an id must be found without going through
+     * [encode]'s preprocessing.
+     */
+    public fun tokenId(token: String): Int? = tokenToId[token]
+
     @Deprecated("Use eosTokenId", replaceWith = ReplaceWith("eosTokenId"))
     val eosId: Int get() = _eosTokenId
 
