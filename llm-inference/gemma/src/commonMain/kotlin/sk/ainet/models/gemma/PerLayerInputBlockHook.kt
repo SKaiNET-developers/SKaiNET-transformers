@@ -103,12 +103,13 @@ public class PerLayerInputBlockHook<T : DType, V>(
         val residual = input
         val wInpGate = params[0].value
         val wProj = params[1].value
-        var x = linearProject(ops, input, wInpGate)   // [B,S,1536] → [B,S,256]
-        x = ops.gelu(x)                                // gelu_pytorch_tanh
-        x = ops.multiply(x, pli)                       // pointwise with per_layer_input
-        x = linearProject(ops, x, wProj)               // [B,S,256] → [B,S,1536]
-        x = postNorm.forward(x, ctx)                   // RMSNorm at hidden_size
+        val prof = sk.ainet.lang.nn.transformer.PhaseProfile
+        var x = prof.time("ple.gate") { linearProject(ops, input, wInpGate) }   // [B,S,1536] → [B,S,256]
+        x = prof.time("ple.act") { ops.gelu(x) }                                // gelu_pytorch_tanh
+        x = prof.time("ple.mul") { ops.multiply(x, pli) }                       // pointwise with per_layer_input
+        x = prof.time("ple.proj") { linearProject(ops, x, wProj) }              // [B,S,256] → [B,S,1536]
+        x = postNorm.forward(x, ctx)                                            // RMSNorm at hidden_size
         if (sideChannelOnly) return residual           // Phase 5f.6 diagnostic toggle.
-        return ops.add(residual, x)
+        return prof.time("ple.residual") { ops.add(residual, x) }
     }
 }

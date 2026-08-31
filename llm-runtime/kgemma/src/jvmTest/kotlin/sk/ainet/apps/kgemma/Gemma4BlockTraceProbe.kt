@@ -80,6 +80,18 @@ class Gemma4BlockTraceProbe {
         fun fmt(v: FloatArray) =
             "[%+.4f, %+.4f, %+.4f … %+.4f]".format(v[0], v[1], v[2], v[v.size - 1])
 
+        // Which storage form does each weight actually land in? A weight the fast kernels
+        // cannot take falls to the decoding reference kernel, silently.
+        for (n in listOf(
+            "blk.0.attn_q.weight", "blk.0.attn_k.weight", "blk.0.ffn_gate.weight",
+            "blk.0.inp_gate.weight", "blk.0.per_layer_input.weight", "blk.0.per_layer_output.weight",
+            "blk.0.attn_norm.weight",
+        )) {
+            val t = weights.tensors[n]
+            println("FORM %-34s %s".format(n, if (t == null) "<absent>" else
+                "${t.shape} ${t.data::class.simpleName} storage=${runCatching { t.data.view?.storage?.let { it::class.simpleName } }.getOrNull()}"))
+        }
+        println("FORM all blk.0 tensors: " + weights.tensors.keys.filter { it.startsWith("blk.0.") })
         println("TRACE modules captured for token 105: ${afterControl.size}")
         // Layer 0 only, every module regardless of width, to line up against the
         // reference's Qcur/Kcur/Vcur/attn internals.

@@ -85,6 +85,66 @@ public class RMSNormalization<T : DType, V>(
         )
     }
 
+    /**
+     * Single-pass RMS norm over raw float arrays — the eager fast path.
+     *
+     * The decomposed fallback below runs eight tensor ops (`x*x`, `mean`, `+eps`, `sqrt`,
+     * `unsqueeze`, `divide`, `reshape`, `multiply`), each allocating a tensor and walking the data
+     * again. That is affordable once; a decoder step runs this ~250 times (seven norms × 35 blocks),
+     * and profiling Gemma 4 E2B decode put **64% of all time in this one module** — far more than
+     * the matmuls it wraps. This computes the same result with one output allocation and two
+     * passes over each row.
+     *
+     * Returns `null` — deferring to the decomposed path — when it cannot serve the input:
+     * a non-FP32 dtype, a placeholder weight that cannot be read as floats, a shape mismatch, or
+     * while the context is **recording a graph**, where every step must go through `ctx.ops` to be
+     * traceable (the same reason RoPE guards its raw-array rotation).
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun eagerFusedRmsNorm(
+        input: Tensor<T, V>,
+        weight: Tensor<T, V>,
+        ctx: ExecutionContext,
+    ): Tensor<T, V>? {
+        if (ctx.isRecording) return null
+        if (input.dtype != sk.ainet.lang.types.FP32::class) return null
+        val dim = input.shape[input.rank - 1]
+        if (dim <= 0 || weight.shape[weight.rank - 1] != dim) return null
+
+        val x = runCatching { input.data.copyToFloatArray() }.getOrNull() ?: return null
+        val g = runCatching { weight.data.copyToFloatArray() }.getOrNull() ?: return null
+        if (g.size < dim || x.size % dim != 0) return null
+
+        val epsF = eps.toFloat()
+        val out = FloatArray(x.size)
+        var row = 0
+        while (row < x.size) {
+            var sumSq = 0.0f
+            var i = 0
+            while (i < dim) {
+                val v = x[row + i]
+                sumSq += v * v
+                i++
+            }
+            val scale = 1.0f / kotlin.math.sqrt(sumSq / dim + epsF)
+            i = 0
+            while (i < dim) {
+                val gain = if (unitOffset) 1.0f + g[i] else g[i]
+                out[row + i] = x[row + i] * scale * gain
+                i++
+            }
+            row += dim
+        }
+        // Heap-backed wrap rather than ctx.fromFloatArray: this runs hundreds of times per token,
+        // and fromFloatArray copies into MemorySegments from auto-arenas whose direct memory does
+        // not trigger GC (see the same note in RoPE).
+        return ctx.fromData(
+            sk.ainet.lang.tensor.data.DenseFloatArrayTensorData<T>(input.shape, out)
+                as sk.ainet.lang.tensor.data.TensorData<T, V>,
+            input.dtype,
+        )
+    }
+
     override fun forward(input: Tensor<T, V>, ctx: ExecutionContext): Tensor<T, V> =
         sk.ainet.lang.nn.hooks.withForwardHooks(ctx, this, input) {
             sk.ainet.lang.nn.transformer.PhaseProfile.time("rmsnorm") {
@@ -94,8 +154,9 @@ public class RMSNormalization<T : DType, V>(
                 val fused = if (!unitOffset) {
                     (ctx.ops as? FusedRmsNormOps)?.fusedRmsNorm(input, w, eps.toFloat())
                 } else null
-                if (fused != null) {
-                    fused
+                val eager = fused ?: eagerFusedRmsNorm(input, w, ctx)
+                if (eager != null) {
+                    eager
                 } else {
                     // Fallback: decomposed path
                     val squared = input * input
