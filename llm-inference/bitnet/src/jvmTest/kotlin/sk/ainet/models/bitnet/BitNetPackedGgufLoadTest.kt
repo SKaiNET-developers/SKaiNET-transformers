@@ -144,14 +144,15 @@ class BitNetPackedGgufLoadTest {
         return file
     }
 
-    private fun buildFile(): File {
+    /** [tied] = a 2B4T-style file: no `output.weight`, the lm_head is tied to `token_embd`. */
+    private fun buildFile(tied: Boolean = false): File {
         val rng = Random(42)
         val embd = FloatArray(vocabSize * dim) { (rng.nextFloat() - 0.5f) * 0.6f }
         return writeGguf(
-            listOf(
+            listOfNotNull(
                 f32Tensor("token_embd.weight", embd, dim.toLong(), vocabSize.toLong()),
                 f32Tensor("output_norm.weight", norm(dim, 20), dim.toLong()),
-                i2sTensor("output.weight", vocabSize, dim, scale = 0.08f, seed = 11),
+                if (tied) null else i2sTensor("output.weight", vocabSize, dim, scale = 0.08f, seed = 11),
                 f32Tensor("blk.0.attn_norm.weight", norm(dim, 21), dim.toLong()),
                 i2sTensor("blk.0.attn_q.weight", dim, dim, scale = 0.11f, seed = 1),
                 i2sTensor("blk.0.attn_k.weight", dim, dim, scale = 0.12f, seed = 2),
@@ -169,8 +170,18 @@ class BitNetPackedGgufLoadTest {
 
     // ---- load paths ----------------------------------------------------------------------
 
-    private fun loadPacked(file: File): Module<FP32, Float> = runBlocking {
-        BitNetPackedGgufLoader.load(ctx, { JvmRandomAccessSource.open(file.path) })
+    private fun loadPacked(file: File, planesLmHead: Boolean = true): Module<FP32, Float> = runBlocking {
+        BitNetPackedGgufLoader.load(
+            ctx, { JvmRandomAccessSource.open(file.path) }, planesLmHead = planesLmHead,
+        )
+    }
+
+    private fun param(model: Module<FP32, Float>, path: String, name: String): Tensor<FP32, Float> {
+        var m: Module<FP32, Float> = model
+        for (seg in path.split("/")) m = m.modules.first { it.name == seg }
+        @Suppress("UNCHECKED_CAST")
+        return (m as sk.ainet.lang.nn.topology.ModuleParameters<FP32, Float>)
+            .params.first { it.name.endsWith(name) }.value
     }
 
     private fun loadWidened(file: File): Module<FP32, Float> = runBlocking {
@@ -197,17 +208,28 @@ class BitNetPackedGgufLoadTest {
         }
     }
 
-    private fun assertLogitsClose(a: List<FloatArray>, b: List<FloatArray>, what: String) {
+    private fun assertLogitsClose(
+        a: List<FloatArray>,
+        b: List<FloatArray>,
+        what: String,
+        relTol: Float = 2e-3f,
+    ) {
         for (step in a.indices) {
             for (i in 0 until vocabSize) {
                 val x = a[step][i]; val y = b[step][i]
                 assertTrue(x.isFinite() && y.isFinite(), "$what step $step [$i]: $x vs $y")
                 assertTrue(
-                    abs(x - y) <= 2e-3f * maxOf(1f, abs(y)),
+                    abs(x - y) <= relTol * maxOf(1f, abs(y)),
                     "$what step $step logit[$i]: $x vs $y",
                 )
             }
         }
+    }
+
+    private fun argmax(logits: FloatArray): Int {
+        var best = 0
+        for (i in logits.indices) if (logits[i] > logits[best]) best = i
+        return best
     }
 
     // ---- tests ---------------------------------------------------------------------------
@@ -217,19 +239,12 @@ class BitNetPackedGgufLoadTest {
         val file = buildFile()
         try {
             val model = loadPacked(file)
-            fun param(path: String, name: String): Tensor<FP32, Float> {
-                var m: Module<FP32, Float> = model
-                for (seg in path.split("/")) m = m.modules.first { it.name == seg }
-                @Suppress("UNCHECKED_CAST")
-                return (m as sk.ainet.lang.nn.topology.ModuleParameters<FP32, Float>)
-                    .params.first { it.name.endsWith(name) }.value
-            }
             assertIs<BitNetB158TensorData>(
-                param("blk.0/attn", "q_proj.weight").data,
+                param(model, "blk.0/attn", "q_proj.weight").data,
                 "ternary projection must stay packed (0.25 B/weight)",
             )
             assertIs<BitNetPlanesTensorData>(
-                param("output", "weight").data,
+                param(model, "output", "weight").data,
                 "the lm_head must arrive as BITNET_PLANES",
             )
         } finally {
@@ -253,6 +268,63 @@ class BitNetPackedGgufLoadTest {
             NativeTernaryLmheadKernel.install()
             val packedNative = logitsOf(loadPacked(file), tokens)
             assertLogitsClose(packedNative, baseline, "packed(native) vs widened")
+        } finally {
+            file.delete()
+        }
+    }
+
+    // ---- tied embeddings (transformers#357) ----------------------------------------------
+
+    @Test
+    fun tiedFileServesTheLmHeadAsPlanesFromTheEmbedding() {
+        val file = buildFile(tied = true)
+        try {
+            val model = loadPacked(file)
+            assertIs<BitNetPlanesTensorData>(
+                param(model, "output", "weight").data,
+                "the tied lm_head must be materialized as BITNET_PLANES from token_embd (#357)",
+            )
+            assertTrue(
+                param(model, "token_embd", "weight").data !is BitNetPlanesTensorData,
+                "the embedding itself must keep its as-stored form for gathers",
+            )
+            // Opting out restores the exact dense tied head (the pre-#357 behavior).
+            val dense = loadPacked(file, planesLmHead = false)
+            assertTrue(
+                param(dense, "output", "weight").data !is BitNetPlanesTensorData,
+                "planesLmHead = false must keep the dense tied head",
+            )
+        } finally {
+            file.delete()
+        }
+    }
+
+    @Test
+    fun tiedPackedLogitsMatchTheWidenedBaselineWithinThePlanesBound() {
+        val file = buildFile(tied = true)
+        try {
+            val tokens = intArrayOf(1, 7, 3, 12)
+            // Widened baseline: dense FP32 everywhere, head served by the exact tied fallback.
+            val baseline = logitsOf(loadWidened(file), tokens)
+
+            // The planes tied head is a *bounded* requantization of the (non-ternary) embedding
+            // rows — per-weight error ≤ ~0.5·3⁻⁷ of the row scale — not bit-exact like the
+            // exactly-ternary output.weight case: assert closeness at that scale plus greedy
+            // top-1 stability.
+            val packed = logitsOf(loadPacked(file), tokens)
+            assertLogitsClose(packed, baseline, "tied packed(reference) vs widened", relTol = 1e-2f)
+            for (step in tokens.indices) {
+                assertTrue(
+                    argmax(packed[step]) == argmax(baseline[step]),
+                    "greedy top-1 must survive the planes encoding at step $step",
+                )
+            }
+
+            // The native lm_head kernel serves the same stored format — tight parity vs reference.
+            NativeTernaryF32GemvKernel.install()
+            NativeTernaryLmheadKernel.install()
+            val native = logitsOf(loadPacked(file), tokens)
+            assertLogitsClose(native, packed, "tied packed(native) vs packed(reference)")
         } finally {
             file.delete()
         }

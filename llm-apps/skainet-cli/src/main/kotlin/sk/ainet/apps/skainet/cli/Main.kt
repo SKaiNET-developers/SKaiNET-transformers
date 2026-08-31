@@ -252,8 +252,10 @@ fun main(args: Array<String>) {
             // BitNet b1.58: the packed I2_S path (transformers#337). Ternary projections load as
             // 2-bit BITNET_B1_58 tensors (0.25 B/weight) through the SKaiNET engine loader, and
             // dispatch runs them on the vendored NeoGPU NEON kernels installed below — the exact
-            // f32 path, no requantization error. A file with tied embeddings serves the lm_head
-            // from token_embd; one with output.weight gets the fused BITNET_PLANES format.
+            // f32 path, no requantization error. The lm_head is served as the fused BITNET_PLANES
+            // format either way (#357): a file's own output.weight requantizes losslessly; a
+            // tied-embeddings file (2B4T) gets the head materialized from token_embd — a bounded
+            // 8-plane requantization, the NeoGPU lm_head design.
             println("Loading BitNet GGUF model from $modelPath via BitNetPackedGgufLoader (packed I2_S, GROUP_128 flavor)...")
             if (cliArgs.contextLength != null) {
                 println("  --context flag currently ignored on the BitNet path; uses model default capped to 4096.")
