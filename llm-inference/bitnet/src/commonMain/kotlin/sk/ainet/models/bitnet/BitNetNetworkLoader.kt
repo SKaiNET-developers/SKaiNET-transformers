@@ -32,8 +32,8 @@ import kotlin.jvm.JvmName
  * that path through this loader (and `RequantizeTo(BITNET_PLANES)` for `output.weight`) is
  * transformers#337.
  */
-@PublishedApi
-internal val BITNET_ARCHITECTURES: Set<String> = setOf("bitnet", "bitnet-25", "bitnet-b1.58")
+/** GGUF `general.architecture` values the BitNet family accepts (public for the kbitnet facade). */
+public val BITNET_ARCHITECTURES: Set<String> = setOf("bitnet", "bitnet-25", "bitnet-b1.58")
 
 public class BitNetNetworkLoader @PublishedApi internal constructor(
     @PublishedApi internal val weightsProvider: WeightsProvider,
@@ -148,7 +148,7 @@ public class BitNetNetworkLoader @PublishedApi internal constructor(
 
         // Tied embeddings (BitNet-2B4T ships no output.weight): serve the lm_head from
         // token_embd — the same fallback DecoderGgufWeightLoader applies, needed here too
-        // because the packed path (BitNetPackedGgufLoader) bypasses that loader entirely.
+        // because the packed path (BitNetWeightLoader) bypasses that loader entirely.
         val boundTensors =
             if ("output.weight" !in weights.tensors && "token_embd.weight" in weights.tensors) {
                 weights.tensors + ("output.weight" to weights.tensors.getValue("token_embd.weight"))

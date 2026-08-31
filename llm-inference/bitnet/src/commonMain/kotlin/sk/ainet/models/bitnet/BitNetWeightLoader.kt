@@ -15,7 +15,6 @@ import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.tensor.data.BitNetPlanesTensorData
 import sk.ainet.lang.tensor.storage.TensorEncoding
 import sk.ainet.lang.types.FP32
-import sk.ainet.models.llama.DecoderGgufWeights
 import sk.ainet.models.llama.LlamaModelMetadata
 import sk.ainet.models.llama.decoderMetadataFromGguf
 
@@ -53,7 +52,7 @@ import sk.ainet.models.llama.decoderMetadataFromGguf
  * - Embeddings must be a non-ternary type (F32/F16/BF16) — true of every BitNet checkpoint; a
  *   packed ternary `token_embd` would gather raw codes.
  */
-public object BitNetPackedGgufLoader {
+public object BitNetWeightLoader {
 
     /** A loaded model together with the GGUF metadata it was built from. */
     public data class Loaded(
@@ -78,13 +77,28 @@ public object BitNetPackedGgufLoader {
         planesLmHead: Boolean = true,
         debug: Boolean = false,
     ): Loaded {
+        val weights = loadRuntimeWeights(ctx, sourceProvider, i2sLayout, planesLmHead)
+        return Loaded(weights.toModule(debug), weights.metadata)
+    }
+
+    /**
+     * The weights-only load (#346's `<F>WeightLoader` contract): both passes and the tied-head
+     * materialization, stopping short of network binding — [BitNetRuntimeWeights.toModule] does
+     * that, and [loadWithMetadata] is the two composed.
+     */
+    public suspend fun loadRuntimeWeights(
+        ctx: ExecutionContext,
+        sourceProvider: () -> RandomAccessSource,
+        i2sLayout: I2sGgufLayout = I2sGgufLayout.GROUP_128,
+        planesLmHead: Boolean = true,
+    ): BitNetRuntimeWeights {
         // Pass 1 — metadata from the GGUF KV directory, via the shared
         // decoder-family parser (#346).
         val metadata = StreamingGGUFReader.open(sourceProvider()).use { reader ->
             decoderMetadataFromGguf(reader.fields, reader.tensors)
         }
         require(metadata.architecture in BITNET_ARCHITECTURES) {
-            "BitNetPackedGgufLoader: architecture '${metadata.architecture}' is not a BitNet " +
+            "BitNetWeightLoader: architecture '${metadata.architecture}' is not a BitNet " +
                 "architecture ($BITNET_ARCHITECTURES)"
         }
 
@@ -110,7 +124,7 @@ public object BitNetPackedGgufLoader {
         StreamingGgufParametersLoader(
             sourceProvider = sourceProvider,
             weightForm = keepPacked,
-            weightFormFor = { name -> if (planesLmHead && name == "output.weight") planes else null },
+            weightFormFor = { name -> if (planesLmHead && name == BitNetTensorNames.OUTPUT) planes else null },
             i2sLayout = i2sLayout,
         ).load<FP32, Float>(ctx, FP32::class) { name, tensor -> tensors[name] = tensor }
 
@@ -119,15 +133,15 @@ public object BitNetPackedGgufLoader {
         // BitNetNetworkLoader would serve the head as the dense embedding tensor. Materialize the
         // planes head from the loaded embedding instead; the embedding itself keeps its as-stored
         // form for gathers.
-        if (planesLmHead && "output.weight" !in tensors) {
-            val embedding = requireNotNull(tensors["token_embd.weight"]) {
-                "BitNetPackedGgufLoader: file carries neither 'output.weight' nor 'token_embd.weight'"
+        if (planesLmHead && BitNetTensorNames.OUTPUT !in tensors) {
+            val embedding = requireNotNull(tensors[BitNetTensorNames.TOKEN_EMBEDDING]) {
+                "BitNetWeightLoader: file carries neither '${BitNetTensorNames.OUTPUT}' nor " +
+                    "'${BitNetTensorNames.TOKEN_EMBEDDING}'"
             }
-            tensors["output.weight"] = planesHeadFromEmbedding(ctx, embedding)
+            tensors[BitNetTensorNames.OUTPUT] = planesHeadFromEmbedding(ctx, embedding)
         }
 
-        val model = BitNetNetworkLoader.fromWeights(DecoderGgufWeights(metadata, tensors), debug)
-        return Loaded(model, metadata)
+        return BitNetRuntimeWeights(metadata, tensors)
     }
 
     /**
@@ -145,7 +159,7 @@ public object BitNetPackedGgufLoader {
     ): Tensor<FP32, Float> {
         val shape = embedding.shape
         require(shape.rank == 2) {
-            "BitNetPackedGgufLoader: tied lm_head needs a 2-D token_embd, got rank ${shape.rank}"
+            "BitNetWeightLoader: tied lm_head needs a 2-D token_embd, got rank ${shape.rank}"
         }
         val rows = shape.dimensions[0]
         val cols = shape.dimensions[1]
@@ -161,3 +175,10 @@ public object BitNetPackedGgufLoader {
     }
 
 }
+
+/** Pre-#346-template name of [BitNetWeightLoader]; kept one release for source compatibility. */
+@Deprecated(
+    "Renamed to BitNetWeightLoader — the #346 family-template name (transformers#359).",
+    ReplaceWith("BitNetWeightLoader"),
+)
+public typealias BitNetPackedGgufLoader = BitNetWeightLoader

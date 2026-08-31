@@ -40,7 +40,7 @@ import sk.ainet.models.llama.DecoderGgufWeights
  * installed. Correctness never depends on the packs; speed does.
  */
 @OptIn(ExperimentalMemoryApi::class)
-class BitNetPackedGgufLoadTest {
+class BitNetWeightLoaderTest {
 
     private val ctx = DirectCpuExecutionContext()
 
@@ -171,7 +171,7 @@ class BitNetPackedGgufLoadTest {
     // ---- load paths ----------------------------------------------------------------------
 
     private fun loadPacked(file: File, planesLmHead: Boolean = true): Module<FP32, Float> = runBlocking {
-        BitNetPackedGgufLoader.load(
+        BitNetWeightLoader.load(
             ctx, { JvmRandomAccessSource.open(file.path) }, planesLmHead = planesLmHead,
         )
     }
