@@ -574,11 +574,6 @@ public final class sk/ainet/apps/llm/weights/BertSafeTensorsNameResolver : sk/ai
 	public fun resolve (Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
 }
 
-public final class sk/ainet/apps/llm/weights/LlamaGGUFNameResolver : sk/ainet/io/weights/WeightNameResolver {
-	public fun <init> ()V
-	public fun resolve (Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
-}
-
 public final class sk/ainet/apps/llm/weights/LlamaSafeTensorsNameResolver : sk/ainet/io/weights/WeightNameResolver {
 	public fun <init> ()V
 	public fun resolve (Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
