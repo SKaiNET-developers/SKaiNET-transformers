@@ -1,86 +1,118 @@
-= Add a New Model Architecture
-:description: How to add support for a new transformer architecture.
+= Add a New Model Family
+:description: The family-module template — how to add a transformer architecture the conventional way.
 
-== Option A: DSL Network Definition (Recommended)
+Every model family follows one file scheme (issue #346), so adding a family is mechanical and
+every family looks the same. **BitNet b1.58 is the reference instantiation** — it was added
+greenfield against this template and is the module to copy; Apertus shows the same shape for a
+family with a hand-rolled runtime.
 
-If the architecture is a standard transformer variant, define it using the network DSL.
+== The template
 
-=== 1. Create the Network Definition
+For a family `<f>` (module `llm-inference/<f>`, Kotlin package `sk.ainet.models.<f>`):
 
-Create a new file in `llm-inference/<family>/src/commonMain/kotlin/`:
+[cols="1,2,2",options="header"]
+|===
+| Concern | Name | BitNet example
+| DSL network definition | `<F>NetworkDef.kt` with a `<f>Network()` builder | `bitnetNetwork()` — a thin `decoderTransformerNetwork` call
+| End-to-end module loader | `<F>NetworkLoader.kt` (`fromGguf` / `fromWeights`) | `BitNetNetworkLoader`
+| Weight materialization | `<F>WeightLoader.kt` — engine loader + `WeightForm`, **no per-family quant code** | `BitNetWeightLoader.loadRuntimeWeights()`
+| Weight container + names | `<F>RuntimeWeights.kt` with `<F>RuntimeWeights` and `<F>TensorNames` | `BitNetRuntimeWeights`, `BitNetTensorNames`
+| GGUF name mapping | `<F>GGUFNameResolver.kt` | delegates to `LlamaGGUFNameResolver`, adds the sub-norms
+| HF config parsing | shared `decoderMetadataFromGguf` (add a `<F>ConfigParser` only for a non-GGUF source) | shared parser
+| Runtime facade | `llm-runtime/k<f>` with `<F>Ingestion` | `BitNetIngestion`
+|===
+
+Deviations are allowed but must be justified in the PR against #346 (BitNet documents two:
+its runtime-weights container is the name→tensor map the DSL runtime actually consumes, and
+the config-parser row is satisfied by the shared parser).
+
+== The steps, using BitNet as the worked example
+
+=== 1. Module skeleton
+
+Copy `llm-inference/bitnet/build.gradle.kts`, add
+`include("llm-inference:<f>")` to `settings.gradle.kts`.
+
+=== 2. Network definition
+
+Express the architecture as knobs on the shared decoder builder — resist writing layer loops:
 
 [source,kotlin]
 ----
-public inline fun <reified T : DType, V> myModelNetwork(
-    metadata: LlamaModelMetadata
-): Module<T, V> {
-    return sequential<T, V> {
-        val dslImpl = this as NeuralNetworkDslImpl<T, V>
-        dslImpl.embedding(metadata.vocabSize, metadata.embeddingLength, id = "token_embd")
+public inline fun <reified T : DType, V> bitnetNetwork(
+    metadata: LlamaModelMetadata,
+    maxInferenceLen: Int = minOf(metadata.contextLength, 4096),
+): Module<T, V> = decoderTransformerNetwork<T, V>(
+    metadata = metadata,
+    ropeMode = RoPEMode.SPLIT_HALF,       // verify against the reference impl — see step 6!
+    maxInferenceLen = maxInferenceLen,
+    ffnKind = DecoderFfnKind.RELU2_SUBLN, // family-specific FFN variant
+    attnSubNorm = true,                   // family-specific extra norm
+)
+----
 
-        val nnCtx = DefaultNeuralNetworkExecutionContext()
-        for (layer in 0 until metadata.blockCount) {
-            val stage = StageImpl<T, V>(nnCtx, "blk.$layer", T::class)
-            // Define your layer architecture here
-            stage.rmsNorm(dim, eps, id = "attn_norm")
-            stage.multiHeadAttention(dim, nHeads, nKVHeads, causal = true, id = "attn") {
-                rope(headDim, seqLen)
-                kvCache(seqLen, nKVHeads, headDim)
-            }
-            stage.residual()
-            stage.rmsNorm(dim, eps, id = "ffn_norm")
-            stage.swiGluFFN(dim, ffnDim, id = "ffn")
-            stage.residual()
+A genuinely new layer kind goes into `transformer-core` (e.g. `BitNetFFN.kt`) and becomes a
+`decoderTransformerNetwork` knob — not a private fork of the block loop.
 
-            dslImpl.modules += HybridTransformerBlock(stage.modules.toList(), name = "blk.$layer")
-        }
+=== 3. Name resolver
 
-        dslImpl.rmsNorm(dim, eps, id = "output_norm")
-        dslImpl.modules += VoidDenseModule<T, V>("output", vocabSize, dim)
+Most GGUF families are Llama-layout plus extras; delegate and add only the family's own names,
+and record those names once in `<F>TensorNames`:
+
+[source,kotlin]
+----
+public class BitNetGGUFNameResolver : WeightNameResolver {
+    private val llama = LlamaGGUFNameResolver()
+    override fun resolve(modulePath: String, paramName: String): String? = when {
+        paramName.contains("attn.sub_norm.weight") -> /* blk.N.attn_sub_norm.weight */
+        paramName.contains("ffn.sub_norm.weight")  -> /* blk.N.ffn_sub_norm.weight */
+        else -> llama.resolve(modulePath, paramName)
     }
 }
 ----
 
-=== 2. Create a Weight Name Resolver
+=== 4. Weight loader
 
-Map DSL module paths to GGUF tensor names:
-
-[source,kotlin]
-----
-object MyModelGGUFNameResolver : WeightNameResolver {
-    override fun resolve(modulePath: String, paramName: String): String? {
-        // Map "blk.0/attn/q_proj" -> "blk.0.attn_q.weight"
-    }
-}
-----
-
-=== 3. Register in ModelRegistry
-
-Add the architecture to `ModelFamily` enum in `llm-core/.../ModelRegistry.kt`:
+Weight materialization is the **engine's** job (`StreamingGgufParametersLoader` + `WeightForm`
+from `sk.ainet.core:skainet-io-gguf`) — a family loader only states the form it wants.
+Never write per-family quant/packing/converter code; that layer retired with the 0.49 migration.
 
 [source,kotlin]
 ----
-MY_MODEL("mymodel", "My Model", true, "chatml");
+val keepPacked = WeightForm(
+    encoding = EncodingRequest.KeepAsStored,   // quantized tensors stay packed
+    shape = WeightShapeOrientation.OUT_IN,
+    residency = WeightResidency.MAPPED,        // request zero-copy mmap where servable
+)
+StreamingGgufParametersLoader(sourceProvider, weightForm = keepPacked, /* per-tensor overrides */)
+    .load<FP32, Float>(ctx, FP32::class) { name, tensor -> tensors[name] = tensor }
 ----
 
-And update `ModelRegistry.detect()`.
+Return a `<F>RuntimeWeights(metadata, tensors)`; `toModule()` binds it into the network via
+`WeightMapper` with the family resolver.
 
-== Option B: Hand-Coded Runtime
+=== 5. Registry, CLI, facade
 
-For architectures with non-standard components (e.g., DeltaNet, sliding window), extend `DecoderRuntime`:
+* `ModelFamily.<F>` + the `general.architecture` strings in `llm-core/.../ModelRegistry.kt`,
+  and a dispatch branch in `skainet-cli`'s `Main.kt`.
+* `llm-runtime/k<f>` with a `<F>Ingestion` facade (copy `kbitnet`'s `BitNetIngestion`).
 
-[source,kotlin]
-----
-class MyModelRuntime<T : DType>(
-    // ...
-) : DecoderRuntime<T>(ctx, dtype) {
-    override fun embedToken(tokenId: Int): Tensor<T, Float> { ... }
-    override fun runLayer(layerIdx: Int, x: Tensor<T, Float>): Tensor<T, Float> { ... }
-    override fun outputNorm(x: Tensor<T, Float>): Tensor<T, Float> { ... }
-    override fun outputProject(x: Tensor<T, Float>): Tensor<T, Float> { ... }
-    override fun resetState() { ... }
-}
-----
+=== 6. The maturity gate — before calling the family "supported"
 
-NOTE: DSL definitions are preferred because they enable compute graph optimization.
-Hand-coded runtimes should only be used for architectures the DSL cannot express.
+This is the part that catches real bugs. BitNet's RoPE pairing was wrong for its first two
+weeks — output looked perfectly coherent — and only this gate caught it:
+
+* **Golden-token parity vs the reference implementation** (llama.cpp, or the family's own
+  fork). Model-gated test asserting prompt-tokenization parity and greedy-continuation
+  equality; commit the fixture with the exact oracle build and commands in its header
+  (`BitNetGoldenTokenParityTest` + `golden-greedy-2b4t.txt` are the pattern). When the
+  reference itself is approximate, arbitrate divergences against the HF BF16 checkpoint
+  before deciding who is wrong.
+* **A row in `tests/smoke/smoke-models.json`** — time-bounded, model-gated.
+* **Entry-point parity**: the unified CLI, the family facade, and (where applicable) chat.
+
+== Option B: hand-coded runtime
+
+For architectures the DSL cannot express (encoder-decoder, exotic attention), extend
+`DecoderRuntime` (see T5/GTR) — the template's loader/name/registry rows still apply.
+DSL definitions are preferred: they run on the shared decode loop and the compiled paths.

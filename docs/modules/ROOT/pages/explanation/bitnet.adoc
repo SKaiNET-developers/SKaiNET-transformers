@@ -1,0 +1,88 @@
+= BitNet b1.58 — Ternary Inference End to End
+:description: How the 1.58-bit BitNet family runs on SKaiNET — packed I2_S loading, the fused planes lm_head, two-stage decode, and the parity story.
+
+BitNet b1.58 models (e.g. `microsoft/BitNet-b1.58-2B-4T`) store every projection weight as a
+ternary value in {−1, 0, +1} — 1.58 bits of information, packed 2 bits per weight. SKaiNET runs
+them **end to end in the packed form**: weights are never widened to FP32, and the matmuls
+dispatch to the vendored NeoGPU LUT kernels (exact FP32×ternary — no activation quantization).
+
+Greedy decode is verified **token-for-token against both bitnet.cpp and the HuggingFace BF16
+reference** on 2B4T (see <<parity>>).
+
+== The pipeline
+
+[source]
+----
+GGUF (I2_S, type 36)
+  │  BitNetWeightLoader — engine StreamingGgufParametersLoader + WeightForm
+  ├── ternary projections  → BITNET_B1_58, 0.25 B/weight (KeepAsStored, MAPPED where servable)
+  ├── lm_head              → BITNET_PLANES (8 trit planes + FP16 row scales)
+  │       output.weight present → lossless requantize
+  │       tied embeddings (2B4T) → head materialized from token_embd (bounded 8-plane encode)
+  └── norms / embeddings   → as stored (F32/F16/BF16)
+----
+
+The network definition (`bitnetNetwork`) is a thin `decoderTransformerNetwork` call: squared-ReLU
+FFN with `ffn_sub_norm`, `attn_sub_norm` before o_proj, **NEOX-style RoPE pairing**
+(`RoPEMode.SPLIT_HALF` — the pairing bitnet.cpp assigns all BITNET arches). Kernel selection is
+format-driven: the DSL keeps plain `matmul`s, and `KernelDispatch` picks the ternary kernels from
+the weight's storage encoding. On the JVM and Android the ternary packs are discovered by the
+engine's self-healing dispatch (SKaiNET#1240); Kotlin/Native installs them explicitly.
+
+== The two-stage lm_head
+
+The 128k-vocab head dominates decode cost. NeoGPU's two-stage design, implemented in
+`BitNetTwoStageDecode` + `generateTwoStage`:
+
+1. `OptimizedLLMRuntime.forwardHidden` runs the trunk only — the full-vocab projection never
+   executes, prefill included.
+2. Stage 1 scores all rows with planes 0–3 (one fused `lmhead_stage1` kernel call — half the
+   work of the exact 8-plane matmul).
+3. Every row whose error bound could still reach the top-k is rescored **exactly**; greedy
+   decode is provably identical to the full matmul. `sampleFromCandidates` samples the result.
+
+The CLI enables this automatically when the head loaded as `BITNET_PLANES`.
+
+== Running it
+
+[source,bash]
+----
+./gradlew :llm-apps:skainet-cli:run --args="-m BitNet-b1.58-2B-4T-i2s.gguf -s 32 'The capital of France is'"
+# knobs: --i2s-layout=group128|group64|sequential   (converter flavor of the file)
+#        --context=N                                 (cap KV allocation)
+----
+
+From code, the family facade:
+
+[source,kotlin]
+----
+val weights = BitNetIngestion(ctx).loadStreaming({ JvmRandomAccessSource.open(path) })
+val model = weights.toModule()
+val head = weights.planesHead   // non-null => two-stage decode available
+----
+
+Measured on 2B4T (macOS Apple Silicon, FFM kernels, DIRECT): ~4.2 tok/s with the as-stored
+head → ~4.6 with the planes matmul → **~6.2 tok/s with two-stage decode**.
+
+[#parity]
+== The parity story (and the bug it caught)
+
+The family's maturity gate (`BitNetGoldenTokenParityTest`, model-gated) asserts prompt-tokenization
+parity with the bitnet.cpp oracle and greedy-continuation equality against a committed golden.
+Building that gate caught a real bug: the original RoPE pairing (`INTERLEAVED`) produced perfectly
+coherent text that silently diverged from the reference at generated token 4. BF16 arbitration
+(the HF checkpoint: exact ternary weights, BF16 activations) sided with bitnet.cpp; with
+`SPLIT_HALF`, all three implementations agree token-for-token on the 32-token fixture.
+
+Two caveats recorded in the fixture header for future regenerations: bitnet.cpp's own CPU path
+quantizes activations to int8 (its current HEAD also does not compile — the fixture names the
+pinned working commit), and the exact dense-F16 tied head flips one reference-side near-tie.
+
+== Pointers
+
+* Engine-side ternary internals (encodings, kernels, GGUF I2_S import, AOT conversion):
+  the SKaiNET engine's _Ternary — Getting Started_ tutorial and architecture reference.
+* xref:how-to/add-model.adoc[Add a New Model Family] — BitNet is the template's reference
+  instantiation.
+* xref:explanation/weight-quantization.adoc[Weight Quantization] — where `BITNET_B1_58` sits
+  among the block formats.

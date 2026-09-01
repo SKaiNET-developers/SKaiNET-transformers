@@ -33,5 +33,6 @@
 * xref:explanation/bert-dsl.adoc[BERT Completely Defined in the DSL]
 * xref:explanation/tokenizer-internals.adoc[Tokenizer Internals]
 * xref:explanation/weight-quantization.adoc[Weight Quantization and Numeric Representation]
+* xref:explanation/bitnet.adoc[BitNet b1.58 — Ternary Inference End to End]
 * xref:explanation/embeddings.adoc[How Embeddings Work]
 * xref:explanation/android-eager-vs-compiled.adoc[Eager vs. Compiled on Android]
