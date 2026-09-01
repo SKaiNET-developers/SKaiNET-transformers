@@ -11,7 +11,8 @@ import sk.ainet.apps.llm.generate
 import sk.ainet.apps.llm.tokenizer.GGUFTokenizer
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.gguf.createRandomAccessSource
-import sk.ainet.io.model.QuantPolicy
+import sk.ainet.lang.types.BF16
+import sk.ainet.lang.types.DTypePolicy
 import sk.ainet.lang.types.FP32
 import sk.ainet.models.gemma.Gemma4WeightLoader
 import sk.ainet.models.gemma.GemmaNetworkLoader
@@ -69,7 +70,10 @@ public class NativeFunctionGemma private constructor(
                     createRandomAccessSource(gguf)
                         ?: error("could not open $gguf for random access (pread failed?)")
                 },
-                quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
+                // Mirrors the JVM facade: the engine replaced QuantPolicy with WeightForm, and
+                // narrow-float handling moved to dtypePolicy. Keeping BF16 packed halves the bytes
+                // a decode step reads on a checkpoint stored that way.
+                dtypePolicy = DTypePolicy.Prefer(BF16),
             ).loadToMapStreaming<FP32, Float>(ctx, FP32::class)
             val patched = weights.copy(
                 metadata = weights.metadata.copy(
