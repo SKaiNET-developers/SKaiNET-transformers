@@ -29,6 +29,20 @@ public class AgentCli<T : DType>(
     private val session = ChatSession(runtime, tokenizer, metadata, templateName)
     private val template: ChatTemplate = session.chatTemplate
 
+    /**
+     * The stop set for direct generation: the tokenizer-declared EOS plus whatever turn-end
+     * tokens the template declares ([ChatTemplate.stopTokenStrings]) — e.g. BitNet 2B4T ends
+     * turns with `<|eot_id|>` while its GGUF declares `<|end_of_text|>` as EOS.
+     */
+    private val stopTokenIds: Set<Int> by lazy {
+        buildSet {
+            add(tokenizer.eosTokenId)
+            for (stop in template.stopTokenStrings()) {
+                tokenizer.encode(stop).singleOrNull()?.let { add(it) }
+            }
+        }
+    }
+
     init {
         // Same diagnostics ToolCallingDemo prints (#41): which provider was
         // selected, whether it is NATIVE or GENERIC, and why.
@@ -64,7 +78,7 @@ public class AgentCli<T : DType>(
         val result = runtime.generateUntilStop(
             prompt = promptTokens,
             maxTokens = maxTokens,
-            eosTokenId = tokenizer.eosTokenId,
+            eosTokenIds = stopTokenIds,
             temperature = temperature,
             onToken = { tokenId ->
                 print(tokenizer.decode(tokenId))
@@ -117,7 +131,7 @@ public class AgentCli<T : DType>(
             val result = runtime.generateUntilStop(
                 prompt = promptTokens,
                 maxTokens = maxTokens,
-                eosTokenId = tokenizer.eosTokenId,
+                eosTokenIds = stopTokenIds,
                 temperature = temperature,
                 onToken = { tokenId ->
                     print(tokenizer.decode(tokenId))
