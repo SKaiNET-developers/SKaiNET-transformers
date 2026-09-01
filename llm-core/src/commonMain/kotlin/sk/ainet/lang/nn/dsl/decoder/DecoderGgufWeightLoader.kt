@@ -83,6 +83,11 @@ public object DecoderTensorNames {
     fun ffnUp(layer: Int): String = "blk.$layer.ffn_up.weight"
     fun attnQNorm(layer: Int): String = "blk.$layer.attn_q_norm.weight"
     fun attnKNorm(layer: Int): String = "blk.$layer.attn_k_norm.weight"
+
+    fun attnQBias(layer: Int): String = "blk.$layer.attn_q.bias"
+    fun attnKBias(layer: Int): String = "blk.$layer.attn_k.bias"
+    fun attnVBias(layer: Int): String = "blk.$layer.attn_v.bias"
+    fun attnOutBias(layer: Int): String = "blk.$layer.attn_output.bias"
 }
 
 /**
@@ -279,6 +284,10 @@ public class DecoderGgufWeightLoader private constructor(
         repeat(metadata.blockCount) { layer ->
             optionalNames += DecoderTensorNames.attnQNorm(layer)
             optionalNames += DecoderTensorNames.attnKNorm(layer)
+            optionalNames += DecoderTensorNames.attnQBias(layer)
+            optionalNames += DecoderTensorNames.attnKBias(layer)
+            optionalNames += DecoderTensorNames.attnVBias(layer)
+            optionalNames += DecoderTensorNames.attnOutBias(layer)
         }
         optionalNames.forEach { name ->
             val rt = tensorByName[name]
@@ -353,6 +362,10 @@ public class DecoderGgufWeightLoader private constructor(
             repeat(metadata.blockCount) { layer ->
                 optionalNames += DecoderTensorNames.attnQNorm(layer)
                 optionalNames += DecoderTensorNames.attnKNorm(layer)
+                optionalNames += DecoderTensorNames.attnQBias(layer)
+                optionalNames += DecoderTensorNames.attnKBias(layer)
+                optionalNames += DecoderTensorNames.attnVBias(layer)
+                optionalNames += DecoderTensorNames.attnOutBias(layer)
             }
             wanted = buildSet {
                 addAll(required)

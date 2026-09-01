@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — Qwen2/Qwen2.5 GGUF decode produced garbage (#352)
+
+- **Attention projection biases now load and bind**
+  ([#352](https://github.com/SKaiNET-developers/SKaiNET-transformers/issues/352)): Qwen2/2.5
+  GGUFs carry `blk.N.attn_{q,k,v}.bias` tensors — and they are enormous (blk.0's K bias moves
+  the channel sum from ~11 to ~507 on Qwen2.5-0.5B), so losing them turns the output into
+  noise. They were lost twice over: `DecoderGgufWeightLoader` filtered every tensor outside
+  its `.weight`-only wanted-set, and the llama name resolver had no `.bias` rules, so
+  zero-initialized DSL params silently stood in. The loader now carries the attention biases
+  as optional tensors, the new `QwenGGUFNameResolver` binds them, and `QwenNetworkLoader`
+  fails loudly if a file bias ever goes unbound again. Verified token-for-token against
+  mainline llama.cpp: the new `QwenGoldenTokenParityTest` asserts full 32-step greedy text
+  equality for both Qwen2.5-0.5B-Instruct Q8_0 (bias + no QK-norm) and Qwen3-1.7B Q8_0
+  (QK-norm + no bias), model-gated on `QWEN25_05B_GGUF` / `QWEN3_17B_GGUF`.
+
 ### Changed — the shared decoder machinery moves to `llm-core` (breaking)
 
 - **`sk.ainet.models.llama` no longer owns the shared decoder loader half**

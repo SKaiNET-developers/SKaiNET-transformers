@@ -4,7 +4,6 @@ import kotlinx.io.Source
 import sk.ainet.apps.llm.DTypePolicyValidation
 import sk.ainet.context.ExecutionContext
 import sk.ainet.io.RandomAccessSource
-import sk.ainet.io.weights.LlamaGGUFNameResolver
 import sk.ainet.lang.memory.ExperimentalMemoryApi
 import sk.ainet.lang.memory.plan.WeightForm
 import sk.ainet.io.weights.MappingConfig
@@ -22,7 +21,7 @@ import kotlin.jvm.JvmName
 
 /**
  * End-to-end loader that builds a `qwenNetwork()` module and populates it
- * with weights from GGUF or SafeTensors files via [WeightMapper] + [LlamaGGUFNameResolver].
+ * with weights from GGUF or SafeTensors files via [WeightMapper] + [QwenGGUFNameResolver].
  *
  * Qwen3 uses the same GGUF tensor naming (`blk.N.*`) and weight structure as LLaMA,
  * so loading delegates to [DecoderGgufWeightLoader] for GGUF and [DecoderSafeTensorsLoader]
@@ -196,13 +195,19 @@ public class QwenNetworkLoader @PublishedApi internal constructor(
             usePathBasedMatching = false,
             fallbackToShapeMatching = false,
             debug = debug,
-            nameResolver = LlamaGGUFNameResolver()
+            nameResolver = QwenGGUFNameResolver()
         )
 
         val result = WeightMapper.applyWeights(model, weightTensors, config)
 
-        // Qwen3 has no bias tensors. The DSL's dense() creates Linear modules
-        // with zero-initialized bias params — these are expected to be unmapped.
+        // Qwen3 has no bias tensors — the DSL's zero-initialized bias params are expected to be
+        // unmapped THERE. But a bias tensor present in the file that failed to bind is the
+        // silent-garbage failure #352 diagnosed: fail loudly on it.
+        val unboundFileBiases = result.unusedTensors.filter { it.endsWith(".bias") }
+        require(unboundFileBiases.isEmpty()) {
+            "Bias tensors present in the GGUF but never bound (zero-initialized params would " +
+                "silently stand in): $unboundFileBiases"
+        }
         val unmappedNonBias = result.missingParams.filter { !it.contains(".bias") }
         require(unmappedNonBias.isEmpty()) {
             buildString {
