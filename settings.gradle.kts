@@ -38,6 +38,7 @@ include("llm-inference:llama")
 include("llm-inference:qwen")
 include("llm-inference:bitnet")
 include("llm-inference:gemma")
+include("llm-inference:gemma3n")
 // FunctionGemma function-calling product module: export spec + harness + contract
 // manifest for the DSL -> StableHLO -> IREE pipeline (whisper/moonshine pattern).
 // Depends on :llm-inference:gemma for the architecture; owns the export contract.
@@ -56,6 +57,7 @@ include("llm-inference:t5")
 include("llm-inference:vec2text")
 include("llm-runtime:kllama")
 include("llm-runtime:kgemma")
+include("llm-runtime:kgemma3n")
 // :llm-runtime:kqwen — removed; Qwen runs through the DSL Qwen path
 // (`QwenNetworkLoader` + `OptimizedLLMRuntime`) since #121 (kllama CLI
 // swap). The legacy `QwenIngestion` facade had no remaining consumers

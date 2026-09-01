@@ -114,6 +114,8 @@ kotlin {
 
         val jvmMain by getting {
             dependencies {
+                implementation(project(":llm-inference:gemma3n"))
+                implementation(project(":llm-runtime:kgemma3n"))
                 // FunctionGemma compiled export: DSL -> StableHLO (external params).
                 // JVM-only (skainet-compile-hlo/-dag publish no JS).
                 implementation(libs.skainet.compile.hlo)

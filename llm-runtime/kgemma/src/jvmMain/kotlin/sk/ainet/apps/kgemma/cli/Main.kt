@@ -1,7 +1,7 @@
 package sk.ainet.apps.kgemma.cli
 
-import sk.ainet.apps.kgemma.Gemma3nIngestion
-import sk.ainet.apps.kgemma.Gemma3nLoadConfig
+import sk.ainet.apps.kgemma3n.Gemma3nIngestion
+import sk.ainet.apps.kgemma3n.Gemma3nLoadConfig
 import sk.ainet.apps.kgemma.GemmaIngestion
 import sk.ainet.apps.kgemma.Gemma4LoadConfig
 import sk.ainet.apps.kgemma.GemmaStopTokens
