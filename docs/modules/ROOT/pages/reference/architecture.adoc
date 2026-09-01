@@ -1,29 +1,58 @@
 = Architecture Overview
-:description: Module structure and dependency graph of SKaiNET Transformers.
+:description: Module structure, the DSL-centric decoder core, and the #346 family template.
+
+== The DSL-Centric Core
+
+Model architectures are **declared, not hand-coded**: every generative family is a thin
+`<f>Network()` builder over the shared `decoderTransformerNetwork()` in `llm-core`
+(package `sk.ainet.lang.nn.dsl.decoder`), which composes the SKaiNET engine's DSL
+primitives (embedding, RMSNorm, MHA with RoPE/KV-cache/QK-norm/biases, SwiGLU or
+family-specific FFNs) into a compute graph. The same package owns the shared loading
+machinery — `DecoderGgufWeightLoader` (a thin wrapper over the engine's
+`StreamingGgufParametersLoader`; no per-family quantization or packing code exists in this
+repository), `GgufDecoderMetadata`, `DecoderTensorNames`, and the family-neutral
+SafeTensors half. Hand-coded runtimes survive only where the DSL cannot express the
+architecture yet (Gemma 3n's AltUp/per-layer embeddings, T5's encoder-decoder loop) — see
+xref:../explanation/dsl-vs-handcoded.adoc[DSL Networks vs Hand-Coded Runtimes].
+
+Every family module follows the same file scheme (issue #346): `<F>NetworkDef.kt`,
+`<F>NetworkLoader`, `<F>WeightLoader`, `<F>RuntimeWeights`/`<F>TensorNames`,
+`<F>ConfigParser`, plus a `k<f>` runtime facade where one exists. Adding a family is
+mechanical — see xref:../how-to/add-model.adoc[Add a New Model Architecture].
 
 == Module Structure
 
 ----
 transformer-core            NN primitives (attention, KV-cache, embedding, norms, RoPE, FFNs) — all targets incl. androidNative
-llm-core                    Core abstractions (Tokenizer, InferenceRuntime, ModelRegistry); re-exports transformer-core
+llm-core                    Decoder DSL core (sk.ainet.lang.nn.dsl.decoder), Tokenizer, InferenceRuntime,
+                            OptimizedLLMRuntime, ModelRegistry; re-exports transformer-core
 llm-agent                   Chat templates, tool calling, AgentLoop, ChatSession
 llm-inference/
-  llama/                    LLaMA/Qwen network definition and weight loading
-  apertus/                  Apertus network definition and weight loading
-  gemma/                    Gemma runtime and weight loading
-  bert/                     BERT network definition
-  voxtral/                  Voxtral TTS runtimes
+  llama/                    Llama/Mistral family (+ the deprecated legacy LlamaRuntime, retiring)
+  qwen/                     Qwen 2/2.5/3 family (attention biases, QK-norm)
+  gemma/                    Gemma 3/4 family (DSL lane, GGUF + SafeTensors)
+  gemma3n/                  Gemma 3n family (hand-rolled runtime: AltUp, per-layer embeddings)
+  functiongemma/            FunctionGemma StableHLO/IREE export
+  apertus/                  Apertus family (xIELU, QK-norm, ungated FFN)
+  bitnet/                   BitNet b1.58 family (packed I2_S ternary path)
+  smollm2/                  SmolLM2 StableHLO/IREE export
+  bert/                     BERT embeddings (DSL)
+  t5/, vec2text/            T5/GTR encoder-decoder + embedding inversion
+  voxtral/                  Voxtral TTS (architecture code only)
+  moonshine/, whisper/      Speech-to-text encoders
 llm-runtime/
-  kllama/                   LLaMA/Qwen CPU runtime, attention backend, tokenizer
-  kqwen/                    Qwen-specific runner CLI
-  kgemma/                   Gemma runner CLI
-  kapertus/                 Apertus runner CLI
+  kllama/                   Runtime facade + CLI backend for the llama-compatible set (Llama/Mistral/Qwen)
+  kgemma/                   Gemma runner CLI (gemma3/gemma4/gemma3n variants)
+  kgemma3n/                 Gemma 3n runtime facade
+  kapertus/                 Apertus runtime facade
+  kbitnet/                  BitNet runtime facade
+  gemma-iree/, iree-android/  Compiled (StableHLO → IREE) on-device path
 llm-apps/
-  skainet-cli/              Unified CLI (auto-detects architecture)
-  kllama-cli/               LLaMA-specific CLI
-  kapertus-cli/             Apertus-specific CLI
+  skainet-cli/              Unified CLI (auto-detects architecture, routes every GGUF family)
+  kllama-cli/               Llama-family CLI with agent/tool-calling mode
   kbert-cli/                BERT CLI
-  kvoxtral-cli/             Voxtral TTS CLI
+  skainet-decode/           Shared decode entry points
+  kllama-java-sample/       Java interop sample
 llm-performance/            Benchmarking module
 ----
 
@@ -39,17 +68,20 @@ graph LR
 
     subgraph Runtime
         kllama
-        kqwen
         kgemma
+        kgemma3n
         kapertus
+        kbitnet
     end
 
     subgraph Inference
         llama
+        qwen
         gemma
+        gemma3n
         apertus
+        bitnet
         bert
-        voxtral
     end
 
     subgraph Core
@@ -67,17 +99,27 @@ graph LR
 
     skainet-cli --> kllama
     skainet-cli --> llm-agent
+    skainet-cli --> llama
+    skainet-cli --> qwen
+    skainet-cli --> gemma
+    skainet-cli --> apertus
+    skainet-cli --> bitnet
     kllama-cli --> kllama
     kllama --> llama
+    kllama --> qwen
     kllama --> llm-agent
-    kqwen --> llama
     kgemma --> gemma
+    kgemma --> gemma3n
+    kgemma3n --> gemma3n
     kapertus --> apertus
+    kbitnet --> bitnet
     llama --> llm-core
+    qwen --> llm-core
     gemma --> llm-core
+    gemma3n --> gemma
     apertus --> llm-core
+    bitnet --> llm-core
     bert --> llm-core
-    voxtral --> llm-core
     llm-agent --> llm-core
     llm-core --> skainet-lang-core
     llm-core --> skainet-compile-dag
@@ -90,20 +132,25 @@ graph LR
 
 `InferenceRuntime<T>`::
 Minimal inference contract: `forward(tokenId): Tensor` and `reset()`.
-All model runtimes implement this.
+
+`OptimizedLLMRuntime<T>`::
+The runtime every DSL family runs on — takes the module built by an
+`<F>NetworkLoader`, executes it eagerly (DIRECT mode) or through the traced/fused
+pipeline, and provides the greedy/sampled `generate()` loop. The golden-token parity
+gates certify this exact path against reference implementations.
 
 `Tokenizer`::
-Encode/decode text with `eosTokenId`, `bosTokenId`, `vocabSize`.
-Implementations: `GGUFTokenizer`, `HuggingFaceBPETokenizer`, `TekkenTokenizerAdapter`.
+Encode/decode text with `eosTokenId`, `bosTokenId`, `vocabSize`. Obtained via
+`TokenizerFactory.fromGgufFields(...)`; implementations include `GGUFTokenizer`,
+`HuggingFaceBPETokenizer`, `TekkenTokenizerAdapter`.
 
 `ChatTemplate`::
 Format conversation messages into prompt strings and parse tool calls from output.
-Implementations: `QwenChatTemplate`, `Llama3ChatTemplate`, `GemmaChatTemplate`, `ChatMLTemplate`.
+Implementations: `QwenChatTemplate`, `Llama3ChatTemplate`, `GemmaChatTemplate`,
+`ChatMLTemplate`.
 
 `DecoderRuntime<T>`::
-Template method base class for decoder-only transformers.
-Provides shared `forward()`, `generate()`, `sample()` logic.
-
-`AttentionBackend<T>`::
-Pluggable attention computation with KV cache.
-Implementations: `CpuAttentionBackend`, `GpuAttentionBackend`.
+Template-method base class of the *legacy* hand-coded runtimes (`LlamaRuntime` is
+deprecated and unreferenced by the CLIs; Gemma 3n's runtime is the remaining production
+user). New families never implement it — they declare a network and run on
+`OptimizedLLMRuntime`.

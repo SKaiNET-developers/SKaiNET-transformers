@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — Apertus GGUF decode produced garbage; maturity gate retrofit caught it
+
+- **The gate retrofit found the family broken in production** — the CLI decoded real
+  Apertus-8B-Instruct GGUFs to `<unk>` noise. Two defects, both fixed:
+  **(1) `XIELUActivation` used `exp()` as a "simplified softplus approx"** — with the real
+  model's per-layer `alpha_p` values (up to 174), `exp(alpha_p)` is `Inf` and the branch-mask
+  multiply turned every logit into `NaN`; even for small alphas the math was never faithful.
+  The op now computes the exact guarded `softplus` host-side (the params are frozen scalars)
+  and mirrors the reference formula, including the `min(x, eps)` clamp.
+  **(2) `apertusNetwork()` built RoPE on the DSL defaults** (INTERLEAVED pairing, base
+  10_000) — Apertus is an HF rotate-half model that llama.cpp runs as NEOX with
+  `rope_theta = 12M`; the metadata already carried `ropeTheta` but the builder never passed
+  it. Now `RoPEMode.SPLIT_HALF` + `metadata.ropeTheta`.
+- **`ApertusGoldenTokenParityTest`** closes the last "no parity probe" row among the shipped
+  generative families: full 32-step greedy text equality vs mainline llama.cpp on
+  Apertus-8B-Instruct-2509 Q4_K_S, on the DSL path the CLI ships (`ApertusWeightLoader` →
+  `ApertusNetworkLoader.fromWeights` → `OptimizedLLMRuntime`), exercising QK-norm, the
+  per-layer xIELU activation parameters and the ungated FFN end-to-end. Model-gated on
+  `APERTUS_GGUF_PATH` (+ ≥8 GB test heap), tagged into the smoke-reference tier
+  (`apertus_gguf_url` staging input), and `smoke-models.json` gains an Apertus row on the
+  skainet-cli runner. README and the antora index now carry a per-family **verified-against**
+  matrix reflecting the actual gates instead of the pre-0.52.0 "early / not verified" wording,
+  and `reference/architecture.adoc` is rewritten around the DSL-centric decoder core and the
+  real module inventory (#346 template, `sk.ainet.lang.nn.dsl.decoder`).
+
 ### Changed — Qwen family #346 conformance rows
 
 - **`QwenWeightLoader`** joins the family (`<F>WeightLoader` row): the thin wrapper over

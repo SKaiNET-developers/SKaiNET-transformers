@@ -57,6 +57,13 @@
       }
     },
     {
+      "name": "Apertus-8B-Instruct-Q4KS",
+      "runner": "skainet",
+      "model": "Apertus-8B-Instruct-2509-Q4_K_S.gguf",
+      "format": "gguf",
+      "steps": 16
+    },
+    {
       "name": "Gemma4-E4B-GGUF",
       "runner": "kgemma",
       "model": "~/.lmstudio/models/lmstudio-community/gemma-4-E4B-it-GGUF/gemma-4-E4B-it-Q4_K_M.gguf",
