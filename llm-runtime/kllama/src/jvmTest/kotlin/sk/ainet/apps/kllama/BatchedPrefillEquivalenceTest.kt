@@ -14,7 +14,7 @@ import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.tensor.data.DenseFloatArrayTensorData
 import sk.ainet.lang.tensor.data.MemorySegmentTensorData
 import sk.ainet.lang.types.FP32
-import sk.ainet.models.llama.DECODER_DEQUANTIZE_ALL
+import sk.ainet.lang.nn.dsl.decoder.DECODER_DEQUANTIZE_ALL
 import sk.ainet.models.llama.LlamaNetworkLoader
 
 /**

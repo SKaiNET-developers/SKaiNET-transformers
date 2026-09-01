@@ -5,7 +5,7 @@ import kotlinx.io.readFloatLe
 import kotlinx.io.readIntLe
 import sk.ainet.context.ExecutionContext
 import sk.ainet.models.llama.LlamaLayerWeights
-import sk.ainet.models.llama.LlamaModelMetadata
+import sk.ainet.lang.nn.dsl.decoder.GgufDecoderMetadata
 import sk.ainet.models.llama.LlamaRuntimeWeights
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.types.FP32
@@ -27,7 +27,7 @@ public object Llama2DotCWeightLoader {
         val vocabSize = source.readIntLe()
         val seqLen = source.readIntLe()
 
-        val metadata = LlamaModelMetadata(
+        val metadata = GgufDecoderMetadata(
             architecture = "llama",
             embeddingLength = dim,
             contextLength = seqLen,

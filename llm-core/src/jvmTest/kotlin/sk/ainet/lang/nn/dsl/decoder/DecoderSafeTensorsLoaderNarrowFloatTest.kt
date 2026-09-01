@@ -1,4 +1,4 @@
-package sk.ainet.models.llama
+package sk.ainet.lang.nn.dsl.decoder
 
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
@@ -42,9 +42,9 @@ class DecoderSafeTensorsLoaderNarrowFloatTest {
 
     /** A canonical-mappable HF weight name, so [HfTensorNameMapper] doesn't skip the tensor. */
     private val hfName = "model.layers.0.self_attn.q_proj.weight"
-    private val canonical = LlamaTensorNames.attnQ(0)
+    private val canonical = DecoderTensorNames.attnQ(0)
 
-    private val metadata = LlamaModelMetadata(
+    private val metadata = GgufDecoderMetadata(
         architecture = "llama",
         embeddingLength = 4,
         contextLength = 8,
@@ -168,7 +168,7 @@ class DecoderSafeTensorsLoaderNarrowFloatTest {
             listOf(Triple("model.embed_tokens.weight", "F16", onDisk)), 2, 4,
         )
 
-        val embedding = load(file, DTypePolicy.Require(FP16))[LlamaTensorNames.TOKEN_EMBEDDINGS]
+        val embedding = load(file, DTypePolicy.Require(FP16))[DecoderTensorNames.TOKEN_EMBEDDINGS]
             ?: error("missing token_embd")
 
         assertTrue(embedding.data is NarrowFloatTensorData, "must stay packed")
@@ -212,8 +212,8 @@ class DecoderSafeTensorsLoaderNarrowFloatTest {
             ),
             2, 4,
         )
-        val f16Canonical = LlamaTensorNames.attnQ(0)
-        val bf16Canonical = LlamaTensorNames.attnK(0)
+        val f16Canonical = DecoderTensorNames.attnQ(0)
+        val bf16Canonical = DecoderTensorNames.attnK(0)
 
         // Require(FP16): F16 stays packed, BF16 widens — it cannot be re-encoded as F16.
         val a = load(file, DTypePolicy.Require(FP16))

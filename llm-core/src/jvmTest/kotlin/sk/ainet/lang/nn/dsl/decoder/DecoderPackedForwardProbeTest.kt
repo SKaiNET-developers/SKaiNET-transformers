@@ -1,4 +1,4 @@
-package sk.ainet.models.llama
+package sk.ainet.lang.nn.dsl.decoder
 
 import java.io.File
 import kotlin.math.abs

@@ -1,5 +1,10 @@
 package sk.ainet.models.llama
 
+import sk.ainet.lang.nn.dsl.decoder.DECODER_NARROW_KEEP_NATIVE
+import sk.ainet.lang.nn.dsl.decoder.DecoderGgufWeightLoader
+import sk.ainet.lang.nn.dsl.decoder.DecoderSafeTensorsLoader
+import sk.ainet.lang.nn.dsl.decoder.GgufDecoderMetadata
+
 import kotlinx.io.Source
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -37,7 +42,7 @@ class LlamaNetworkLoaderDTypePolicyTest {
     private val noopSourceProvider: () -> Source = { error("source not used in validation tests") }
     private val noopRandomAccessProvider: () -> RandomAccessSource = { error("source not used in validation tests") }
 
-    private val anyMetadata = LlamaModelMetadata(
+    private val anyMetadata = GgufDecoderMetadata(
         architecture = "llama",
         embeddingLength = 4,
         contextLength = 8,

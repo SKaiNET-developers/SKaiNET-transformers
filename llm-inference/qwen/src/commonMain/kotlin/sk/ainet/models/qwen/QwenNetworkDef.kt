@@ -4,7 +4,7 @@ import sk.ainet.lang.nn.Module
 import sk.ainet.lang.nn.dsl.decoder.decoderTransformerNetwork
 import sk.ainet.lang.nn.transformer.RoPEMode
 import sk.ainet.lang.types.DType
-import sk.ainet.models.llama.LlamaModelMetadata
+import sk.ainet.lang.nn.dsl.decoder.GgufDecoderMetadata
 
 /**
  * Qwen3 architecture defined via the network DSL.
@@ -26,12 +26,12 @@ import sk.ainet.models.llama.LlamaModelMetadata
  *   layer) — Qwen3-specific.
  * - SwiGLU FFN — same as Llama.
  *
- * The metadata type stays `LlamaModelMetadata` because Qwen3 GGUFs use the
+ * The metadata type stays `GgufDecoderMetadata` because Qwen3 GGUFs use the
  * Llama-family tensor naming convention; per-architecture metadata classes
  * are a follow-up rename.
  */
 public inline fun <reified T : DType, V> qwenNetwork(
-    metadata: LlamaModelMetadata,
+    metadata: GgufDecoderMetadata,
     maxInferenceLen: Int = minOf(metadata.contextLength, 4096),
     qkNorm: Boolean = true,
     attnBias: Boolean = false,

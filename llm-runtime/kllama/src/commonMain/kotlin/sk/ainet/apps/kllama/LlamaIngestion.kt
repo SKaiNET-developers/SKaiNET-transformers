@@ -3,10 +3,11 @@ package sk.ainet.apps.kllama
 import kotlinx.io.Source
 import sk.ainet.context.ExecutionContext
 import sk.ainet.io.RandomAccessSource
-import sk.ainet.models.llama.LlamaModelMetadata
+import sk.ainet.lang.nn.dsl.decoder.GgufDecoderMetadata
 import sk.ainet.models.llama.LlamaRuntimeWeights
+import sk.ainet.models.llama.load
 import sk.ainet.models.llama.loadLlamaRuntimeWeights
-import sk.ainet.models.llama.DecoderSafeTensorsLoader
+import sk.ainet.lang.nn.dsl.decoder.DecoderSafeTensorsLoader
 import sk.ainet.models.llama.loadLlamaRuntimeWeightsStreaming
 import sk.ainet.lang.types.DType
 import kotlin.reflect.KClass
@@ -68,7 +69,7 @@ public class LlamaIngestion<T : DType>(
      */
     public fun loadSafeTensors(
         randomAccessProvider: () -> RandomAccessSource,
-        metadata: LlamaModelMetadata,
+        metadata: GgufDecoderMetadata,
         tiedEmbeddings: Boolean = false
     ): LlamaRuntimeWeights<T> {
         val loader = DecoderSafeTensorsLoader(

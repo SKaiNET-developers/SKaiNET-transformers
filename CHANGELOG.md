@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — the shared decoder machinery moves to `llm-core` (breaking)
+
+- **`sk.ainet.models.llama` no longer owns the shared decoder loader half**
+  ([#372](https://github.com/SKaiNET-developers/SKaiNET-transformers/issues/372)):
+  `DecoderGgufWeightLoader`, `DecoderGgufWeights`, `DECODER_DEQUANTIZE_ALL`,
+  `decoderMetadataFromGguf`, `DECODER_NARROW_KEEP_NATIVE` and the family-neutral half of
+  `DecoderSafeTensorsLoader` now live in `llm-core` under `sk.ainet.lang.nn.dsl.decoder`,
+  joining the architecture half (`DecoderModelMetadata`, `decoderTransformerNetwork`) that was
+  already there. Renamed on arrival: `LlamaModelMetadata` → **`GgufDecoderMetadata`**,
+  `LlamaTensorNames` → `DecoderTensorNames`, `LlamaGgufTensorNames` → `DecoderGgufTensorNames` —
+  the shared decoder types no longer carry a family's name. `@Deprecated` typealiases remain in
+  `sk.ainet.models.llama` for one release; the llama-typed `DecoderSafeTensorsLoader.load()`
+  stays llama-side as an extension (`import sk.ainet.models.llama.load`).
+
+
 Targets **SKaiNET engine 0.51.0** (developed against `0.51.0-SNAPSHOT`; the pin
 flips to the release when the engine cuts it). The headline is the completed
 engine-adoption arc (#338–#346): this repository no longer carries any weight

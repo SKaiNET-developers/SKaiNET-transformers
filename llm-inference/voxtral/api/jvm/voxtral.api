@@ -142,14 +142,14 @@ public final class sk/ainet/models/voxtral/VoxtralConfigParser {
 	public static final field INSTANCE Lsk/ainet/models/voxtral/VoxtralConfigParser;
 	public final fun isTiedEmbeddings (Ljava/lang/String;)Z
 	public final fun parse (Ljava/lang/String;)Lsk/ainet/models/voxtral/VoxtralModelMetadata;
-	public final fun parseBackbone (Ljava/util/Map;)Lsk/ainet/models/llama/LlamaModelMetadata;
+	public final fun parseBackbone (Ljava/util/Map;)Lsk/ainet/lang/nn/dsl/decoder/GgufDecoderMetadata;
 }
 
 public final class sk/ainet/models/voxtral/VoxtralDefaults {
 	public static final field INSTANCE Lsk/ainet/models/voxtral/VoxtralDefaults;
-	public final fun getACOUSTIC_MODEL ()Lsk/ainet/models/llama/LlamaModelMetadata;
+	public final fun getACOUSTIC_MODEL ()Lsk/ainet/lang/nn/dsl/decoder/GgufDecoderMetadata;
 	public final fun getAUDIO ()Lsk/ainet/models/voxtral/VoxtralAudioConfig;
-	public final fun getBACKBONE ()Lsk/ainet/models/llama/LlamaModelMetadata;
+	public final fun getBACKBONE ()Lsk/ainet/lang/nn/dsl/decoder/GgufDecoderMetadata;
 	public final fun getCODEC ()Lsk/ainet/models/voxtral/VoxtralCodecMetadata;
 	public final fun getDEFAULT ()Lsk/ainet/models/voxtral/VoxtralModelMetadata;
 }
@@ -177,17 +177,17 @@ public final class sk/ainet/models/voxtral/VoxtralHfTensorNameMapper {
 }
 
 public final class sk/ainet/models/voxtral/VoxtralModelMetadata {
-	public fun <init> (Lsk/ainet/models/llama/LlamaModelMetadata;Lsk/ainet/models/llama/LlamaModelMetadata;Lsk/ainet/models/voxtral/VoxtralCodecMetadata;Lsk/ainet/models/voxtral/VoxtralAudioConfig;)V
-	public final fun component1 ()Lsk/ainet/models/llama/LlamaModelMetadata;
-	public final fun component2 ()Lsk/ainet/models/llama/LlamaModelMetadata;
+	public fun <init> (Lsk/ainet/lang/nn/dsl/decoder/GgufDecoderMetadata;Lsk/ainet/lang/nn/dsl/decoder/GgufDecoderMetadata;Lsk/ainet/models/voxtral/VoxtralCodecMetadata;Lsk/ainet/models/voxtral/VoxtralAudioConfig;)V
+	public final fun component1 ()Lsk/ainet/lang/nn/dsl/decoder/GgufDecoderMetadata;
+	public final fun component2 ()Lsk/ainet/lang/nn/dsl/decoder/GgufDecoderMetadata;
 	public final fun component3 ()Lsk/ainet/models/voxtral/VoxtralCodecMetadata;
 	public final fun component4 ()Lsk/ainet/models/voxtral/VoxtralAudioConfig;
-	public final fun copy (Lsk/ainet/models/llama/LlamaModelMetadata;Lsk/ainet/models/llama/LlamaModelMetadata;Lsk/ainet/models/voxtral/VoxtralCodecMetadata;Lsk/ainet/models/voxtral/VoxtralAudioConfig;)Lsk/ainet/models/voxtral/VoxtralModelMetadata;
-	public static synthetic fun copy$default (Lsk/ainet/models/voxtral/VoxtralModelMetadata;Lsk/ainet/models/llama/LlamaModelMetadata;Lsk/ainet/models/llama/LlamaModelMetadata;Lsk/ainet/models/voxtral/VoxtralCodecMetadata;Lsk/ainet/models/voxtral/VoxtralAudioConfig;ILjava/lang/Object;)Lsk/ainet/models/voxtral/VoxtralModelMetadata;
+	public final fun copy (Lsk/ainet/lang/nn/dsl/decoder/GgufDecoderMetadata;Lsk/ainet/lang/nn/dsl/decoder/GgufDecoderMetadata;Lsk/ainet/models/voxtral/VoxtralCodecMetadata;Lsk/ainet/models/voxtral/VoxtralAudioConfig;)Lsk/ainet/models/voxtral/VoxtralModelMetadata;
+	public static synthetic fun copy$default (Lsk/ainet/models/voxtral/VoxtralModelMetadata;Lsk/ainet/lang/nn/dsl/decoder/GgufDecoderMetadata;Lsk/ainet/lang/nn/dsl/decoder/GgufDecoderMetadata;Lsk/ainet/models/voxtral/VoxtralCodecMetadata;Lsk/ainet/models/voxtral/VoxtralAudioConfig;ILjava/lang/Object;)Lsk/ainet/models/voxtral/VoxtralModelMetadata;
 	public fun equals (Ljava/lang/Object;)Z
-	public final fun getAcousticModel ()Lsk/ainet/models/llama/LlamaModelMetadata;
+	public final fun getAcousticModel ()Lsk/ainet/lang/nn/dsl/decoder/GgufDecoderMetadata;
 	public final fun getAudio ()Lsk/ainet/models/voxtral/VoxtralAudioConfig;
-	public final fun getBackbone ()Lsk/ainet/models/llama/LlamaModelMetadata;
+	public final fun getBackbone ()Lsk/ainet/lang/nn/dsl/decoder/GgufDecoderMetadata;
 	public final fun getCodec ()Lsk/ainet/models/voxtral/VoxtralCodecMetadata;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
@@ -197,7 +197,7 @@ public final class sk/ainet/models/voxtral/VoxtralNetworkLoader {
 	public static final field Companion Lsk/ainet/models/voxtral/VoxtralNetworkLoader$Companion;
 	public fun <init> (Lsk/ainet/models/voxtral/VoxtralNetworkLoader$WeightsProvider;Z)V
 	public synthetic fun <init> (Lsk/ainet/models/voxtral/VoxtralNetworkLoader$WeightsProvider;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public final fun buildAcousticRuntime (Lsk/ainet/models/llama/DecoderGgufWeights;Lsk/ainet/lang/nn/Module;Lsk/ainet/models/llama/LlamaModelMetadata;Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;II)Lsk/ainet/models/voxtral/VoxtralAcousticRuntime;
+	public final fun buildAcousticRuntime (Lsk/ainet/lang/nn/dsl/decoder/DecoderGgufWeights;Lsk/ainet/lang/nn/Module;Lsk/ainet/lang/nn/dsl/decoder/GgufDecoderMetadata;Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;II)Lsk/ainet/models/voxtral/VoxtralAcousticRuntime;
 	public final fun getDebug ()Z
 	public final fun getDtypePolicy ()Lsk/ainet/lang/types/DTypePolicy;
 	public final fun getWeightsProvider ()Lsk/ainet/models/voxtral/VoxtralNetworkLoader$WeightsProvider;
@@ -209,8 +209,8 @@ public final class sk/ainet/models/voxtral/VoxtralNetworkLoader$Companion {
 	public static synthetic fun fromGguf$default (Lsk/ainet/models/voxtral/VoxtralNetworkLoader$Companion;Lkotlin/jvm/functions/Function0;ZILjava/lang/Object;)Lsk/ainet/models/voxtral/VoxtralNetworkLoader;
 	public final fun fromGgufRandomAccess (Lkotlin/jvm/functions/Function0;ZLsk/ainet/lang/memory/plan/WeightForm;)Lsk/ainet/models/voxtral/VoxtralNetworkLoader;
 	public static synthetic fun fromGgufRandomAccess$default (Lsk/ainet/models/voxtral/VoxtralNetworkLoader$Companion;Lkotlin/jvm/functions/Function0;ZLsk/ainet/lang/memory/plan/WeightForm;ILjava/lang/Object;)Lsk/ainet/models/voxtral/VoxtralNetworkLoader;
-	public final fun fromSafeTensors (Lsk/ainet/models/llama/LlamaModelMetadata;Lkotlin/jvm/functions/Function0;ZZ)Lsk/ainet/models/voxtral/VoxtralNetworkLoader;
-	public static synthetic fun fromSafeTensors$default (Lsk/ainet/models/voxtral/VoxtralNetworkLoader$Companion;Lsk/ainet/models/llama/LlamaModelMetadata;Lkotlin/jvm/functions/Function0;ZZILjava/lang/Object;)Lsk/ainet/models/voxtral/VoxtralNetworkLoader;
+	public final fun fromSafeTensors (Lsk/ainet/lang/nn/dsl/decoder/GgufDecoderMetadata;Lkotlin/jvm/functions/Function0;ZZ)Lsk/ainet/models/voxtral/VoxtralNetworkLoader;
+	public static synthetic fun fromSafeTensors$default (Lsk/ainet/models/voxtral/VoxtralNetworkLoader$Companion;Lsk/ainet/lang/nn/dsl/decoder/GgufDecoderMetadata;Lkotlin/jvm/functions/Function0;ZZILjava/lang/Object;)Lsk/ainet/models/voxtral/VoxtralNetworkLoader;
 }
 
 public abstract interface class sk/ainet/models/voxtral/VoxtralNetworkLoader$WeightsProvider {
@@ -241,25 +241,25 @@ public final class sk/ainet/models/voxtral/VoxtralNetworkLoader$WeightsProvider$
 }
 
 public final class sk/ainet/models/voxtral/VoxtralNetworkLoader$WeightsProvider$Preloaded : sk/ainet/models/voxtral/VoxtralNetworkLoader$WeightsProvider {
-	public fun <init> (Lsk/ainet/models/llama/DecoderGgufWeights;)V
-	public final fun component1 ()Lsk/ainet/models/llama/DecoderGgufWeights;
-	public final fun copy (Lsk/ainet/models/llama/DecoderGgufWeights;)Lsk/ainet/models/voxtral/VoxtralNetworkLoader$WeightsProvider$Preloaded;
-	public static synthetic fun copy$default (Lsk/ainet/models/voxtral/VoxtralNetworkLoader$WeightsProvider$Preloaded;Lsk/ainet/models/llama/DecoderGgufWeights;ILjava/lang/Object;)Lsk/ainet/models/voxtral/VoxtralNetworkLoader$WeightsProvider$Preloaded;
+	public fun <init> (Lsk/ainet/lang/nn/dsl/decoder/DecoderGgufWeights;)V
+	public final fun component1 ()Lsk/ainet/lang/nn/dsl/decoder/DecoderGgufWeights;
+	public final fun copy (Lsk/ainet/lang/nn/dsl/decoder/DecoderGgufWeights;)Lsk/ainet/models/voxtral/VoxtralNetworkLoader$WeightsProvider$Preloaded;
+	public static synthetic fun copy$default (Lsk/ainet/models/voxtral/VoxtralNetworkLoader$WeightsProvider$Preloaded;Lsk/ainet/lang/nn/dsl/decoder/DecoderGgufWeights;ILjava/lang/Object;)Lsk/ainet/models/voxtral/VoxtralNetworkLoader$WeightsProvider$Preloaded;
 	public fun equals (Ljava/lang/Object;)Z
-	public final fun getWeights ()Lsk/ainet/models/llama/DecoderGgufWeights;
+	public final fun getWeights ()Lsk/ainet/lang/nn/dsl/decoder/DecoderGgufWeights;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
 }
 
 public final class sk/ainet/models/voxtral/VoxtralNetworkLoader$WeightsProvider$SafeTensors : sk/ainet/models/voxtral/VoxtralNetworkLoader$WeightsProvider {
-	public fun <init> (Lkotlin/jvm/functions/Function0;Lsk/ainet/models/llama/LlamaModelMetadata;Z)V
+	public fun <init> (Lkotlin/jvm/functions/Function0;Lsk/ainet/lang/nn/dsl/decoder/GgufDecoderMetadata;Z)V
 	public final fun component1 ()Lkotlin/jvm/functions/Function0;
-	public final fun component2 ()Lsk/ainet/models/llama/LlamaModelMetadata;
+	public final fun component2 ()Lsk/ainet/lang/nn/dsl/decoder/GgufDecoderMetadata;
 	public final fun component3 ()Z
-	public final fun copy (Lkotlin/jvm/functions/Function0;Lsk/ainet/models/llama/LlamaModelMetadata;Z)Lsk/ainet/models/voxtral/VoxtralNetworkLoader$WeightsProvider$SafeTensors;
-	public static synthetic fun copy$default (Lsk/ainet/models/voxtral/VoxtralNetworkLoader$WeightsProvider$SafeTensors;Lkotlin/jvm/functions/Function0;Lsk/ainet/models/llama/LlamaModelMetadata;ZILjava/lang/Object;)Lsk/ainet/models/voxtral/VoxtralNetworkLoader$WeightsProvider$SafeTensors;
+	public final fun copy (Lkotlin/jvm/functions/Function0;Lsk/ainet/lang/nn/dsl/decoder/GgufDecoderMetadata;Z)Lsk/ainet/models/voxtral/VoxtralNetworkLoader$WeightsProvider$SafeTensors;
+	public static synthetic fun copy$default (Lsk/ainet/models/voxtral/VoxtralNetworkLoader$WeightsProvider$SafeTensors;Lkotlin/jvm/functions/Function0;Lsk/ainet/lang/nn/dsl/decoder/GgufDecoderMetadata;ZILjava/lang/Object;)Lsk/ainet/models/voxtral/VoxtralNetworkLoader$WeightsProvider$SafeTensors;
 	public fun equals (Ljava/lang/Object;)Z
-	public final fun getMetadata ()Lsk/ainet/models/llama/LlamaModelMetadata;
+	public final fun getMetadata ()Lsk/ainet/lang/nn/dsl/decoder/GgufDecoderMetadata;
 	public final fun getRandomAccessProvider ()Lkotlin/jvm/functions/Function0;
 	public final fun getTiedEmbeddings ()Z
 	public fun hashCode ()I
@@ -267,20 +267,20 @@ public final class sk/ainet/models/voxtral/VoxtralNetworkLoader$WeightsProvider$
 }
 
 public final class sk/ainet/models/voxtral/VoxtralSafeTensorsLoader {
-	public fun <init> (Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;Lsk/ainet/models/llama/LlamaModelMetadata;Z)V
-	public synthetic fun <init> (Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;Lsk/ainet/models/llama/LlamaModelMetadata;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;Lsk/ainet/lang/nn/dsl/decoder/GgufDecoderMetadata;Z)V
+	public synthetic fun <init> (Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;Lsk/ainet/lang/nn/dsl/decoder/GgufDecoderMetadata;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun loadAll (Lkotlin/jvm/functions/Function0;)Lsk/ainet/models/voxtral/VoxtralSafeTensorsLoader$VoxtralWeights;
 }
 
 public final class sk/ainet/models/voxtral/VoxtralSafeTensorsLoader$VoxtralWeights {
-	public fun <init> (Lsk/ainet/models/llama/DecoderGgufWeights;Ljava/util/Map;)V
-	public final fun component1 ()Lsk/ainet/models/llama/DecoderGgufWeights;
+	public fun <init> (Lsk/ainet/lang/nn/dsl/decoder/DecoderGgufWeights;Ljava/util/Map;)V
+	public final fun component1 ()Lsk/ainet/lang/nn/dsl/decoder/DecoderGgufWeights;
 	public final fun component2 ()Ljava/util/Map;
-	public final fun copy (Lsk/ainet/models/llama/DecoderGgufWeights;Ljava/util/Map;)Lsk/ainet/models/voxtral/VoxtralSafeTensorsLoader$VoxtralWeights;
-	public static synthetic fun copy$default (Lsk/ainet/models/voxtral/VoxtralSafeTensorsLoader$VoxtralWeights;Lsk/ainet/models/llama/DecoderGgufWeights;Ljava/util/Map;ILjava/lang/Object;)Lsk/ainet/models/voxtral/VoxtralSafeTensorsLoader$VoxtralWeights;
+	public final fun copy (Lsk/ainet/lang/nn/dsl/decoder/DecoderGgufWeights;Ljava/util/Map;)Lsk/ainet/models/voxtral/VoxtralSafeTensorsLoader$VoxtralWeights;
+	public static synthetic fun copy$default (Lsk/ainet/models/voxtral/VoxtralSafeTensorsLoader$VoxtralWeights;Lsk/ainet/lang/nn/dsl/decoder/DecoderGgufWeights;Ljava/util/Map;ILjava/lang/Object;)Lsk/ainet/models/voxtral/VoxtralSafeTensorsLoader$VoxtralWeights;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getAllTensors ()Ljava/util/Map;
-	public final fun getBackbone ()Lsk/ainet/models/llama/DecoderGgufWeights;
+	public final fun getBackbone ()Lsk/ainet/lang/nn/dsl/decoder/DecoderGgufWeights;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
 }

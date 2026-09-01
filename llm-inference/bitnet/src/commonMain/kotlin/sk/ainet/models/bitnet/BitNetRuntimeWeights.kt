@@ -5,8 +5,8 @@ import sk.ainet.lang.nn.Module
 import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.tensor.data.BitNetPlanesTensorData
 import sk.ainet.lang.types.FP32
-import sk.ainet.models.llama.DecoderGgufWeights
-import sk.ainet.models.llama.LlamaModelMetadata
+import sk.ainet.lang.nn.dsl.decoder.DecoderGgufWeights
+import sk.ainet.lang.nn.dsl.decoder.GgufDecoderMetadata
 
 /**
  * Canonical GGUF tensor names for the BitNet family (#346's `<F>TensorNames` row).
@@ -40,7 +40,7 @@ public object BitNetTensorNames {
  * the parsed metadata, with the family-specific accessors a caller actually needs.
  */
 public data class BitNetRuntimeWeights(
-    public val metadata: LlamaModelMetadata,
+    public val metadata: GgufDecoderMetadata,
     public val tensors: Map<String, Tensor<FP32, Float>>,
 ) {
     /**

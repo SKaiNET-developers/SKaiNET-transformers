@@ -1,4 +1,4 @@
-package sk.ainet.models.llama
+package sk.ainet.lang.nn.dsl.decoder
 
 import sk.ainet.lang.types.BF16
 import sk.ainet.lang.types.DType

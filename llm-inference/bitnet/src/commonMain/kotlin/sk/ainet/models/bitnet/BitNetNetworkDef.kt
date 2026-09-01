@@ -5,7 +5,7 @@ import sk.ainet.lang.nn.dsl.decoder.DecoderFfnKind
 import sk.ainet.lang.nn.dsl.decoder.decoderTransformerNetwork
 import sk.ainet.lang.nn.transformer.RoPEMode
 import sk.ainet.lang.types.DType
-import sk.ainet.models.llama.LlamaModelMetadata
+import sk.ainet.lang.nn.dsl.decoder.GgufDecoderMetadata
 
 /**
  * BitNet b1.58 (e.g. `microsoft/bitnet-b1.58-2B-4T`) defined via the network DSL.
@@ -26,7 +26,7 @@ import sk.ainet.models.llama.LlamaModelMetadata
  *   near-tie (transformers#360's arbitration, 2026-08-31).
  * - RMSNorm eps from metadata (1e-5 for 2B4T).
  *
- * The metadata type stays [LlamaModelMetadata] — BitNet GGUFs use the Llama-family tensor naming
+ * The metadata type stays [GgufDecoderMetadata] — BitNet GGUFs use the Llama-family tensor naming
  * convention plus the two sub-norm tensors ([BitNetGGUFNameResolver] handles those).
  *
  * The weights arriving through this def are whatever the loader materialized — dense FP32 for the
@@ -35,7 +35,7 @@ import sk.ainet.models.llama.LlamaModelMetadata
  * by the weight's storage format, never by the model code).
  */
 public inline fun <reified T : DType, V> bitnetNetwork(
-    metadata: LlamaModelMetadata,
+    metadata: GgufDecoderMetadata,
     maxInferenceLen: Int = minOf(metadata.contextLength, 4096),
 ): Module<T, V> = decoderTransformerNetwork<T, V>(
     metadata = metadata,

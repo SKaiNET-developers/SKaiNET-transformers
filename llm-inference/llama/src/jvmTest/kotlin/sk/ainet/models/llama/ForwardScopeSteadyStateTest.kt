@@ -1,5 +1,9 @@
 package sk.ainet.models.llama
 
+import sk.ainet.lang.nn.dsl.decoder.DecoderGgufWeights
+import sk.ainet.lang.nn.dsl.decoder.DecoderTensorNames
+import sk.ainet.lang.nn.dsl.decoder.GgufDecoderMetadata
+
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -51,7 +55,7 @@ class ForwardScopeSteadyStateTest {
     private fun ones(shape: Shape): Tensor<FP32, Float> =
         ctx.fromFloatArray(shape, FP32::class, FloatArray(shape.volume) { 1.0f })
 
-    private val metadata = LlamaModelMetadata(
+    private val metadata = GgufDecoderMetadata(
         architecture = "llama",
         embeddingLength = dim,
         contextLength = seqLen,
@@ -64,18 +68,18 @@ class ForwardScopeSteadyStateTest {
     )
 
     private fun buildWeightTensors(): Map<String, Tensor<FP32, Float>> = linkedMapOf(
-        LlamaTensorNames.TOKEN_EMBEDDINGS to randn(Shape(vocabSize, dim), seed = 10),
-        LlamaTensorNames.OUTPUT_NORM to ones(Shape(dim)),
-        LlamaTensorNames.OUTPUT_WEIGHT to randn(Shape(vocabSize, dim), seed = 11),
-        LlamaTensorNames.attnNorm(0) to ones(Shape(dim)),
-        LlamaTensorNames.attnQ(0) to randn(Shape(dim, dim), seed = 1),
-        LlamaTensorNames.attnK(0) to randn(Shape(dim, dim), seed = 2),
-        LlamaTensorNames.attnV(0) to randn(Shape(dim, dim), seed = 3),
-        LlamaTensorNames.attnOut(0) to randn(Shape(dim, dim), seed = 4),
-        LlamaTensorNames.ffnNorm(0) to ones(Shape(dim)),
-        LlamaTensorNames.ffnGate(0) to randn(Shape(ffDim, dim), seed = 5),
-        LlamaTensorNames.ffnDown(0) to randn(Shape(dim, ffDim), seed = 6),
-        LlamaTensorNames.ffnUp(0) to randn(Shape(ffDim, dim), seed = 7),
+        DecoderTensorNames.TOKEN_EMBEDDINGS to randn(Shape(vocabSize, dim), seed = 10),
+        DecoderTensorNames.OUTPUT_NORM to ones(Shape(dim)),
+        DecoderTensorNames.OUTPUT_WEIGHT to randn(Shape(vocabSize, dim), seed = 11),
+        DecoderTensorNames.attnNorm(0) to ones(Shape(dim)),
+        DecoderTensorNames.attnQ(0) to randn(Shape(dim, dim), seed = 1),
+        DecoderTensorNames.attnK(0) to randn(Shape(dim, dim), seed = 2),
+        DecoderTensorNames.attnV(0) to randn(Shape(dim, dim), seed = 3),
+        DecoderTensorNames.attnOut(0) to randn(Shape(dim, dim), seed = 4),
+        DecoderTensorNames.ffnNorm(0) to ones(Shape(dim)),
+        DecoderTensorNames.ffnGate(0) to randn(Shape(ffDim, dim), seed = 5),
+        DecoderTensorNames.ffnDown(0) to randn(Shape(dim, ffDim), seed = 6),
+        DecoderTensorNames.ffnUp(0) to randn(Shape(ffDim, dim), seed = 7),
     )
 
     private fun newRuntime(slabFloats: Int): OptimizedLLMRuntime<FP32> {

@@ -61,6 +61,7 @@ kotlin {
             implementation(libs.skainet.compile.opt)
             implementation(libs.skainet.io.core)
             implementation(libs.skainet.io.gguf)
+            implementation(libs.skainet.io.safetensors)
             // KernelRegistry/KernelProvider capability queries for the
             // packed-quant kernel gate (`hasPackedMatmulKernel`, #170).
             // implementation-scoped: no backend types leak into the API.
@@ -79,6 +80,7 @@ kotlin {
             dependencies {
                 implementation(project.dependencies.platform(project(":llm-bom")))
                 implementation(libs.kotlin.test)
+                implementation(libs.kotlinx.coroutines)
                 implementation(libs.junit)
                 implementation(libs.skainet.io.gguf)
                 implementation(libs.skainet.io.core)

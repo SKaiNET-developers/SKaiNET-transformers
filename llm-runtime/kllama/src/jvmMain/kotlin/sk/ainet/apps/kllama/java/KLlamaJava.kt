@@ -14,8 +14,8 @@ import sk.ainet.io.JvmRandomAccessSource
 import sk.ainet.lang.memory.ExperimentalMemoryApi
 import sk.ainet.lang.tensor.data.MemorySegmentTensorDataFactory
 import sk.ainet.lang.types.FP32
-import sk.ainet.models.llama.DecoderGgufWeightLoader
-import sk.ainet.models.llama.DecoderSafeTensorsLoader
+import sk.ainet.lang.nn.dsl.decoder.DecoderGgufWeightLoader
+import sk.ainet.lang.nn.dsl.decoder.DecoderSafeTensorsLoader
 import sk.ainet.models.llama.LlamaConfigParser
 import sk.ainet.models.llama.LlamaNetworkLoader
 import java.nio.file.Path

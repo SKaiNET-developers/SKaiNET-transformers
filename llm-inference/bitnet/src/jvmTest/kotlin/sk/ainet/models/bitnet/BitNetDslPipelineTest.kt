@@ -9,8 +9,8 @@ import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.types.FP32
-import sk.ainet.models.llama.DecoderGgufWeights
-import sk.ainet.models.llama.LlamaModelMetadata
+import sk.ainet.lang.nn.dsl.decoder.DecoderGgufWeights
+import sk.ainet.lang.nn.dsl.decoder.GgufDecoderMetadata
 
 /**
  * transformers#336: the BitNet DSL pipeline end to end on synthetic weights — the module tree,
@@ -38,7 +38,7 @@ class BitNetDslPipelineTest {
     private fun ones(shape: Shape): Tensor<FP32, Float> =
         ctx.fromFloatArray(shape, FP32::class, FloatArray(shape.volume) { 1f })
 
-    private val metadata = LlamaModelMetadata(
+    private val metadata = GgufDecoderMetadata(
         architecture = "bitnet-b1.58",
         embeddingLength = dim,
         contextLength = seqLen,

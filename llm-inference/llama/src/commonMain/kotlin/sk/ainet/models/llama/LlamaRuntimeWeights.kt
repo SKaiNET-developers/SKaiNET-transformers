@@ -1,5 +1,10 @@
 package sk.ainet.models.llama
 
+import sk.ainet.lang.nn.dsl.decoder.DecoderGgufWeightLoader
+import sk.ainet.lang.nn.dsl.decoder.DecoderGgufWeights
+import sk.ainet.lang.nn.dsl.decoder.DecoderTensorNames
+import sk.ainet.lang.nn.dsl.decoder.GgufDecoderMetadata
+
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.types.DType
@@ -28,7 +33,7 @@ public data class LlamaLayerWeights<T : DType>(
 )
 
 public data class LlamaRuntimeWeights<T : DType>(
-    val metadata: LlamaModelMetadata,
+    val metadata: GgufDecoderMetadata,
     val tokenEmbedding: Tensor<T, Float>,
     val ropeFreqReal: Tensor<T, Float>?,
     val ropeFreqImag: Tensor<T, Float>?,
@@ -65,64 +70,64 @@ public object LlamaWeightMapper {
         fun Tensor<*, *>.require1D(size: Int, label: String, tensorName: String) =
             requireShape(Shape(size), label, tensorName)
 
-        val tokenEmbedding = get(LlamaTensorNames.TOKEN_EMBEDDINGS)
+        val tokenEmbedding = get(DecoderTensorNames.TOKEN_EMBEDDINGS)
         // After transpose: [vocab_size, embedding_dim] (row-major, standard for embedding lookup)
-        tokenEmbedding.require2D(metadata.vocabSize, metadata.embeddingLength, "token embedding", LlamaTensorNames.TOKEN_EMBEDDINGS)
+        tokenEmbedding.require2D(metadata.vocabSize, metadata.embeddingLength, "token embedding", DecoderTensorNames.TOKEN_EMBEDDINGS)
 
-        val outputNorm = get(LlamaTensorNames.OUTPUT_NORM)
-        outputNorm.require1D(metadata.embeddingLength, "output norm", LlamaTensorNames.OUTPUT_NORM)
+        val outputNorm = get(DecoderTensorNames.OUTPUT_NORM)
+        outputNorm.require1D(metadata.embeddingLength, "output norm", DecoderTensorNames.OUTPUT_NORM)
 
-        val outputWeight = get(LlamaTensorNames.OUTPUT_WEIGHT)
+        val outputWeight = get(DecoderTensorNames.OUTPUT_WEIGHT)
         // After transpose: [vocab_size, embedding_dim] (row-major)
-        outputWeight.require2D(metadata.vocabSize, metadata.embeddingLength, "output weight", LlamaTensorNames.OUTPUT_WEIGHT)
+        outputWeight.require2D(metadata.vocabSize, metadata.embeddingLength, "output weight", DecoderTensorNames.OUTPUT_WEIGHT)
 
-        val ropeReal = weights.tensors[LlamaTensorNames.ROPE_FREQS_REAL]?.also {
-            it.requireShape(Shape(metadata.contextLength, headSize / 2), "rope.freq_cis_real", LlamaTensorNames.ROPE_FREQS_REAL)
+        val ropeReal = weights.tensors[DecoderTensorNames.ROPE_FREQS_REAL]?.also {
+            it.requireShape(Shape(metadata.contextLength, headSize / 2), "rope.freq_cis_real", DecoderTensorNames.ROPE_FREQS_REAL)
         }
-        val ropeImag = weights.tensors[LlamaTensorNames.ROPE_FREQS_IMAG]?.also {
-            it.requireShape(Shape(metadata.contextLength, headSize / 2), "rope.freq_cis_imag", LlamaTensorNames.ROPE_FREQS_IMAG)
+        val ropeImag = weights.tensors[DecoderTensorNames.ROPE_FREQS_IMAG]?.also {
+            it.requireShape(Shape(metadata.contextLength, headSize / 2), "rope.freq_cis_imag", DecoderTensorNames.ROPE_FREQS_IMAG)
         }
 
         // For GQA: K/V projections have shape [kv_dim, dim] where kv_dim = kv_heads * head_size
         val kvDim = metadata.kvHeadCount * headSize
 
         val layers = (0 until metadata.blockCount).map { layer ->
-            val attnNorm = get(LlamaTensorNames.attnNorm(layer)).apply {
-                require1D(metadata.embeddingLength, "blk.$layer.attn_norm.weight", LlamaTensorNames.attnNorm(layer))
+            val attnNorm = get(DecoderTensorNames.attnNorm(layer)).apply {
+                require1D(metadata.embeddingLength, "blk.$layer.attn_norm.weight", DecoderTensorNames.attnNorm(layer))
             }
-            val wq = get(LlamaTensorNames.attnQ(layer)).apply {
+            val wq = get(DecoderTensorNames.attnQ(layer)).apply {
                 // After transpose: [dim, dim] (symmetric, so unchanged)
-                require2D(metadata.embeddingLength, metadata.embeddingLength, "blk.$layer.attn_q.weight", LlamaTensorNames.attnQ(layer))
+                require2D(metadata.embeddingLength, metadata.embeddingLength, "blk.$layer.attn_q.weight", DecoderTensorNames.attnQ(layer))
             }
-            val wk = get(LlamaTensorNames.attnK(layer)).apply {
+            val wk = get(DecoderTensorNames.attnK(layer)).apply {
                 // After transpose: [kv_dim, dim] (was [dim, kv_dim] in GGUF)
-                require2D(kvDim, metadata.embeddingLength, "blk.$layer.attn_k.weight", LlamaTensorNames.attnK(layer))
+                require2D(kvDim, metadata.embeddingLength, "blk.$layer.attn_k.weight", DecoderTensorNames.attnK(layer))
             }
-            val wv = get(LlamaTensorNames.attnV(layer)).apply {
+            val wv = get(DecoderTensorNames.attnV(layer)).apply {
                 // After transpose: [kv_dim, dim] (was [dim, kv_dim] in GGUF)
-                require2D(kvDim, metadata.embeddingLength, "blk.$layer.attn_v.weight", LlamaTensorNames.attnV(layer))
+                require2D(kvDim, metadata.embeddingLength, "blk.$layer.attn_v.weight", DecoderTensorNames.attnV(layer))
             }
-            val wo = get(LlamaTensorNames.attnOut(layer)).apply {
+            val wo = get(DecoderTensorNames.attnOut(layer)).apply {
                 // After transpose: [dim, dim] (symmetric, so unchanged)
-                require2D(metadata.embeddingLength, metadata.embeddingLength, "blk.$layer.attn_output.weight", LlamaTensorNames.attnOut(layer))
+                require2D(metadata.embeddingLength, metadata.embeddingLength, "blk.$layer.attn_output.weight", DecoderTensorNames.attnOut(layer))
             }
-            val ffnNorm = get(LlamaTensorNames.ffnNorm(layer)).apply {
-                require1D(metadata.embeddingLength, "blk.$layer.ffn_norm.weight", LlamaTensorNames.ffnNorm(layer))
+            val ffnNorm = get(DecoderTensorNames.ffnNorm(layer)).apply {
+                require1D(metadata.embeddingLength, "blk.$layer.ffn_norm.weight", DecoderTensorNames.ffnNorm(layer))
             }
-            val ffnGate = get(LlamaTensorNames.ffnGate(layer)).apply {
+            val ffnGate = get(DecoderTensorNames.ffnGate(layer)).apply {
                 // After transpose: [ff_dim, dim] (was [dim, ff_dim] in GGUF)
-                require2D(metadata.feedForwardLength, metadata.embeddingLength, "blk.$layer.ffn_gate.weight", LlamaTensorNames.ffnGate(layer))
+                require2D(metadata.feedForwardLength, metadata.embeddingLength, "blk.$layer.ffn_gate.weight", DecoderTensorNames.ffnGate(layer))
             }
-            val ffnDown = get(LlamaTensorNames.ffnDown(layer)).apply {
+            val ffnDown = get(DecoderTensorNames.ffnDown(layer)).apply {
                 // After transpose: [dim, ff_dim] (was [ff_dim, dim] in GGUF)
-                require2D(metadata.embeddingLength, metadata.feedForwardLength, "blk.$layer.ffn_down.weight", LlamaTensorNames.ffnDown(layer))
+                require2D(metadata.embeddingLength, metadata.feedForwardLength, "blk.$layer.ffn_down.weight", DecoderTensorNames.ffnDown(layer))
             }
-            val ffnUp = get(LlamaTensorNames.ffnUp(layer)).apply {
+            val ffnUp = get(DecoderTensorNames.ffnUp(layer)).apply {
                 // After transpose: [ff_dim, dim] (was [dim, ff_dim] in GGUF)
-                require2D(metadata.feedForwardLength, metadata.embeddingLength, "blk.$layer.ffn_up.weight", LlamaTensorNames.ffnUp(layer))
+                require2D(metadata.feedForwardLength, metadata.embeddingLength, "blk.$layer.ffn_up.weight", DecoderTensorNames.ffnUp(layer))
             }
-            val qNorm = weights.tensors[LlamaTensorNames.attnQNorm(layer)]
-            val kNorm = weights.tensors[LlamaTensorNames.attnKNorm(layer)]
+            val qNorm = weights.tensors[DecoderTensorNames.attnQNorm(layer)]
+            val kNorm = weights.tensors[DecoderTensorNames.attnKNorm(layer)]
 
             LlamaLayerWeights(
                 attnNorm = attnNorm,

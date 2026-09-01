@@ -1,12 +1,10 @@
-package sk.ainet.models.llama
+package sk.ainet.lang.nn.dsl.decoder
 
 import sk.ainet.context.ExecutionContext
 import sk.ainet.io.RandomAccessSource
-import sk.ainet.models.llama.LlamaModelMetadata
-import sk.ainet.models.llama.LlamaRuntimeWeights
-import sk.ainet.models.llama.LlamaWeightMapper
-import sk.ainet.models.llama.DecoderGgufWeights
-import sk.ainet.models.llama.LlamaTensorNames
+import sk.ainet.lang.nn.dsl.decoder.GgufDecoderMetadata
+import sk.ainet.lang.nn.dsl.decoder.DecoderGgufWeights
+import sk.ainet.lang.nn.dsl.decoder.DecoderTensorNames
 import sk.ainet.io.model.DataType
 import sk.ainet.io.safetensors.StreamingSafeTensorsReader
 import sk.ainet.io.safetensors.StreamingSafeTensorInfo
@@ -54,7 +52,7 @@ import kotlin.reflect.KClass
 public class DecoderSafeTensorsLoader<T : DType>(
     private val ctx: ExecutionContext,
     private val dtype: KClass<T>,
-    private val metadata: LlamaModelMetadata,
+    private val metadata: GgufDecoderMetadata,
     private val tiedEmbeddings: Boolean = false,
     private val dtypePolicy: DTypePolicy = DTypePolicy.Any,
 ) {
@@ -160,11 +158,11 @@ public class DecoderSafeTensorsLoader<T : DType>(
         }
 
         // Handle tied embeddings: reuse token_embd as output.weight
-        if (tiedEmbeddings && !tensors.containsKey(LlamaTensorNames.OUTPUT_WEIGHT)) {
-            val embedding = tensors[LlamaTensorNames.TOKEN_EMBEDDINGS]
+        if (tiedEmbeddings && !tensors.containsKey(DecoderTensorNames.OUTPUT_WEIGHT)) {
+            val embedding = tensors[DecoderTensorNames.TOKEN_EMBEDDINGS]
                 ?: error("tie_word_embeddings=true but token embedding not found")
-            tensors[LlamaTensorNames.OUTPUT_WEIGHT] = embedding
-            println("  Tied: ${LlamaTensorNames.OUTPUT_WEIGHT} → ${LlamaTensorNames.TOKEN_EMBEDDINGS}")
+            tensors[DecoderTensorNames.OUTPUT_WEIGHT] = embedding
+            println("  Tied: ${DecoderTensorNames.OUTPUT_WEIGHT} → ${DecoderTensorNames.TOKEN_EMBEDDINGS}")
         }
 
         return DecoderGgufWeights<T, Float>(
@@ -173,12 +171,6 @@ public class DecoderSafeTensorsLoader<T : DType>(
         )
     }
 
-    /**
-     * Load weights from SafeTensors and return structured [LlamaRuntimeWeights].
-     */
-    public fun load(randomAccessProvider: () -> RandomAccessSource): LlamaRuntimeWeights<T> {
-        return LlamaWeightMapper.map(loadToMap(randomAccessProvider))
-    }
 
     /**
      * Build the KEEP_NATIVE storage for one narrow-float tensor, choosing its byte layout.
@@ -206,7 +198,7 @@ public class DecoderSafeTensorsLoader<T : DType>(
         bytes: ByteArray,
         codec: NarrowFloatCodec,
     ): NarrowFloatTensorData {
-        val isGatheredEmbedding = canonicalName == LlamaTensorNames.TOKEN_EMBEDDINGS
+        val isGatheredEmbedding = canonicalName == DecoderTensorNames.TOKEN_EMBEDDINGS
         return if (shape.rank == 2 && !isGatheredEmbedding) {
             NarrowFloatInputMajorTensorData.fromRowMajor(shape, bytes, codec)
         } else {
@@ -358,7 +350,7 @@ public class DecoderSafeTensorsLoader<T : DType>(
 }
 
 /**
- * Maps HuggingFace tensor names to GGUF canonical names used by [LlamaTensorNames].
+ * Maps HuggingFace tensor names to GGUF canonical names used by [DecoderTensorNames].
  */
 public object HfTensorNameMapper {
 
@@ -371,23 +363,23 @@ public object HfTensorNameMapper {
     public fun toCanonical(hfName: String): String? {
         // Global tensors
         return when (hfName) {
-            "model.embed_tokens.weight" -> LlamaTensorNames.TOKEN_EMBEDDINGS
-            "model.norm.weight" -> LlamaTensorNames.OUTPUT_NORM
-            "lm_head.weight" -> LlamaTensorNames.OUTPUT_WEIGHT
+            "model.embed_tokens.weight" -> DecoderTensorNames.TOKEN_EMBEDDINGS
+            "model.norm.weight" -> DecoderTensorNames.OUTPUT_NORM
+            "lm_head.weight" -> DecoderTensorNames.OUTPUT_WEIGHT
             else -> {
                 // Layer tensors
                 val match = LAYER_PATTERN.matchEntire(hfName) ?: return null
                 val layer = match.groupValues[1].toInt()
                 when (match.groupValues[2]) {
-                    "input_layernorm.weight" -> LlamaTensorNames.attnNorm(layer)
-                    "self_attn.q_proj.weight" -> LlamaTensorNames.attnQ(layer)
-                    "self_attn.k_proj.weight" -> LlamaTensorNames.attnK(layer)
-                    "self_attn.v_proj.weight" -> LlamaTensorNames.attnV(layer)
-                    "self_attn.o_proj.weight" -> LlamaTensorNames.attnOut(layer)
-                    "post_attention_layernorm.weight" -> LlamaTensorNames.ffnNorm(layer)
-                    "mlp.gate_proj.weight" -> LlamaTensorNames.ffnGate(layer)
-                    "mlp.down_proj.weight" -> LlamaTensorNames.ffnDown(layer)
-                    "mlp.up_proj.weight" -> LlamaTensorNames.ffnUp(layer)
+                    "input_layernorm.weight" -> DecoderTensorNames.attnNorm(layer)
+                    "self_attn.q_proj.weight" -> DecoderTensorNames.attnQ(layer)
+                    "self_attn.k_proj.weight" -> DecoderTensorNames.attnK(layer)
+                    "self_attn.v_proj.weight" -> DecoderTensorNames.attnV(layer)
+                    "self_attn.o_proj.weight" -> DecoderTensorNames.attnOut(layer)
+                    "post_attention_layernorm.weight" -> DecoderTensorNames.ffnNorm(layer)
+                    "mlp.gate_proj.weight" -> DecoderTensorNames.ffnGate(layer)
+                    "mlp.down_proj.weight" -> DecoderTensorNames.ffnDown(layer)
+                    "mlp.up_proj.weight" -> DecoderTensorNames.ffnUp(layer)
                     else -> null
                 }
             }

@@ -8,74 +8,14 @@ public final class sk/ainet/models/llama/AttentionBackend$DefaultImpls {
 	public static fun batchAttention (Lsk/ainet/models/llama/AttentionBackend;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;II)Lsk/ainet/lang/tensor/Tensor;
 }
 
-public final class sk/ainet/models/llama/DecoderGgufMetadataKt {
-	public static final fun decoderMetadataFromGguf (Ljava/util/Map;Ljava/util/List;)Lsk/ainet/models/llama/LlamaModelMetadata;
-}
-
-public final class sk/ainet/models/llama/DecoderGgufWeightLoader {
-	public fun <init> (Lkotlin/jvm/functions/Function0;Ljava/util/Set;Lsk/ainet/lang/types/DTypePolicy;)V
-	public synthetic fun <init> (Lkotlin/jvm/functions/Function0;Ljava/util/Set;Lsk/ainet/lang/types/DTypePolicy;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public fun <init> (Lkotlin/jvm/functions/Function0;Ljava/util/Set;Lsk/ainet/lang/types/DTypePolicy;Lsk/ainet/lang/memory/plan/WeightForm;)V
-	public synthetic fun <init> (Lkotlin/jvm/functions/Function0;Ljava/util/Set;Lsk/ainet/lang/types/DTypePolicy;Lsk/ainet/lang/memory/plan/WeightForm;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public final fun load (Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;Lkotlin/jvm/functions/Function2;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public final fun loadStreaming (Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;Lkotlin/jvm/functions/Function2;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public final fun loadToMap (Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public final fun loadToMapStreaming (Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-}
-
-public final class sk/ainet/models/llama/DecoderGgufWeightLoaderKt {
-	public static final fun getDECODER_DEQUANTIZE_ALL ()Lsk/ainet/lang/memory/plan/WeightForm;
-}
-
-public final class sk/ainet/models/llama/DecoderGgufWeights {
-	public fun <init> (Lsk/ainet/models/llama/LlamaModelMetadata;Ljava/util/Map;)V
-	public final fun component1 ()Lsk/ainet/models/llama/LlamaModelMetadata;
-	public final fun component2 ()Ljava/util/Map;
-	public final fun copy (Lsk/ainet/models/llama/LlamaModelMetadata;Ljava/util/Map;)Lsk/ainet/models/llama/DecoderGgufWeights;
-	public static synthetic fun copy$default (Lsk/ainet/models/llama/DecoderGgufWeights;Lsk/ainet/models/llama/LlamaModelMetadata;Ljava/util/Map;ILjava/lang/Object;)Lsk/ainet/models/llama/DecoderGgufWeights;
-	public fun equals (Ljava/lang/Object;)Z
-	public final fun getMetadata ()Lsk/ainet/models/llama/LlamaModelMetadata;
-	public final fun getTensors ()Ljava/util/Map;
-	public fun hashCode ()I
-	public fun toString ()Ljava/lang/String;
-}
-
-public final class sk/ainet/models/llama/DecoderNarrowFloatSupportKt {
-	public static final fun getDECODER_NARROW_KEEP_NATIVE ()Ljava/util/Set;
-}
-
-public final class sk/ainet/models/llama/DecoderSafeTensorsLoader {
-	public fun <init> (Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;Lsk/ainet/models/llama/LlamaModelMetadata;ZLsk/ainet/lang/types/DTypePolicy;)V
-	public synthetic fun <init> (Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;Lsk/ainet/models/llama/LlamaModelMetadata;ZLsk/ainet/lang/types/DTypePolicy;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public final fun load (Lkotlin/jvm/functions/Function0;)Lsk/ainet/models/llama/LlamaRuntimeWeights;
-	public final fun loadToMap (Lkotlin/jvm/functions/Function0;)Lsk/ainet/models/llama/DecoderGgufWeights;
-}
-
-public final class sk/ainet/models/llama/HfTensorNameMapper {
-	public static final field INSTANCE Lsk/ainet/models/llama/HfTensorNameMapper;
-	public final fun toCanonical (Ljava/lang/String;)Ljava/lang/String;
+public final class sk/ainet/models/llama/DecoderSafeTensorsLoaderLlamaKt {
+	public static final fun load (Lsk/ainet/lang/nn/dsl/decoder/DecoderSafeTensorsLoader;Lkotlin/jvm/functions/Function0;)Lsk/ainet/models/llama/LlamaRuntimeWeights;
 }
 
 public final class sk/ainet/models/llama/LlamaConfigParser {
 	public static final field INSTANCE Lsk/ainet/models/llama/LlamaConfigParser;
 	public final fun isTiedEmbeddings (Ljava/lang/String;)Z
-	public final fun parse (Ljava/lang/String;)Lsk/ainet/models/llama/LlamaModelMetadata;
-}
-
-public final class sk/ainet/models/llama/LlamaGgufTensorNames : sk/ainet/io/gguf/TensorNameMapper {
-	public static final field INSTANCE Lsk/ainet/models/llama/LlamaGgufTensorNames;
-	public fun layerAttnK (I)Ljava/lang/String;
-	public fun layerAttnNorm (I)Ljava/lang/String;
-	public fun layerAttnO (I)Ljava/lang/String;
-	public fun layerAttnQ (I)Ljava/lang/String;
-	public fun layerAttnV (I)Ljava/lang/String;
-	public fun layerFfnDown (I)Ljava/lang/String;
-	public fun layerFfnGate (I)Ljava/lang/String;
-	public fun layerFfnNorm (I)Ljava/lang/String;
-	public fun layerFfnUp (I)Ljava/lang/String;
-	public fun outputNorm ()Ljava/lang/String;
-	public fun outputWeight ()Ljava/lang/String;
-	public fun tokenEmbedding ()Ljava/lang/String;
+	public final fun parse (Ljava/lang/String;)Lsk/ainet/lang/nn/dsl/decoder/GgufDecoderMetadata;
 }
 
 public final class sk/ainet/models/llama/LlamaLayerWeights {
@@ -110,42 +50,6 @@ public final class sk/ainet/models/llama/LlamaLayerWeights {
 	public fun toString ()Ljava/lang/String;
 }
 
-public final class sk/ainet/models/llama/LlamaModelMetadata : sk/ainet/lang/nn/dsl/decoder/DecoderModelMetadata {
-	public fun <init> (Ljava/lang/String;IIIIIILjava/lang/Integer;IFFII)V
-	public synthetic fun <init> (Ljava/lang/String;IIIIIILjava/lang/Integer;IFFIIILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public final fun component1 ()Ljava/lang/String;
-	public final fun component10 ()F
-	public final fun component11 ()F
-	public final fun component12 ()I
-	public final fun component13 ()I
-	public final fun component2 ()I
-	public final fun component3 ()I
-	public final fun component4 ()I
-	public final fun component5 ()I
-	public final fun component6 ()I
-	public final fun component7 ()I
-	public final fun component8 ()Ljava/lang/Integer;
-	public final fun component9 ()I
-	public final fun copy (Ljava/lang/String;IIIIIILjava/lang/Integer;IFFII)Lsk/ainet/models/llama/LlamaModelMetadata;
-	public static synthetic fun copy$default (Lsk/ainet/models/llama/LlamaModelMetadata;Ljava/lang/String;IIIIIILjava/lang/Integer;IFFIIILjava/lang/Object;)Lsk/ainet/models/llama/LlamaModelMetadata;
-	public fun equals (Ljava/lang/Object;)Z
-	public final fun getArchitecture ()Ljava/lang/String;
-	public fun getBlockCount ()I
-	public fun getBosTokenId ()I
-	public fun getContextLength ()I
-	public fun getEmbeddingLength ()I
-	public fun getEosTokenId ()I
-	public fun getFeedForwardLength ()I
-	public fun getHeadCount ()I
-	public fun getKvHeadCount ()I
-	public fun getRmsNormEps ()F
-	public fun getRopeDimensionCount ()Ljava/lang/Integer;
-	public fun getRopeFreqBase ()F
-	public fun getVocabSize ()I
-	public fun hashCode ()I
-	public fun toString ()Ljava/lang/String;
-}
-
 public final class sk/ainet/models/llama/LlamaNetworkLoader {
 	public static final field Companion Lsk/ainet/models/llama/LlamaNetworkLoader$Companion;
 	public fun <init> (Lsk/ainet/models/llama/LlamaNetworkLoader$WeightsProvider;Z)V
@@ -161,8 +65,8 @@ public final class sk/ainet/models/llama/LlamaNetworkLoader$Companion {
 	public static synthetic fun fromGguf$default (Lsk/ainet/models/llama/LlamaNetworkLoader$Companion;Lkotlin/jvm/functions/Function0;ZILjava/lang/Object;)Lsk/ainet/models/llama/LlamaNetworkLoader;
 	public final fun fromGgufRandomAccess (Lkotlin/jvm/functions/Function0;ZLsk/ainet/lang/memory/plan/WeightForm;)Lsk/ainet/models/llama/LlamaNetworkLoader;
 	public static synthetic fun fromGgufRandomAccess$default (Lsk/ainet/models/llama/LlamaNetworkLoader$Companion;Lkotlin/jvm/functions/Function0;ZLsk/ainet/lang/memory/plan/WeightForm;ILjava/lang/Object;)Lsk/ainet/models/llama/LlamaNetworkLoader;
-	public final fun fromSafeTensors (Lsk/ainet/models/llama/LlamaModelMetadata;Lkotlin/jvm/functions/Function0;ZZ)Lsk/ainet/models/llama/LlamaNetworkLoader;
-	public static synthetic fun fromSafeTensors$default (Lsk/ainet/models/llama/LlamaNetworkLoader$Companion;Lsk/ainet/models/llama/LlamaModelMetadata;Lkotlin/jvm/functions/Function0;ZZILjava/lang/Object;)Lsk/ainet/models/llama/LlamaNetworkLoader;
+	public final fun fromSafeTensors (Lsk/ainet/lang/nn/dsl/decoder/GgufDecoderMetadata;Lkotlin/jvm/functions/Function0;ZZ)Lsk/ainet/models/llama/LlamaNetworkLoader;
+	public static synthetic fun fromSafeTensors$default (Lsk/ainet/models/llama/LlamaNetworkLoader$Companion;Lsk/ainet/lang/nn/dsl/decoder/GgufDecoderMetadata;Lkotlin/jvm/functions/Function0;ZZILjava/lang/Object;)Lsk/ainet/models/llama/LlamaNetworkLoader;
 }
 
 public abstract interface class sk/ainet/models/llama/LlamaNetworkLoader$WeightsProvider {
@@ -193,25 +97,25 @@ public final class sk/ainet/models/llama/LlamaNetworkLoader$WeightsProvider$Gguf
 }
 
 public final class sk/ainet/models/llama/LlamaNetworkLoader$WeightsProvider$Preloaded : sk/ainet/models/llama/LlamaNetworkLoader$WeightsProvider {
-	public fun <init> (Lsk/ainet/models/llama/DecoderGgufWeights;)V
-	public final fun component1 ()Lsk/ainet/models/llama/DecoderGgufWeights;
-	public final fun copy (Lsk/ainet/models/llama/DecoderGgufWeights;)Lsk/ainet/models/llama/LlamaNetworkLoader$WeightsProvider$Preloaded;
-	public static synthetic fun copy$default (Lsk/ainet/models/llama/LlamaNetworkLoader$WeightsProvider$Preloaded;Lsk/ainet/models/llama/DecoderGgufWeights;ILjava/lang/Object;)Lsk/ainet/models/llama/LlamaNetworkLoader$WeightsProvider$Preloaded;
+	public fun <init> (Lsk/ainet/lang/nn/dsl/decoder/DecoderGgufWeights;)V
+	public final fun component1 ()Lsk/ainet/lang/nn/dsl/decoder/DecoderGgufWeights;
+	public final fun copy (Lsk/ainet/lang/nn/dsl/decoder/DecoderGgufWeights;)Lsk/ainet/models/llama/LlamaNetworkLoader$WeightsProvider$Preloaded;
+	public static synthetic fun copy$default (Lsk/ainet/models/llama/LlamaNetworkLoader$WeightsProvider$Preloaded;Lsk/ainet/lang/nn/dsl/decoder/DecoderGgufWeights;ILjava/lang/Object;)Lsk/ainet/models/llama/LlamaNetworkLoader$WeightsProvider$Preloaded;
 	public fun equals (Ljava/lang/Object;)Z
-	public final fun getWeights ()Lsk/ainet/models/llama/DecoderGgufWeights;
+	public final fun getWeights ()Lsk/ainet/lang/nn/dsl/decoder/DecoderGgufWeights;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
 }
 
 public final class sk/ainet/models/llama/LlamaNetworkLoader$WeightsProvider$SafeTensors : sk/ainet/models/llama/LlamaNetworkLoader$WeightsProvider {
-	public fun <init> (Lkotlin/jvm/functions/Function0;Lsk/ainet/models/llama/LlamaModelMetadata;Z)V
+	public fun <init> (Lkotlin/jvm/functions/Function0;Lsk/ainet/lang/nn/dsl/decoder/GgufDecoderMetadata;Z)V
 	public final fun component1 ()Lkotlin/jvm/functions/Function0;
-	public final fun component2 ()Lsk/ainet/models/llama/LlamaModelMetadata;
+	public final fun component2 ()Lsk/ainet/lang/nn/dsl/decoder/GgufDecoderMetadata;
 	public final fun component3 ()Z
-	public final fun copy (Lkotlin/jvm/functions/Function0;Lsk/ainet/models/llama/LlamaModelMetadata;Z)Lsk/ainet/models/llama/LlamaNetworkLoader$WeightsProvider$SafeTensors;
-	public static synthetic fun copy$default (Lsk/ainet/models/llama/LlamaNetworkLoader$WeightsProvider$SafeTensors;Lkotlin/jvm/functions/Function0;Lsk/ainet/models/llama/LlamaModelMetadata;ZILjava/lang/Object;)Lsk/ainet/models/llama/LlamaNetworkLoader$WeightsProvider$SafeTensors;
+	public final fun copy (Lkotlin/jvm/functions/Function0;Lsk/ainet/lang/nn/dsl/decoder/GgufDecoderMetadata;Z)Lsk/ainet/models/llama/LlamaNetworkLoader$WeightsProvider$SafeTensors;
+	public static synthetic fun copy$default (Lsk/ainet/models/llama/LlamaNetworkLoader$WeightsProvider$SafeTensors;Lkotlin/jvm/functions/Function0;Lsk/ainet/lang/nn/dsl/decoder/GgufDecoderMetadata;ZILjava/lang/Object;)Lsk/ainet/models/llama/LlamaNetworkLoader$WeightsProvider$SafeTensors;
 	public fun equals (Ljava/lang/Object;)Z
-	public final fun getMetadata ()Lsk/ainet/models/llama/LlamaModelMetadata;
+	public final fun getMetadata ()Lsk/ainet/lang/nn/dsl/decoder/GgufDecoderMetadata;
 	public final fun getRandomAccessProvider ()Lkotlin/jvm/functions/Function0;
 	public final fun getTiedEmbeddings ()Z
 	public fun hashCode ()I
@@ -240,19 +144,19 @@ public final class sk/ainet/models/llama/LlamaRuntimeInterface$DefaultImpls {
 }
 
 public final class sk/ainet/models/llama/LlamaRuntimeWeights {
-	public fun <init> (Lsk/ainet/models/llama/LlamaModelMetadata;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/List;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;)V
-	public final fun component1 ()Lsk/ainet/models/llama/LlamaModelMetadata;
+	public fun <init> (Lsk/ainet/lang/nn/dsl/decoder/GgufDecoderMetadata;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/List;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;)V
+	public final fun component1 ()Lsk/ainet/lang/nn/dsl/decoder/GgufDecoderMetadata;
 	public final fun component2 ()Lsk/ainet/lang/tensor/Tensor;
 	public final fun component3 ()Lsk/ainet/lang/tensor/Tensor;
 	public final fun component4 ()Lsk/ainet/lang/tensor/Tensor;
 	public final fun component5 ()Ljava/util/List;
 	public final fun component6 ()Lsk/ainet/lang/tensor/Tensor;
 	public final fun component7 ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun copy (Lsk/ainet/models/llama/LlamaModelMetadata;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/List;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;)Lsk/ainet/models/llama/LlamaRuntimeWeights;
-	public static synthetic fun copy$default (Lsk/ainet/models/llama/LlamaRuntimeWeights;Lsk/ainet/models/llama/LlamaModelMetadata;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/List;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;ILjava/lang/Object;)Lsk/ainet/models/llama/LlamaRuntimeWeights;
+	public final fun copy (Lsk/ainet/lang/nn/dsl/decoder/GgufDecoderMetadata;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/List;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;)Lsk/ainet/models/llama/LlamaRuntimeWeights;
+	public static synthetic fun copy$default (Lsk/ainet/models/llama/LlamaRuntimeWeights;Lsk/ainet/lang/nn/dsl/decoder/GgufDecoderMetadata;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/List;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;ILjava/lang/Object;)Lsk/ainet/models/llama/LlamaRuntimeWeights;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getLayers ()Ljava/util/List;
-	public final fun getMetadata ()Lsk/ainet/models/llama/LlamaModelMetadata;
+	public final fun getMetadata ()Lsk/ainet/lang/nn/dsl/decoder/GgufDecoderMetadata;
 	public final fun getOutputNorm ()Lsk/ainet/lang/tensor/Tensor;
 	public final fun getOutputWeight ()Lsk/ainet/lang/tensor/Tensor;
 	public final fun getRopeFreqImag ()Lsk/ainet/lang/tensor/Tensor;
@@ -270,28 +174,8 @@ public final class sk/ainet/models/llama/LlamaRuntimeWeightsKt {
 	public static synthetic fun loadLlamaRuntimeWeightsStreaming$default (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lkotlin/reflect/KClass;Ljava/util/Set;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 }
 
-public final class sk/ainet/models/llama/LlamaTensorNames {
-	public static final field INSTANCE Lsk/ainet/models/llama/LlamaTensorNames;
-	public static final field OUTPUT_NORM Ljava/lang/String;
-	public static final field OUTPUT_WEIGHT Ljava/lang/String;
-	public static final field ROPE_FREQS_IMAG Ljava/lang/String;
-	public static final field ROPE_FREQS_REAL Ljava/lang/String;
-	public static final field TOKEN_EMBEDDINGS Ljava/lang/String;
-	public final fun attnK (I)Ljava/lang/String;
-	public final fun attnKNorm (I)Ljava/lang/String;
-	public final fun attnNorm (I)Ljava/lang/String;
-	public final fun attnOut (I)Ljava/lang/String;
-	public final fun attnQ (I)Ljava/lang/String;
-	public final fun attnQNorm (I)Ljava/lang/String;
-	public final fun attnV (I)Ljava/lang/String;
-	public final fun ffnDown (I)Ljava/lang/String;
-	public final fun ffnGate (I)Ljava/lang/String;
-	public final fun ffnNorm (I)Ljava/lang/String;
-	public final fun ffnUp (I)Ljava/lang/String;
-}
-
 public final class sk/ainet/models/llama/LlamaWeightMapper {
 	public static final field INSTANCE Lsk/ainet/models/llama/LlamaWeightMapper;
-	public final fun map (Lsk/ainet/models/llama/DecoderGgufWeights;)Lsk/ainet/models/llama/LlamaRuntimeWeights;
+	public final fun map (Lsk/ainet/lang/nn/dsl/decoder/DecoderGgufWeights;)Lsk/ainet/models/llama/LlamaRuntimeWeights;
 }
 

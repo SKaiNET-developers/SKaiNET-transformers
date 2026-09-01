@@ -44,6 +44,7 @@ kotlin {
                 implementation(project.dependencies.platform(project(":llm-bom")))
                 // Architecture: LlamaNetworkLoader / DecoderGgufWeightLoader.
                 implementation(project(":llm-inference:llama"))
+                implementation(project(":llm-core"))
                 // MultiHeadAttention (KV-cache strip before tracing — see SmolLm2ExportHarness.export).
                 implementation(project(":transformer-core"))
                 implementation(libs.skainet.lang.core)

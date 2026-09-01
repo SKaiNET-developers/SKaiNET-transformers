@@ -1,6 +1,6 @@
 package sk.ainet.models.voxtral
 
-import sk.ainet.models.llama.LlamaTensorNames
+import sk.ainet.lang.nn.dsl.decoder.DecoderTensorNames
 
 /**
  * Canonical tensor names for the Voxtral TTS model.
@@ -10,26 +10,26 @@ import sk.ainet.models.llama.LlamaTensorNames
  * 2. **Acoustic model** — prefixed with `acoustic.` to avoid collisions
  * 3. **Codec** — prefixed with `codec.` (convolutional + transformer layers)
  *
- * The backbone tensor names are identical to [LlamaTensorNames] since Voxtral's
+ * The backbone tensor names are identical to [DecoderTensorNames] since Voxtral's
  * text backbone is a Ministral-3B (LLaMA architecture).
  */
 public object VoxtralTensorNames {
 
-    // ========== Backbone (delegates to LlamaTensorNames) ==========
+    // ========== Backbone (delegates to DecoderTensorNames) ==========
 
     public const val TOKEN_EMBEDDINGS: String = "token_embd.weight"
     public const val OUTPUT_NORM: String = "output_norm.weight"
     public const val OUTPUT_WEIGHT: String = "output.weight"
 
-    public fun attnNorm(layer: Int): String = LlamaTensorNames.attnNorm(layer)
-    public fun attnQ(layer: Int): String = LlamaTensorNames.attnQ(layer)
-    public fun attnK(layer: Int): String = LlamaTensorNames.attnK(layer)
-    public fun attnV(layer: Int): String = LlamaTensorNames.attnV(layer)
-    public fun attnOut(layer: Int): String = LlamaTensorNames.attnOut(layer)
-    public fun ffnNorm(layer: Int): String = LlamaTensorNames.ffnNorm(layer)
-    public fun ffnGate(layer: Int): String = LlamaTensorNames.ffnGate(layer)
-    public fun ffnDown(layer: Int): String = LlamaTensorNames.ffnDown(layer)
-    public fun ffnUp(layer: Int): String = LlamaTensorNames.ffnUp(layer)
+    public fun attnNorm(layer: Int): String = DecoderTensorNames.attnNorm(layer)
+    public fun attnQ(layer: Int): String = DecoderTensorNames.attnQ(layer)
+    public fun attnK(layer: Int): String = DecoderTensorNames.attnK(layer)
+    public fun attnV(layer: Int): String = DecoderTensorNames.attnV(layer)
+    public fun attnOut(layer: Int): String = DecoderTensorNames.attnOut(layer)
+    public fun ffnNorm(layer: Int): String = DecoderTensorNames.ffnNorm(layer)
+    public fun ffnGate(layer: Int): String = DecoderTensorNames.ffnGate(layer)
+    public fun ffnDown(layer: Int): String = DecoderTensorNames.ffnDown(layer)
+    public fun ffnUp(layer: Int): String = DecoderTensorNames.ffnUp(layer)
 
     // ========== Acoustic Model ==========
 
