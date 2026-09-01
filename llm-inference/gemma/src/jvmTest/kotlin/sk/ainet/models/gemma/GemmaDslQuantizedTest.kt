@@ -35,6 +35,21 @@ import sk.ainet.lang.types.FP32
  *   themselves, not the quantization step.
  */
 class GemmaDslQuantizedTest {
+    // These are DSL-plumbing parity tests: both legs must compute the SAME math, which was
+    // true while dispatch served the decoding reference kernel. Since the 0.52.0 self-healing
+    // dispatch, the first matmul auto-discovers the platform's native quant kernels — on x86
+    // the ggml-faithful int8 Q4_K path (SKaiNET#944) — and the "exact same math" premise
+    // breaks by more than the tight tolerance. Pin the reference kernels explicitly: a
+    // non-empty dispatch table suppresses auto-install (the engine's documented contract).
+    @kotlin.test.BeforeTest
+    fun pinReferenceKernels() {
+        sk.ainet.backend.api.kernel.KernelDispatch.clearForTesting()
+        sk.ainet.backend.api.kernel.KernelPacks.installReference()
+    }
+
+    @kotlin.test.AfterTest
+    fun unpinKernels() = sk.ainet.backend.api.kernel.KernelDispatch.clearForTesting()
+
 
     // Default DenseTensorDataFactory → input/activation tensors land in
     // FloatArray-backed storage. Q8 weight tensors are explicitly MemSeg via
