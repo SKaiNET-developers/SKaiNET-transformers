@@ -40,6 +40,29 @@ public fun <T : DType> InferenceRuntime<T>.generateUntilStop(
     prefillStrategy = prefillStrategy
 )
 
+/** The multi-stop-token sibling — see [sk.ainet.apps.llm.generateUntilStop]'s `Set` overload. */
+public fun <T : DType> InferenceRuntime<T>.generateUntilStop(
+    prompt: IntArray,
+    maxTokens: Int,
+    eosTokenIds: Set<Int>,
+    temperature: Float = 0.8f,
+    random: Random = Random.Default,
+    onToken: ((Int) -> Unit)? = null,
+    decode: ((Int) -> String)? = null,
+    onPrefill: ((Int, Int) -> Unit)? = null,
+    prefillStrategy: PrefillStrategy = PrefillStrategy.Autoregressive
+): GenerateResult = coreGenerateUntilStop(
+    prompt = prompt,
+    maxTokens = maxTokens,
+    eosTokenIds = eosTokenIds,
+    temperature = temperature,
+    random = random,
+    onToken = onToken,
+    decode = decode,
+    onPrefill = onPrefill,
+    prefillStrategy = prefillStrategy
+)
+
 /**
  * Backward-compatible re-export of tensor-based sampling.
  * The canonical implementation is now [sk.ainet.apps.llm.sampleFromLogits].

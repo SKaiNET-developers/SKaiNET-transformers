@@ -53,4 +53,11 @@ public interface ChatTemplate {
      * thinking mode return [text] unchanged.
      */
     public fun stripThinking(text: String): String = text
+
+    /**
+     * Token strings (beyond the tokenizer-declared EOS) that end an assistant turn — e.g.
+     * BitNet 2B4T's `<|eot_id|>`, whose GGUF declares `<|end_of_text|>` as EOS instead. The
+     * chat loops encode these and add them to the stop set. Empty by default.
+     */
+    public fun stopTokenStrings(): List<String> = emptyList()
 }

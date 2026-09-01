@@ -65,7 +65,7 @@ public enum class ModelFamily(
     QWEN("qwen", "Qwen", true, "qwen"),
     GEMMA("gemma", "Gemma", true, "gemma"),
     APERTUS("apertus", "Apertus", true, "apertus"),
-    BITNET("bitnet", "BitNet b1.58", false, null),
+    BITNET("bitnet", "BitNet b1.58", false, "bitnet"),
     BERT("bert", "BERT", false, null),
     VOXTRAL("voxtral", "Voxtral TTS", false, null),
     UNKNOWN("unknown", "Unknown", false, null);
