@@ -46,7 +46,7 @@ Use the version shown in this README as the source of truth for first-run snippe
 > The list below describes the project's **intended** scope. Maturity varies
 > widely per item and many paths are unverified — see the project-status note above.
 
-- **Multi-model support (in progress).** Architecture code exists for Llama / Mistral, Qwen 2 / 3, Gemma 2 / 3 / 3n, Apertus (Swiss AI) and BERT. Llama is the most exercised path; the other families are at varying, often early, stages and are not all verified end-to-end.
+- **Multi-model support (in progress).** Architecture code exists for Llama / Mistral, Qwen 2 / 3, Gemma 2 / 3 / 3n, Apertus (Swiss AI), BitNet b1.58 and BERT. Llama is the most exercised path; the other families are at varying, often early, stages and are not all verified end-to-end.
 - **Native CPU performance.** Auto-discovers SKaiNET's priority-100 FFM (Foreign Function & Memory) native kernel provider when present (4–6× faster Q4_K matmul, 1.5–1.8× faster FP32 SGEMM vs the priority-50 Panama Vector path; Linux x86_64 / macOS ARM64 / Windows x86_64 in the published JAR — no manual setup). On **Android**, the runtime facades ship the engine's JNI NEON backend the same way — native kernels out of the box, ~6.4× measured on SmolLM2-135M Q8_0 (see the [supported-targets matrix](#supported-targets)).
 - **Tool calling (experimental).** Family-specific chat templates and tool-call parsers (Llama 3, Qwen, Gemma, Apertus, ChatML/Hermes) and a Java surface (`KLlamaJava`, `JavaTools.definition`, `JavaAgentLoop`) exist, but tool calling is **not reliable yet** — it may fail to trigger or parse even when plain generation works.
 - **GGUF + SafeTensors loading.** Streaming reader for any model size; `NATIVE_OPTIMIZED` quant policy keeps weights in their packed SIMD-friendly form.
@@ -90,6 +90,7 @@ Honest status — see the project-status note at the top of this README.
 | **Qwen 2 / 3** | DSL + loaders present; runs through the shared decoder path. Early; Qwen3 RoPE / QK-norm fixes landed in 0.23.2. |
 | **Gemma 2 / 3 / 3n** | DSL + loaders present (Gemma 4 via the SafeTensors path); has the most test coverage, but not verified end-to-end. |
 | **Apertus** | DSL + loaders present; declared end-to-end in 0.23.1, still early. |
+| **BitNet b1.58** | Packed I2_S path end-to-end on the eager JVM path: 2-bit ternary weights (0.25 B/weight), fused `BITNET_PLANES` lm_head, two-stage candidate decode. Greedy decode verified **token-for-token against bitnet.cpp and the HF BF16 reference** on 2B4T; model-gated parity + smoke tests. See `docs/modules/ROOT/pages/explanation/bitnet.adoc`. |
 | **BERT** | Sentence embeddings on the DSL path (`bertNetwork()` + `BertEncoderRuntime`, eager or traced/fused) — verified against sentence-transformers on MongoDB/mdbr-leaf. One-call `BertEmbeddingModel.fromHuggingFace(...)` with built-in Hub download; MEAN or CLS pooling and retrieval prefixes cover LEAF, BGE and E5-style models. No text generation, no tool calling. |
 | **T5 / GTR** | Encoder-decoder runtime (hand-coded, batch 1, no KV cache) + `GtrEmbedder`, powering the **vec2text** embedding-inversion pipeline, with greedy and beam-search decoding — verified with a real-weights gtr-base round-trip test. |
 | **Voxtral** | TTS / voice; architecture code only — no runtime facade or CLI yet. |
