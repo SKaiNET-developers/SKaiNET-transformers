@@ -11,6 +11,7 @@ import sk.ainet.apps.llm.tokenizer.TokenizerFactory
 import sk.ainet.models.llama.LlamaRuntime
 import sk.ainet.apps.kllama.CpuAttentionBackend
 import sk.ainet.apps.kllama.Llama2DotCWeightLoader
+import sk.ainet.models.llama.LlamaNetworkLoader
 import sk.ainet.models.qwen.QwenNetworkLoader
 import sk.ainet.apps.kllama.TokenizerUtils
 import sk.ainet.apps.llm.backend.BackendRegistry
@@ -387,31 +388,35 @@ fun main(args: Array<String>) {
         var eosTokenId: Int = 2
         var binVocabSize: Int = 0
 
-        if (format == ModelFormat.GGUF && isQwen) {
-            // --- Qwen: DSL path. QwenNetworkLoader builds a `qwenNetwork()`
-            // module (RoPE NEOX, QK-norm, metadata-driven eps) populated
-            // from the GGUF; the engine loader keeps quantized tensors in
-            // their stored block encoding as packed tensor data for the
-            // SIMD quant matmul kernels. OptimizedLLMRuntime DIRECT mode
-            // runs the module tree forward.
+        if (format == ModelFormat.GGUF) {
+            // --- GGUF: the DSL path for every family (#354). The engine loader
+            // keeps quantized tensors in their stored block encoding as packed
+            // tensor data for the SIMD quant matmul kernels; the family network
+            // builder is picked from the metadata (Qwen -> qwenNetwork with RoPE
+            // NEOX + QK-norm, else llamaNetwork). OptimizedLLMRuntime DIRECT
+            // mode runs the module tree forward — the same chain skainet-cli
+            // ships, so the smoke rows certify the shipping path.
             //
-            // Bit-for-bit parity with the legacy LlamaRuntime path on
-            // identical weights is pinned by QwenDslLegacyParityTest
-            // (#120, closes #114).
-            val qwenArchitectures = setOf("qwen2", "qwen3", "qwen35")
+            // Qwen DSL-vs-legacy parity is pinned by QwenDslLegacyParityTest
+            // (#120); Llama greedy parity vs llama.cpp by
+            // LlamaGoldenTokenParityTest (#373).
             val loader = DecoderGgufWeightLoader(
                 randomAccessProvider = { JvmRandomAccessSource.open(modelPath.toString()) },
-                acceptedArchitectures = qwenArchitectures,
+                acceptedArchitectures = LLAMA_COMPATIBLE_ARCHITECTURES,
             )
-            println("Loading GGUF model from $modelPath (Qwen, DSL streaming mode, keep-packed)...")
+            println("Loading GGUF model from $modelPath (${if (isQwen) "Qwen" else "Llama"}, DSL streaming mode, keep-packed)...")
             val convertedWeights = loader.loadToMapStreaming<FP32, Float>(ctx)
 
             if (cliArgs.contextLength != null) {
                 println("Context length capped to ${cliArgs.contextLength} (model default: ${convertedWeights.metadata.contextLength})")
             }
-            val qwenModel = QwenNetworkLoader.fromWeights(convertedWeights)
+            val dslModel = if (isQwen) {
+                QwenNetworkLoader.fromWeights(convertedWeights)
+            } else {
+                LlamaNetworkLoader.fromWeights(convertedWeights)
+            }
             runtime = OptimizedLLMRuntime(
-                model = qwenModel,
+                model = dslModel,
                 ctx = ctx,
                 mode = OptimizedLLMMode.DIRECT,
                 dtype = FP32::class,
@@ -419,9 +424,11 @@ fun main(args: Array<String>) {
             )
             eosTokenId = convertedWeights.metadata.eosTokenId
         } else {
-            // --- Llama / SafeTensors / BIN: legacy LlamaRuntime path
-            // (dense FP32; the eager kernels assume dense data).
-            // Qwen GGUF stays on the DSL branch above.
+            // --- SafeTensors / BIN: legacy LlamaRuntime path (dense FP32; the
+            // eager kernels assume dense data). These formats have no DSL
+            // loader yet — the GGUF leg of the deprecated runtime is retired
+            // above (#354); this remainder goes when SafeTensors/BIN grow a
+            // DSL route.
             val runtimeWeights = when (format) {
                 ModelFormat.GGUF -> {
                     val ingestion = LlamaIngestion<FP32>(
