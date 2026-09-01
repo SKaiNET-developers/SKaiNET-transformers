@@ -14,9 +14,9 @@ import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.tensor.data.Q8MemorySegmentTensorData
 import sk.ainet.lang.tensor.data.TensorData
 import sk.ainet.lang.types.FP32
-import sk.ainet.models.llama.DecoderGgufWeights
-import sk.ainet.models.llama.LlamaModelMetadata
-import sk.ainet.models.llama.LlamaTensorNames
+import sk.ainet.lang.nn.dsl.decoder.DecoderGgufWeights
+import sk.ainet.lang.nn.dsl.decoder.GgufDecoderMetadata
+import sk.ainet.lang.nn.dsl.decoder.DecoderTensorNames
 
 /**
  * Empirical probe: can the DSL Qwen path (`qwenNetwork()` +
@@ -48,7 +48,7 @@ class QwenDslQuantizedTest {
     private val vocabSize = 64
     private val seqLen = 16
 
-    private val metadata = LlamaModelMetadata(
+    private val metadata = GgufDecoderMetadata(
         architecture = "qwen3",
         embeddingLength = dim,
         contextLength = seqLen,
@@ -115,40 +115,40 @@ class QwenDslQuantizedTest {
         val down = FloatArray(dim * ffnDim) { (((it * 7) % 5) - 2).toFloat() }
 
         val fp32Map = linkedMapOf<String, Tensor<FP32, Float>>(
-            LlamaTensorNames.TOKEN_EMBEDDINGS to fp32Tensor(Shape(vocabSize, dim), tokenEmb),
-            LlamaTensorNames.OUTPUT_NORM to fp32Tensor(Shape(dim), ones),
-            LlamaTensorNames.OUTPUT_WEIGHT to fp32Tensor(Shape(vocabSize, dim), outputW),
-            LlamaTensorNames.attnNorm(0) to fp32Tensor(Shape(dim), ones),
-            LlamaTensorNames.attnQ(0) to fp32Tensor(Shape(nHeads * headDim, dim), q),
-            LlamaTensorNames.attnK(0) to fp32Tensor(Shape(kvHeads * headDim, dim), k),
-            LlamaTensorNames.attnV(0) to fp32Tensor(Shape(kvHeads * headDim, dim), v),
-            LlamaTensorNames.attnOut(0) to fp32Tensor(Shape(dim, nHeads * headDim), o),
+            DecoderTensorNames.TOKEN_EMBEDDINGS to fp32Tensor(Shape(vocabSize, dim), tokenEmb),
+            DecoderTensorNames.OUTPUT_NORM to fp32Tensor(Shape(dim), ones),
+            DecoderTensorNames.OUTPUT_WEIGHT to fp32Tensor(Shape(vocabSize, dim), outputW),
+            DecoderTensorNames.attnNorm(0) to fp32Tensor(Shape(dim), ones),
+            DecoderTensorNames.attnQ(0) to fp32Tensor(Shape(nHeads * headDim, dim), q),
+            DecoderTensorNames.attnK(0) to fp32Tensor(Shape(kvHeads * headDim, dim), k),
+            DecoderTensorNames.attnV(0) to fp32Tensor(Shape(kvHeads * headDim, dim), v),
+            DecoderTensorNames.attnOut(0) to fp32Tensor(Shape(dim, nHeads * headDim), o),
             // QK-norm scales — staying FP32 (per-head RMSNorm, not a matmul target).
             // Triggers the loader's auto-detect into a qkNorm=true network.
-            LlamaTensorNames.attnQNorm(0) to fp32Tensor(Shape(headDim), onesHead),
-            LlamaTensorNames.attnKNorm(0) to fp32Tensor(Shape(headDim), onesHead),
-            LlamaTensorNames.ffnNorm(0) to fp32Tensor(Shape(dim), ones),
-            LlamaTensorNames.ffnGate(0) to fp32Tensor(Shape(ffnDim, dim), gate),
-            LlamaTensorNames.ffnUp(0) to fp32Tensor(Shape(ffnDim, dim), up),
-            LlamaTensorNames.ffnDown(0) to fp32Tensor(Shape(dim, ffnDim), down),
+            DecoderTensorNames.attnQNorm(0) to fp32Tensor(Shape(headDim), onesHead),
+            DecoderTensorNames.attnKNorm(0) to fp32Tensor(Shape(headDim), onesHead),
+            DecoderTensorNames.ffnNorm(0) to fp32Tensor(Shape(dim), ones),
+            DecoderTensorNames.ffnGate(0) to fp32Tensor(Shape(ffnDim, dim), gate),
+            DecoderTensorNames.ffnUp(0) to fp32Tensor(Shape(ffnDim, dim), up),
+            DecoderTensorNames.ffnDown(0) to fp32Tensor(Shape(dim, ffnDim), down),
         )
         val fp32 = DecoderGgufWeights(metadata, fp32Map)
 
         val q8Map = linkedMapOf<String, Tensor<FP32, Float>>(
-            LlamaTensorNames.TOKEN_EMBEDDINGS to fp32Tensor(Shape(vocabSize, dim), tokenEmb),
-            LlamaTensorNames.OUTPUT_NORM to fp32Tensor(Shape(dim), ones),
-            LlamaTensorNames.OUTPUT_WEIGHT to fp32Tensor(Shape(vocabSize, dim), outputW),
-            LlamaTensorNames.attnNorm(0) to fp32Tensor(Shape(dim), ones),
-            LlamaTensorNames.attnQ(0) to q8Tensor(nHeads * headDim, dim, q, arena),
-            LlamaTensorNames.attnK(0) to q8Tensor(kvHeads * headDim, dim, k, arena),
-            LlamaTensorNames.attnV(0) to q8Tensor(kvHeads * headDim, dim, v, arena),
-            LlamaTensorNames.attnOut(0) to q8Tensor(dim, nHeads * headDim, o, arena),
-            LlamaTensorNames.attnQNorm(0) to fp32Tensor(Shape(headDim), onesHead),
-            LlamaTensorNames.attnKNorm(0) to fp32Tensor(Shape(headDim), onesHead),
-            LlamaTensorNames.ffnNorm(0) to fp32Tensor(Shape(dim), ones),
-            LlamaTensorNames.ffnGate(0) to q8Tensor(ffnDim, dim, gate, arena),
-            LlamaTensorNames.ffnUp(0) to q8Tensor(ffnDim, dim, up, arena),
-            LlamaTensorNames.ffnDown(0) to q8Tensor(dim, ffnDim, down, arena),
+            DecoderTensorNames.TOKEN_EMBEDDINGS to fp32Tensor(Shape(vocabSize, dim), tokenEmb),
+            DecoderTensorNames.OUTPUT_NORM to fp32Tensor(Shape(dim), ones),
+            DecoderTensorNames.OUTPUT_WEIGHT to fp32Tensor(Shape(vocabSize, dim), outputW),
+            DecoderTensorNames.attnNorm(0) to fp32Tensor(Shape(dim), ones),
+            DecoderTensorNames.attnQ(0) to q8Tensor(nHeads * headDim, dim, q, arena),
+            DecoderTensorNames.attnK(0) to q8Tensor(kvHeads * headDim, dim, k, arena),
+            DecoderTensorNames.attnV(0) to q8Tensor(kvHeads * headDim, dim, v, arena),
+            DecoderTensorNames.attnOut(0) to q8Tensor(dim, nHeads * headDim, o, arena),
+            DecoderTensorNames.attnQNorm(0) to fp32Tensor(Shape(headDim), onesHead),
+            DecoderTensorNames.attnKNorm(0) to fp32Tensor(Shape(headDim), onesHead),
+            DecoderTensorNames.ffnNorm(0) to fp32Tensor(Shape(dim), ones),
+            DecoderTensorNames.ffnGate(0) to q8Tensor(ffnDim, dim, gate, arena),
+            DecoderTensorNames.ffnUp(0) to q8Tensor(ffnDim, dim, up, arena),
+            DecoderTensorNames.ffnDown(0) to q8Tensor(dim, ffnDim, down, arena),
         )
         val q8 = DecoderGgufWeights(metadata, q8Map)
 

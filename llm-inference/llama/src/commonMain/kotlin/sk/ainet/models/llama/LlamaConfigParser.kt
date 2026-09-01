@@ -1,22 +1,22 @@
 package sk.ainet.models.llama
 
-import sk.ainet.models.llama.LlamaModelMetadata
+import sk.ainet.lang.nn.dsl.decoder.GgufDecoderMetadata
 
 /**
- * Parses HuggingFace `config.json` into [LlamaModelMetadata].
+ * Parses HuggingFace `config.json` into [GgufDecoderMetadata].
  *
  * Uses lightweight manual JSON parsing to avoid external dependencies.
  */
 public object LlamaConfigParser {
 
     /**
-     * Parse a HuggingFace config.json string into LlamaModelMetadata.
+     * Parse a HuggingFace config.json string into GgufDecoderMetadata.
      *
      * Required fields: hidden_size, num_hidden_layers, num_attention_heads,
      * num_key_value_heads, intermediate_size, vocab_size.
      * Optional: max_position_embeddings, head_dim, model_type.
      */
-    public fun parse(json: String): LlamaModelMetadata {
+    public fun parse(json: String): GgufDecoderMetadata {
         val map = parseJsonObject(json.trim())
 
         val hiddenSize = map.requireInt("hidden_size")
@@ -29,7 +29,7 @@ public object LlamaConfigParser {
         val headDim = map.intOrNull("head_dim") ?: (hiddenSize / numHeads)
         val architecture = map.stringOrNull("model_type") ?: "llama"
 
-        return LlamaModelMetadata(
+        return GgufDecoderMetadata(
             architecture = architecture,
             embeddingLength = hiddenSize,
             contextLength = contextLength,

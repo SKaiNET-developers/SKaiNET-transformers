@@ -8,7 +8,7 @@ import sk.ainet.apps.llm.OptimizedLLMMode
 import sk.ainet.apps.llm.OptimizedLLMRuntime
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
-import sk.ainet.models.llama.DECODER_DEQUANTIZE_ALL
+import sk.ainet.lang.nn.dsl.decoder.DECODER_DEQUANTIZE_ALL
 import sk.ainet.models.llama.LlamaNetworkLoader
 import sk.ainet.lang.types.FP32
 import java.nio.file.Path

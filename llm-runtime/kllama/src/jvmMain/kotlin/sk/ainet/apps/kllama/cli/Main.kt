@@ -41,7 +41,7 @@ import sk.ainet.apps.kllama.chat.ModelMetadataExtraction
 import sk.ainet.apps.llm.InferenceRuntime
 import sk.ainet.apps.llm.generate
 import sk.ainet.io.gguf.StreamingGGUFReader
-import sk.ainet.models.llama.DecoderGgufWeightLoader
+import sk.ainet.lang.nn.dsl.decoder.DecoderGgufWeightLoader
 
 private enum class ModelFormat { GGUF, SAFETENSORS, BIN }
 

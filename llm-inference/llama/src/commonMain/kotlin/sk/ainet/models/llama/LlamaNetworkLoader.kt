@@ -1,5 +1,11 @@
 package sk.ainet.models.llama
 
+import sk.ainet.lang.nn.dsl.decoder.DECODER_NARROW_KEEP_NATIVE
+import sk.ainet.lang.nn.dsl.decoder.DecoderGgufWeightLoader
+import sk.ainet.lang.nn.dsl.decoder.DecoderGgufWeights
+import sk.ainet.lang.nn.dsl.decoder.DecoderSafeTensorsLoader
+import sk.ainet.lang.nn.dsl.decoder.GgufDecoderMetadata
+
 import kotlinx.io.Source
 import sk.ainet.apps.llm.DTypePolicyValidation
 import sk.ainet.context.ExecutionContext
@@ -58,7 +64,7 @@ public class LlamaNetworkLoader @PublishedApi internal constructor(
 
         data class SafeTensors(
             val randomAccessProvider: () -> RandomAccessSource,
-            val metadata: LlamaModelMetadata,
+            val metadata: GgufDecoderMetadata,
             val tiedEmbeddings: Boolean
         ) : WeightsProvider
 
@@ -111,7 +117,7 @@ public class LlamaNetworkLoader @PublishedApi internal constructor(
 
         /** Load from a SafeTensors file. Requires metadata (not embedded in SafeTensors). */
         public fun fromSafeTensors(
-            metadata: LlamaModelMetadata,
+            metadata: GgufDecoderMetadata,
             randomAccessProvider: () -> RandomAccessSource,
             tiedEmbeddings: Boolean = false,
             debug: Boolean = false

@@ -1,6 +1,6 @@
 package sk.ainet.models.voxtral
 
-import sk.ainet.models.llama.LlamaModelMetadata
+import sk.ainet.lang.nn.dsl.decoder.GgufDecoderMetadata
 
 /**
  * Metadata for the Voxtral TTS model (mistralai/Voxtral-4B-TTS-2603).
@@ -14,13 +14,13 @@ import sk.ainet.models.llama.LlamaModelMetadata
  *    acoustic tokens to 24kHz audio waveform.
  *
  * The text backbone and acoustic transformer are both LLaMA-compatible architectures,
- * so they share [LlamaModelMetadata] for their transformer configuration.
+ * so they share [GgufDecoderMetadata] for their transformer configuration.
  */
 public data class VoxtralModelMetadata(
     /** Metadata for the main text transformer backbone. */
-    val backbone: LlamaModelMetadata,
+    val backbone: GgufDecoderMetadata,
     /** Metadata for the acoustic flow-matching transformer. */
-    val acousticModel: LlamaModelMetadata,
+    val acousticModel: GgufDecoderMetadata,
     /** Codec configuration for audio tokenization/detokenization. */
     val codec: VoxtralCodecMetadata,
     /** Audio-specific configuration. */
@@ -97,7 +97,7 @@ public data class VoxtralAudioConfig(
  */
 public object VoxtralDefaults {
 
-    public val BACKBONE: LlamaModelMetadata = LlamaModelMetadata(
+    public val BACKBONE: GgufDecoderMetadata = GgufDecoderMetadata(
         architecture = "voxtral_tts",
         embeddingLength = 3072,
         contextLength = 65536,
@@ -109,7 +109,7 @@ public object VoxtralDefaults {
         vocabSize = 131072
     )
 
-    public val ACOUSTIC_MODEL: LlamaModelMetadata = LlamaModelMetadata(
+    public val ACOUSTIC_MODEL: GgufDecoderMetadata = GgufDecoderMetadata(
         architecture = "voxtral_tts_acoustic",
         embeddingLength = 3072,
         contextLength = 65536,

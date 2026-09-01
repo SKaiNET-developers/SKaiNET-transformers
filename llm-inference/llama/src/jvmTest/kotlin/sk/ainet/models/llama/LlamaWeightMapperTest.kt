@@ -1,5 +1,9 @@
 package sk.ainet.models.llama
 
+import sk.ainet.lang.nn.dsl.decoder.DecoderGgufWeights
+import sk.ainet.lang.nn.dsl.decoder.DecoderTensorNames
+import sk.ainet.lang.nn.dsl.decoder.GgufDecoderMetadata
+
 import org.junit.Test
 import sk.ainet.context.DefaultDataExecutionContext
 import sk.ainet.lang.tensor.Shape
@@ -13,7 +17,7 @@ class LlamaWeightMapperTest {
     @Test
     fun `maps loader tensors into runtime weights with shape checks`() {
         // dim=4, ff_dim=8, vocab=8, ctx=4
-        val metadata = LlamaModelMetadata(
+        val metadata = GgufDecoderMetadata(
             architecture = "llama",
             embeddingLength = 4,
             contextLength = 4,
@@ -38,20 +42,20 @@ class LlamaWeightMapperTest {
         // - ffn down: [ff_dim, dim]
         // - output weight: [dim, vocab]
         val tensors = linkedMapOf(
-            LlamaTensorNames.TOKEN_EMBEDDINGS to tensor(Shape(8, 4), 32, 0f),    // [vocab, dim]
-            LlamaTensorNames.OUTPUT_NORM to tensor(Shape(4), 4, 100f),
-            LlamaTensorNames.OUTPUT_WEIGHT to tensor(Shape(8, 4), 32, 200f),     // [vocab, dim]
-            LlamaTensorNames.ROPE_FREQS_REAL to tensor(Shape(4, 2), 8, 300f),
-            LlamaTensorNames.ROPE_FREQS_IMAG to tensor(Shape(4, 2), 8, 400f),
-            LlamaTensorNames.attnNorm(0) to tensor(Shape(4), 4, 10f),
-            LlamaTensorNames.attnQ(0) to tensor(Shape(4, 4), 16, 20f),           // [dim, dim]
-            LlamaTensorNames.attnK(0) to tensor(Shape(4, 4), 16, 30f),           // [kv_dim, dim]
-            LlamaTensorNames.attnV(0) to tensor(Shape(4, 4), 16, 40f),           // [kv_dim, dim]
-            LlamaTensorNames.attnOut(0) to tensor(Shape(4, 4), 16, 50f),         // [dim, dim]
-            LlamaTensorNames.ffnNorm(0) to tensor(Shape(4), 4, 60f),
-            LlamaTensorNames.ffnGate(0) to tensor(Shape(8, 4), 32, 70f),         // [ff_dim, dim]
-            LlamaTensorNames.ffnDown(0) to tensor(Shape(4, 8), 32, 80f),         // [dim, ff_dim]
-            LlamaTensorNames.ffnUp(0) to tensor(Shape(8, 4), 32, 90f)            // [ff_dim, dim]
+            DecoderTensorNames.TOKEN_EMBEDDINGS to tensor(Shape(8, 4), 32, 0f),    // [vocab, dim]
+            DecoderTensorNames.OUTPUT_NORM to tensor(Shape(4), 4, 100f),
+            DecoderTensorNames.OUTPUT_WEIGHT to tensor(Shape(8, 4), 32, 200f),     // [vocab, dim]
+            DecoderTensorNames.ROPE_FREQS_REAL to tensor(Shape(4, 2), 8, 300f),
+            DecoderTensorNames.ROPE_FREQS_IMAG to tensor(Shape(4, 2), 8, 400f),
+            DecoderTensorNames.attnNorm(0) to tensor(Shape(4), 4, 10f),
+            DecoderTensorNames.attnQ(0) to tensor(Shape(4, 4), 16, 20f),           // [dim, dim]
+            DecoderTensorNames.attnK(0) to tensor(Shape(4, 4), 16, 30f),           // [kv_dim, dim]
+            DecoderTensorNames.attnV(0) to tensor(Shape(4, 4), 16, 40f),           // [kv_dim, dim]
+            DecoderTensorNames.attnOut(0) to tensor(Shape(4, 4), 16, 50f),         // [dim, dim]
+            DecoderTensorNames.ffnNorm(0) to tensor(Shape(4), 4, 60f),
+            DecoderTensorNames.ffnGate(0) to tensor(Shape(8, 4), 32, 70f),         // [ff_dim, dim]
+            DecoderTensorNames.ffnDown(0) to tensor(Shape(4, 8), 32, 80f),         // [dim, ff_dim]
+            DecoderTensorNames.ffnUp(0) to tensor(Shape(8, 4), 32, 90f)            // [ff_dim, dim]
         )
 
         val runtime = LlamaWeightMapper.map(DecoderGgufWeights(metadata, tensors))
@@ -68,7 +72,7 @@ class LlamaWeightMapperTest {
 
     @Test
     fun `maps loader tensors into FP16 runtime weights`() {
-        val metadata = LlamaModelMetadata(
+        val metadata = GgufDecoderMetadata(
             architecture = "llama",
             embeddingLength = 4,
             contextLength = 4,
@@ -87,20 +91,20 @@ class LlamaWeightMapperTest {
         }
 
         val tensors = linkedMapOf(
-            LlamaTensorNames.TOKEN_EMBEDDINGS to tensor(Shape(8, 4), 32, 0f),
-            LlamaTensorNames.OUTPUT_NORM to tensor(Shape(4), 4, 100f),
-            LlamaTensorNames.OUTPUT_WEIGHT to tensor(Shape(8, 4), 32, 200f),
-            LlamaTensorNames.ROPE_FREQS_REAL to tensor(Shape(4, 2), 8, 300f),
-            LlamaTensorNames.ROPE_FREQS_IMAG to tensor(Shape(4, 2), 8, 400f),
-            LlamaTensorNames.attnNorm(0) to tensor(Shape(4), 4, 10f),
-            LlamaTensorNames.attnQ(0) to tensor(Shape(4, 4), 16, 20f),
-            LlamaTensorNames.attnK(0) to tensor(Shape(4, 4), 16, 30f),
-            LlamaTensorNames.attnV(0) to tensor(Shape(4, 4), 16, 40f),
-            LlamaTensorNames.attnOut(0) to tensor(Shape(4, 4), 16, 50f),
-            LlamaTensorNames.ffnNorm(0) to tensor(Shape(4), 4, 60f),
-            LlamaTensorNames.ffnGate(0) to tensor(Shape(8, 4), 32, 70f),
-            LlamaTensorNames.ffnDown(0) to tensor(Shape(4, 8), 32, 80f),
-            LlamaTensorNames.ffnUp(0) to tensor(Shape(8, 4), 32, 90f)
+            DecoderTensorNames.TOKEN_EMBEDDINGS to tensor(Shape(8, 4), 32, 0f),
+            DecoderTensorNames.OUTPUT_NORM to tensor(Shape(4), 4, 100f),
+            DecoderTensorNames.OUTPUT_WEIGHT to tensor(Shape(8, 4), 32, 200f),
+            DecoderTensorNames.ROPE_FREQS_REAL to tensor(Shape(4, 2), 8, 300f),
+            DecoderTensorNames.ROPE_FREQS_IMAG to tensor(Shape(4, 2), 8, 400f),
+            DecoderTensorNames.attnNorm(0) to tensor(Shape(4), 4, 10f),
+            DecoderTensorNames.attnQ(0) to tensor(Shape(4, 4), 16, 20f),
+            DecoderTensorNames.attnK(0) to tensor(Shape(4, 4), 16, 30f),
+            DecoderTensorNames.attnV(0) to tensor(Shape(4, 4), 16, 40f),
+            DecoderTensorNames.attnOut(0) to tensor(Shape(4, 4), 16, 50f),
+            DecoderTensorNames.ffnNorm(0) to tensor(Shape(4), 4, 60f),
+            DecoderTensorNames.ffnGate(0) to tensor(Shape(8, 4), 32, 70f),
+            DecoderTensorNames.ffnDown(0) to tensor(Shape(4, 8), 32, 80f),
+            DecoderTensorNames.ffnUp(0) to tensor(Shape(8, 4), 32, 90f)
         )
 
         val runtime: LlamaRuntimeWeights<FP16> = LlamaWeightMapper.map(DecoderGgufWeights(metadata, tensors))

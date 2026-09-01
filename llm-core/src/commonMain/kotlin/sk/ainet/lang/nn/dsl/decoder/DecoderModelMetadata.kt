@@ -7,7 +7,7 @@ package sk.ainet.lang.nn.dsl.decoder
  * plus the architecture-specific knobs that show up consistently across
  * decoder LLMs (RoPE base, RMSNorm epsilon, BOS/EOS token ids).
  *
- * Per-architecture metadata types (`LlamaModelMetadata`, `VoxtralModelMetadata`,
+ * Per-architecture metadata types (`GgufDecoderMetadata`, `VoxtralModelMetadata`,
  * etc.) implement this so that [decoderTransformerNetwork] can build a network
  * from any of them without depending on a specific model module.
  *

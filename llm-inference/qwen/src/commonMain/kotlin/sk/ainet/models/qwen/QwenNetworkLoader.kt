@@ -13,11 +13,11 @@ import sk.ainet.io.weights.WeightTensor
 import sk.ainet.lang.nn.Module
 import sk.ainet.lang.types.DType
 import sk.ainet.lang.types.DTypePolicy
-import sk.ainet.models.llama.LlamaModelMetadata
-import sk.ainet.models.llama.DecoderSafeTensorsLoader
-import sk.ainet.models.llama.DecoderGgufWeightLoader
-import sk.ainet.models.llama.DecoderGgufWeights
-import sk.ainet.models.llama.DECODER_NARROW_KEEP_NATIVE
+import sk.ainet.lang.nn.dsl.decoder.GgufDecoderMetadata
+import sk.ainet.lang.nn.dsl.decoder.DecoderSafeTensorsLoader
+import sk.ainet.lang.nn.dsl.decoder.DecoderGgufWeightLoader
+import sk.ainet.lang.nn.dsl.decoder.DecoderGgufWeights
+import sk.ainet.lang.nn.dsl.decoder.DECODER_NARROW_KEEP_NATIVE
 import kotlin.jvm.JvmName
 
 /**
@@ -76,7 +76,7 @@ public class QwenNetworkLoader @PublishedApi internal constructor(
 
         data class SafeTensors(
             val randomAccessProvider: () -> RandomAccessSource,
-            val metadata: LlamaModelMetadata,
+            val metadata: GgufDecoderMetadata,
             val tiedEmbeddings: Boolean
         ) : WeightsProvider
 
@@ -106,7 +106,7 @@ public class QwenNetworkLoader @PublishedApi internal constructor(
 
         /** Load from a SafeTensors file. Requires metadata (not embedded in SafeTensors). */
         public fun fromSafeTensors(
-            metadata: LlamaModelMetadata,
+            metadata: GgufDecoderMetadata,
             randomAccessProvider: () -> RandomAccessSource,
             tiedEmbeddings: Boolean = false,
             debug: Boolean = false

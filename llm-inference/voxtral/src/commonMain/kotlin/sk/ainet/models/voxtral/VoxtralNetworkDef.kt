@@ -13,7 +13,7 @@ import sk.ainet.lang.nn.dsl.sequential
 import sk.ainet.lang.nn.dsl.decoder.decoderTransformerNetwork
 import sk.ainet.lang.nn.dsl.swiGluFFN
 import sk.ainet.lang.types.DType
-import sk.ainet.models.llama.LlamaModelMetadata
+import sk.ainet.lang.nn.dsl.decoder.GgufDecoderMetadata
 
 /**
  * Voxtral TTS text backbone defined via the network DSL.
@@ -29,7 +29,7 @@ import sk.ainet.models.llama.LlamaModelMetadata
  *                 rope_theta=1M, head_dim=128.
  */
 public inline fun <reified T : DType, V> voxtralBackboneNetwork(
-    metadata: LlamaModelMetadata,
+    metadata: GgufDecoderMetadata,
 ): Module<T, V> = decoderTransformerNetwork<T, V>(
     metadata = metadata,
     qkNorm = false,
@@ -56,7 +56,7 @@ public inline fun <reified T : DType, V> voxtralBackboneNetwork(
  * @param ropeBase RoPE base frequency (default: 10_000 for acoustic model)
  */
 public inline fun <reified T : DType, V> voxtralAcousticNetwork(
-    metadata: LlamaModelMetadata,
+    metadata: GgufDecoderMetadata,
     ropeBase: Float = 10_000f
 ): Module<T, V> {
     val dim = metadata.embeddingLength

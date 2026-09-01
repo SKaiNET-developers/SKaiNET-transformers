@@ -15,8 +15,8 @@ import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.tensor.data.BitNetPlanesTensorData
 import sk.ainet.lang.tensor.storage.TensorEncoding
 import sk.ainet.lang.types.FP32
-import sk.ainet.models.llama.LlamaModelMetadata
-import sk.ainet.models.llama.decoderMetadataFromGguf
+import sk.ainet.lang.nn.dsl.decoder.GgufDecoderMetadata
+import sk.ainet.lang.nn.dsl.decoder.decoderMetadataFromGguf
 
 /**
  * The **packed** BitNet load path (transformers#337): a ternary **I2_S** GGUF loads through the
@@ -57,7 +57,7 @@ public object BitNetWeightLoader {
     /** A loaded model together with the GGUF metadata it was built from. */
     public data class Loaded(
         public val model: Module<FP32, Float>,
-        public val metadata: LlamaModelMetadata,
+        public val metadata: GgufDecoderMetadata,
     )
 
     public suspend fun load(
@@ -69,7 +69,7 @@ public object BitNetWeightLoader {
     ): Module<FP32, Float> =
         loadWithMetadata(ctx, sourceProvider, i2sLayout, planesLmHead, debug).model
 
-    /** [load], returning the parsed [LlamaModelMetadata] alongside the model (bos/eos, dims). */
+    /** [load], returning the parsed [GgufDecoderMetadata] alongside the model (bos/eos, dims). */
     public suspend fun loadWithMetadata(
         ctx: ExecutionContext,
         sourceProvider: () -> RandomAccessSource,

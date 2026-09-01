@@ -7,9 +7,9 @@ import sk.ainet.io.safetensors.StreamingSafeTensorsReader
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.types.DType
-import sk.ainet.models.llama.LlamaModelMetadata
-import sk.ainet.models.llama.LlamaTensorNames
-import sk.ainet.models.llama.DecoderGgufWeights
+import sk.ainet.lang.nn.dsl.decoder.GgufDecoderMetadata
+import sk.ainet.lang.nn.dsl.decoder.DecoderTensorNames
+import sk.ainet.lang.nn.dsl.decoder.DecoderGgufWeights
 import kotlin.math.pow
 import kotlin.reflect.KClass
 
@@ -27,7 +27,7 @@ import kotlin.reflect.KClass
 public class VoxtralSafeTensorsLoader<T : DType>(
     private val ctx: ExecutionContext,
     private val dtype: KClass<T>,
-    private val metadata: LlamaModelMetadata,
+    private val metadata: GgufDecoderMetadata,
     private val tiedEmbeddings: Boolean = true
 ) {
 
@@ -103,11 +103,11 @@ public class VoxtralSafeTensorsLoader<T : DType>(
         }
 
         // Handle tied embeddings
-        if (tiedEmbeddings && !allTensors.containsKey(LlamaTensorNames.OUTPUT_WEIGHT)) {
-            val embedding = allTensors[LlamaTensorNames.TOKEN_EMBEDDINGS]
+        if (tiedEmbeddings && !allTensors.containsKey(DecoderTensorNames.OUTPUT_WEIGHT)) {
+            val embedding = allTensors[DecoderTensorNames.TOKEN_EMBEDDINGS]
             if (embedding != null) {
-                allTensors[LlamaTensorNames.OUTPUT_WEIGHT] = embedding
-                println("  Tied: ${LlamaTensorNames.OUTPUT_WEIGHT} → ${LlamaTensorNames.TOKEN_EMBEDDINGS}")
+                allTensors[DecoderTensorNames.OUTPUT_WEIGHT] = embedding
+                println("  Tied: ${DecoderTensorNames.OUTPUT_WEIGHT} → ${DecoderTensorNames.TOKEN_EMBEDDINGS}")
             }
         }
 

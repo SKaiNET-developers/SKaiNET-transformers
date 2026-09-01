@@ -8,7 +8,7 @@ import sk.ainet.lang.types.FP32
 import sk.ainet.models.bitnet.BITNET_ARCHITECTURES
 import sk.ainet.models.bitnet.BitNetRuntimeWeights
 import sk.ainet.models.bitnet.BitNetWeightLoader
-import sk.ainet.models.llama.DecoderGgufWeightLoader
+import sk.ainet.lang.nn.dsl.decoder.DecoderGgufWeightLoader
 
 /**
  * Thin facade around the BitNet loaders (#346's `<F>Ingestion` row, transformers#359) — the

@@ -1,7 +1,7 @@
 public final class sk/ainet/models/qwen/QwenConfigParser {
 	public static final field INSTANCE Lsk/ainet/models/qwen/QwenConfigParser;
 	public final fun isTiedEmbeddings (Ljava/lang/String;)Z
-	public final fun parse (Ljava/lang/String;)Lsk/ainet/models/llama/LlamaModelMetadata;
+	public final fun parse (Ljava/lang/String;)Lsk/ainet/lang/nn/dsl/decoder/GgufDecoderMetadata;
 }
 
 public final class sk/ainet/models/qwen/QwenGgufTensorNames : sk/ainet/io/gguf/TensorNameMapper {
@@ -40,8 +40,8 @@ public final class sk/ainet/models/qwen/QwenNetworkLoader$Companion {
 	public static synthetic fun fromGguf$default (Lsk/ainet/models/qwen/QwenNetworkLoader$Companion;Lkotlin/jvm/functions/Function0;ZILjava/lang/Object;)Lsk/ainet/models/qwen/QwenNetworkLoader;
 	public final fun fromGgufRandomAccess (Lkotlin/jvm/functions/Function0;ZLsk/ainet/lang/memory/plan/WeightForm;)Lsk/ainet/models/qwen/QwenNetworkLoader;
 	public static synthetic fun fromGgufRandomAccess$default (Lsk/ainet/models/qwen/QwenNetworkLoader$Companion;Lkotlin/jvm/functions/Function0;ZLsk/ainet/lang/memory/plan/WeightForm;ILjava/lang/Object;)Lsk/ainet/models/qwen/QwenNetworkLoader;
-	public final fun fromSafeTensors (Lsk/ainet/models/llama/LlamaModelMetadata;Lkotlin/jvm/functions/Function0;ZZ)Lsk/ainet/models/qwen/QwenNetworkLoader;
-	public static synthetic fun fromSafeTensors$default (Lsk/ainet/models/qwen/QwenNetworkLoader$Companion;Lsk/ainet/models/llama/LlamaModelMetadata;Lkotlin/jvm/functions/Function0;ZZILjava/lang/Object;)Lsk/ainet/models/qwen/QwenNetworkLoader;
+	public final fun fromSafeTensors (Lsk/ainet/lang/nn/dsl/decoder/GgufDecoderMetadata;Lkotlin/jvm/functions/Function0;ZZ)Lsk/ainet/models/qwen/QwenNetworkLoader;
+	public static synthetic fun fromSafeTensors$default (Lsk/ainet/models/qwen/QwenNetworkLoader$Companion;Lsk/ainet/lang/nn/dsl/decoder/GgufDecoderMetadata;Lkotlin/jvm/functions/Function0;ZZILjava/lang/Object;)Lsk/ainet/models/qwen/QwenNetworkLoader;
 }
 
 public abstract interface class sk/ainet/models/qwen/QwenNetworkLoader$WeightsProvider {
@@ -72,25 +72,25 @@ public final class sk/ainet/models/qwen/QwenNetworkLoader$WeightsProvider$GgufSo
 }
 
 public final class sk/ainet/models/qwen/QwenNetworkLoader$WeightsProvider$Preloaded : sk/ainet/models/qwen/QwenNetworkLoader$WeightsProvider {
-	public fun <init> (Lsk/ainet/models/llama/DecoderGgufWeights;)V
-	public final fun component1 ()Lsk/ainet/models/llama/DecoderGgufWeights;
-	public final fun copy (Lsk/ainet/models/llama/DecoderGgufWeights;)Lsk/ainet/models/qwen/QwenNetworkLoader$WeightsProvider$Preloaded;
-	public static synthetic fun copy$default (Lsk/ainet/models/qwen/QwenNetworkLoader$WeightsProvider$Preloaded;Lsk/ainet/models/llama/DecoderGgufWeights;ILjava/lang/Object;)Lsk/ainet/models/qwen/QwenNetworkLoader$WeightsProvider$Preloaded;
+	public fun <init> (Lsk/ainet/lang/nn/dsl/decoder/DecoderGgufWeights;)V
+	public final fun component1 ()Lsk/ainet/lang/nn/dsl/decoder/DecoderGgufWeights;
+	public final fun copy (Lsk/ainet/lang/nn/dsl/decoder/DecoderGgufWeights;)Lsk/ainet/models/qwen/QwenNetworkLoader$WeightsProvider$Preloaded;
+	public static synthetic fun copy$default (Lsk/ainet/models/qwen/QwenNetworkLoader$WeightsProvider$Preloaded;Lsk/ainet/lang/nn/dsl/decoder/DecoderGgufWeights;ILjava/lang/Object;)Lsk/ainet/models/qwen/QwenNetworkLoader$WeightsProvider$Preloaded;
 	public fun equals (Ljava/lang/Object;)Z
-	public final fun getWeights ()Lsk/ainet/models/llama/DecoderGgufWeights;
+	public final fun getWeights ()Lsk/ainet/lang/nn/dsl/decoder/DecoderGgufWeights;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
 }
 
 public final class sk/ainet/models/qwen/QwenNetworkLoader$WeightsProvider$SafeTensors : sk/ainet/models/qwen/QwenNetworkLoader$WeightsProvider {
-	public fun <init> (Lkotlin/jvm/functions/Function0;Lsk/ainet/models/llama/LlamaModelMetadata;Z)V
+	public fun <init> (Lkotlin/jvm/functions/Function0;Lsk/ainet/lang/nn/dsl/decoder/GgufDecoderMetadata;Z)V
 	public final fun component1 ()Lkotlin/jvm/functions/Function0;
-	public final fun component2 ()Lsk/ainet/models/llama/LlamaModelMetadata;
+	public final fun component2 ()Lsk/ainet/lang/nn/dsl/decoder/GgufDecoderMetadata;
 	public final fun component3 ()Z
-	public final fun copy (Lkotlin/jvm/functions/Function0;Lsk/ainet/models/llama/LlamaModelMetadata;Z)Lsk/ainet/models/qwen/QwenNetworkLoader$WeightsProvider$SafeTensors;
-	public static synthetic fun copy$default (Lsk/ainet/models/qwen/QwenNetworkLoader$WeightsProvider$SafeTensors;Lkotlin/jvm/functions/Function0;Lsk/ainet/models/llama/LlamaModelMetadata;ZILjava/lang/Object;)Lsk/ainet/models/qwen/QwenNetworkLoader$WeightsProvider$SafeTensors;
+	public final fun copy (Lkotlin/jvm/functions/Function0;Lsk/ainet/lang/nn/dsl/decoder/GgufDecoderMetadata;Z)Lsk/ainet/models/qwen/QwenNetworkLoader$WeightsProvider$SafeTensors;
+	public static synthetic fun copy$default (Lsk/ainet/models/qwen/QwenNetworkLoader$WeightsProvider$SafeTensors;Lkotlin/jvm/functions/Function0;Lsk/ainet/lang/nn/dsl/decoder/GgufDecoderMetadata;ZILjava/lang/Object;)Lsk/ainet/models/qwen/QwenNetworkLoader$WeightsProvider$SafeTensors;
 	public fun equals (Ljava/lang/Object;)Z
-	public final fun getMetadata ()Lsk/ainet/models/llama/LlamaModelMetadata;
+	public final fun getMetadata ()Lsk/ainet/lang/nn/dsl/decoder/GgufDecoderMetadata;
 	public final fun getRandomAccessProvider ()Lkotlin/jvm/functions/Function0;
 	public final fun getTiedEmbeddings ()Z
 	public fun hashCode ()I

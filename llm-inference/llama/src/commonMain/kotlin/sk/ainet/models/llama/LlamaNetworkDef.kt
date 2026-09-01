@@ -1,5 +1,7 @@
 package sk.ainet.models.llama
 
+import sk.ainet.lang.nn.dsl.decoder.GgufDecoderMetadata
+
 import sk.ainet.lang.nn.Module
 import sk.ainet.lang.nn.dsl.decoder.decoderTransformerNetwork
 import sk.ainet.lang.types.DType
@@ -18,7 +20,7 @@ import sk.ainet.lang.types.DType
  * RMSNorm → SwiGLU FFN → Residual) → RMSNorm → Dense`.
  */
 public inline fun <reified T : DType, V> llamaNetwork(
-    metadata: LlamaModelMetadata,
+    metadata: GgufDecoderMetadata,
     maxInferenceLen: Int = minOf(metadata.contextLength, 4096),
 ): Module<T, V> = decoderTransformerNetwork<T, V>(
     metadata = metadata,

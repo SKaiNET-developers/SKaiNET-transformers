@@ -7,7 +7,7 @@ import kotlin.test.assertTrue
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.models.llama.LlamaLayerWeights
 import sk.ainet.models.llama.LlamaRuntime
-import sk.ainet.models.llama.LlamaModelMetadata
+import sk.ainet.lang.nn.dsl.decoder.GgufDecoderMetadata
 import sk.ainet.models.llama.LlamaRuntimeWeights
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.data.Q8_0BlockTensorData
@@ -362,7 +362,7 @@ class LlamaRuntimeQuantizedTest {
         )
 
         val weights = LlamaRuntimeWeights<FP32>(
-            metadata = LlamaModelMetadata(
+            metadata = GgufDecoderMetadata(
                 architecture = "llama",
                 embeddingLength = dim,
                 contextLength = seqLen,
@@ -434,7 +434,7 @@ class LlamaRuntimeQuantizedTest {
         )
 
         val weights = LlamaRuntimeWeights<FP32>(
-            metadata = LlamaModelMetadata(
+            metadata = GgufDecoderMetadata(
                 architecture = "llama",
                 embeddingLength = dim,
                 contextLength = seqLen,
@@ -497,7 +497,7 @@ class LlamaRuntimeQuantizedTest {
         )
 
         val weights = LlamaRuntimeWeights<FP32>(
-            metadata = LlamaModelMetadata(
+            metadata = GgufDecoderMetadata(
                 architecture = "llama",
                 embeddingLength = dim,
                 contextLength = seqLen,

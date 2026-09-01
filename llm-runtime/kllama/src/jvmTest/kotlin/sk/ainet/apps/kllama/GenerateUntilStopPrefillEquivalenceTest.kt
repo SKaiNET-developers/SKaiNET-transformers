@@ -14,7 +14,7 @@ import sk.ainet.apps.llm.PrefillStrategy
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
 import sk.ainet.lang.types.FP32
-import sk.ainet.models.llama.DECODER_DEQUANTIZE_ALL
+import sk.ainet.lang.nn.dsl.decoder.DECODER_DEQUANTIZE_ALL
 import sk.ainet.models.llama.LlamaNetworkLoader
 
 /**

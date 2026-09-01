@@ -8,10 +8,10 @@ import kotlinx.coroutines.test.runTest
 import sk.ainet.context.DirectCpuExecutionContext
 import kotlinx.io.buffered
 import sk.ainet.io.JvmRandomAccessSource
-import sk.ainet.models.llama.DECODER_DEQUANTIZE_ALL
+import sk.ainet.lang.nn.dsl.decoder.DECODER_DEQUANTIZE_ALL
 import sk.ainet.models.llama.LlamaLayerWeights
 import sk.ainet.models.llama.LlamaRuntime
-import sk.ainet.models.llama.LlamaModelMetadata
+import sk.ainet.lang.nn.dsl.decoder.GgufDecoderMetadata
 import sk.ainet.models.llama.LlamaRuntimeWeights
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.types.FP16
@@ -48,7 +48,7 @@ class LlamaRuntimeFP16Test {
         )
 
         val weights = LlamaRuntimeWeights<FP16>(
-            metadata = LlamaModelMetadata(
+            metadata = GgufDecoderMetadata(
                 architecture = "llama",
                 embeddingLength = dim,
                 contextLength = seqLen,
@@ -103,7 +103,7 @@ class LlamaRuntimeFP16Test {
         )
 
         val weights = LlamaRuntimeWeights<FP16>(
-            metadata = LlamaModelMetadata(
+            metadata = GgufDecoderMetadata(
                 architecture = "llama",
                 embeddingLength = dim,
                 contextLength = seqLen,

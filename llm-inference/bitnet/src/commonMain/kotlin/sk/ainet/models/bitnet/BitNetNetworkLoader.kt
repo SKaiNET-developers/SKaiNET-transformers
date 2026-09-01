@@ -12,9 +12,9 @@ import sk.ainet.lang.memory.plan.WeightForm
 import sk.ainet.lang.nn.Module
 import sk.ainet.lang.types.DType
 import sk.ainet.lang.types.DTypePolicy
-import sk.ainet.models.llama.DECODER_NARROW_KEEP_NATIVE
-import sk.ainet.models.llama.DecoderGgufWeightLoader
-import sk.ainet.models.llama.DecoderGgufWeights
+import sk.ainet.lang.nn.dsl.decoder.DECODER_NARROW_KEEP_NATIVE
+import sk.ainet.lang.nn.dsl.decoder.DecoderGgufWeightLoader
+import sk.ainet.lang.nn.dsl.decoder.DecoderGgufWeights
 import kotlin.jvm.JvmName
 
 /**
@@ -82,7 +82,7 @@ public class BitNetNetworkLoader @PublishedApi internal constructor(
         /**
          * Load from a GGUF file via streaming RandomAccessSource (any size).
          * [weightForm] `null` = the decoder loader's keep-packed MAPPED default;
-         * pass [sk.ainet.models.llama.DECODER_DEQUANTIZE_ALL] for dense FP32.
+         * pass [sk.ainet.lang.nn.dsl.decoder.DECODER_DEQUANTIZE_ALL] for dense FP32.
          */
         @OptIn(ExperimentalMemoryApi::class)
         @JvmName("fromGgufRandomAccess")

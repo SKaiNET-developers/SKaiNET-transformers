@@ -30,7 +30,7 @@ import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.tensor.data.BitNetB158TensorData
 import sk.ainet.lang.tensor.data.BitNetPlanesTensorData
 import sk.ainet.lang.types.FP32
-import sk.ainet.models.llama.DecoderGgufWeights
+import sk.ainet.lang.nn.dsl.decoder.DecoderGgufWeights
 
 /**
  * transformers#337 end to end: a synthetic BitNet **I2_S** GGUF (BitNet.cpp GROUP_128 flavor,
@@ -186,7 +186,7 @@ class BitNetWeightLoaderTest {
 
     private fun loadWidened(file: File): Module<FP32, Float> = runBlocking {
         val metadata = sk.ainet.io.gguf.StreamingGGUFReader.open(JvmRandomAccessSource.open(file.path)).use { reader ->
-            sk.ainet.models.llama.decoderMetadataFromGguf(reader.fields, reader.tensors)
+            sk.ainet.lang.nn.dsl.decoder.decoderMetadataFromGguf(reader.fields, reader.tensors)
         }
         val tensors = LinkedHashMap<String, Tensor<FP32, Float>>()
         StreamingGgufParametersLoader(

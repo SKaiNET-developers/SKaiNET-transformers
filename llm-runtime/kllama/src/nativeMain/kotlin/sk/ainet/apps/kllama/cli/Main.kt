@@ -23,7 +23,7 @@ import sk.ainet.context.ExecutionContext
 import sk.ainet.lang.types.DType
 import sk.ainet.lang.types.FP16
 import sk.ainet.lang.types.FP32
-import sk.ainet.models.llama.DecoderGgufWeightLoader
+import sk.ainet.lang.nn.dsl.decoder.DecoderGgufWeightLoader
 import sk.ainet.models.llama.LlamaNetworkLoader
 import sk.ainet.models.llama.LlamaRuntime
 import sk.ainet.models.llama.LlamaRuntimeWeights

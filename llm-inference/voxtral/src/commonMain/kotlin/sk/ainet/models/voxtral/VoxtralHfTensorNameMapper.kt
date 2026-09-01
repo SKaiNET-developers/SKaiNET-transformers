@@ -1,6 +1,6 @@
 package sk.ainet.models.voxtral
 
-import sk.ainet.models.llama.LlamaTensorNames
+import sk.ainet.lang.nn.dsl.decoder.DecoderTensorNames
 
 /**
  * Maps HuggingFace/Mistral SafeTensors names for Voxtral to GGUF canonical names.
@@ -69,16 +69,16 @@ public object VoxtralHfTensorNameMapper {
         // Backbone global tensors (Mistral naming)
         return when (hfName) {
             "tok_embeddings.weight",
-            "mm_audio_embeddings.tok_embeddings.weight" -> LlamaTensorNames.TOKEN_EMBEDDINGS
-            "norm.weight" -> LlamaTensorNames.OUTPUT_NORM
-            "output.weight" -> LlamaTensorNames.OUTPUT_WEIGHT
+            "mm_audio_embeddings.tok_embeddings.weight" -> DecoderTensorNames.TOKEN_EMBEDDINGS
+            "norm.weight" -> DecoderTensorNames.OUTPUT_NORM
+            "output.weight" -> DecoderTensorNames.OUTPUT_WEIGHT
             // Audio codebook embeddings (backbone-level, for audio token encoding)
             "mm_audio_embeddings.audio_codebook_embeddings.embeddings.weight" ->
                 "audio_codebook_embeddings.weight"
             // HuggingFace naming fallback
-            "model.embed_tokens.weight" -> LlamaTensorNames.TOKEN_EMBEDDINGS
-            "model.norm.weight" -> LlamaTensorNames.OUTPUT_NORM
-            "lm_head.weight" -> LlamaTensorNames.OUTPUT_WEIGHT
+            "model.embed_tokens.weight" -> DecoderTensorNames.TOKEN_EMBEDDINGS
+            "model.norm.weight" -> DecoderTensorNames.OUTPUT_NORM
+            "lm_head.weight" -> DecoderTensorNames.OUTPUT_WEIGHT
             else -> {
                 // Backbone layer tensors
                 val match = BACKBONE_LAYER_PATTERN.matchEntire(hfName) ?: return null
@@ -94,25 +94,25 @@ public object VoxtralHfTensorNameMapper {
     private fun mapBackboneLayer(layer: Int, suffix: String): String? {
         return when (suffix) {
             // Mistral naming
-            "attention_norm.weight" -> LlamaTensorNames.attnNorm(layer)
-            "attention.wq.weight" -> LlamaTensorNames.attnQ(layer)
-            "attention.wk.weight" -> LlamaTensorNames.attnK(layer)
-            "attention.wv.weight" -> LlamaTensorNames.attnV(layer)
-            "attention.wo.weight" -> LlamaTensorNames.attnOut(layer)
-            "ffn_norm.weight" -> LlamaTensorNames.ffnNorm(layer)
-            "feed_forward.w1.weight" -> LlamaTensorNames.ffnGate(layer)
-            "feed_forward.w2.weight" -> LlamaTensorNames.ffnDown(layer)
-            "feed_forward.w3.weight" -> LlamaTensorNames.ffnUp(layer)
+            "attention_norm.weight" -> DecoderTensorNames.attnNorm(layer)
+            "attention.wq.weight" -> DecoderTensorNames.attnQ(layer)
+            "attention.wk.weight" -> DecoderTensorNames.attnK(layer)
+            "attention.wv.weight" -> DecoderTensorNames.attnV(layer)
+            "attention.wo.weight" -> DecoderTensorNames.attnOut(layer)
+            "ffn_norm.weight" -> DecoderTensorNames.ffnNorm(layer)
+            "feed_forward.w1.weight" -> DecoderTensorNames.ffnGate(layer)
+            "feed_forward.w2.weight" -> DecoderTensorNames.ffnDown(layer)
+            "feed_forward.w3.weight" -> DecoderTensorNames.ffnUp(layer)
             // HuggingFace naming fallback
-            "input_layernorm.weight" -> LlamaTensorNames.attnNorm(layer)
-            "self_attn.q_proj.weight" -> LlamaTensorNames.attnQ(layer)
-            "self_attn.k_proj.weight" -> LlamaTensorNames.attnK(layer)
-            "self_attn.v_proj.weight" -> LlamaTensorNames.attnV(layer)
-            "self_attn.o_proj.weight" -> LlamaTensorNames.attnOut(layer)
-            "post_attention_layernorm.weight" -> LlamaTensorNames.ffnNorm(layer)
-            "mlp.gate_proj.weight" -> LlamaTensorNames.ffnGate(layer)
-            "mlp.down_proj.weight" -> LlamaTensorNames.ffnDown(layer)
-            "mlp.up_proj.weight" -> LlamaTensorNames.ffnUp(layer)
+            "input_layernorm.weight" -> DecoderTensorNames.attnNorm(layer)
+            "self_attn.q_proj.weight" -> DecoderTensorNames.attnQ(layer)
+            "self_attn.k_proj.weight" -> DecoderTensorNames.attnK(layer)
+            "self_attn.v_proj.weight" -> DecoderTensorNames.attnV(layer)
+            "self_attn.o_proj.weight" -> DecoderTensorNames.attnOut(layer)
+            "post_attention_layernorm.weight" -> DecoderTensorNames.ffnNorm(layer)
+            "mlp.gate_proj.weight" -> DecoderTensorNames.ffnGate(layer)
+            "mlp.down_proj.weight" -> DecoderTensorNames.ffnDown(layer)
+            "mlp.up_proj.weight" -> DecoderTensorNames.ffnUp(layer)
             else -> null
         }
     }

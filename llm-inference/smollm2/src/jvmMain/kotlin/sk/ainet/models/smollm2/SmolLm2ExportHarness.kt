@@ -22,7 +22,7 @@ import sk.ainet.lang.tensor.data.TensorData
 import sk.ainet.lang.tensor.ops.VoidTensorOps
 import sk.ainet.lang.tensor.storage.BufferHandle
 import sk.ainet.lang.types.FP32
-import sk.ainet.models.llama.DecoderGgufWeightLoader
+import sk.ainet.lang.nn.dsl.decoder.DecoderGgufWeightLoader
 import sk.ainet.models.llama.LlamaNetworkLoader
 import sk.ainet.tape.Execution
 import java.io.BufferedOutputStream

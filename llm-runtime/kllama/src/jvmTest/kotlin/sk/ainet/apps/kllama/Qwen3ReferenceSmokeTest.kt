@@ -10,7 +10,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Assumptions.assumeTrue
 import sk.ainet.apps.llm.OptimizedLLMMode
-import sk.ainet.models.llama.DECODER_DEQUANTIZE_ALL
+import sk.ainet.lang.nn.dsl.decoder.DECODER_DEQUANTIZE_ALL
 import sk.ainet.apps.llm.OptimizedLLMRuntime
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.JvmRandomAccessSource

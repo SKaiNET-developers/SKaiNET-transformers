@@ -1,6 +1,6 @@
 package sk.ainet.models.voxtral
 
-import sk.ainet.models.llama.LlamaModelMetadata
+import sk.ainet.lang.nn.dsl.decoder.GgufDecoderMetadata
 
 /**
  * Parses Mistral's `params.json` for Voxtral TTS models into [VoxtralModelMetadata].
@@ -55,7 +55,7 @@ public object VoxtralConfigParser {
      * - `n_layers` instead of `num_hidden_layers`
      * - `hidden_dim` instead of `intermediate_size`
      */
-    public fun parseBackbone(map: Map<String, String>): LlamaModelMetadata {
+    public fun parseBackbone(map: Map<String, String>): GgufDecoderMetadata {
         val dim = map.requireInt("dim")
         val nLayers = map.requireInt("n_layers")
         val nHeads = map.requireInt("n_heads")
@@ -65,7 +65,7 @@ public object VoxtralConfigParser {
         val contextLength = map.intOrNull("max_seq_len") ?: 65536
         val headDim = map.intOrNull("head_dim") ?: (dim / nHeads)
 
-        return LlamaModelMetadata(
+        return GgufDecoderMetadata(
             architecture = "voxtral_tts",
             embeddingLength = dim,
             contextLength = contextLength,
@@ -81,7 +81,7 @@ public object VoxtralConfigParser {
     /**
      * Parse acoustic model config. Falls back to backbone dimensions if not specified.
      */
-    private fun parseAcousticModel(map: Map<String, String>): LlamaModelMetadata {
+    private fun parseAcousticModel(map: Map<String, String>): GgufDecoderMetadata {
         // Acoustic model params may be nested or prefixed with "acoustic_model_"
         val dim = map.intOrNull("acoustic_model_dim")
             ?: map.intOrNull("dim") ?: 3072
@@ -96,7 +96,7 @@ public object VoxtralConfigParser {
         val headDim = map.intOrNull("acoustic_model_head_dim")
             ?: map.intOrNull("head_dim") ?: (dim / nHeads)
 
-        return LlamaModelMetadata(
+        return GgufDecoderMetadata(
             architecture = "voxtral_tts_acoustic",
             embeddingLength = dim,
             contextLength = 65536,

@@ -1,9 +1,9 @@
 package sk.ainet.models.qwen
 
-import sk.ainet.models.llama.LlamaModelMetadata
+import sk.ainet.lang.nn.dsl.decoder.GgufDecoderMetadata
 
 /**
- * Parses HuggingFace `config.json` for Qwen2 models into [LlamaModelMetadata].
+ * Parses HuggingFace `config.json` for Qwen2 models into [GgufDecoderMetadata].
  *
  * Qwen2 uses the same transformer architecture as LLaMA (GQA + SwiGLU FFN + RoPE),
  * so it shares the same metadata structure. The config field names are identical
@@ -15,13 +15,13 @@ import sk.ainet.models.llama.LlamaModelMetadata
 public object QwenConfigParser {
 
     /**
-     * Parse a HuggingFace config.json string for Qwen2 into [LlamaModelMetadata].
+     * Parse a HuggingFace config.json string for Qwen2 into [GgufDecoderMetadata].
      *
      * Required fields: hidden_size, num_hidden_layers, num_attention_heads,
      * num_key_value_heads, intermediate_size, vocab_size.
      * Optional: max_position_embeddings, head_dim.
      */
-    public fun parse(json: String): LlamaModelMetadata {
+    public fun parse(json: String): GgufDecoderMetadata {
         val map = parseJsonObject(json.trim())
 
         val hiddenSize = map.requireInt("hidden_size")
@@ -36,7 +36,7 @@ public object QwenConfigParser {
         val ropeTheta = map.floatOrNull("rope_theta") ?: 1_000_000f
         val rmsNormEps = map.floatOrNull("rms_norm_eps") ?: 1e-6f
 
-        return LlamaModelMetadata(
+        return GgufDecoderMetadata(
             architecture = architecture,
             embeddingLength = hiddenSize,
             contextLength = contextLength,

@@ -1,9 +1,9 @@
-package sk.ainet.models.llama
+package sk.ainet.lang.nn.dsl.decoder
 
 import sk.ainet.io.gguf.StreamingTensorInfo
 
 /**
- * [LlamaModelMetadata] from the llama.cpp-convention GGUF KV fields
+ * [GgufDecoderMetadata] from the llama.cpp-convention GGUF KV fields
  * (`{arch}.embedding_length`, …) plus the header's tensor directory for the
  * values small checkpoints omit (embedding/vocab off `token_embd.weight`'s
  * shape, head_dim off `blk.0.attn_q.weight`'s).
@@ -16,7 +16,7 @@ import sk.ainet.io.gguf.StreamingTensorInfo
 public fun decoderMetadataFromGguf(
     fields: Map<String, Any?>,
     tensors: List<StreamingTensorInfo>,
-): LlamaModelMetadata {
+): GgufDecoderMetadata {
     val arch = (fields["general.architecture"] as? String) ?: "unknown"
     val prefix = arch
 
@@ -53,7 +53,7 @@ public fun decoderMetadataFromGguf(
         }
     }
 
-    return LlamaModelMetadata(
+    return GgufDecoderMetadata(
         architecture = arch,
         embeddingLength = embeddingLength,
         contextLength = contextLength,
@@ -93,14 +93,14 @@ private fun Any?.toFloatValue(): Float? = when (this) {
 }
 
 private fun inferEmbeddingFromTensors(tensors: List<StreamingTensorInfo>): Int {
-    val token = tensors.firstOrNull { it.name == LlamaTensorNames.TOKEN_EMBEDDINGS }
+    val token = tensors.firstOrNull { it.name == DecoderTensorNames.TOKEN_EMBEDDINGS }
         ?: error("Cannot infer embedding length without token embeddings tensor")
     return token.shape.map { it.toInt() }.minOrNull()
         ?: error("Cannot infer embedding length from tensor shape ${token.shape}")
 }
 
 private fun inferVocabFromTensors(tensors: List<StreamingTensorInfo>): Int {
-    val token = tensors.firstOrNull { it.name == LlamaTensorNames.TOKEN_EMBEDDINGS }
+    val token = tensors.firstOrNull { it.name == DecoderTensorNames.TOKEN_EMBEDDINGS }
         ?: error("Cannot infer vocab size without token embeddings tensor")
     return token.shape.map { it.toInt() }.maxOrNull()
         ?: error("Cannot infer vocab size from tensor shape ${token.shape}")

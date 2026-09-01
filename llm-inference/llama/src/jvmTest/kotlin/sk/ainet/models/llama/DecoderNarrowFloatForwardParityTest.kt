@@ -1,5 +1,10 @@
 package sk.ainet.models.llama
 
+import sk.ainet.lang.nn.dsl.decoder.DecoderGgufWeights
+import sk.ainet.lang.nn.dsl.decoder.DecoderSafeTensorsLoader
+import sk.ainet.lang.nn.dsl.decoder.DecoderTensorNames
+import sk.ainet.lang.nn.dsl.decoder.GgufDecoderMetadata
+
 import sk.ainet.apps.llm.OptimizedLLMMode
 import sk.ainet.apps.llm.OptimizedLLMRuntime
 import sk.ainet.context.DirectCpuExecutionContext
@@ -74,7 +79,7 @@ class DecoderNarrowFloatForwardParityTest {
      */
     private val TOLERANCE = 1e-5f
 
-    private val metadata = LlamaModelMetadata(
+    private val metadata = GgufDecoderMetadata(
         architecture = "llama",
         embeddingLength = dim,
         contextLength = seqLen,
@@ -316,7 +321,7 @@ class DecoderNarrowFloatForwardParityTest {
         )
         val weights = loadWeights(file, DTypePolicy.Require(FP16))
 
-        val ffnGate = weights.tensors[LlamaTensorNames.ffnGate(0)]
+        val ffnGate = weights.tensors[DecoderTensorNames.ffnGate(0)]
             ?: error("missing ffn_gate")
         assertTrue(
             ffnGate.data is NarrowFloatInputMajorTensorData,
@@ -351,7 +356,7 @@ class DecoderNarrowFloatForwardParityTest {
         )
         val weights = loadWeights(file, DTypePolicy.Require(FP16))
 
-        val embedding = weights.tensors[LlamaTensorNames.TOKEN_EMBEDDINGS]
+        val embedding = weights.tensors[DecoderTensorNames.TOKEN_EMBEDDINGS]
             ?: error("missing token_embd")
         assertTrue(
             embedding.data is NarrowFloatTensorData,
@@ -362,7 +367,7 @@ class DecoderNarrowFloatForwardParityTest {
             "the gathered embedding must stay row-major",
         )
 
-        val norm = weights.tensors[LlamaTensorNames.attnNorm(0)] ?: error("missing attn_norm")
+        val norm = weights.tensors[DecoderTensorNames.attnNorm(0)] ?: error("missing attn_norm")
         assertEquals(1, norm.shape.rank, "precondition: norms are rank-1")
         assertTrue(
             norm.data !is NarrowFloatInputMajorTensorData,

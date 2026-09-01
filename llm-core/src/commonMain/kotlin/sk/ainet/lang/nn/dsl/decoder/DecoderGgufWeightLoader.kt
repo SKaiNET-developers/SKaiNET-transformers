@@ -1,4 +1,4 @@
-package sk.ainet.models.llama
+package sk.ainet.lang.nn.dsl.decoder
 
 import kotlinx.io.Source
 import kotlinx.io.buffered
@@ -33,7 +33,7 @@ import sk.ainet.lang.types.FP16
 import sk.ainet.lang.types.FP32
 import kotlin.reflect.KClass
 
-public data class LlamaModelMetadata(
+public data class GgufDecoderMetadata(
     val architecture: String,
     override val embeddingLength: Int,
     override val contextLength: Int,
@@ -50,7 +50,7 @@ public data class LlamaModelMetadata(
 ) : sk.ainet.lang.nn.dsl.decoder.DecoderModelMetadata
 
 public data class DecoderGgufWeights<T : DType, V>(
-    val metadata: LlamaModelMetadata,
+    val metadata: GgufDecoderMetadata,
     val tensors: Map<String, Tensor<T, V>>
 )
 
@@ -65,7 +65,7 @@ public val DECODER_DEQUANTIZE_ALL: WeightForm = WeightForm(
     shape = WeightShapeOrientation.OUT_IN
 )
 
-public object LlamaTensorNames {
+public object DecoderTensorNames {
     const val TOKEN_EMBEDDINGS: String = "token_embd.weight"
     const val OUTPUT_NORM: String = "output_norm.weight"
     const val OUTPUT_WEIGHT: String = "output.weight"
@@ -170,14 +170,14 @@ public class DecoderGgufWeightLoader private constructor(
         ctx: ExecutionContext,
         dtype: KClass<T>,
         onTensorLoaded: (String, Tensor<T, V>) -> Unit
-    ): LlamaModelMetadata {
+    ): GgufDecoderMetadata {
         return loadFromGguf(ctx, dtype, onTensorLoaded)
     }
 
     public suspend inline fun <reified T : DType, V> load(
         ctx: ExecutionContext,
         noinline onTensorLoaded: (String, Tensor<T, V>) -> Unit
-    ): LlamaModelMetadata = load(ctx, T::class, onTensorLoaded)
+    ): GgufDecoderMetadata = load(ctx, T::class, onTensorLoaded)
 
     /** Convenience helper that collects tensors into a map alongside metadata. */
     public suspend fun <T : DType, V> loadToMap(
@@ -203,14 +203,14 @@ public class DecoderGgufWeightLoader private constructor(
         ctx: ExecutionContext,
         dtype: KClass<T>,
         onTensorLoaded: (String, Tensor<T, V>) -> Unit
-    ): LlamaModelMetadata {
+    ): GgufDecoderMetadata {
         return loadFromStreamingGguf(ctx, dtype, onTensorLoaded)
     }
 
     public suspend inline fun <reified T : DType, V> loadStreaming(
         ctx: ExecutionContext,
         noinline onTensorLoaded: (String, Tensor<T, V>) -> Unit
-    ): LlamaModelMetadata = loadStreaming(ctx, T::class, onTensorLoaded)
+    ): GgufDecoderMetadata = loadStreaming(ctx, T::class, onTensorLoaded)
 
     /**
      * Load weights to map using streaming API.
@@ -233,7 +233,7 @@ public class DecoderGgufWeightLoader private constructor(
         ctx: ExecutionContext,
         dtype: KClass<T>,
         onTensorLoaded: (String, Tensor<T, V>) -> Unit
-    ): LlamaModelMetadata {
+    ): GgufDecoderMetadata {
         require(dtype == FP32::class || dtype == FP16::class) {
             "LLaMA GGUF loader supports FP32 and FP16 tensors (got ${dtype.simpleName})"
         }
@@ -252,15 +252,15 @@ public class DecoderGgufWeightLoader private constructor(
         val tensorByName = reader.tensors.associateBy { it.name }
 
         // Tied embeddings (Qwen2.5-0.5B/1.5B, Gemma, etc.): reuse token_embd.weight as output.weight
-        val tiedEmbeddings = tensorByName[LlamaTensorNames.OUTPUT_WEIGHT] == null &&
-            tensorByName[LlamaTensorNames.TOKEN_EMBEDDINGS] != null
+        val tiedEmbeddings = tensorByName[DecoderTensorNames.OUTPUT_WEIGHT] == null &&
+            tensorByName[DecoderTensorNames.TOKEN_EMBEDDINGS] != null
         if (tiedEmbeddings) {
             println("Tied word embeddings: output.weight = token_embd.weight")
         }
 
         required.forEach { name ->
-            val lookupName = if (name == LlamaTensorNames.OUTPUT_WEIGHT && tiedEmbeddings) {
-                LlamaTensorNames.TOKEN_EMBEDDINGS
+            val lookupName = if (name == DecoderTensorNames.OUTPUT_WEIGHT && tiedEmbeddings) {
+                DecoderTensorNames.TOKEN_EMBEDDINGS
             } else {
                 name
             }
@@ -273,12 +273,12 @@ public class DecoderGgufWeightLoader private constructor(
 
         // Optional tensors (e.g., precomputed RoPE tables, QK-norm) if present
         val optionalNames = mutableListOf(
-            LlamaTensorNames.ROPE_FREQS_REAL,
-            LlamaTensorNames.ROPE_FREQS_IMAG
+            DecoderTensorNames.ROPE_FREQS_REAL,
+            DecoderTensorNames.ROPE_FREQS_IMAG
         )
         repeat(metadata.blockCount) { layer ->
-            optionalNames += LlamaTensorNames.attnQNorm(layer)
-            optionalNames += LlamaTensorNames.attnKNorm(layer)
+            optionalNames += DecoderTensorNames.attnQNorm(layer)
+            optionalNames += DecoderTensorNames.attnKNorm(layer)
         }
         optionalNames.forEach { name ->
             val rt = tensorByName[name]
@@ -306,7 +306,7 @@ public class DecoderGgufWeightLoader private constructor(
         ctx: ExecutionContext,
         dtype: KClass<T>,
         onTensorLoaded: (String, Tensor<T, V>) -> Unit
-    ): LlamaModelMetadata {
+    ): GgufDecoderMetadata {
         require(dtype == FP32::class) {
             "Engine-backed streaming GGUF loading delivers FP32-typed tensors (got ${dtype.simpleName})"
         }
@@ -315,7 +315,7 @@ public class DecoderGgufWeightLoader private constructor(
         }
 
         // Header pass: metadata, shape validation, tied-embedding detection.
-        val metadata: LlamaModelMetadata
+        val metadata: GgufDecoderMetadata
         val wanted: Set<String>
         val tiedEmbeddings: Boolean
         StreamingGGUFReader.open(randomAccessProvider.invoke()).use { reader ->
@@ -327,15 +327,15 @@ public class DecoderGgufWeightLoader private constructor(
 
             // Tied embeddings: small models (Qwen2.5-0.5B/1.5B, etc.) omit output.weight
             // and reuse token_embd.weight as the LM head. Detect and alias.
-            tiedEmbeddings = tensorByName[LlamaTensorNames.OUTPUT_WEIGHT] == null &&
-                tensorByName[LlamaTensorNames.TOKEN_EMBEDDINGS] != null
+            tiedEmbeddings = tensorByName[DecoderTensorNames.OUTPUT_WEIGHT] == null &&
+                tensorByName[DecoderTensorNames.TOKEN_EMBEDDINGS] != null
             if (tiedEmbeddings) {
                 println("Tied word embeddings: output.weight = token_embd.weight")
             }
 
             required.forEach { name ->
-                val lookupName = if (name == LlamaTensorNames.OUTPUT_WEIGHT && tiedEmbeddings) {
-                    LlamaTensorNames.TOKEN_EMBEDDINGS
+                val lookupName = if (name == DecoderTensorNames.OUTPUT_WEIGHT && tiedEmbeddings) {
+                    DecoderTensorNames.TOKEN_EMBEDDINGS
                 } else {
                     name
                 }
@@ -347,16 +347,16 @@ public class DecoderGgufWeightLoader private constructor(
             }
 
             val optionalNames = mutableListOf(
-                LlamaTensorNames.ROPE_FREQS_REAL,
-                LlamaTensorNames.ROPE_FREQS_IMAG
+                DecoderTensorNames.ROPE_FREQS_REAL,
+                DecoderTensorNames.ROPE_FREQS_IMAG
             )
             repeat(metadata.blockCount) { layer ->
-                optionalNames += LlamaTensorNames.attnQNorm(layer)
-                optionalNames += LlamaTensorNames.attnKNorm(layer)
+                optionalNames += DecoderTensorNames.attnQNorm(layer)
+                optionalNames += DecoderTensorNames.attnKNorm(layer)
             }
             wanted = buildSet {
                 addAll(required)
-                add(LlamaTensorNames.TOKEN_EMBEDDINGS)
+                add(DecoderTensorNames.TOKEN_EMBEDDINGS)
                 optionalNames.forEach { if (it in tensorByName) add(it) }
             }
         }
@@ -386,15 +386,15 @@ public class DecoderGgufWeightLoader private constructor(
             // deliver a bare packed table to Embedding: packed `get()`
             // returns raw quantization codes, not values.
             val delivered =
-                if (name == LlamaTensorNames.TOKEN_EMBEDDINGS) embeddingReady(ctx, dtype, tensor)
+                if (name == DecoderTensorNames.TOKEN_EMBEDDINGS) embeddingReady(ctx, dtype, tensor)
                 else tensor
-            if (name == LlamaTensorNames.TOKEN_EMBEDDINGS) tokenEmbedding = delivered
+            if (name == DecoderTensorNames.TOKEN_EMBEDDINGS) tokenEmbedding = delivered
             if (name in wanted) onTensorLoaded(name, delivered)
         }
         if (tiedEmbeddings) {
             onTensorLoaded(
-                LlamaTensorNames.OUTPUT_WEIGHT,
-                tokenEmbedding ?: error("Tied embeddings detected but ${LlamaTensorNames.TOKEN_EMBEDDINGS} was not delivered")
+                DecoderTensorNames.OUTPUT_WEIGHT,
+                tokenEmbedding ?: error("Tied embeddings detected but ${DecoderTensorNames.TOKEN_EMBEDDINGS} was not delivered")
             )
         }
 
@@ -431,22 +431,22 @@ public class DecoderGgufWeightLoader private constructor(
 
 
 
-    private fun validateStreamingTensorShape(name: String, tensor: StreamingTensorInfo, metadata: LlamaModelMetadata) {
+    private fun validateStreamingTensorShape(name: String, tensor: StreamingTensorInfo, metadata: GgufDecoderMetadata) {
         val dims = tensor.shape.map { it.toInt() }
         when (name) {
-            LlamaTensorNames.TOKEN_EMBEDDINGS, LlamaTensorNames.OUTPUT_WEIGHT -> {
+            DecoderTensorNames.TOKEN_EMBEDDINGS, DecoderTensorNames.OUTPUT_WEIGHT -> {
                 require(dims.size == 2 && dims.contains(metadata.embeddingLength)) {
                     "Tensor $name must be [vocab, dim] shaped; got $dims"
                 }
             }
 
-            LlamaTensorNames.OUTPUT_NORM -> {
+            DecoderTensorNames.OUTPUT_NORM -> {
                 require(dims.size == 1 && dims[0] == metadata.embeddingLength) {
                     "Tensor $name must be [${metadata.embeddingLength}] shaped; got $dims"
                 }
             }
 
-            LlamaTensorNames.ROPE_FREQS_REAL, LlamaTensorNames.ROPE_FREQS_IMAG -> {
+            DecoderTensorNames.ROPE_FREQS_REAL, DecoderTensorNames.ROPE_FREQS_IMAG -> {
                 val headSize = metadata.embeddingLength / metadata.headCount
                 require(dims.size == 2 && dims[0] == metadata.contextLength && dims[1] == headSize / 2) {
                     val expectedShape = "[${metadata.contextLength}, ${headSize / 2}]"
@@ -500,7 +500,7 @@ public class DecoderGgufWeightLoader private constructor(
     private fun metadataFromGguf(
         fields: Map<String, ReaderField>,
         tensors: List<ReaderTensor>
-    ): LlamaModelMetadata {
+    ): GgufDecoderMetadata {
         val arch = fields["general.architecture"]?.stringValue() ?: "unknown"
         val prefix = arch
 
@@ -532,7 +532,7 @@ public class DecoderGgufWeightLoader private constructor(
             }
         }
 
-        return LlamaModelMetadata(
+        return GgufDecoderMetadata(
             architecture = arch,
             embeddingLength = embeddingLength,
             contextLength = contextLength,
@@ -549,7 +549,7 @@ public class DecoderGgufWeightLoader private constructor(
         )
     }
 
-    private fun validateMetadata(metadata: LlamaModelMetadata) {
+    private fun validateMetadata(metadata: GgufDecoderMetadata) {
         require(metadata.architecture in acceptedArchitectures) {
             "Unsupported architecture: ${metadata.architecture}. Accepted: $acceptedArchitectures"
         }
@@ -560,36 +560,36 @@ public class DecoderGgufWeightLoader private constructor(
         require(metadata.vocabSize > 0) { "Invalid vocab size ${metadata.vocabSize}" }
     }
 
-    private fun requiredTensorNames(metadata: LlamaModelMetadata): List<String> {
+    private fun requiredTensorNames(metadata: GgufDecoderMetadata): List<String> {
         val names = mutableListOf<String>()
-        names += LlamaTensorNames.TOKEN_EMBEDDINGS
-        names += LlamaTensorNames.OUTPUT_NORM
-        names += LlamaTensorNames.OUTPUT_WEIGHT
+        names += DecoderTensorNames.TOKEN_EMBEDDINGS
+        names += DecoderTensorNames.OUTPUT_NORM
+        names += DecoderTensorNames.OUTPUT_WEIGHT
 
         repeat(metadata.blockCount) { layer ->
-            names += LlamaTensorNames.attnNorm(layer)
-            names += LlamaTensorNames.attnQ(layer)
-            names += LlamaTensorNames.attnK(layer)
-            names += LlamaTensorNames.attnV(layer)
-            names += LlamaTensorNames.attnOut(layer)
-            names += LlamaTensorNames.ffnNorm(layer)
-            names += LlamaTensorNames.ffnGate(layer)
-            names += LlamaTensorNames.ffnDown(layer)
-            names += LlamaTensorNames.ffnUp(layer)
+            names += DecoderTensorNames.attnNorm(layer)
+            names += DecoderTensorNames.attnQ(layer)
+            names += DecoderTensorNames.attnK(layer)
+            names += DecoderTensorNames.attnV(layer)
+            names += DecoderTensorNames.attnOut(layer)
+            names += DecoderTensorNames.ffnNorm(layer)
+            names += DecoderTensorNames.ffnGate(layer)
+            names += DecoderTensorNames.ffnDown(layer)
+            names += DecoderTensorNames.ffnUp(layer)
         }
         return names
     }
 
-    private fun validateTensorShape(name: String, tensor: ReaderTensor, metadata: LlamaModelMetadata) {
+    private fun validateTensorShape(name: String, tensor: ReaderTensor, metadata: GgufDecoderMetadata) {
         val dims = tensor.shape.map { it.toInt() }
         when (name) {
-            LlamaTensorNames.TOKEN_EMBEDDINGS, LlamaTensorNames.OUTPUT_WEIGHT -> {
+            DecoderTensorNames.TOKEN_EMBEDDINGS, DecoderTensorNames.OUTPUT_WEIGHT -> {
                 require(dims.size == 2 && dims.contains(metadata.embeddingLength)) {
                     "Tensor $name must be [vocab, dim] shaped; got $dims"
                 }
             }
 
-            LlamaTensorNames.OUTPUT_NORM -> {
+            DecoderTensorNames.OUTPUT_NORM -> {
                 require(dims.size == 1 && dims[0] == metadata.embeddingLength) {
                     "Tensor $name must be [${
                         metadata.embeddingLength
@@ -597,7 +597,7 @@ public class DecoderGgufWeightLoader private constructor(
                 }
             }
 
-            LlamaTensorNames.ROPE_FREQS_REAL, LlamaTensorNames.ROPE_FREQS_IMAG -> {
+            DecoderTensorNames.ROPE_FREQS_REAL, DecoderTensorNames.ROPE_FREQS_IMAG -> {
                 val headSize = metadata.embeddingLength / metadata.headCount
                 require(dims.size == 2 && dims[0] == metadata.contextLength && dims[1] == headSize / 2) {
                     val expectedShape = "[${metadata.contextLength}, ${headSize / 2}]"
@@ -692,7 +692,7 @@ public class DecoderGgufWeightLoader private constructor(
     }
 
     private fun inferEmbeddingFromTensor(tensors: List<ReaderTensor>): Int {
-        val token = tensors.firstOrNull { it.name == LlamaTensorNames.TOKEN_EMBEDDINGS }
+        val token = tensors.firstOrNull { it.name == DecoderTensorNames.TOKEN_EMBEDDINGS }
             ?: error("Cannot infer embedding length without token embeddings tensor")
         // For most LLMs, embedding_length < vocab_size, so we take the min
         return token.shape.map { it.toInt() }.minOrNull()
@@ -700,7 +700,7 @@ public class DecoderGgufWeightLoader private constructor(
     }
 
     private fun inferVocabFromTensor(tensors: List<ReaderTensor>): Int {
-        val token = tensors.firstOrNull { it.name == LlamaTensorNames.TOKEN_EMBEDDINGS }
+        val token = tensors.firstOrNull { it.name == DecoderTensorNames.TOKEN_EMBEDDINGS }
             ?: error("Cannot infer vocab size without token embeddings tensor")
         // For most LLMs, vocab_size > embedding_length, so we take the max
         return token.shape.map { it.toInt() }.maxOrNull()
