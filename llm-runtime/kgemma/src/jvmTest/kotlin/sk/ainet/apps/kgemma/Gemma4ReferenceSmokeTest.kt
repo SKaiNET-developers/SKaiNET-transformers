@@ -22,7 +22,7 @@ import sk.ainet.llm.api.FinishReason
  *    the loader integration end-to-end.
  *  - Complex architecture: sliding-window attention + per-layer KV sharing
  *    (Gemma-4 specifics that the new policy-resolution pass must not break).
- *  - `Gemma4ChatModel.fromSafeTensors` → `InferenceRuntime` → `Tokenizer` →
+ *  - `GemmaChatModel.fromSafeTensors` → `InferenceRuntime` → `Tokenizer` →
  *    `Gemma4ChatTemplate` → `SkaiNetChatModel` wiring.
  *
  * Tagged `@Tag("smoke-reference")` so it runs only under
@@ -40,7 +40,7 @@ class Gemma4ReferenceSmokeTest {
 
         val maxTokens = probeMaxTokens(default = 32)
 
-        val model = Gemma4ChatModel.fromSafeTensors(
+        val model = GemmaChatModel.fromSafeTensors(
             indexPath = indexPath!!.toString(),
             options = ChatOptions(
                 temperature = 0f,

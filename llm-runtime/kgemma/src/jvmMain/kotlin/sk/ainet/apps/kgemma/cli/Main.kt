@@ -2,9 +2,9 @@ package sk.ainet.apps.kgemma.cli
 
 import sk.ainet.apps.kgemma.Gemma3nIngestion
 import sk.ainet.apps.kgemma.Gemma3nLoadConfig
-import sk.ainet.apps.kgemma.Gemma4Ingestion
+import sk.ainet.apps.kgemma.GemmaIngestion
 import sk.ainet.apps.kgemma.Gemma4LoadConfig
-import sk.ainet.apps.kgemma.Gemma4StopTokens
+import sk.ainet.apps.kgemma.GemmaStopTokens
 import sk.ainet.apps.kgemma.KgemmaKernels
 import sk.ainet.apps.kllama.GGUFTokenizer
 import sk.ainet.apps.kllama.chat.ChatMessage
@@ -200,7 +200,7 @@ fun main(args: Array<String>) {
 
         val runtime: InferenceRuntime<FP32> = when (variant) {
             GemmaVariant.GEMMA4 -> {
-                val ingestion = Gemma4Ingestion<FP32>(
+                val ingestion = GemmaIngestion<FP32>(
                     ctx = ctx,
                     dtype = FP32::class,
                     config = Gemma4LoadConfig()
@@ -341,7 +341,7 @@ fun main(args: Array<String>) {
 
             // Stop on the model's full stop set (Gemma 4: <eos>, <turn|>,
             // chat-end), not on a step budget alone.
-            val stopIds = Gemma4StopTokens.resolve(tokenizer)
+            val stopIds = GemmaStopTokens.resolve(tokenizer)
 
             println(
                 "Generating up to ${cliArgs.steps} tokens with temperature=${cliArgs.temperature} " +

@@ -21,7 +21,7 @@ import kotlin.test.Test
 class RealGemmaMlirDumpTest {
     @Test
     fun dumpRealGemmaMlir() {
-        val meta = Gemma4ModelMetadata(
+        val meta = GemmaModelMetadata(
             architecture = "gemma3",
             embeddingLength = 640,
             contextLength = 512,
@@ -35,8 +35,8 @@ class RealGemmaMlirDumpTest {
             slidingWindow = 512,
             kvSharedLayers = 0,
             layerTypes = List(18) { "full_attention" },
-            ropeParametersFull = Gemma4RopeConfig(base = 1000000.0f),
-            ropeParametersSliding = Gemma4RopeConfig(base = 10000.0f),
+            ropeParametersFull = GemmaRopeConfig(base = 1000000.0f),
+            ropeParametersSliding = GemmaRopeConfig(base = 10000.0f),
             maxPositionEmbeddings = 512,
         )
         val seqLen = (System.getProperty("seqLen") ?: "4").toInt()

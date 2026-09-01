@@ -5,7 +5,7 @@ import kotlin.io.path.exists
 import kotlin.io.path.isDirectory
 import kotlin.test.Test
 import kotlinx.coroutines.runBlocking
-import sk.ainet.apps.kgemma.Gemma4Ingestion
+import sk.ainet.apps.kgemma.GemmaIngestion
 import sk.ainet.apps.kgemma.Gemma4LoadConfig
 import sk.ainet.apps.kllama.GGUFTokenizer
 import sk.ainet.context.DirectCpuExecutionContext
@@ -62,7 +62,7 @@ class Gemma4ReferenceParityDiagnostic {
             val memSegFactory = MemorySegmentTensorDataFactory()
             val ctx = DirectCpuExecutionContext(tensorDataFactory = memSegFactory)
             try {
-                val ingestion = Gemma4Ingestion<FP32>(
+                val ingestion = GemmaIngestion<FP32>(
                     ctx = ctx,
                     dtype = FP32::class,
                     config = Gemma4LoadConfig()

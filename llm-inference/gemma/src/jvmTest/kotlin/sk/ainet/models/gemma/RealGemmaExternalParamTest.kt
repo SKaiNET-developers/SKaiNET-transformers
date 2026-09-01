@@ -33,7 +33,7 @@ class RealGemmaExternalParamTest {
     fun externalizeRealGemmaWeights() = runBlocking {
         val path = FunctionGemmaFixture.gguf
         val ctx = DirectCpuExecutionContext.create()
-        val weights = Gemma4WeightLoader(
+        val weights = GemmaWeightLoader(
             randomAccessProvider = { JvmRandomAccessSource.open(path) },
             weightForm = GEMMA_DEQUANTIZE_ALL,
         ).loadToMapStreaming<FP32, Float>(ctx, FP32::class)

@@ -123,22 +123,6 @@ public final class sk/ainet/models/gemma/Gemma3nConfigParser {
 	public final fun parseFromJson (Ljava/lang/String;)Lsk/ainet/models/gemma/Gemma3nModelMetadata;
 }
 
-public final class sk/ainet/models/gemma/Gemma3nGgufTensorNames : sk/ainet/io/gguf/TensorNameMapper {
-	public static final field INSTANCE Lsk/ainet/models/gemma/Gemma3nGgufTensorNames;
-	public fun layerAttnK (I)Ljava/lang/String;
-	public fun layerAttnNorm (I)Ljava/lang/String;
-	public fun layerAttnO (I)Ljava/lang/String;
-	public fun layerAttnQ (I)Ljava/lang/String;
-	public fun layerAttnV (I)Ljava/lang/String;
-	public fun layerFfnDown (I)Ljava/lang/String;
-	public fun layerFfnGate (I)Ljava/lang/String;
-	public fun layerFfnNorm (I)Ljava/lang/String;
-	public fun layerFfnUp (I)Ljava/lang/String;
-	public fun outputNorm ()Ljava/lang/String;
-	public fun outputWeight ()Ljava/lang/String;
-	public fun tokenEmbedding ()Ljava/lang/String;
-}
-
 public abstract interface class sk/ainet/models/gemma/Gemma3nKvCache : sk/ainet/apps/llm/KvCache {
 }
 
@@ -399,96 +383,17 @@ public final class sk/ainet/models/gemma/Gemma3nWeights {
 	public fun toString ()Ljava/lang/String;
 }
 
-public final class sk/ainet/models/gemma/Gemma4AttentionBackend : sk/ainet/models/gemma/AttentionBackend {
-	public fun <init> (Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/gemma/Gemma4RuntimeWeights;Lkotlin/reflect/KClass;Lsk/ainet/models/gemma/Gemma4Config;Lsk/ainet/models/gemma/Gemma4KvCache;)V
-	public synthetic fun <init> (Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/gemma/Gemma4RuntimeWeights;Lkotlin/reflect/KClass;Lsk/ainet/models/gemma/Gemma4Config;Lsk/ainet/models/gemma/Gemma4KvCache;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public fun attention (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;II)Lsk/ainet/lang/tensor/Tensor;
-	public fun reset ()V
+public final class sk/ainet/models/gemma/GemmaConfigParser {
+	public static final field INSTANCE Lsk/ainet/models/gemma/GemmaConfigParser;
+	public final fun parseFromJson (Ljava/lang/String;)Lsk/ainet/models/gemma/GemmaModelMetadata;
 }
 
-public final class sk/ainet/models/gemma/Gemma4Config {
-	public static final field Companion Lsk/ainet/models/gemma/Gemma4Config$Companion;
+public final class sk/ainet/models/gemma/GemmaGGUFNameResolver : sk/ainet/io/weights/WeightNameResolver {
 	public fun <init> ()V
-	public fun <init> (IIIIIIIILjava/util/List;FFLjava/lang/String;FFIIII)V
-	public synthetic fun <init> (IIIIIIIILjava/util/List;FFLjava/lang/String;FFIIIIILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public final fun component1 ()I
-	public final fun component10 ()F
-	public final fun component11 ()F
-	public final fun component12 ()Ljava/lang/String;
-	public final fun component13 ()F
-	public final fun component14 ()F
-	public final fun component15 ()I
-	public final fun component16 ()I
-	public final fun component17 ()I
-	public final fun component18 ()I
-	public final fun component2 ()I
-	public final fun component3 ()I
-	public final fun component4 ()I
-	public final fun component5 ()I
-	public final fun component6 ()I
-	public final fun component7 ()I
-	public final fun component8 ()I
-	public final fun component9 ()Ljava/util/List;
-	public final fun copy (IIIIIIIILjava/util/List;FFLjava/lang/String;FFIIII)Lsk/ainet/models/gemma/Gemma4Config;
-	public static synthetic fun copy$default (Lsk/ainet/models/gemma/Gemma4Config;IIIIIIIILjava/util/List;FFLjava/lang/String;FFIIIIILjava/lang/Object;)Lsk/ainet/models/gemma/Gemma4Config;
-	public fun equals (Ljava/lang/Object;)Z
-	public final fun getCacheLayerIndex (I)I
-	public final fun getEffectiveCacheLayers ()I
-	public final fun getGlobalHeadDim ()I
-	public final fun getGlobalKvDim ()I
-	public final fun getGlobalQueryDim ()I
-	public final fun getHeadDim ()I
-	public final fun getHeadDim (I)I
-	public final fun getHiddenSize ()I
-	public final fun getIntermediateSize ()I
-	public final fun getKvDim ()I
-	public final fun getKvDim (I)I
-	public final fun getKvSharedLayers ()I
-	public final fun getLayerType (I)Lsk/ainet/models/gemma/LayerType;
-	public final fun getLayerTypes ()Ljava/util/List;
-	public final fun getMaxPositionEmbeddings ()I
-	public final fun getNumAttentionHeads ()I
-	public final fun getNumHeadsPerKv ()I
-	public final fun getNumKvHeads ()I
-	public final fun getNumLayers ()I
-	public final fun getOriginalMaxPositionEmbeddings ()I
-	public final fun getPartialRotaryFactor ()F
-	public final fun getPerLayerHiddenSize ()I
-	public final fun getQueryDim ()I
-	public final fun getQueryDim (I)I
-	public final fun getRopeBase (I)F
-	public final fun getRopeBaseGlobal ()F
-	public final fun getRopeBaseLocal ()F
-	public final fun getRopeFactor ()F
-	public final fun getRopeType ()Ljava/lang/String;
-	public final fun getRotaryDim (I)I
-	public final fun getSlidingWindow ()I
-	public fun hashCode ()I
-	public final fun isGlobalLayer (I)Z
-	public final fun isKvShared (I)Z
-	public final fun isLocalLayer (I)Z
-	public fun toString ()Ljava/lang/String;
+	public fun resolve (Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
 }
 
-public final class sk/ainet/models/gemma/Gemma4Config$Companion {
-	public final fun fromMetadata (Lsk/ainet/models/gemma/Gemma4ModelMetadata;)Lsk/ainet/models/gemma/Gemma4Config;
-	public final fun getE2B_DEFAULT ()Lsk/ainet/models/gemma/Gemma4Config;
-	public final fun getE4B_DEFAULT ()Lsk/ainet/models/gemma/Gemma4Config;
-}
-
-public final class sk/ainet/models/gemma/Gemma4ConfigParser {
-	public static final field INSTANCE Lsk/ainet/models/gemma/Gemma4ConfigParser;
-	public final fun parseFromJson (Ljava/lang/String;)Lsk/ainet/models/gemma/Gemma4ModelMetadata;
-}
-
-public abstract interface class sk/ainet/models/gemma/Gemma4KvCache : sk/ainet/apps/llm/KvCache {
-}
-
-public final class sk/ainet/models/gemma/Gemma4KvCacheKt {
-	public static final fun createOptimalGemma4KvCache (Lsk/ainet/models/gemma/Gemma4Config;I)Lsk/ainet/models/gemma/Gemma4KvCache;
-}
-
-public final class sk/ainet/models/gemma/Gemma4LayerWeights {
+public final class sk/ainet/models/gemma/GemmaLayerWeights {
 	public fun <init> (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;)V
 	public synthetic fun <init> (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()Lsk/ainet/lang/tensor/Tensor;
@@ -504,8 +409,8 @@ public final class sk/ainet/models/gemma/Gemma4LayerWeights {
 	public final fun component7 ()Lsk/ainet/lang/tensor/Tensor;
 	public final fun component8 ()Lsk/ainet/lang/tensor/Tensor;
 	public final fun component9 ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun copy (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;)Lsk/ainet/models/gemma/Gemma4LayerWeights;
-	public static synthetic fun copy$default (Lsk/ainet/models/gemma/Gemma4LayerWeights;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;ILjava/lang/Object;)Lsk/ainet/models/gemma/Gemma4LayerWeights;
+	public final fun copy (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;)Lsk/ainet/models/gemma/GemmaLayerWeights;
+	public static synthetic fun copy$default (Lsk/ainet/models/gemma/GemmaLayerWeights;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;ILjava/lang/Object;)Lsk/ainet/models/gemma/GemmaLayerWeights;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getAttnKNorm ()Lsk/ainet/lang/tensor/Tensor;
 	public final fun getAttnQNorm ()Lsk/ainet/lang/tensor/Tensor;
@@ -522,229 +427,6 @@ public final class sk/ainet/models/gemma/Gemma4LayerWeights {
 	public final fun getWv ()Lsk/ainet/lang/tensor/Tensor;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
-}
-
-public final class sk/ainet/models/gemma/Gemma4ModelMetadata {
-	public static final field Companion Lsk/ainet/models/gemma/Gemma4ModelMetadata$Companion;
-	public static final field DEFAULT_GLOBAL_HEAD_DIM I
-	public static final field DEFAULT_HEAD_DIM I
-	public static final field DEFAULT_KV_SHARED_LAYERS I
-	public static final field DEFAULT_SLIDING_WINDOW I
-	public fun <init> (Ljava/lang/String;IIIIIIIIIIILjava/util/List;Lsk/ainet/models/gemma/Gemma4RopeConfig;Lsk/ainet/models/gemma/Gemma4RopeConfig;IILjava/util/List;IIIFF)V
-	public synthetic fun <init> (Ljava/lang/String;IIIIIIIIIIILjava/util/List;Lsk/ainet/models/gemma/Gemma4RopeConfig;Lsk/ainet/models/gemma/Gemma4RopeConfig;IILjava/util/List;IIIFFILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public final fun component1 ()Ljava/lang/String;
-	public final fun component10 ()I
-	public final fun component11 ()I
-	public final fun component12 ()I
-	public final fun component13 ()Ljava/util/List;
-	public final fun component14 ()Lsk/ainet/models/gemma/Gemma4RopeConfig;
-	public final fun component15 ()Lsk/ainet/models/gemma/Gemma4RopeConfig;
-	public final fun component16 ()I
-	public final fun component17 ()I
-	public final fun component18 ()Ljava/util/List;
-	public final fun component19 ()I
-	public final fun component2 ()I
-	public final fun component20 ()I
-	public final fun component21 ()I
-	public final fun component22 ()F
-	public final fun component23 ()F
-	public final fun component3 ()I
-	public final fun component4 ()I
-	public final fun component5 ()I
-	public final fun component6 ()I
-	public final fun component7 ()I
-	public final fun component8 ()I
-	public final fun component9 ()I
-	public final fun copy (Ljava/lang/String;IIIIIIIIIIILjava/util/List;Lsk/ainet/models/gemma/Gemma4RopeConfig;Lsk/ainet/models/gemma/Gemma4RopeConfig;IILjava/util/List;IIIFF)Lsk/ainet/models/gemma/Gemma4ModelMetadata;
-	public static synthetic fun copy$default (Lsk/ainet/models/gemma/Gemma4ModelMetadata;Ljava/lang/String;IIIIIIIIIIILjava/util/List;Lsk/ainet/models/gemma/Gemma4RopeConfig;Lsk/ainet/models/gemma/Gemma4RopeConfig;IILjava/util/List;IIIFFILjava/lang/Object;)Lsk/ainet/models/gemma/Gemma4ModelMetadata;
-	public fun equals (Ljava/lang/Object;)Z
-	public final fun getArchitecture ()Ljava/lang/String;
-	public final fun getBlockCount ()I
-	public final fun getBosTokenId ()I
-	public final fun getCacheLayerIndex (I)I
-	public final fun getContextLength ()I
-	public final fun getEffectiveWindow (I)I
-	public final fun getEmbeddingLength ()I
-	public final fun getEosTokenId ()I
-	public final fun getFinalLogitSoftcapping ()F
-	public final fun getGlobalHeadDim ()I
-	public final fun getHeadCount ()I
-	public final fun getHeadDim ()I
-	public final fun getHeadDim (I)I
-	public final fun getIntermediateSize ()I
-	public final fun getIntermediateSize (I)I
-	public final fun getKvHeadCount ()I
-	public final fun getKvSharedLayers ()I
-	public final fun getLayerType (I)Lsk/ainet/models/gemma/LayerType;
-	public final fun getLayerTypes ()Ljava/util/List;
-	public final fun getMaxPositionEmbeddings ()I
-	public final fun getPadTokenId ()I
-	public final fun getPerLayerEmbeddingLength ()I
-	public final fun getPerLayerIntermediateSize ()Ljava/util/List;
-	public final fun getRmsNormEps ()F
-	public final fun getRopeBase (I)F
-	public final fun getRopeParametersFull ()Lsk/ainet/models/gemma/Gemma4RopeConfig;
-	public final fun getRopeParametersSliding ()Lsk/ainet/models/gemma/Gemma4RopeConfig;
-	public final fun getSlidingWindow ()I
-	public final fun getVocabSize ()I
-	public fun hashCode ()I
-	public final fun isKvShared (I)Z
-	public fun toString ()Ljava/lang/String;
-}
-
-public final class sk/ainet/models/gemma/Gemma4ModelMetadata$Companion {
-}
-
-public final class sk/ainet/models/gemma/Gemma4RopeConfig {
-	public fun <init> (FLjava/lang/String;FIF)V
-	public synthetic fun <init> (FLjava/lang/String;FIFILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public final fun component1 ()F
-	public final fun component2 ()Ljava/lang/String;
-	public final fun component3 ()F
-	public final fun component4 ()I
-	public final fun component5 ()F
-	public final fun copy (FLjava/lang/String;FIF)Lsk/ainet/models/gemma/Gemma4RopeConfig;
-	public static synthetic fun copy$default (Lsk/ainet/models/gemma/Gemma4RopeConfig;FLjava/lang/String;FIFILjava/lang/Object;)Lsk/ainet/models/gemma/Gemma4RopeConfig;
-	public fun equals (Ljava/lang/Object;)Z
-	public final fun getBase ()F
-	public final fun getFactor ()F
-	public final fun getOriginalMaxPositionEmbeddings ()I
-	public final fun getPartialRotaryFactor ()F
-	public final fun getRopeType ()Ljava/lang/String;
-	public fun hashCode ()I
-	public fun toString ()Ljava/lang/String;
-}
-
-public final class sk/ainet/models/gemma/Gemma4RuntimeWeights {
-	public fun <init> (Lsk/ainet/models/gemma/Gemma4ModelMetadata;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/List;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;)V
-	public synthetic fun <init> (Lsk/ainet/models/gemma/Gemma4ModelMetadata;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/List;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public final fun component1 ()Lsk/ainet/models/gemma/Gemma4ModelMetadata;
-	public final fun component10 ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun component2 ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun component3 ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun component4 ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun component5 ()Ljava/util/List;
-	public final fun component6 ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun component7 ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun component8 ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun component9 ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun copy (Lsk/ainet/models/gemma/Gemma4ModelMetadata;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/List;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;)Lsk/ainet/models/gemma/Gemma4RuntimeWeights;
-	public static synthetic fun copy$default (Lsk/ainet/models/gemma/Gemma4RuntimeWeights;Lsk/ainet/models/gemma/Gemma4ModelMetadata;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/List;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;ILjava/lang/Object;)Lsk/ainet/models/gemma/Gemma4RuntimeWeights;
-	public fun equals (Ljava/lang/Object;)Z
-	public final fun getFinalNorm ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun getLayers ()Ljava/util/List;
-	public final fun getLmHead ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun getMetadata ()Lsk/ainet/models/gemma/Gemma4ModelMetadata;
-	public final fun getPerLayerModelProj ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun getPerLayerProjNorm ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun getPerLayerTokenEmbedding ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun getRopeFreqImag ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun getRopeFreqReal ()Lsk/ainet/lang/tensor/Tensor;
-	public final fun getTokenEmbedding ()Lsk/ainet/lang/tensor/Tensor;
-	public fun hashCode ()I
-	public fun toString ()Ljava/lang/String;
-}
-
-public final class sk/ainet/models/gemma/Gemma4RuntimeWeightsKt {
-	public static final fun loadGemma4RuntimeWeights (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static final fun loadGemma4RuntimeWeights (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lkotlin/reflect/KClass;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static final fun loadGemma4RuntimeWeightsStreaming (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lkotlin/reflect/KClass;Lsk/ainet/lang/memory/plan/WeightForm;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static final fun loadGemma4RuntimeWeightsStreaming (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lsk/ainet/lang/memory/plan/WeightForm;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static synthetic fun loadGemma4RuntimeWeightsStreaming$default (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lkotlin/reflect/KClass;Lsk/ainet/lang/memory/plan/WeightForm;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
-	public static synthetic fun loadGemma4RuntimeWeightsStreaming$default (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lsk/ainet/lang/memory/plan/WeightForm;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
-}
-
-public final class sk/ainet/models/gemma/Gemma4SafeTensorsMappedPle {
-	public static final field INSTANCE Lsk/ainet/models/gemma/Gemma4SafeTensorsMappedPle;
-	public final fun injectIfMissing (Lsk/ainet/models/gemma/Gemma4Weights;Ljava/lang/String;Lsk/ainet/context/ExecutionContext;Ljava/lang/foreign/Arena;)Lsk/ainet/models/gemma/Gemma4Weights;
-}
-
-public final class sk/ainet/models/gemma/Gemma4SafeTensorsWeightLoader {
-	public static final field HF_EMBED_TOKENS Ljava/lang/String;
-	public static final field HF_EMBED_TOKENS_PER_LAYER Ljava/lang/String;
-	public static final field HF_OUTPUT_NORM Ljava/lang/String;
-	public static final field HF_PER_LAYER_MODEL_PROJ Ljava/lang/String;
-	public static final field HF_PER_LAYER_MODEL_PROJECTION Ljava/lang/String;
-	public static final field HF_PER_LAYER_PROJECTION_NORM Ljava/lang/String;
-	public static final field HF_PER_LAYER_PROJ_NORM Ljava/lang/String;
-	public static final field HF_PER_LAYER_TOKEN_EMBD Ljava/lang/String;
-	public static final field MAX_BYTES_PER_TENSOR J
-	public fun <init> (Ljava/lang/String;)V
-	public final fun loadToMap (Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-}
-
-public final class sk/ainet/models/gemma/Gemma4SafeTensorsWeightLoaderKt {
-	public static final fun loadGemma4RuntimeWeightsFromSafeTensors (Lsk/ainet/context/ExecutionContext;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static final fun loadGemma4RuntimeWeightsFromSafeTensors (Lsk/ainet/context/ExecutionContext;Ljava/lang/String;Lkotlin/reflect/KClass;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-}
-
-public final class sk/ainet/models/gemma/Gemma4TensorNames {
-	public static final field INSTANCE Lsk/ainet/models/gemma/Gemma4TensorNames;
-	public static final field OUTPUT_NORM Ljava/lang/String;
-	public static final field OUTPUT_WEIGHT Ljava/lang/String;
-	public static final field PER_LAYER_MODEL_PROJ Ljava/lang/String;
-	public static final field PER_LAYER_PROJ_NORM Ljava/lang/String;
-	public static final field PER_LAYER_TOKEN_EMBD Ljava/lang/String;
-	public static final field ROPE_FREQS_IMAG Ljava/lang/String;
-	public static final field ROPE_FREQS_REAL Ljava/lang/String;
-	public static final field TOKEN_EMBEDDINGS Ljava/lang/String;
-	public final fun attnK (I)Ljava/lang/String;
-	public final fun attnKNorm (I)Ljava/lang/String;
-	public final fun attnOut (I)Ljava/lang/String;
-	public final fun attnQ (I)Ljava/lang/String;
-	public final fun attnQNorm (I)Ljava/lang/String;
-	public final fun attnV (I)Ljava/lang/String;
-	public final fun ffnDown (I)Ljava/lang/String;
-	public final fun ffnGate (I)Ljava/lang/String;
-	public final fun ffnUp (I)Ljava/lang/String;
-	public final fun inputLayernorm (I)Ljava/lang/String;
-	public final fun layerOutputScale (I)Ljava/lang/String;
-	public final fun perLayerInput (I)Ljava/lang/String;
-	public final fun perLayerOutput (I)Ljava/lang/String;
-	public final fun pleInpGate (I)Ljava/lang/String;
-	public final fun plePostNorm (I)Ljava/lang/String;
-	public final fun pleProj (I)Ljava/lang/String;
-	public final fun postAttentionLayernorm (I)Ljava/lang/String;
-	public final fun postAttentionNorm (I)Ljava/lang/String;
-	public final fun postFfwNorm (I)Ljava/lang/String;
-}
-
-public final class sk/ainet/models/gemma/Gemma4WeightLoader {
-	public fun <init> (Lkotlin/jvm/functions/Function0;Lsk/ainet/lang/memory/plan/WeightForm;ZLsk/ainet/lang/types/DTypePolicy;)V
-	public synthetic fun <init> (Lkotlin/jvm/functions/Function0;Lsk/ainet/lang/memory/plan/WeightForm;ZLsk/ainet/lang/types/DTypePolicy;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public fun <init> (Lkotlin/jvm/functions/Function0;Z)V
-	public synthetic fun <init> (Lkotlin/jvm/functions/Function0;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public final fun load (Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;Lkotlin/jvm/functions/Function2;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public final fun loadStreaming (Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;Lkotlin/jvm/functions/Function2;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public final fun loadToMap (Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public final fun loadToMapStreaming (Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-}
-
-public final class sk/ainet/models/gemma/Gemma4WeightLoaderKt {
-	public static final fun getGEMMA_DEQUANTIZE_ALL ()Lsk/ainet/lang/memory/plan/WeightForm;
-}
-
-public final class sk/ainet/models/gemma/Gemma4WeightMapper {
-	public static final field INSTANCE Lsk/ainet/models/gemma/Gemma4WeightMapper;
-	public final fun map (Lsk/ainet/models/gemma/Gemma4Weights;)Lsk/ainet/models/gemma/Gemma4RuntimeWeights;
-}
-
-public final class sk/ainet/models/gemma/Gemma4Weights {
-	public fun <init> (Lsk/ainet/models/gemma/Gemma4ModelMetadata;Ljava/util/Map;)V
-	public final fun component1 ()Lsk/ainet/models/gemma/Gemma4ModelMetadata;
-	public final fun component2 ()Ljava/util/Map;
-	public final fun copy (Lsk/ainet/models/gemma/Gemma4ModelMetadata;Ljava/util/Map;)Lsk/ainet/models/gemma/Gemma4Weights;
-	public static synthetic fun copy$default (Lsk/ainet/models/gemma/Gemma4Weights;Lsk/ainet/models/gemma/Gemma4ModelMetadata;Ljava/util/Map;ILjava/lang/Object;)Lsk/ainet/models/gemma/Gemma4Weights;
-	public fun equals (Ljava/lang/Object;)Z
-	public final fun getMetadata ()Lsk/ainet/models/gemma/Gemma4ModelMetadata;
-	public final fun getTensors ()Ljava/util/Map;
-	public fun hashCode ()I
-	public fun toString ()Ljava/lang/String;
-}
-
-public final class sk/ainet/models/gemma/GemmaGGUFNameResolver : sk/ainet/io/weights/WeightNameResolver {
-	public fun <init> ()V
-	public fun resolve (Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
 }
 
 public final class sk/ainet/models/gemma/GemmaModel : sk/ainet/lang/nn/Module {
@@ -792,9 +474,80 @@ public final class sk/ainet/models/gemma/GemmaModel$RopeCosSin {
 	public final fun getSinSliding ()Lsk/ainet/lang/tensor/Tensor;
 }
 
+public final class sk/ainet/models/gemma/GemmaModelMetadata {
+	public static final field Companion Lsk/ainet/models/gemma/GemmaModelMetadata$Companion;
+	public static final field DEFAULT_GLOBAL_HEAD_DIM I
+	public static final field DEFAULT_HEAD_DIM I
+	public static final field DEFAULT_KV_SHARED_LAYERS I
+	public static final field DEFAULT_SLIDING_WINDOW I
+	public fun <init> (Ljava/lang/String;IIIIIIIIIIILjava/util/List;Lsk/ainet/models/gemma/GemmaRopeConfig;Lsk/ainet/models/gemma/GemmaRopeConfig;IILjava/util/List;IIIFF)V
+	public synthetic fun <init> (Ljava/lang/String;IIIIIIIIIIILjava/util/List;Lsk/ainet/models/gemma/GemmaRopeConfig;Lsk/ainet/models/gemma/GemmaRopeConfig;IILjava/util/List;IIIFFILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component10 ()I
+	public final fun component11 ()I
+	public final fun component12 ()I
+	public final fun component13 ()Ljava/util/List;
+	public final fun component14 ()Lsk/ainet/models/gemma/GemmaRopeConfig;
+	public final fun component15 ()Lsk/ainet/models/gemma/GemmaRopeConfig;
+	public final fun component16 ()I
+	public final fun component17 ()I
+	public final fun component18 ()Ljava/util/List;
+	public final fun component19 ()I
+	public final fun component2 ()I
+	public final fun component20 ()I
+	public final fun component21 ()I
+	public final fun component22 ()F
+	public final fun component23 ()F
+	public final fun component3 ()I
+	public final fun component4 ()I
+	public final fun component5 ()I
+	public final fun component6 ()I
+	public final fun component7 ()I
+	public final fun component8 ()I
+	public final fun component9 ()I
+	public final fun copy (Ljava/lang/String;IIIIIIIIIIILjava/util/List;Lsk/ainet/models/gemma/GemmaRopeConfig;Lsk/ainet/models/gemma/GemmaRopeConfig;IILjava/util/List;IIIFF)Lsk/ainet/models/gemma/GemmaModelMetadata;
+	public static synthetic fun copy$default (Lsk/ainet/models/gemma/GemmaModelMetadata;Ljava/lang/String;IIIIIIIIIIILjava/util/List;Lsk/ainet/models/gemma/GemmaRopeConfig;Lsk/ainet/models/gemma/GemmaRopeConfig;IILjava/util/List;IIIFFILjava/lang/Object;)Lsk/ainet/models/gemma/GemmaModelMetadata;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getArchitecture ()Ljava/lang/String;
+	public final fun getBlockCount ()I
+	public final fun getBosTokenId ()I
+	public final fun getCacheLayerIndex (I)I
+	public final fun getContextLength ()I
+	public final fun getEffectiveWindow (I)I
+	public final fun getEmbeddingLength ()I
+	public final fun getEosTokenId ()I
+	public final fun getFinalLogitSoftcapping ()F
+	public final fun getGlobalHeadDim ()I
+	public final fun getHeadCount ()I
+	public final fun getHeadDim ()I
+	public final fun getHeadDim (I)I
+	public final fun getIntermediateSize ()I
+	public final fun getIntermediateSize (I)I
+	public final fun getKvHeadCount ()I
+	public final fun getKvSharedLayers ()I
+	public final fun getLayerType (I)Lsk/ainet/models/gemma/LayerType;
+	public final fun getLayerTypes ()Ljava/util/List;
+	public final fun getMaxPositionEmbeddings ()I
+	public final fun getPadTokenId ()I
+	public final fun getPerLayerEmbeddingLength ()I
+	public final fun getPerLayerIntermediateSize ()Ljava/util/List;
+	public final fun getRmsNormEps ()F
+	public final fun getRopeBase (I)F
+	public final fun getRopeParametersFull ()Lsk/ainet/models/gemma/GemmaRopeConfig;
+	public final fun getRopeParametersSliding ()Lsk/ainet/models/gemma/GemmaRopeConfig;
+	public final fun getSlidingWindow ()I
+	public final fun getVocabSize ()I
+	public fun hashCode ()I
+	public final fun isKvShared (I)Z
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/models/gemma/GemmaModelMetadata$Companion {
+}
+
 public final class sk/ainet/models/gemma/GemmaNetworkDefKt {
-	public static final fun gemmaNetwork (Lsk/ainet/models/gemma/Gemma4ModelMetadata;Lkotlin/reflect/KClass;IZZZZZZLjava/lang/Float;)Lsk/ainet/lang/nn/Module;
-	public static synthetic fun gemmaNetwork$default (Lsk/ainet/models/gemma/Gemma4ModelMetadata;Lkotlin/reflect/KClass;IZZZZZZLjava/lang/Float;ILjava/lang/Object;)Lsk/ainet/lang/nn/Module;
+	public static final fun gemmaNetwork (Lsk/ainet/models/gemma/GemmaModelMetadata;Lkotlin/reflect/KClass;IZZZZZZLjava/lang/Float;)Lsk/ainet/lang/nn/Module;
+	public static synthetic fun gemmaNetwork$default (Lsk/ainet/models/gemma/GemmaModelMetadata;Lkotlin/reflect/KClass;IZZZZZZLjava/lang/Float;ILjava/lang/Object;)Lsk/ainet/lang/nn/Module;
 }
 
 public final class sk/ainet/models/gemma/GemmaNetworkLoader {
@@ -814,8 +567,8 @@ public final class sk/ainet/models/gemma/GemmaNetworkLoader$Companion {
 	public static synthetic fun fromGgufRandomAccess$default (Lsk/ainet/models/gemma/GemmaNetworkLoader$Companion;Lkotlin/jvm/functions/Function0;Lsk/ainet/lang/memory/plan/WeightForm;ZILjava/lang/Object;)Lsk/ainet/models/gemma/GemmaNetworkLoader;
 	public final fun fromSafeTensors (Ljava/lang/String;Z)Lsk/ainet/models/gemma/GemmaNetworkLoader;
 	public static synthetic fun fromSafeTensors$default (Lsk/ainet/models/gemma/GemmaNetworkLoader$Companion;Ljava/lang/String;ZILjava/lang/Object;)Lsk/ainet/models/gemma/GemmaNetworkLoader;
-	public final fun fromWeights (Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/gemma/Gemma4Weights;Lkotlin/reflect/KClass;Z)Lsk/ainet/lang/nn/Module;
-	public static synthetic fun fromWeights$default (Lsk/ainet/models/gemma/GemmaNetworkLoader$Companion;Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/gemma/Gemma4Weights;Lkotlin/reflect/KClass;ZILjava/lang/Object;)Lsk/ainet/lang/nn/Module;
+	public final fun fromWeights (Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/gemma/GemmaWeights;Lkotlin/reflect/KClass;Z)Lsk/ainet/lang/nn/Module;
+	public static synthetic fun fromWeights$default (Lsk/ainet/models/gemma/GemmaNetworkLoader$Companion;Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/gemma/GemmaWeights;Lkotlin/reflect/KClass;ZILjava/lang/Object;)Lsk/ainet/lang/nn/Module;
 }
 
 public abstract interface class sk/ainet/models/gemma/GemmaNetworkLoader$WeightsProvider {
@@ -846,12 +599,12 @@ public final class sk/ainet/models/gemma/GemmaNetworkLoader$WeightsProvider$Gguf
 }
 
 public final class sk/ainet/models/gemma/GemmaNetworkLoader$WeightsProvider$Preloaded : sk/ainet/models/gemma/GemmaNetworkLoader$WeightsProvider {
-	public fun <init> (Lsk/ainet/models/gemma/Gemma4Weights;)V
-	public final fun component1 ()Lsk/ainet/models/gemma/Gemma4Weights;
-	public final fun copy (Lsk/ainet/models/gemma/Gemma4Weights;)Lsk/ainet/models/gemma/GemmaNetworkLoader$WeightsProvider$Preloaded;
-	public static synthetic fun copy$default (Lsk/ainet/models/gemma/GemmaNetworkLoader$WeightsProvider$Preloaded;Lsk/ainet/models/gemma/Gemma4Weights;ILjava/lang/Object;)Lsk/ainet/models/gemma/GemmaNetworkLoader$WeightsProvider$Preloaded;
+	public fun <init> (Lsk/ainet/models/gemma/GemmaWeights;)V
+	public final fun component1 ()Lsk/ainet/models/gemma/GemmaWeights;
+	public final fun copy (Lsk/ainet/models/gemma/GemmaWeights;)Lsk/ainet/models/gemma/GemmaNetworkLoader$WeightsProvider$Preloaded;
+	public static synthetic fun copy$default (Lsk/ainet/models/gemma/GemmaNetworkLoader$WeightsProvider$Preloaded;Lsk/ainet/models/gemma/GemmaWeights;ILjava/lang/Object;)Lsk/ainet/models/gemma/GemmaNetworkLoader$WeightsProvider$Preloaded;
 	public fun equals (Ljava/lang/Object;)Z
-	public final fun getWeights ()Lsk/ainet/models/gemma/Gemma4Weights;
+	public final fun getWeights ()Lsk/ainet/models/gemma/GemmaWeights;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
 }
@@ -868,8 +621,8 @@ public final class sk/ainet/models/gemma/GemmaNetworkLoader$WeightsProvider$Safe
 }
 
 public final class sk/ainet/models/gemma/GemmaNetworkLoaderKt {
-	public static final fun applyWeightsToNetworkNonReified (Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/gemma/Gemma4Weights;Lkotlin/reflect/KClass;ZLjava/lang/Integer;)Lsk/ainet/lang/nn/Module;
-	public static synthetic fun applyWeightsToNetworkNonReified$default (Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/gemma/Gemma4Weights;Lkotlin/reflect/KClass;ZLjava/lang/Integer;ILjava/lang/Object;)Lsk/ainet/lang/nn/Module;
+	public static final fun applyWeightsToNetworkNonReified (Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/gemma/GemmaWeights;Lkotlin/reflect/KClass;ZLjava/lang/Integer;)Lsk/ainet/lang/nn/Module;
+	public static synthetic fun applyWeightsToNetworkNonReified$default (Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/gemma/GemmaWeights;Lkotlin/reflect/KClass;ZLjava/lang/Integer;ILjava/lang/Object;)Lsk/ainet/lang/nn/Module;
 }
 
 public final class sk/ainet/models/gemma/GemmaPerLayerTokenEmbedTensorData : sk/ainet/lang/tensor/data/RowDequantSource, sk/ainet/lang/tensor/data/TensorData {
@@ -888,6 +641,153 @@ public final class sk/ainet/models/gemma/GemmaPerLayerTokenEmbedTensorData : sk/
 	public synthetic fun set ([ILjava/lang/Object;)V
 }
 
+public final class sk/ainet/models/gemma/GemmaRopeConfig {
+	public fun <init> (FLjava/lang/String;FIF)V
+	public synthetic fun <init> (FLjava/lang/String;FIFILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()F
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()F
+	public final fun component4 ()I
+	public final fun component5 ()F
+	public final fun copy (FLjava/lang/String;FIF)Lsk/ainet/models/gemma/GemmaRopeConfig;
+	public static synthetic fun copy$default (Lsk/ainet/models/gemma/GemmaRopeConfig;FLjava/lang/String;FIFILjava/lang/Object;)Lsk/ainet/models/gemma/GemmaRopeConfig;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getBase ()F
+	public final fun getFactor ()F
+	public final fun getOriginalMaxPositionEmbeddings ()I
+	public final fun getPartialRotaryFactor ()F
+	public final fun getRopeType ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/models/gemma/GemmaRuntimeWeights {
+	public fun <init> (Lsk/ainet/models/gemma/GemmaModelMetadata;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/List;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;)V
+	public synthetic fun <init> (Lsk/ainet/models/gemma/GemmaModelMetadata;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/List;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Lsk/ainet/models/gemma/GemmaModelMetadata;
+	public final fun component10 ()Lsk/ainet/lang/tensor/Tensor;
+	public final fun component2 ()Lsk/ainet/lang/tensor/Tensor;
+	public final fun component3 ()Lsk/ainet/lang/tensor/Tensor;
+	public final fun component4 ()Lsk/ainet/lang/tensor/Tensor;
+	public final fun component5 ()Ljava/util/List;
+	public final fun component6 ()Lsk/ainet/lang/tensor/Tensor;
+	public final fun component7 ()Lsk/ainet/lang/tensor/Tensor;
+	public final fun component8 ()Lsk/ainet/lang/tensor/Tensor;
+	public final fun component9 ()Lsk/ainet/lang/tensor/Tensor;
+	public final fun copy (Lsk/ainet/models/gemma/GemmaModelMetadata;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/List;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;)Lsk/ainet/models/gemma/GemmaRuntimeWeights;
+	public static synthetic fun copy$default (Lsk/ainet/models/gemma/GemmaRuntimeWeights;Lsk/ainet/models/gemma/GemmaModelMetadata;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/List;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;ILjava/lang/Object;)Lsk/ainet/models/gemma/GemmaRuntimeWeights;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getFinalNorm ()Lsk/ainet/lang/tensor/Tensor;
+	public final fun getLayers ()Ljava/util/List;
+	public final fun getLmHead ()Lsk/ainet/lang/tensor/Tensor;
+	public final fun getMetadata ()Lsk/ainet/models/gemma/GemmaModelMetadata;
+	public final fun getPerLayerModelProj ()Lsk/ainet/lang/tensor/Tensor;
+	public final fun getPerLayerProjNorm ()Lsk/ainet/lang/tensor/Tensor;
+	public final fun getPerLayerTokenEmbedding ()Lsk/ainet/lang/tensor/Tensor;
+	public final fun getRopeFreqImag ()Lsk/ainet/lang/tensor/Tensor;
+	public final fun getRopeFreqReal ()Lsk/ainet/lang/tensor/Tensor;
+	public final fun getTokenEmbedding ()Lsk/ainet/lang/tensor/Tensor;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/models/gemma/GemmaRuntimeWeightsKt {
+	public static final fun loadGemmaRuntimeWeights (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static final fun loadGemmaRuntimeWeights (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lkotlin/reflect/KClass;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static final fun loadGemmaRuntimeWeightsStreaming (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lkotlin/reflect/KClass;Lsk/ainet/lang/memory/plan/WeightForm;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static final fun loadGemmaRuntimeWeightsStreaming (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lsk/ainet/lang/memory/plan/WeightForm;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun loadGemmaRuntimeWeightsStreaming$default (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lkotlin/reflect/KClass;Lsk/ainet/lang/memory/plan/WeightForm;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public static synthetic fun loadGemmaRuntimeWeightsStreaming$default (Lsk/ainet/context/ExecutionContext;Lkotlin/jvm/functions/Function0;Lsk/ainet/lang/memory/plan/WeightForm;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+}
+
+public final class sk/ainet/models/gemma/GemmaSafeTensorsLoader {
+	public static final field HF_EMBED_TOKENS Ljava/lang/String;
+	public static final field HF_EMBED_TOKENS_PER_LAYER Ljava/lang/String;
+	public static final field HF_OUTPUT_NORM Ljava/lang/String;
+	public static final field HF_PER_LAYER_MODEL_PROJ Ljava/lang/String;
+	public static final field HF_PER_LAYER_MODEL_PROJECTION Ljava/lang/String;
+	public static final field HF_PER_LAYER_PROJECTION_NORM Ljava/lang/String;
+	public static final field HF_PER_LAYER_PROJ_NORM Ljava/lang/String;
+	public static final field HF_PER_LAYER_TOKEN_EMBD Ljava/lang/String;
+	public static final field MAX_BYTES_PER_TENSOR J
+	public fun <init> (Ljava/lang/String;)V
+	public final fun loadToMap (Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class sk/ainet/models/gemma/GemmaSafeTensorsLoaderKt {
+	public static final fun loadGemmaRuntimeWeightsFromSafeTensors (Lsk/ainet/context/ExecutionContext;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static final fun loadGemmaRuntimeWeightsFromSafeTensors (Lsk/ainet/context/ExecutionContext;Ljava/lang/String;Lkotlin/reflect/KClass;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class sk/ainet/models/gemma/GemmaSafeTensorsMappedPle {
+	public static final field INSTANCE Lsk/ainet/models/gemma/GemmaSafeTensorsMappedPle;
+	public final fun injectIfMissing (Lsk/ainet/models/gemma/GemmaWeights;Ljava/lang/String;Lsk/ainet/context/ExecutionContext;Ljava/lang/foreign/Arena;)Lsk/ainet/models/gemma/GemmaWeights;
+}
+
+public final class sk/ainet/models/gemma/GemmaTensorNames {
+	public static final field INSTANCE Lsk/ainet/models/gemma/GemmaTensorNames;
+	public static final field OUTPUT_NORM Ljava/lang/String;
+	public static final field OUTPUT_WEIGHT Ljava/lang/String;
+	public static final field PER_LAYER_MODEL_PROJ Ljava/lang/String;
+	public static final field PER_LAYER_PROJ_NORM Ljava/lang/String;
+	public static final field PER_LAYER_TOKEN_EMBD Ljava/lang/String;
+	public static final field ROPE_FREQS_IMAG Ljava/lang/String;
+	public static final field ROPE_FREQS_REAL Ljava/lang/String;
+	public static final field TOKEN_EMBEDDINGS Ljava/lang/String;
+	public final fun attnK (I)Ljava/lang/String;
+	public final fun attnKNorm (I)Ljava/lang/String;
+	public final fun attnOut (I)Ljava/lang/String;
+	public final fun attnQ (I)Ljava/lang/String;
+	public final fun attnQNorm (I)Ljava/lang/String;
+	public final fun attnV (I)Ljava/lang/String;
+	public final fun ffnDown (I)Ljava/lang/String;
+	public final fun ffnGate (I)Ljava/lang/String;
+	public final fun ffnUp (I)Ljava/lang/String;
+	public final fun inputLayernorm (I)Ljava/lang/String;
+	public final fun layerOutputScale (I)Ljava/lang/String;
+	public final fun perLayerInput (I)Ljava/lang/String;
+	public final fun perLayerOutput (I)Ljava/lang/String;
+	public final fun pleInpGate (I)Ljava/lang/String;
+	public final fun plePostNorm (I)Ljava/lang/String;
+	public final fun pleProj (I)Ljava/lang/String;
+	public final fun postAttentionLayernorm (I)Ljava/lang/String;
+	public final fun postAttentionNorm (I)Ljava/lang/String;
+	public final fun postFfwNorm (I)Ljava/lang/String;
+}
+
+public final class sk/ainet/models/gemma/GemmaWeightLoader {
+	public fun <init> (Lkotlin/jvm/functions/Function0;Lsk/ainet/lang/memory/plan/WeightForm;ZLsk/ainet/lang/types/DTypePolicy;)V
+	public synthetic fun <init> (Lkotlin/jvm/functions/Function0;Lsk/ainet/lang/memory/plan/WeightForm;ZLsk/ainet/lang/types/DTypePolicy;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lkotlin/jvm/functions/Function0;Z)V
+	public synthetic fun <init> (Lkotlin/jvm/functions/Function0;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun load (Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;Lkotlin/jvm/functions/Function2;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun loadStreaming (Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;Lkotlin/jvm/functions/Function2;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun loadToMap (Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun loadToMapStreaming (Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class sk/ainet/models/gemma/GemmaWeightLoaderKt {
+	public static final fun getGEMMA_DEQUANTIZE_ALL ()Lsk/ainet/lang/memory/plan/WeightForm;
+}
+
+public final class sk/ainet/models/gemma/GemmaWeightMapper {
+	public static final field INSTANCE Lsk/ainet/models/gemma/GemmaWeightMapper;
+	public final fun map (Lsk/ainet/models/gemma/GemmaWeights;)Lsk/ainet/models/gemma/GemmaRuntimeWeights;
+}
+
+public final class sk/ainet/models/gemma/GemmaWeights {
+	public fun <init> (Lsk/ainet/models/gemma/GemmaModelMetadata;Ljava/util/Map;)V
+	public final fun component1 ()Lsk/ainet/models/gemma/GemmaModelMetadata;
+	public final fun component2 ()Ljava/util/Map;
+	public final fun copy (Lsk/ainet/models/gemma/GemmaModelMetadata;Ljava/util/Map;)Lsk/ainet/models/gemma/GemmaWeights;
+	public static synthetic fun copy$default (Lsk/ainet/models/gemma/GemmaWeights;Lsk/ainet/models/gemma/GemmaModelMetadata;Ljava/util/Map;ILjava/lang/Object;)Lsk/ainet/models/gemma/GemmaWeights;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getMetadata ()Lsk/ainet/models/gemma/GemmaModelMetadata;
+	public final fun getTensors ()Ljava/util/Map;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
 public final class sk/ainet/models/gemma/HeapGemma3nKvCache : sk/ainet/models/gemma/Gemma3nKvCache {
 	public static final field Companion Lsk/ainet/models/gemma/HeapGemma3nKvCache$Companion;
 	public fun <init> (IIILjava/util/List;I)V
@@ -904,24 +804,6 @@ public final class sk/ainet/models/gemma/HeapGemma3nKvCache : sk/ainet/models/ge
 
 public final class sk/ainet/models/gemma/HeapGemma3nKvCache$Companion {
 	public final fun fromConfig (Lsk/ainet/models/gemma/Gemma3nConfig;I)Lsk/ainet/models/gemma/HeapGemma3nKvCache;
-}
-
-public final class sk/ainet/models/gemma/HeapGemma4KvCache : sk/ainet/models/gemma/Gemma4KvCache {
-	public static final field Companion Lsk/ainet/models/gemma/HeapGemma4KvCache$Companion;
-	public fun <init> (IIII)V
-	public fun getKey (IIII)F
-	public final fun getKeyArray ()[F
-	public fun getKvDim ()I
-	public fun getNLayers ()I
-	public fun getSeqLen ()I
-	public fun getValue (IIII)F
-	public final fun getValueArray ()[F
-	public fun reset ()V
-	public fun store (II[FI[FI)V
-}
-
-public final class sk/ainet/models/gemma/HeapGemma4KvCache$Companion {
-	public final fun fromConfig (Lsk/ainet/models/gemma/Gemma4Config;I)Lsk/ainet/models/gemma/HeapGemma4KvCache;
 }
 
 public final class sk/ainet/models/gemma/LayerType : java/lang/Enum {
@@ -972,18 +854,5 @@ public final class sk/ainet/models/gemma/SafeTensorsPerLayerTokenEmbedTensorData
 	public fun getView ()Lsk/ainet/lang/memory/TensorView;
 	public fun set ([IF)V
 	public synthetic fun set ([ILjava/lang/Object;)V
-}
-
-public final class sk/ainet/models/gemma/multimodal/VisionEncoder {
-	public static final field Companion Lsk/ainet/models/gemma/multimodal/VisionEncoder$Companion;
-	public static final field DEFAULT_IMAGE_SIZE I
-	public static final field DEFAULT_NUM_TOKENS I
-	public fun <init> (Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;II)V
-	public synthetic fun <init> (Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;IIILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public final fun encode ([FII)Lsk/ainet/lang/tensor/Tensor;
-	public final fun encodeFromBytes ([B)Lsk/ainet/lang/tensor/Tensor;
-}
-
-public final class sk/ainet/models/gemma/multimodal/VisionEncoder$Companion {
 }
 

@@ -8,7 +8,7 @@ import sk.ainet.lang.nn.topology.ModuleNode
 import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.types.FP32
 import sk.ainet.models.gemma.GEMMA_DEQUANTIZE_ALL
-import sk.ainet.models.gemma.Gemma4WeightLoader
+import sk.ainet.models.gemma.GemmaWeightLoader
 import sk.ainet.models.gemma.GemmaNetworkLoader
 import kotlin.test.Test
 
@@ -56,7 +56,7 @@ class FunctionGemmaBlockTraceProbe {
         val capture = Capture()
         val ctx = DirectCpuExecutionContext(_hooks = capture)
         val weights = runBlocking {
-            Gemma4WeightLoader(
+            GemmaWeightLoader(
                 randomAccessProvider = { JvmRandomAccessSource.open(gguf) },
                 weightForm = GEMMA_DEQUANTIZE_ALL,
             ).loadToMapStreaming<FP32, Float>(ctx, FP32::class)

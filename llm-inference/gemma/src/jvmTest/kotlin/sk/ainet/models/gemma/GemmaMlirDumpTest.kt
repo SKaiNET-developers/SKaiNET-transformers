@@ -16,7 +16,7 @@ import kotlin.test.Test
 class GemmaMlirDumpTest {
     @Test
     fun dumpGemmaMlir() {
-        val meta = Gemma4ModelMetadata(
+        val meta = GemmaModelMetadata(
             architecture = "gemma3",
             embeddingLength = 64,
             contextLength = 128,
@@ -30,8 +30,8 @@ class GemmaMlirDumpTest {
             slidingWindow = 64,
             kvSharedLayers = 0,
             layerTypes = listOf("full_attention"),
-            ropeParametersFull = Gemma4RopeConfig(base = 10000.0f),
-            ropeParametersSliding = Gemma4RopeConfig(base = 10000.0f),
+            ropeParametersFull = GemmaRopeConfig(base = 10000.0f),
+            ropeParametersSliding = GemmaRopeConfig(base = 10000.0f),
             maxPositionEmbeddings = 128,
         )
         val model = gemmaNetwork<FP32, Float>(meta, FP32::class, maxInferenceLen = 8)

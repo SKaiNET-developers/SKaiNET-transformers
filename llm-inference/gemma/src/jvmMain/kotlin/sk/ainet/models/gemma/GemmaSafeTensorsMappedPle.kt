@@ -11,11 +11,11 @@ import sk.ainet.lang.tensor.storage.BufferHandle
 import sk.ainet.lang.types.FP32
 
 /**
- * JVM-only post-processor for [Gemma4Weights] that injects the
+ * JVM-only post-processor for [GemmaWeights] that injects the
  * `embed_tokens_per_layer` table via a memory-mapped read when the source
  * tensor is too large for the eager `ByteArray`-based loader path.
  *
- * `Gemma4SafeTensorsWeightLoader` skips this tensor when its raw size
+ * `GemmaSafeTensorsLoader` skips this tensor when its raw size
  * exceeds the JVM `ByteArray` limit (~2 GB; the BF16 table on Gemma 4 E2B
  * is 4.7 GB). Calling this after the load mmap's the tensor's byte
  * region, wraps it in a [SafeTensorsPerLayerTokenEmbedTensorData] for
@@ -28,7 +28,7 @@ import sk.ainet.lang.types.FP32
  * region. Don't close it earlier — `PerLayerEmbedding.compute` reads
  * rows on every decode step.
  */
-public object Gemma4SafeTensorsMappedPle {
+public object GemmaSafeTensorsMappedPle {
 
     private const val HF_EMBED_TOKENS_PER_LAYER = "model.language_model.embed_tokens_per_layer.weight"
 
@@ -36,7 +36,7 @@ public object Gemma4SafeTensorsMappedPle {
      * If the embed-tokens-per-layer tensor is absent from [weights]
      * (typically because the eager loader skipped it for size), mmap it
      * from the SafeTensors checkpoint at [indexPath] and return an
-     * updated [Gemma4Weights] with the tensor injected.
+     * updated [GemmaWeights] with the tensor injected.
      *
      * Returns [weights] unchanged when:
      *  - the tensor is already loaded (small fixture, F32 source, etc.), or
@@ -49,12 +49,12 @@ public object Gemma4SafeTensorsMappedPle {
      * @param arena arena that owns the mmap'd region's lifetime.
      */
     public fun injectIfMissing(
-        weights: Gemma4Weights<FP32, Float>,
+        weights: GemmaWeights<FP32, Float>,
         indexPath: String,
         ctx: ExecutionContext,
         arena: Arena,
-    ): Gemma4Weights<FP32, Float> {
-        if (weights.tensors.containsKey(Gemma4TensorNames.PER_LAYER_TOKEN_EMBD)) return weights
+    ): GemmaWeights<FP32, Float> {
+        if (weights.tensors.containsKey(GemmaTensorNames.PER_LAYER_TOKEN_EMBD)) return weights
 
         val reader = runCatching {
             kotlinx.coroutines.runBlocking {
@@ -97,7 +97,7 @@ public object Gemma4SafeTensorsMappedPle {
             )
             val tensor = ctx.fromData(data, FP32::class)
             weights.copy(
-                tensors = weights.tensors + (Gemma4TensorNames.PER_LAYER_TOKEN_EMBD to tensor),
+                tensors = weights.tensors + (GemmaTensorNames.PER_LAYER_TOKEN_EMBD to tensor),
             )
         }
     }

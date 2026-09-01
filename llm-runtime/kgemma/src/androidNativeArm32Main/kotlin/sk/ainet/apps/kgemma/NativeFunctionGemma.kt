@@ -14,7 +14,7 @@ import sk.ainet.io.gguf.createRandomAccessSource
 import sk.ainet.lang.types.BF16
 import sk.ainet.lang.types.DTypePolicy
 import sk.ainet.lang.types.FP32
-import sk.ainet.models.gemma.Gemma4WeightLoader
+import sk.ainet.models.gemma.GemmaWeightLoader
 import sk.ainet.models.gemma.GemmaNetworkLoader
 import sk.ainet.apps.kllama.chat.ChatMessage
 import sk.ainet.apps.kllama.chat.ChatRole
@@ -65,7 +65,7 @@ public class NativeFunctionGemma private constructor(
         public fun fromGguf(gguf: String, partialRotary: Float = 1.0f): NativeFunctionGemma = runBlocking {
             val tok = GGUFTokenizer.fromSource(SystemFileSystem.source(Path(gguf)).buffered())
             val ctx = DirectCpuExecutionContext.create()
-            val weights = Gemma4WeightLoader(
+            val weights = GemmaWeightLoader(
                 randomAccessProvider = {
                     createRandomAccessSource(gguf)
                         ?: error("could not open $gguf for random access (pread failed?)")

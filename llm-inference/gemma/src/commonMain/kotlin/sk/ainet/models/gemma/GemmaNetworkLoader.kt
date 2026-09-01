@@ -42,7 +42,7 @@ public class GemmaNetworkLoader @PublishedApi internal constructor(
 
     /** See [sk.ainet.models.llama.LlamaNetworkLoader.withDtypePolicy]. */
     public fun withDtypePolicy(policy: DTypePolicy): GemmaNetworkLoader {
-        // Gemma has its own weight chain (`Gemma4WeightLoader` / `Gemma4SafeTensorsWeightLoader`),
+        // Gemma has its own weight chain (`GemmaWeightLoader` / `GemmaSafeTensorsLoader`),
         // which widens every narrow float to FP32 — it has no KEEP_NATIVE path yet, unlike the
         // shared decoder chain LLaMA/Qwen/Voxtral use. So it promises nothing and `Require(BF16)`
         // is rejected rather than accepted-and-ignored.
@@ -67,7 +67,7 @@ public class GemmaNetworkLoader @PublishedApi internal constructor(
         ) : WeightsProvider
 
         data class Preloaded<T : DType, V>(
-            val weights: Gemma4Weights<T, V>
+            val weights: GemmaWeights<T, V>
         ) : WeightsProvider
     }
 
@@ -103,21 +103,21 @@ public class GemmaNetworkLoader @PublishedApi internal constructor(
             WeightsProvider.SafeTensorsIndex(indexPath), debug
         )
 
-        /** Build from pre-loaded [Gemma4Weights]. */
+        /** Build from pre-loaded [GemmaWeights]. */
         public inline fun <reified T : DType, V> fromWeights(
             ctx: ExecutionContext,
-            weights: Gemma4Weights<T, V>,
+            weights: GemmaWeights<T, V>,
             debug: Boolean = false
         ): Module<T, V> = fromWeights(ctx, weights, T::class, debug)
 
         /**
          * Non-reified variant — explicit [dtype] so non-reified callers
-         * (e.g. `Gemma4Ingestion<T>`) can build the DSL network without
+         * (e.g. `GemmaIngestion<T>`) can build the DSL network without
          * propagating reification through their public API.
          */
         public fun <T : DType, V> fromWeights(
             ctx: ExecutionContext,
-            weights: Gemma4Weights<T, V>,
+            weights: GemmaWeights<T, V>,
             dtype: kotlin.reflect.KClass<T>,
             debug: Boolean = false
         ): Module<T, V> = applyWeightsToNetworkNonReified(ctx, weights, dtype, debug)
@@ -130,23 +130,23 @@ public class GemmaNetworkLoader @PublishedApi internal constructor(
         ctx: ExecutionContext,
         maxInferenceLen: Int? = null,
     ): Module<T, V> {
-        val weights: Gemma4Weights<T, V> = when (val wp = weightsProvider) {
+        val weights: GemmaWeights<T, V> = when (val wp = weightsProvider) {
             is WeightsProvider.GgufSource -> {
-                val loader = Gemma4WeightLoader(wp.sourceProvider)
+                val loader = GemmaWeightLoader(wp.sourceProvider)
                 loader.loadToMap<T, V>(ctx)
             }
             is WeightsProvider.GgufRandomAccess -> {
-                val loader = Gemma4WeightLoader(wp.randomAccessProvider, weightForm = wp.weightForm)
+                val loader = GemmaWeightLoader(wp.randomAccessProvider, weightForm = wp.weightForm)
                 loader.loadToMapStreaming<T, V>(ctx)
             }
             is WeightsProvider.SafeTensorsIndex -> {
-                val loader = Gemma4SafeTensorsWeightLoader(wp.indexPath)
+                val loader = GemmaSafeTensorsLoader(wp.indexPath)
                 @Suppress("UNCHECKED_CAST")
-                loader.loadToMap(ctx, T::class) as Gemma4Weights<T, V>
+                loader.loadToMap(ctx, T::class) as GemmaWeights<T, V>
             }
             is WeightsProvider.Preloaded<*, *> -> {
                 @Suppress("UNCHECKED_CAST")
-                wp.weights as Gemma4Weights<T, V>
+                wp.weights as GemmaWeights<T, V>
             }
         }
 
@@ -156,7 +156,7 @@ public class GemmaNetworkLoader @PublishedApi internal constructor(
     @PublishedApi
     internal inline fun <reified T : DType, V> applyWeightsToNetwork(
         ctx: ExecutionContext,
-        weights: Gemma4Weights<T, V>,
+        weights: GemmaWeights<T, V>,
         maxInferenceLen: Int? = null,
     ): Module<T, V> = applyWeightsToNetworkNonReified(ctx, weights, T::class, debug, maxInferenceLen)
 }
@@ -166,7 +166,7 @@ public class GemmaNetworkLoader @PublishedApi internal constructor(
 @PublishedApi
 internal fun <T : DType, V> applyWeightsToNetworkNonReified(
     ctx: ExecutionContext,
-    weights: Gemma4Weights<T, V>,
+    weights: GemmaWeights<T, V>,
     dtype: kotlin.reflect.KClass<T>,
     debug: Boolean,
     maxInferenceLen: Int? = null,

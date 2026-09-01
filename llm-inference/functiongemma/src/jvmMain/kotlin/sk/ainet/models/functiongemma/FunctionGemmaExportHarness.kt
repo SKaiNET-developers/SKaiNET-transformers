@@ -18,7 +18,7 @@ import sk.ainet.lang.tensor.ops.VoidTensorOps
 import sk.ainet.lang.tensor.storage.BufferHandle
 import sk.ainet.lang.types.FP32
 import sk.ainet.models.gemma.GEMMA_DEQUANTIZE_ALL
-import sk.ainet.models.gemma.Gemma4WeightLoader
+import sk.ainet.models.gemma.GemmaWeightLoader
 import sk.ainet.models.gemma.GemmaModel
 import sk.ainet.models.gemma.GemmaNetworkLoader
 import sk.ainet.tape.Execution
@@ -167,7 +167,7 @@ public object FunctionGemmaExportHarness {
         quantizeInt8: Boolean = false,
     ): RedecodeResult = runBlocking {
         val ctx = DirectCpuExecutionContext.create()
-        val weights = Gemma4WeightLoader(
+        val weights = GemmaWeightLoader(
             randomAccessProvider = { JvmRandomAccessSource.open(gguf) },
             weightForm = GEMMA_DEQUANTIZE_ALL,
         ).loadToMapStreaming<FP32, Float>(ctx, FP32::class)
@@ -283,7 +283,7 @@ public object FunctionGemmaExportHarness {
         bf16: Boolean = true,
     ): String = runBlocking {
         val ctx = DirectCpuExecutionContext.create()
-        val weights = Gemma4WeightLoader(
+        val weights = GemmaWeightLoader(
             randomAccessProvider = { JvmRandomAccessSource.open(gguf) },
             weightForm = GEMMA_DEQUANTIZE_ALL,
         ).loadToMapStreaming<FP32, Float>(ctx, FP32::class)
@@ -393,7 +393,7 @@ public object FunctionGemmaExportHarness {
         bf16: Boolean = true,
     ): String = runBlocking {
         val ctx = DirectCpuExecutionContext.create()
-        val weights = Gemma4WeightLoader(
+        val weights = GemmaWeightLoader(
             randomAccessProvider = { JvmRandomAccessSource.open(gguf) },
             weightForm = GEMMA_DEQUANTIZE_ALL,
         ).loadToMapStreaming<FP32, Float>(ctx, FP32::class)

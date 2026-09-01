@@ -1,15 +1,25 @@
 public final class sk/ainet/apps/kgemma/FunctionGemma {
 	public static final field Companion Lsk/ainet/apps/kgemma/FunctionGemma$Companion;
-	public synthetic fun <init> (Ljava/lang/String;Lsk/ainet/apps/llm/InferenceRuntime;Lsk/ainet/apps/llm/tokenizer/GGUFTokenizer;IIILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (Ljava/lang/String;Lsk/ainet/apps/llm/InferenceRuntime;Lsk/ainet/apps/llm/tokenizer/GGUFTokenizer;Lsk/ainet/apps/kgemma/FunctionGemma$Style;IIILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun call (Ljava/lang/String;I)Lsk/ainet/apps/kgemma/FunctionGemma$Turn;
 	public static synthetic fun call$default (Lsk/ainet/apps/kgemma/FunctionGemma;Ljava/lang/String;IILjava/lang/Object;)Lsk/ainet/apps/kgemma/FunctionGemma$Turn;
+	public final fun callWithTools (Ljava/lang/String;Ljava/util/List;IFIFLkotlin/random/Random;)Lsk/ainet/apps/kgemma/FunctionGemma$Turn;
+	public static synthetic fun callWithTools$default (Lsk/ainet/apps/kgemma/FunctionGemma;Ljava/lang/String;Ljava/util/List;IFIFLkotlin/random/Random;ILjava/lang/Object;)Lsk/ainet/apps/kgemma/FunctionGemma$Turn;
 	public final fun exportCompiled (Ljava/lang/String;IZ)Lsk/ainet/apps/kgemma/FunctionGemmaExport$Result;
 	public static synthetic fun exportCompiled$default (Lsk/ainet/apps/kgemma/FunctionGemma;Ljava/lang/String;IZILjava/lang/Object;)Lsk/ainet/apps/kgemma/FunctionGemmaExport$Result;
 }
 
 public final class sk/ainet/apps/kgemma/FunctionGemma$Companion {
-	public final fun fromGguf (Ljava/lang/String;F)Lsk/ainet/apps/kgemma/FunctionGemma;
-	public static synthetic fun fromGguf$default (Lsk/ainet/apps/kgemma/FunctionGemma$Companion;Ljava/lang/String;FILjava/lang/Object;)Lsk/ainet/apps/kgemma/FunctionGemma;
+	public final fun fromGguf (Ljava/lang/String;FLsk/ainet/apps/kgemma/FunctionGemma$Style;)Lsk/ainet/apps/kgemma/FunctionGemma;
+	public static synthetic fun fromGguf$default (Lsk/ainet/apps/kgemma/FunctionGemma$Companion;Ljava/lang/String;FLsk/ainet/apps/kgemma/FunctionGemma$Style;ILjava/lang/Object;)Lsk/ainet/apps/kgemma/FunctionGemma;
+}
+
+public final class sk/ainet/apps/kgemma/FunctionGemma$Style : java/lang/Enum {
+	public static final field OCTOPUS_V2 Lsk/ainet/apps/kgemma/FunctionGemma$Style;
+	public static final field OFFICIAL Lsk/ainet/apps/kgemma/FunctionGemma$Style;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lsk/ainet/apps/kgemma/FunctionGemma$Style;
+	public static fun values ()[Lsk/ainet/apps/kgemma/FunctionGemma$Style;
 }
 
 public final class sk/ainet/apps/kgemma/FunctionGemma$Turn {
@@ -82,24 +92,6 @@ public final class sk/ainet/apps/kgemma/Gemma3nLoadConfig {
 	public fun toString ()Ljava/lang/String;
 }
 
-public final class sk/ainet/apps/kgemma/Gemma4ChatModel {
-	public static final field INSTANCE Lsk/ainet/apps/kgemma/Gemma4ChatModel;
-	public final fun fromSafeTensors (Ljava/lang/String;Lsk/ainet/context/ExecutionContext;Lsk/ainet/llm/api/ChatOptions;Ljava/lang/String;Z)Lsk/ainet/llm/api/StreamingChatModel;
-	public static synthetic fun fromSafeTensors$default (Lsk/ainet/apps/kgemma/Gemma4ChatModel;Ljava/lang/String;Lsk/ainet/context/ExecutionContext;Lsk/ainet/llm/api/ChatOptions;Ljava/lang/String;ZILjava/lang/Object;)Lsk/ainet/llm/api/StreamingChatModel;
-}
-
-public final class sk/ainet/apps/kgemma/Gemma4Ingestion {
-	public fun <init> (Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;Lsk/ainet/apps/kgemma/Gemma4LoadConfig;)V
-	public synthetic fun <init> (Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;Lsk/ainet/apps/kgemma/Gemma4LoadConfig;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public final fun buildDslRuntime (Lsk/ainet/models/gemma/Gemma4Weights;)Lsk/ainet/apps/llm/InferenceRuntime;
-	public final fun load (Lkotlin/jvm/functions/Function0;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public final fun loadDslRuntime (Lkotlin/jvm/functions/Function0;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public final fun loadDslRuntimeFromSafeTensors (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public final fun loadDslRuntimeStreaming (Lkotlin/jvm/functions/Function0;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public final fun loadFromSafeTensors (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public final fun loadStreaming (Lkotlin/jvm/functions/Function0;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-}
-
 public final class sk/ainet/apps/kgemma/Gemma4LoadConfig {
 	public fun <init> ()V
 	public fun <init> (Lsk/ainet/lang/memory/plan/WeightForm;)V
@@ -111,6 +103,36 @@ public final class sk/ainet/apps/kgemma/Gemma4LoadConfig {
 	public final fun getWeightForm ()Lsk/ainet/lang/memory/plan/WeightForm;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/apps/kgemma/GemmaChatModel {
+	public static final field INSTANCE Lsk/ainet/apps/kgemma/GemmaChatModel;
+	public final fun fromGguf (Ljava/lang/String;Lsk/ainet/context/ExecutionContext;Lsk/ainet/llm/api/ChatOptions;Ljava/lang/String;Z)Lsk/ainet/llm/api/StreamingChatModel;
+	public static synthetic fun fromGguf$default (Lsk/ainet/apps/kgemma/GemmaChatModel;Ljava/lang/String;Lsk/ainet/context/ExecutionContext;Lsk/ainet/llm/api/ChatOptions;Ljava/lang/String;ZILjava/lang/Object;)Lsk/ainet/llm/api/StreamingChatModel;
+	public final fun fromSafeTensors (Ljava/lang/String;Lsk/ainet/context/ExecutionContext;Lsk/ainet/llm/api/ChatOptions;Ljava/lang/String;Z)Lsk/ainet/llm/api/StreamingChatModel;
+	public static synthetic fun fromSafeTensors$default (Lsk/ainet/apps/kgemma/GemmaChatModel;Ljava/lang/String;Lsk/ainet/context/ExecutionContext;Lsk/ainet/llm/api/ChatOptions;Ljava/lang/String;ZILjava/lang/Object;)Lsk/ainet/llm/api/StreamingChatModel;
+}
+
+public final class sk/ainet/apps/kgemma/GemmaIngestion {
+	public fun <init> (Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;Lsk/ainet/apps/kgemma/Gemma4LoadConfig;)V
+	public synthetic fun <init> (Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;Lsk/ainet/apps/kgemma/Gemma4LoadConfig;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun buildDslRuntime (Lsk/ainet/models/gemma/GemmaWeights;)Lsk/ainet/apps/llm/InferenceRuntime;
+	public final fun load (Lkotlin/jvm/functions/Function0;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun loadDslRuntime (Lkotlin/jvm/functions/Function0;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun loadDslRuntimeFromSafeTensors (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun loadDslRuntimeStreaming (Lkotlin/jvm/functions/Function0;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun loadFromSafeTensors (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun loadStreaming (Lkotlin/jvm/functions/Function0;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class sk/ainet/apps/kgemma/GemmaStopTokens {
+	public static final field INSTANCE Lsk/ainet/apps/kgemma/GemmaStopTokens;
+	public final fun resolve (Lsk/ainet/apps/llm/tokenizer/GGUFTokenizer;)Ljava/util/Set;
+}
+
+public final class sk/ainet/apps/kgemma/KgemmaKernels {
+	public static final field INSTANCE Lsk/ainet/apps/kgemma/KgemmaKernels;
+	public final fun ensureInstalled ()V
 }
 
 public final class sk/ainet/apps/kgemma/cli/MainKt {

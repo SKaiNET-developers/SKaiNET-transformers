@@ -9,7 +9,7 @@ import kotlin.test.Test
 
 /**
  * Loads the REAL FunctionGemma-270M gguf via the DSL-path loader
- * (Gemma4WeightLoader + DequantOps, Q5_K -> FP32) — NOT the eager runtime.
+ * (GemmaWeightLoader + DequantOps, Q5_K -> FP32) — NOT the eager runtime.
  * Validates: the loader handles this gemma3 gguf, and reports the real config
  * + weight tensors for the upcoming real-config trace + arg mapping.
  *
@@ -22,7 +22,7 @@ class RealGemmaLoadTest {
     fun loadFunctionGemmaWeights() = runBlocking {
         val path = FunctionGemmaFixture.gguf
         val ctx = DirectCpuExecutionContext.create()
-        val loader = Gemma4WeightLoader(
+        val loader = GemmaWeightLoader(
             randomAccessProvider = { JvmRandomAccessSource.open(path) },
             weightForm = GEMMA_DEQUANTIZE_ALL,
         )

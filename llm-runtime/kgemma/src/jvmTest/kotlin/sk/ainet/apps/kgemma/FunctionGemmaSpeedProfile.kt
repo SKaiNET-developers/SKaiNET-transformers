@@ -40,7 +40,7 @@ class FunctionGemmaSpeedProfile {
         // What form do the weights actually land in with the BF16 policy?
         val probeCtx = sk.ainet.context.DirectCpuExecutionContext.create()
         val probe = kotlinx.coroutines.runBlocking {
-            sk.ainet.models.gemma.Gemma4WeightLoader(
+            sk.ainet.models.gemma.GemmaWeightLoader(
                 randomAccessProvider = { sk.ainet.io.JvmRandomAccessSource.open(gguf) },
                 dtypePolicy = sk.ainet.lang.types.DTypePolicy.Prefer(sk.ainet.lang.types.BF16),
             ).loadToMapStreaming<sk.ainet.lang.types.FP32, Float>(probeCtx, sk.ainet.lang.types.FP32::class)

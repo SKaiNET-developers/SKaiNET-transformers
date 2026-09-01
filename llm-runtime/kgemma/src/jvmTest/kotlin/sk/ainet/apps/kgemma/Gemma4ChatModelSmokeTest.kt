@@ -13,7 +13,7 @@ import sk.ainet.llm.api.ChatRequest
 import sk.ainet.llm.api.FinishReason
 
 /**
- * End-to-end smoke test for [Gemma4ChatModel.fromSafeTensors] against a real
+ * End-to-end smoke test for [GemmaChatModel.fromSafeTensors] against a real
  * Gemma 4 SafeTensors checkpoint. Proves the v1 wiring goal: SafeTensors →
  * `InferenceRuntime` → `Tokenizer` → `Gemma4ChatTemplate` → `SkaiNetChatModel`
  * produces non-empty text.
@@ -32,7 +32,7 @@ class Gemma4ChatModelSmokeTest {
         val indexPath = locateCheckpoint() ?: return
         val maxTokens = probeMaxTokens(default = 32)
 
-        val model = Gemma4ChatModel.fromSafeTensors(
+        val model = GemmaChatModel.fromSafeTensors(
             indexPath = indexPath.toString(),
             options = ChatOptions(
                 temperature = 0f,
@@ -68,7 +68,7 @@ class Gemma4ChatModelSmokeTest {
     fun `chat model stream yields chunks then a terminal chunk with finish reason`() {
         val indexPath = locateCheckpoint() ?: return
 
-        val model = Gemma4ChatModel.fromSafeTensors(
+        val model = GemmaChatModel.fromSafeTensors(
             indexPath = indexPath.toString(),
             options = ChatOptions(
                 temperature = 0f,

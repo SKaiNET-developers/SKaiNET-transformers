@@ -13,7 +13,7 @@ import sk.ainet.llm.api.ToolDefinition
 
 /**
  * Regression smoke for tool calling against a real Gemma 4 E2B SafeTensors
- * checkpoint via [Gemma4ChatModel.fromSafeTensors].
+ * checkpoint via [GemmaChatModel.fromSafeTensors].
  *
  * Counterpart of the GGUF-flavoured `Gemma4E2BToolCallSmokeTest`, which is
  * `@Ignore`d on a separate Q4_K_M parity question. The SafeTensors path no
@@ -60,7 +60,7 @@ class Gemma4ChatModelToolCallTest {
         val maxTokens = System.getenv("GEMMA4_TOOLCALL_MAX_TOKENS")
             ?.trim()?.toIntOrNull()?.coerceAtLeast(1)
             ?: 24
-        val model = Gemma4ChatModel.fromSafeTensors(
+        val model = GemmaChatModel.fromSafeTensors(
             indexPath = indexPath.toString(),
             options = ChatOptions(
                 temperature = 0f,

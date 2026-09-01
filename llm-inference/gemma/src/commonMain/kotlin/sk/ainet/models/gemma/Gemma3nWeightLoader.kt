@@ -38,7 +38,7 @@ import kotlin.reflect.KClass
  * block encoding with logical `[out, in]` shapes by default; pass
  * [GEMMA_DEQUANTIZE_ALL] as [weightForm] for a dense FP32 load. The token
  * embedding is always dequantized and the PLE table always stays packed
- * (see [Gemma4WeightLoader]'s kdoc — same overrides). The sequential
+ * (see [GemmaWeightLoader]'s kdoc — same overrides). The sequential
  * [Source] path dequantizes everything to dense floats.
  */
 @OptIn(ExperimentalMemoryApi::class)
@@ -241,7 +241,7 @@ public class Gemma3nWeightLoader private constructor(
         }
 
         // Payload pass through the engine loader — same form policy as
-        // [Gemma4WeightLoader]: caller's [weightForm] (default keep-packed
+        // [GemmaWeightLoader]: caller's [weightForm] (default keep-packed
         // [out, in]) with token-embedding and PLE overrides.
         val defaultForm = weightForm ?: WeightForm(
             shape = WeightShapeOrientation.OUT_IN,

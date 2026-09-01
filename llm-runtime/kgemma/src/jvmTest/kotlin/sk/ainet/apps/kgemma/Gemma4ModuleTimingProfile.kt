@@ -65,7 +65,7 @@ class Gemma4ModuleTimingProfile {
         val ctx = DirectCpuExecutionContext(tensorDataFactory = factory, _hooks = timing)
         try {
             val rt = runBlocking {
-                Gemma4Ingestion<FP32>(ctx = ctx, dtype = FP32::class, config = Gemma4LoadConfig())
+                GemmaIngestion<FP32>(ctx = ctx, dtype = FP32::class, config = Gemma4LoadConfig())
                     .loadDslRuntimeStreaming { JvmRandomAccessSource.open(gguf) }
             }
             val prompt = intArrayOf(

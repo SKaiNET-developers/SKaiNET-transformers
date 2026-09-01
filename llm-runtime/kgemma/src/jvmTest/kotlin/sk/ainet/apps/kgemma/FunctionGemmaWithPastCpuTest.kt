@@ -8,7 +8,7 @@ import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.types.FP32
 import sk.ainet.models.gemma.GEMMA_DEQUANTIZE_ALL
-import sk.ainet.models.gemma.Gemma4WeightLoader
+import sk.ainet.models.gemma.GemmaWeightLoader
 import sk.ainet.models.gemma.GemmaModel
 import sk.ainet.models.gemma.GemmaNetworkLoader
 import kotlin.test.Test
@@ -42,7 +42,7 @@ class FunctionGemmaWithPastCpuTest {
         runBlocking {
             val ctx = DirectCpuExecutionContext.create()
             val tok = GGUFTokenizer.fromRandomAccessSource(JvmRandomAccessSource.open(gguf))
-            val weights = Gemma4WeightLoader(
+            val weights = GemmaWeightLoader(
                 randomAccessProvider = { JvmRandomAccessSource.open(gguf) },
                 weightForm = GEMMA_DEQUANTIZE_ALL,
             ).loadToMapStreaming<FP32, Float>(ctx, FP32::class)

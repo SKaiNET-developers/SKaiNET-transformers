@@ -66,7 +66,7 @@ public val GEMMA_DEQUANTIZE_ALL: WeightForm = WeightForm(
  * to dense floats.
  */
 @OptIn(ExperimentalMemoryApi::class)
-public class Gemma4WeightLoader private constructor(
+public class GemmaWeightLoader private constructor(
     private val sourceProvider: (() -> Source)?,
     private val randomAccessProvider: (() -> RandomAccessSource)?,
     private val loadTensorData: Boolean = true,
@@ -116,27 +116,27 @@ public class Gemma4WeightLoader private constructor(
         ctx: ExecutionContext,
         dtype: KClass<T>,
         onTensorLoaded: (String, Tensor<T, V>) -> Unit
-    ): Gemma4ModelMetadata {
+    ): GemmaModelMetadata {
         return loadFromGguf(ctx, dtype, onTensorLoaded)
     }
 
     public suspend inline fun <reified T : DType, V> load(
         ctx: ExecutionContext,
         noinline onTensorLoaded: (String, Tensor<T, V>) -> Unit
-    ): Gemma4ModelMetadata = load(ctx, T::class, onTensorLoaded)
+    ): GemmaModelMetadata = load(ctx, T::class, onTensorLoaded)
 
     public suspend fun <T : DType, V> loadToMap(
         ctx: ExecutionContext,
         dtype: KClass<T>
-    ): Gemma4Weights<T, V> {
+    ): GemmaWeights<T, V> {
         val byName = linkedMapOf<String, Tensor<T, V>>()
         val meta = loadFromGguf(ctx, dtype) { name, tensor -> byName[name] = tensor }
-        return Gemma4Weights(meta, byName)
+        return GemmaWeights(meta, byName)
     }
 
     public suspend inline fun <reified T : DType, V> loadToMap(
         ctx: ExecutionContext
-    ): Gemma4Weights<T, V> = loadToMap(ctx, T::class)
+    ): GemmaWeights<T, V> = loadToMap(ctx, T::class)
 
     // Streaming API
 
@@ -144,27 +144,27 @@ public class Gemma4WeightLoader private constructor(
         ctx: ExecutionContext,
         dtype: KClass<T>,
         onTensorLoaded: (String, Tensor<T, V>) -> Unit
-    ): Gemma4ModelMetadata {
+    ): GemmaModelMetadata {
         return loadFromStreamingGguf(ctx, dtype, onTensorLoaded)
     }
 
     public suspend inline fun <reified T : DType, V> loadStreaming(
         ctx: ExecutionContext,
         noinline onTensorLoaded: (String, Tensor<T, V>) -> Unit
-    ): Gemma4ModelMetadata = loadStreaming(ctx, T::class, onTensorLoaded)
+    ): GemmaModelMetadata = loadStreaming(ctx, T::class, onTensorLoaded)
 
     public suspend fun <T : DType, V> loadToMapStreaming(
         ctx: ExecutionContext,
         dtype: KClass<T>
-    ): Gemma4Weights<T, V> {
+    ): GemmaWeights<T, V> {
         val byName = linkedMapOf<String, Tensor<T, V>>()
         val meta = loadFromStreamingGguf(ctx, dtype) { name, tensor -> byName[name] = tensor }
-        return Gemma4Weights(meta, byName)
+        return GemmaWeights(meta, byName)
     }
 
     public suspend inline fun <reified T : DType, V> loadToMapStreaming(
         ctx: ExecutionContext
-    ): Gemma4Weights<T, V> = loadToMapStreaming(ctx, T::class)
+    ): GemmaWeights<T, V> = loadToMapStreaming(ctx, T::class)
 
     // ============== Sequential loading (dequantize everything) ==============
 
@@ -172,7 +172,7 @@ public class Gemma4WeightLoader private constructor(
         ctx: ExecutionContext,
         dtype: KClass<T>,
         onTensorLoaded: (String, Tensor<T, V>) -> Unit,
-    ): Gemma4ModelMetadata {
+    ): GemmaModelMetadata {
         require(dtype == FP32::class || dtype == FP16::class) {
             "Gemma 4 GGUF loader supports FP32 and FP16 tensors (got ${dtype.simpleName})"
         }
@@ -201,24 +201,24 @@ public class Gemma4WeightLoader private constructor(
             val rt = tensorByName[name]
                 ?: error("Missing required tensor in GGUF payload: $name")
             val tensor: Tensor<T, V> = readerTensorToTensor(ctx, dtype, reader, rt)
-            if (name == Gemma4TensorNames.TOKEN_EMBEDDINGS) embedTensor = tensor
+            if (name == GemmaTensorNames.TOKEN_EMBEDDINGS) embedTensor = tensor
             onTensorLoaded(name, tensor)
         }
 
         // Output weight with weight tying fallback
-        val outputRt = tensorByName[Gemma4TensorNames.OUTPUT_WEIGHT]
+        val outputRt = tensorByName[GemmaTensorNames.OUTPUT_WEIGHT]
         if (outputRt != null) {
             val tensor: Tensor<T, V> = readerTensorToTensor(ctx, dtype, reader, outputRt)
-            onTensorLoaded(Gemma4TensorNames.OUTPUT_WEIGHT, tensor)
+            onTensorLoaded(GemmaTensorNames.OUTPUT_WEIGHT, tensor)
         } else {
-            val embedRt = tensorByName[Gemma4TensorNames.TOKEN_EMBEDDINGS]
+            val embedRt = tensorByName[GemmaTensorNames.TOKEN_EMBEDDINGS]
                 ?: error("Missing both output.weight and token_embd.weight")
             // Tied output: alias the SAME tensor (same BufferHandle) as
             // token_embd — no second read. The trace then sees one weight
             // and the export emits one global / one archive blob (#260).
             val tensor: Tensor<T, V> = embedTensor
                 ?: readerTensorToTensor(ctx, dtype, reader, embedRt)
-            onTensorLoaded(Gemma4TensorNames.OUTPUT_WEIGHT, tensor)
+            onTensorLoaded(GemmaTensorNames.OUTPUT_WEIGHT, tensor)
         }
 
         // Optional tensors
@@ -236,7 +236,7 @@ public class Gemma4WeightLoader private constructor(
         ctx: ExecutionContext,
         dtype: KClass<T>,
         onTensorLoaded: (String, Tensor<T, V>) -> Unit,
-    ): Gemma4ModelMetadata {
+    ): GemmaModelMetadata {
         require(dtype == FP32::class) {
             "Gemma 4 engine-backed GGUF loading delivers FP32-typed tensors (got ${dtype.simpleName})"
         }
@@ -248,7 +248,7 @@ public class Gemma4WeightLoader private constructor(
         // detection, and the wanted-name set (the engine loader delivers
         // every tensor in the file; we keep only the ones the gemma network
         // consumes).
-        val metadata: Gemma4ModelMetadata
+        val metadata: GemmaModelMetadata
         val wanted: Set<String>
         val tiedEmbeddings: Boolean
         val ggufTypeByName: Map<String, GGMLQuantizationType>
@@ -266,10 +266,10 @@ public class Gemma4WeightLoader private constructor(
                 "Missing required tensor(s) in GGUF payload: ${missing.joinToString()}"
             }
 
-            tiedEmbeddings = tensorByName[Gemma4TensorNames.OUTPUT_WEIGHT] == null
+            tiedEmbeddings = tensorByName[GemmaTensorNames.OUTPUT_WEIGHT] == null
             wanted = buildSet {
                 addAll(required)
-                add(Gemma4TensorNames.OUTPUT_WEIGHT)
+                add(GemmaTensorNames.OUTPUT_WEIGHT)
                 optionalTensorNames(metadata).forEach { if (it in tensorByName) add(it) }
             }
         }
@@ -297,7 +297,7 @@ public class Gemma4WeightLoader private constructor(
                     // form: dense FP32 is ~9 GB on E2B (and overflows the
                     // JVM array cap on E4B). Wrapped as a row-dequant
                     // source below.
-                    Gemma4TensorNames.PER_LAYER_TOKEN_EMBD ->
+                    GemmaTensorNames.PER_LAYER_TOKEN_EMBD ->
                         WeightForm(shape = WeightShapeOrientation.OUT_IN)
                     else -> null
                 }
@@ -307,7 +307,7 @@ public class Gemma4WeightLoader private constructor(
         engineLoader.load(ctx, dtype) { name: String, tensor: Tensor<T, V> ->
             if (name !in wanted) return@load
             val delivered = when (name) {
-                Gemma4TensorNames.PER_LAYER_TOKEN_EMBD ->
+                GemmaTensorNames.PER_LAYER_TOKEN_EMBD ->
                     wrapGemmaPleIfPacked(ctx, dtype, tensor, ggufTypeByName[name])
                 // token_embd rides the default keep-packed form like every other
                 // tensor, then is rewrapped as a row-dequant source (llama's
@@ -315,20 +315,20 @@ public class Gemma4WeightLoader private constructor(
                 // and the *tied* output head still sees PackedBlockStorage for
                 // the packed matmul chain instead of a ~2.4 GB dense FP32 table
                 // running off the fast-kernel path every decode step.
-                Gemma4TensorNames.TOKEN_EMBEDDINGS ->
+                GemmaTensorNames.TOKEN_EMBEDDINGS ->
                     embeddingReady(ctx, dtype, tensor)
                 else -> tensor
             }
-            if (name == Gemma4TensorNames.TOKEN_EMBEDDINGS) tokenEmbedding = delivered
+            if (name == GemmaTensorNames.TOKEN_EMBEDDINGS) tokenEmbedding = delivered
             onTensorLoaded(name, delivered)
         }
         if (tiedEmbeddings) {
             // Tied output: alias the SAME tensor (same BufferHandle) as
             // token_embd — one weight in the trace, one export blob (#260).
             onTensorLoaded(
-                Gemma4TensorNames.OUTPUT_WEIGHT,
+                GemmaTensorNames.OUTPUT_WEIGHT,
                 tokenEmbedding
-                    ?: error("Tied embeddings detected but ${Gemma4TensorNames.TOKEN_EMBEDDINGS} was not delivered")
+                    ?: error("Tied embeddings detected but ${GemmaTensorNames.TOKEN_EMBEDDINGS} was not delivered")
             )
         }
 
@@ -365,7 +365,7 @@ public class Gemma4WeightLoader private constructor(
     private fun metadataFromGguf(
         fields: Map<String, ReaderField>,
         tensors: List<ReaderTensor>
-    ): Gemma4ModelMetadata {
+    ): GemmaModelMetadata {
         val arch = fields["general.architecture"]?.stringValue() ?: "unknown"
         val prefix = findArchPrefix(fields, listOf("gemma3", "gemma4", "gemma", "llama"))
 
@@ -392,7 +392,7 @@ public class Gemma4WeightLoader private constructor(
             ?: perLayerIntermediateSize.firstOrNull()
             ?: (embeddingLength * 4)
         val slidingWindow = fields["$prefix.attention.sliding_window"]?.scalarInt()
-            ?: Gemma4ModelMetadata.DEFAULT_SLIDING_WINDOW
+            ?: GemmaModelMetadata.DEFAULT_SLIDING_WINDOW
         // See streaming-path note: absent KV-sharing key ⇒ no sharing (0).
         val kvSharedLayers = fields["$prefix.attention.shared_kv_layers"]?.scalarInt()
             ?: fields["$prefix.kv_shared_layers"]?.scalarInt()
@@ -427,7 +427,7 @@ public class Gemma4WeightLoader private constructor(
         val eosTokenId = fields["tokenizer.ggml.eos_token_id"]?.scalarInt() ?: 1
         val padTokenId = fields["tokenizer.ggml.padding_token_id"]?.scalarInt() ?: 0
 
-        return Gemma4ModelMetadata(
+        return GemmaModelMetadata(
             architecture = arch,
             embeddingLength = embeddingLength,
             contextLength = contextLength,
@@ -441,13 +441,13 @@ public class Gemma4WeightLoader private constructor(
             slidingWindow = slidingWindow,
             kvSharedLayers = kvSharedLayers,
             layerTypes = layerTypes,
-            ropeParametersFull = Gemma4RopeConfig(
+            ropeParametersFull = GemmaRopeConfig(
                 base = ropeBase,
                 ropeType = "proportional",
                 factor = ropeFactor,
                 partialRotaryFactor = partialRotaryFactor
             ),
-            ropeParametersSliding = Gemma4RopeConfig(
+            ropeParametersSliding = GemmaRopeConfig(
                 base = ropeBaseLocal,
                 ropeType = "default"
             ),
@@ -465,7 +465,7 @@ public class Gemma4WeightLoader private constructor(
     private fun metadataFromStreamingGguf(
         fields: Map<String, Any?>,
         tensors: List<StreamingTensorInfo>
-    ): Gemma4ModelMetadata {
+    ): GemmaModelMetadata {
         val arch = (fields["general.architecture"] as? String) ?: "unknown"
         val prefix = findStreamingArchPrefix(fields, listOf("gemma3", "gemma4", "gemma", "llama"))
 
@@ -491,7 +491,7 @@ public class Gemma4WeightLoader private constructor(
             ?: perLayerIntermediateSize.firstOrNull()
             ?: (embeddingLength * 4)
         val slidingWindow = fields["$prefix.attention.sliding_window"]?.toIntValue()
-            ?: Gemma4ModelMetadata.DEFAULT_SLIDING_WINDOW
+            ?: GemmaModelMetadata.DEFAULT_SLIDING_WINDOW
         // KV-sharing only applies when the gguf explicitly declares it (gemma3n
         // / gemma-4). A plain gemma3 checkpoint (e.g. FunctionGemma-270M) omits
         // the key and uses no KV-sharing — default 0, NOT DEFAULT_KV_SHARED_LAYERS
@@ -524,7 +524,7 @@ public class Gemma4WeightLoader private constructor(
         val eosTokenId = fields["tokenizer.ggml.eos_token_id"]?.toIntValue() ?: 1
         val padTokenId = fields["tokenizer.ggml.padding_token_id"]?.toIntValue() ?: 0
 
-        return Gemma4ModelMetadata(
+        return GemmaModelMetadata(
             architecture = arch,
             embeddingLength = embeddingLength,
             contextLength = contextLength,
@@ -538,13 +538,13 @@ public class Gemma4WeightLoader private constructor(
             slidingWindow = slidingWindow,
             kvSharedLayers = kvSharedLayers,
             layerTypes = layerTypes,
-            ropeParametersFull = Gemma4RopeConfig(
+            ropeParametersFull = GemmaRopeConfig(
                 base = ropeBase,
                 ropeType = "proportional",
                 factor = ropeFactor,
                 partialRotaryFactor = partialRotaryFactor
             ),
-            ropeParametersSliding = Gemma4RopeConfig(
+            ropeParametersSliding = GemmaRopeConfig(
                 base = ropeBaseLocal,
                 ropeType = "default"
             ),
@@ -632,7 +632,7 @@ public class Gemma4WeightLoader private constructor(
         }
     }
 
-    private fun validateMetadata(metadata: Gemma4ModelMetadata) {
+    private fun validateMetadata(metadata: GemmaModelMetadata) {
         val validArchs = setOf("gemma4", "gemma", "llama", "unknown")
         require(metadata.architecture in validArchs || metadata.architecture.startsWith("gemma")) {
             "Unsupported architecture: ${metadata.architecture}. Expected gemma4 or compatible."
@@ -644,44 +644,44 @@ public class Gemma4WeightLoader private constructor(
         require(metadata.vocabSize > 0) { "Invalid vocab size ${metadata.vocabSize}" }
     }
 
-    private fun requiredTensorNames(metadata: Gemma4ModelMetadata): List<String> {
+    private fun requiredTensorNames(metadata: GemmaModelMetadata): List<String> {
         val names = mutableListOf<String>()
-        names += Gemma4TensorNames.TOKEN_EMBEDDINGS
-        names += Gemma4TensorNames.OUTPUT_NORM
+        names += GemmaTensorNames.TOKEN_EMBEDDINGS
+        names += GemmaTensorNames.OUTPUT_NORM
 
         repeat(metadata.blockCount) { layer ->
-            names += Gemma4TensorNames.inputLayernorm(layer)
-            names += Gemma4TensorNames.attnQ(layer)
-            names += Gemma4TensorNames.attnK(layer)
-            names += Gemma4TensorNames.attnV(layer)
-            names += Gemma4TensorNames.attnOut(layer)
-            names += Gemma4TensorNames.postAttentionLayernorm(layer)
-            names += Gemma4TensorNames.ffnGate(layer)
-            names += Gemma4TensorNames.ffnDown(layer)
-            names += Gemma4TensorNames.ffnUp(layer)
+            names += GemmaTensorNames.inputLayernorm(layer)
+            names += GemmaTensorNames.attnQ(layer)
+            names += GemmaTensorNames.attnK(layer)
+            names += GemmaTensorNames.attnV(layer)
+            names += GemmaTensorNames.attnOut(layer)
+            names += GemmaTensorNames.postAttentionLayernorm(layer)
+            names += GemmaTensorNames.ffnGate(layer)
+            names += GemmaTensorNames.ffnDown(layer)
+            names += GemmaTensorNames.ffnUp(layer)
         }
         return names
     }
 
-    private fun optionalTensorNames(metadata: Gemma4ModelMetadata): List<String> {
+    private fun optionalTensorNames(metadata: GemmaModelMetadata): List<String> {
         val names = mutableListOf(
-            Gemma4TensorNames.ROPE_FREQS_REAL,
-            Gemma4TensorNames.ROPE_FREQS_IMAG,
-            Gemma4TensorNames.PER_LAYER_TOKEN_EMBD,
-            Gemma4TensorNames.PER_LAYER_MODEL_PROJ,
-            Gemma4TensorNames.PER_LAYER_PROJ_NORM,
+            GemmaTensorNames.ROPE_FREQS_REAL,
+            GemmaTensorNames.ROPE_FREQS_IMAG,
+            GemmaTensorNames.PER_LAYER_TOKEN_EMBD,
+            GemmaTensorNames.PER_LAYER_MODEL_PROJ,
+            GemmaTensorNames.PER_LAYER_PROJ_NORM,
         )
         repeat(metadata.blockCount) { layer ->
-            names += Gemma4TensorNames.perLayerInput(layer)
-            names += Gemma4TensorNames.perLayerOutput(layer)
-            names += Gemma4TensorNames.attnQNorm(layer)
-            names += Gemma4TensorNames.attnKNorm(layer)
-            names += Gemma4TensorNames.postAttentionNorm(layer)
-            names += Gemma4TensorNames.postFfwNorm(layer)
-            names += Gemma4TensorNames.layerOutputScale(layer)
-            names += Gemma4TensorNames.pleInpGate(layer)
-            names += Gemma4TensorNames.plePostNorm(layer)
-            names += Gemma4TensorNames.pleProj(layer)
+            names += GemmaTensorNames.perLayerInput(layer)
+            names += GemmaTensorNames.perLayerOutput(layer)
+            names += GemmaTensorNames.attnQNorm(layer)
+            names += GemmaTensorNames.attnKNorm(layer)
+            names += GemmaTensorNames.postAttentionNorm(layer)
+            names += GemmaTensorNames.postFfwNorm(layer)
+            names += GemmaTensorNames.layerOutputScale(layer)
+            names += GemmaTensorNames.pleInpGate(layer)
+            names += GemmaTensorNames.plePostNorm(layer)
+            names += GemmaTensorNames.pleProj(layer)
         }
         return names
     }
@@ -733,28 +733,28 @@ public class Gemma4WeightLoader private constructor(
     // ============== Helper methods ==============
 
     private fun inferEmbeddingFromTensor(tensors: List<ReaderTensor>): Int {
-        val token = tensors.firstOrNull { it.name == Gemma4TensorNames.TOKEN_EMBEDDINGS }
+        val token = tensors.firstOrNull { it.name == GemmaTensorNames.TOKEN_EMBEDDINGS }
             ?: error("Cannot infer embedding length without token embeddings tensor")
         return token.shape.map { it.toInt() }.minOrNull()
             ?: error("Cannot infer embedding length from tensor shape ${token.shape}")
     }
 
     private fun inferVocabFromTensor(tensors: List<ReaderTensor>): Int {
-        val token = tensors.firstOrNull { it.name == Gemma4TensorNames.TOKEN_EMBEDDINGS }
+        val token = tensors.firstOrNull { it.name == GemmaTensorNames.TOKEN_EMBEDDINGS }
             ?: error("Cannot infer vocab size without token embeddings tensor")
         return token.shape.map { it.toInt() }.maxOrNull()
             ?: error("Cannot infer vocab size from tensor shape ${token.shape}")
     }
 
     private fun inferEmbeddingFromStreamingTensor(tensors: List<StreamingTensorInfo>): Int {
-        val token = tensors.firstOrNull { it.name == Gemma4TensorNames.TOKEN_EMBEDDINGS }
+        val token = tensors.firstOrNull { it.name == GemmaTensorNames.TOKEN_EMBEDDINGS }
             ?: return 2304
         // GGUF stores shapes in column-major order; embedding is the smaller dimension
         return token.shape.map { it.toInt() }.minOrNull() ?: 2304
     }
 
     private fun inferVocabFromStreamingTensor(tensors: List<StreamingTensorInfo>): Int {
-        val token = tensors.firstOrNull { it.name == Gemma4TensorNames.TOKEN_EMBEDDINGS }
+        val token = tensors.firstOrNull { it.name == GemmaTensorNames.TOKEN_EMBEDDINGS }
             ?: return 262144
         // GGUF stores shapes in column-major order; vocab is the larger dimension
         return token.shape.map { it.toInt() }.maxOrNull() ?: 262144

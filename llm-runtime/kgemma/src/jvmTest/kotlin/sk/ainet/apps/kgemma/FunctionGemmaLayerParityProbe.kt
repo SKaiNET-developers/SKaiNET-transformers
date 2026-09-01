@@ -5,7 +5,7 @@ import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
 import sk.ainet.lang.types.FP32
 import sk.ainet.models.gemma.GEMMA_DEQUANTIZE_ALL
-import sk.ainet.models.gemma.Gemma4WeightLoader
+import sk.ainet.models.gemma.GemmaWeightLoader
 import sk.ainet.models.gemma.GemmaNetworkLoader
 import kotlin.test.Test
 
@@ -44,14 +44,14 @@ class FunctionGemmaLayerParityProbe {
         )
         val ctx = DirectCpuExecutionContext.create()
         val weights = runBlocking {
-            Gemma4WeightLoader(
+            GemmaWeightLoader(
                 randomAccessProvider = { JvmRandomAccessSource.open(gguf) },
                 weightForm = GEMMA_DEQUANTIZE_ALL,
             ).loadToMapStreaming<FP32, Float>(ctx, FP32::class)
         }
 
         // 1) The raw embedding row for the control token, straight off the loaded weight.
-        val embd = weights.tensors.getValue(sk.ainet.models.gemma.Gemma4TensorNames.TOKEN_EMBEDDINGS)
+        val embd = weights.tensors.getValue(sk.ainet.models.gemma.GemmaTensorNames.TOKEN_EMBEDDINGS)
         val dim = embd.shape[embd.shape.rank - 1]
         println("EMB tensor shape=${embd.shape} data=${embd.data::class.simpleName}")
         fun row(tokenId: Int): FloatArray =

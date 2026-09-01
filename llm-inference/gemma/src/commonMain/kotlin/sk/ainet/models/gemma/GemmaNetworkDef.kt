@@ -25,7 +25,7 @@ import sk.ainet.lang.types.DType
  * Gemma 4 architecture defined via the network DSL.
  *
  * Phase 5b: every Gemma 4 architectural feature the DSL has primitives for
- * is now expressed here, walking [Gemma4ModelMetadata.layerTypes] to pick
+ * is now expressed here, walking [GemmaModelMetadata.layerTypes] to pick
  * per-layer configuration:
  *
  * - **Full-attention layers** use proportional (NTK-aware) RoPE with the
@@ -33,8 +33,8 @@ import sk.ainet.lang.types.DType
  *   `partialRotaryFactor = 0.5` (Gemma 4 convention).
  * - **Sliding-attention layers** use the standard RoPE base, the sliding
  *   `head_dim`, full-rotation, and a sliding-window mask of
- *   [Gemma4ModelMetadata.slidingWindow] tokens on the attention step.
- * - **Per-layer FFN width** via [Gemma4ModelMetadata.getIntermediateSize].
+ *   [GemmaModelMetadata.slidingWindow] tokens on the attention step.
+ * - **Per-layer FFN width** via [GemmaModelMetadata.getIntermediateSize].
  * - **Shared KV cache** across the trailing `kvSharedLayers` layers: an
  *   [AppendKVCache] is built on the owner layer, and each follower gets a
  *   [SharedKVCache] that forwards to it. Follower shape must match the
@@ -50,7 +50,7 @@ import sk.ainet.lang.types.DType
  *   tables up front.
  */
 public inline fun <reified T : DType, V> gemmaNetwork(
-    metadata: Gemma4ModelMetadata,
+    metadata: GemmaModelMetadata,
     maxInferenceLen: Int = minOf(metadata.contextLength, 4096),
     qkNorm: Boolean = true,
     sandwichNorms: Boolean = true,
@@ -64,14 +64,14 @@ public inline fun <reified T : DType, V> gemmaNetwork(
 
 /**
  * Non-reified variant of [gemmaNetwork] that takes an explicit `dtype` [KClass].
- * Lets non-reified callers (e.g. `Gemma4Ingestion<T>`) build the DSL network
+ * Lets non-reified callers (e.g. `GemmaIngestion<T>`) build the DSL network
  * without propagating `reified` through their API.
  *
  * @param qkNorm whether to apply per-head RMSNorm to Q and K before RoPE. True
  *   for real Gemma 4 checkpoints (the GGUF carries `attn_q_norm` /
  *   `attn_k_norm` weights). Callers with synthetic fixtures that don't
  *   provide those weights — or that want to match the hand-coded
- *   [Gemma4AttentionBackend] which never applied QK-Norm — can set this to
+ *   the retired hand-rolled gemma4 attention backend, which never applied QK-Norm — can set this to
  *   false. [GemmaNetworkLoader.fromWeights] auto-detects based on presence
  *   of `blk.*.attn_q_norm.weight` in the tensors map.
  * @param sandwichNorms whether to apply Gemma 2-style post-norms after the
@@ -91,7 +91,7 @@ public inline fun <reified T : DType, V> gemmaNetwork(
  *   accuracy is still being validated.
  */
 public fun <T : DType, V> gemmaNetwork(
-    metadata: Gemma4ModelMetadata,
+    metadata: GemmaModelMetadata,
     dtype: kotlin.reflect.KClass<T>,
     maxInferenceLen: Int = minOf(metadata.contextLength, 4096),
     qkNorm: Boolean = true,

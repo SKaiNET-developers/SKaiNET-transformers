@@ -37,7 +37,7 @@ class Gemma4SpeedProfile {
         try {
             val loadTime = measureTime {
                 runtime = runBlocking {
-                    Gemma4Ingestion<FP32>(ctx = ctx, dtype = FP32::class, config = Gemma4LoadConfig())
+                    GemmaIngestion<FP32>(ctx = ctx, dtype = FP32::class, config = Gemma4LoadConfig())
                         .loadDslRuntimeStreaming { JvmRandomAccessSource.open(gguf) }
                 }
             }

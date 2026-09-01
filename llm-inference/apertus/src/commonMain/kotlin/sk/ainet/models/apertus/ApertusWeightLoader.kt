@@ -234,7 +234,7 @@ public class ApertusWeightLoader private constructor(
     /**
      * Convert a GGUF-stored shape `[in, out]` to the logical PyTorch
      * `[out, in]` shape every downstream API in this codebase assumes
-     * (`Linear.init`, `Embedding`, `Gemma4WeightMapper`, `WeightMapper`,
+     * (`Linear.init`, `Embedding`, `GemmaWeightMapper`, `WeightMapper`,
      * etc.). GGUF lists dimensions fastest-varying-first; PyTorch lists them
      * fastest-varying-last. Reversing the dim list flips between the two
      * conventions. Norm-style rank-1 tensors are unaffected.
