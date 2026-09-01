@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — Qwen family #346 conformance rows
+
+- **`QwenWeightLoader`** joins the family (`<F>WeightLoader` row): the thin wrapper over
+  `llm-core`'s `DecoderGgufWeightLoader` pinned to the public `QWEN_ARCHITECTURES`
+  (`qwen2`/`qwen3`/`qwen35`), same shape as `LlamaWeightLoader`/`BitNetWeightLoader`.
+  `QwenNetworkLoader`'s GGUF paths now delegate to it. **`QwenGgufTensorNames` →
+  `QwenTensorNames`** (the `QwenGgufWeightSource.kt` naming drift #346 called out);
+  `@Deprecated` typealias remains for one release. The Qwen golden-token parity gates are
+  tagged `smoke-reference` and wired into the reference workflow (`qwen25_gguf_url` input
+  stages the 0.5B model; the existing qwen3 stage also feeds `QWEN3_17B_GGUF`), and
+  `tests/smoke/smoke-models.json` gains a Qwen2.5-0.5B-Instruct row certifying the #352 fix
+  on the CLI path.
+
 ### Fixed — Qwen2/Qwen2.5 GGUF decode produced garbage (#352)
 
 - **Attention projection biases now load and bind**

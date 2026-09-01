@@ -10,13 +10,12 @@ import sk.ainet.apps.llm.tokenizer.TokenizerFactory
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
 import sk.ainet.io.gguf.StreamingGGUFReader
-import sk.ainet.lang.nn.dsl.decoder.DecoderGgufWeightLoader
 import sk.ainet.lang.types.FP32
 
 /**
  * The #346 maturity-gate parity probe for the Qwen family, against **mainline llama.cpp** —
  * Q8_0 is its native case, so like the Llama gate this asserts FULL cross-implementation
- * greedy text equality on the DSL path ([DecoderGgufWeightLoader] engine loading →
+ * greedy text equality on the DSL path ([QwenWeightLoader] engine loading →
  * [QwenNetworkLoader.fromWeights] → [OptimizedLLMRuntime]).
  *
  * Two variants, because they exercise disjoint machinery:
@@ -29,6 +28,8 @@ import sk.ainet.lang.types.FP32
  * quietly otherwise. Fixture headers record the exact oracle build and commands. Qwen adds
  * no BOS token — generation feeds the fixture's raw prompt tokens, prepending nothing.
  */
+@org.junit.jupiter.api.Tag("smoke-reference")
+@org.junit.jupiter.api.Tag("integration")
 class QwenGoldenTokenParityTest {
 
     private data class Fixture(
@@ -66,10 +67,9 @@ class QwenGoldenTokenParityTest {
         // 2 — greedy continuation, DSL path, keep-packed engine loading. No BOS prepend:
         // llama.cpp adds none for qwen2/qwen3 and the fixture tokens are the raw encoding.
         val weights = runBlocking {
-            DecoderGgufWeightLoader(
-                randomAccessProvider = { JvmRandomAccessSource.open(modelPath) },
-                acceptedArchitectures = setOf("qwen2", "qwen3"),
-            ).loadToMapStreaming<FP32, Float>(ctx)
+            QwenWeightLoader.loadToMapStreaming<FP32, Float>(
+                ctx, { JvmRandomAccessSource.open(modelPath) },
+            )
         }
         val runtime = OptimizedLLMRuntime(
             QwenNetworkLoader.fromWeights(weights), ctx, OptimizedLLMMode.DIRECT, FP32::class,

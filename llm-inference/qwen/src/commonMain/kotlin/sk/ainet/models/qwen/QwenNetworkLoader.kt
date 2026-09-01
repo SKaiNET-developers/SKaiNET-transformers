@@ -14,7 +14,6 @@ import sk.ainet.lang.types.DType
 import sk.ainet.lang.types.DTypePolicy
 import sk.ainet.lang.nn.dsl.decoder.GgufDecoderMetadata
 import sk.ainet.lang.nn.dsl.decoder.DecoderSafeTensorsLoader
-import sk.ainet.lang.nn.dsl.decoder.DecoderGgufWeightLoader
 import sk.ainet.lang.nn.dsl.decoder.DecoderGgufWeights
 import sk.ainet.lang.nn.dsl.decoder.DECODER_NARROW_KEEP_NATIVE
 import kotlin.jvm.JvmName
@@ -24,7 +23,7 @@ import kotlin.jvm.JvmName
  * with weights from GGUF or SafeTensors files via [WeightMapper] + [QwenGGUFNameResolver].
  *
  * Qwen3 uses the same GGUF tensor naming (`blk.N.*`) and weight structure as LLaMA,
- * so loading delegates to [DecoderGgufWeightLoader] for GGUF and [DecoderSafeTensorsLoader]
+ * so loading delegates to [QwenWeightLoader] for GGUF and [DecoderSafeTensorsLoader]
  * for SafeTensors. The network is built via [qwenNetwork] which delegates to [llamaNetwork].
  *
  * Usage:
@@ -41,9 +40,6 @@ import kotlin.jvm.JvmName
  * val model = QwenNetworkLoader.fromWeights(llamaWeights)
  * ```
  */
-@PublishedApi
-internal val QWEN_ARCHITECTURES: Set<String> = setOf("qwen2", "qwen3", "qwen35")
-
 @OptIn(ExperimentalMemoryApi::class)
 public class QwenNetworkLoader @PublishedApi internal constructor(
     @PublishedApi internal val weightsProvider: WeightsProvider,
@@ -132,23 +128,12 @@ public class QwenNetworkLoader @PublishedApi internal constructor(
         ctx: ExecutionContext
     ): Module<T, V> {
         val weights: DecoderGgufWeights<T, V> = when (val wp = weightsProvider) {
-            is WeightsProvider.GgufSource -> {
-                val loader = DecoderGgufWeightLoader(
-                    wp.sourceProvider,
-                    acceptedArchitectures = QWEN_ARCHITECTURES,
-                    dtypePolicy = dtypePolicy,
-                )
-                loader.loadToMap<T, V>(ctx)
-            }
-            is WeightsProvider.GgufRandomAccess -> {
-                val loader = DecoderGgufWeightLoader(
-                    wp.randomAccessProvider,
-                    acceptedArchitectures = QWEN_ARCHITECTURES,
-                    dtypePolicy = dtypePolicy,
-                    weightForm = wp.weightForm,
-                )
-                loader.loadToMapStreaming<T, V>(ctx)
-            }
+            is WeightsProvider.GgufSource -> QwenWeightLoader.loadToMap<T, V>(
+                ctx, wp.sourceProvider, dtypePolicy,
+            )
+            is WeightsProvider.GgufRandomAccess -> QwenWeightLoader.loadToMapStreaming<T, V>(
+                ctx, wp.randomAccessProvider, wp.weightForm, dtypePolicy,
+            )
             is WeightsProvider.SafeTensors -> {
                 val loader = DecoderSafeTensorsLoader<T>(ctx, T::class, wp.metadata, wp.tiedEmbeddings, dtypePolicy)
                 @Suppress("UNCHECKED_CAST")

@@ -24,6 +24,14 @@
       }
     },
     {
+      "name": "Qwen2.5-0.5B-Instruct-Q8",
+      "runner": "kllama",
+      "model": "qwen2.5-0.5b-instruct-q8_0.gguf",
+      "format": "gguf",
+      "instruct": true,
+      "prompt": "What is the capital of France?"
+    },
+    {
       "name": "Qwen3-1.7B-Q8",
       "runner": "kllama",
       "model": "Qwen3-1.7B-Q8_0.gguf",

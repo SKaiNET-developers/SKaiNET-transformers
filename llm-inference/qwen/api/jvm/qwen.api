@@ -9,22 +9,6 @@ public final class sk/ainet/models/qwen/QwenGGUFNameResolver : sk/ainet/io/weigh
 	public fun resolve (Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
 }
 
-public final class sk/ainet/models/qwen/QwenGgufTensorNames : sk/ainet/io/gguf/TensorNameMapper {
-	public static final field INSTANCE Lsk/ainet/models/qwen/QwenGgufTensorNames;
-	public fun layerAttnK (I)Ljava/lang/String;
-	public fun layerAttnNorm (I)Ljava/lang/String;
-	public fun layerAttnO (I)Ljava/lang/String;
-	public fun layerAttnQ (I)Ljava/lang/String;
-	public fun layerAttnV (I)Ljava/lang/String;
-	public fun layerFfnDown (I)Ljava/lang/String;
-	public fun layerFfnGate (I)Ljava/lang/String;
-	public fun layerFfnNorm (I)Ljava/lang/String;
-	public fun layerFfnUp (I)Ljava/lang/String;
-	public fun outputNorm ()Ljava/lang/String;
-	public fun outputWeight ()Ljava/lang/String;
-	public fun tokenEmbedding ()Ljava/lang/String;
-}
-
 public final class sk/ainet/models/qwen/QwenHfTensorNameMapper {
 	public static final field INSTANCE Lsk/ainet/models/qwen/QwenHfTensorNameMapper;
 	public final fun toCanonical (Ljava/lang/String;)Ljava/lang/String;
@@ -102,7 +86,27 @@ public final class sk/ainet/models/qwen/QwenNetworkLoader$WeightsProvider$SafeTe
 	public fun toString ()Ljava/lang/String;
 }
 
-public final class sk/ainet/models/qwen/QwenNetworkLoaderKt {
+public final class sk/ainet/models/qwen/QwenTensorNames : sk/ainet/io/gguf/TensorNameMapper {
+	public static final field INSTANCE Lsk/ainet/models/qwen/QwenTensorNames;
+	public fun layerAttnK (I)Ljava/lang/String;
+	public fun layerAttnNorm (I)Ljava/lang/String;
+	public fun layerAttnO (I)Ljava/lang/String;
+	public fun layerAttnQ (I)Ljava/lang/String;
+	public fun layerAttnV (I)Ljava/lang/String;
+	public fun layerFfnDown (I)Ljava/lang/String;
+	public fun layerFfnGate (I)Ljava/lang/String;
+	public fun layerFfnNorm (I)Ljava/lang/String;
+	public fun layerFfnUp (I)Ljava/lang/String;
+	public fun outputNorm ()Ljava/lang/String;
+	public fun outputWeight ()Ljava/lang/String;
+	public fun tokenEmbedding ()Ljava/lang/String;
+}
+
+public final class sk/ainet/models/qwen/QwenWeightLoader {
+	public static final field INSTANCE Lsk/ainet/models/qwen/QwenWeightLoader;
+}
+
+public final class sk/ainet/models/qwen/QwenWeightLoaderKt {
 	public static final fun getQWEN_ARCHITECTURES ()Ljava/util/Set;
 }
 
