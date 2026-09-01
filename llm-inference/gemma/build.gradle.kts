@@ -63,6 +63,7 @@ kotlin {
             implementation(project.dependencies.platform(project(":llm-bom")))
             implementation(libs.kotlin.test)
             implementation(libs.skainet.backend.cpu)
+                implementation(libs.skainet.backend.api)
         }
 
         val jvmTest by getting {
