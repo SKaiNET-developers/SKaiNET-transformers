@@ -42,11 +42,15 @@ public class GemmaNetworkLoader @PublishedApi internal constructor(
 
     /** See [sk.ainet.models.llama.LlamaNetworkLoader.withDtypePolicy]. */
     public fun withDtypePolicy(policy: DTypePolicy): GemmaNetworkLoader {
-        // Gemma has its own weight chain (`GemmaWeightLoader` / `GemmaSafeTensorsLoader`),
-        // which widens every narrow float to FP32 — it has no KEEP_NATIVE path yet, unlike the
-        // shared decoder chain LLaMA/Qwen/Voxtral use. So it promises nothing and `Require(BF16)`
-        // is rejected rather than accepted-and-ignored.
-        DTypePolicyValidation.validate(policy, "GemmaNetworkLoader.withDtypePolicy", keepNative = emptySet())
+        // The GGUF lane honors narrow-float keep-native exactly as llama's shared loader does
+        // (GemmaWeightLoader resolves keepF16Native/keepBf16Native from the policy) — the old
+        // `keepNative = emptySet()` claim predated that and silently rejected `Require(BF16)`
+        // on a loader that supports it (#375). The SafeTensors lane still widens; it re-validates
+        // against an empty set at its own dispatch site below.
+        DTypePolicyValidation.validate(
+            policy, "GemmaNetworkLoader.withDtypePolicy",
+            keepNative = sk.ainet.lang.nn.dsl.decoder.DECODER_NARROW_KEEP_NATIVE,
+        )
         this.dtypePolicy = policy
         return this
     }
@@ -132,14 +136,21 @@ public class GemmaNetworkLoader @PublishedApi internal constructor(
     ): Module<T, V> {
         val weights: GemmaWeights<T, V> = when (val wp = weightsProvider) {
             is WeightsProvider.GgufSource -> {
-                val loader = GemmaWeightLoader(wp.sourceProvider)
+                val loader = GemmaWeightLoader(wp.sourceProvider, dtypePolicy = dtypePolicy)
                 loader.loadToMap<T, V>(ctx)
             }
             is WeightsProvider.GgufRandomAccess -> {
-                val loader = GemmaWeightLoader(wp.randomAccessProvider, weightForm = wp.weightForm)
+                val loader = GemmaWeightLoader(
+                    wp.randomAccessProvider, weightForm = wp.weightForm, dtypePolicy = dtypePolicy,
+                )
                 loader.loadToMapStreaming<T, V>(ctx)
             }
             is WeightsProvider.SafeTensorsIndex -> {
+                // The hand-rolled SafeTensors reader widens every narrow float (#375): reject a
+                // Require() policy here rather than accept-and-ignore it.
+                DTypePolicyValidation.validate(
+                    dtypePolicy, "GemmaNetworkLoader(SafeTensors)", keepNative = emptySet(),
+                )
                 val loader = GemmaSafeTensorsLoader(wp.indexPath)
                 @Suppress("UNCHECKED_CAST")
                 loader.loadToMap(ctx, T::class) as GemmaWeights<T, V>
