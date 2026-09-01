@@ -266,12 +266,17 @@ class GemmaDslQ4KTest {
             for (i in a.indices) {
                 val d = abs(a[i] - b[i])
                 maxDiff = max(maxDiff, d)
-                // Tolerance: the Q4_K path and the FP32 path compute the exact same
-                // math on the same dequantised values, so divergence can only come
-                // from floating-point accumulation order. Stay tight — 1e-2 is more
-                // than enough.
+                // Tolerance: the Q4_K path and the FP32 path compute the same math on
+                // the same dequantised values, so divergence can only come from
+                // floating-point accumulation order — but even with the reference
+                // kernels pinned that order differs between the packed and dense legs,
+                // and its magnitude varies with the runner's SIMD width. 1e-2 proved
+                // flaky on CI (observed 0.0109 on ~8.8-unit logits, a 0.1% drift, on
+                // the develop push for #385). A real layout/dispatch bug on these
+                // integer-valued weights shows up at unit scale, so 5e-2 keeps two
+                // orders of magnitude of sensitivity without the flake.
                 assertTrue(
-                    d < 1e-2f,
+                    d < 5e-2f,
                     "step=$step logit[$i] diverged: fp32=${a[i]} q4k=${b[i]} diff=$d"
                 )
             }
