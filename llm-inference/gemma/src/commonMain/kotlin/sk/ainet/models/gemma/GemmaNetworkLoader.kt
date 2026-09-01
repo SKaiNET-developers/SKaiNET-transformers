@@ -2,7 +2,6 @@ package sk.ainet.models.gemma
 
 import kotlinx.io.Source
 import sk.ainet.apps.llm.DTypePolicyValidation
-import sk.ainet.apps.llm.weights.LlamaGGUFNameResolver
 import sk.ainet.context.ExecutionContext
 import sk.ainet.io.RandomAccessSource
 import sk.ainet.io.weights.MappingConfig
@@ -209,7 +208,7 @@ internal fun <T : DType, V> applyWeightsToNetworkNonReified(
         usePathBasedMatching = false,
         fallbackToShapeMatching = false,
         debug = debug,
-        nameResolver = LlamaGGUFNameResolver()
+        nameResolver = GemmaGGUFNameResolver()
     )
 
     val result = WeightMapper.applyWeights(model, weightTensors, config)
