@@ -1,0 +1,12 @@
+# Llama-3.2-1B-Instruct Q8_0 greedy parity fixture (transformers#373)
+#
+# Oracle: MAINLINE llama.cpp (brew, version 0.3.0 build 10621 commit c1d0e7a00) — Q8_0 on
+# mainline is the native case, no fork and no systematic quantization divergence, so unlike the
+# BitNet fixture this gate asserts FULL cross-implementation text equality on the DSL path.
+#   llama-server -m Llama-3.2-1B-Instruct-Q8_0.gguf -ngl 0 -t 4 --port 8812
+#   curl :8812/tokenize   -d '{"content": "The capital of France is", "add_special": true}'
+#   curl :8812/completion -d '{"prompt": "The capital of France is", "n_predict": 32, "temperature": 0, "top_k": 1}'
+prompt=The capital of France is
+steps=32
+prompt_tokens=128000,791,6864,315,9822,374
+oracle_text= Paris. The Eiffel Tower is located in Paris. The Louvre Museum is also located in Paris. The famous French artist Claude Monet was born in
