@@ -241,6 +241,19 @@ fun main(args: Array<String>) {
         var bitnetTwoStageHead: BitNetPlanesTensorData? = null
 
         val runtime: InferenceRuntime<FP32> = if (modelInfo.family == ModelFamily.GEMMA) {
+            // ModelFamily.GEMMA claims every gemma* architecture, but this DSL lane serves
+            // gemma3/gemma4 only (#376): 3n needs the hand-rolled runtime (AltUp/PLE/activation
+            // sparsity — kgemma CLI, split tracked in #377), and gemma2 has no supported path.
+            when (modelInfo.architecture) {
+                "gemma3n" -> error(
+                    "Gemma 3n is not supported by the unified CLI's DSL lane — use the kgemma " +
+                        "CLI (:llm-runtime:kgemma), which carries its hand-rolled runtime (#377).",
+                )
+                "gemma2", "gemma" -> error(
+                    "Architecture '${modelInfo.architecture}' has no supported path — the Gemma " +
+                        "lane serves gemma3/gemma4 checkpoints (#376).",
+                )
+            }
             println("Loading Gemma GGUF model from $modelPath via gemmaNetwork() + OptimizedLLMRuntime (engine loader, keep-packed, mapped)...")
             if (cliArgs.contextLength != null) {
                 println("  --context flag currently ignored on the Gemma path; uses model default capped to 4096.")

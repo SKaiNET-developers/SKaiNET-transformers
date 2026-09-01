@@ -21,6 +21,8 @@ import sk.ainet.llm.api.Message
  *     fix verified NOT to fully resolve it) also affects a short translate-shaped prompt — the
  *     EdgeTranslator Phase 0/1 decision gate.
  */
+@org.junit.jupiter.api.Tag("smoke-reference")
+@org.junit.jupiter.api.Tag("integration")
 class Gemma4ChatModelGgufSmokeTest {
 
     @Test
