@@ -11,6 +11,7 @@ import sk.ainet.lang.nn.dsl.residual
 import sk.ainet.lang.nn.dsl.rmsNorm
 import sk.ainet.lang.nn.dsl.sequential
 import sk.ainet.lang.nn.dsl.xielu
+import sk.ainet.lang.nn.transformer.RoPEMode
 import sk.ainet.lang.types.DType
 
 /**
@@ -54,7 +55,11 @@ public inline fun <reified T : DType, V> apertusNetwork(
                 qkNorm = true,
                 id = "attn"
             ) {
-                rope(headDim, seqLen)
+                // Apertus is an HF rotate-half model: llama.cpp runs it as
+                // LLAMA_ROPE_TYPE_NEOX with rope_theta from the GGUF (12M on
+                // Apertus-8B). The DSL defaults (INTERLEAVED, base 10_000)
+                // silently produced wrong rotations on every position.
+                rope(headDim, seqLen, mode = RoPEMode.SPLIT_HALF, base = metadata.ropeTheta)
                 kvCache(seqLen, nKVHeads, headDim)
             }
             stage.residual()

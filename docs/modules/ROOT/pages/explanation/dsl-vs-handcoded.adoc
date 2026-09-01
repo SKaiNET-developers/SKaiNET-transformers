@@ -98,9 +98,17 @@ The goal is to extend the DSL to support these patterns over time.
 |`llamaNetwork()`
 |`LlamaRuntime` deprecated
 
-|Qwen2/3
+|Qwen 2/2.5/3
 |`qwenNetwork()`
-|Delegates to `llamaNetwork()`
+|Thin call of the shared `decoderTransformerNetwork()` (QK-norm, NEOX RoPE, qwen2 attention biases)
+
+|Gemma 3/4
+|`gemmaNetwork()`
+|DSL lane serves gemma3 (FunctionGemma) and gemma4, GGUF + SafeTensors
+
+|BitNet b1.58
+|`bitnetNetwork()`
+|Thin call of the shared `decoderTransformerNetwork()` (squared-ReLU FFN + sub-norms); packed I2_S ternary weights
 
 |Apertus
 |`apertusNetwork()`

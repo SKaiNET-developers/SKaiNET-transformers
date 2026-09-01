@@ -49,38 +49,44 @@ public class XIELUActivation<T : DType, V>(
     override fun onForward(input: Tensor<T, V>, ctx: ExecutionContext): Tensor<T, V> {
         val ops = ctx.ops
 
-        // Get learned parameters
-        val alphaP = params[0].value
-        val alphaN = params[1].value
-        val beta = params[2].value
-        val epsParam = params[3].value
+        // The four learned parameters are frozen per-layer scalars, so their softplus
+        // transforms are computed host-side in float — exactly, with the large-x guard.
+        // The previous in-graph version used exp() as a "simplified softplus approx":
+        // exp(166) (a real Apertus-8B alpha_p value) is Inf, and Inf * 0-mask = NaN, so
+        // every logit came out NaN and greedy decode produced <unk> forever. Even for
+        // small alphas exp(x) != ln(1+exp(x)) — the math was never faithful.
+        val alphaP = scalarValue(params[0].value)
+        val alphaN = scalarValue(params[1].value)
+        val beta = scalarValue(params[2].value)
+        val eps = scalarValue(params[3].value)
 
-        // softplus(x) = log(1 + exp(x))
-        // Approximate: positive branch uses softplus(alphaP) * x^2 + beta * x
-        //              negative branch uses (expm1(clamp(x, eps)) - x) * (beta + softplus(alphaN)) + beta * x
+        val alphaPEff = softplus(alphaP)
+        val alphaNEff = beta + softplus(alphaN)
 
         // Compute masks
         val posMask = ops.ge(input, 0.0f)    // 1.0 where x >= 0, 0.0 otherwise
         val negMask = ops.lt(input, 0.0f)    // 1.0 where x < 0, 0.0 otherwise
 
         // Positive branch: softplus(αp) * x² + β * x
-        val alphaPEff = ops.add(ops.exp(alphaP), ops.mulScalar(alphaP, 0.0f))  // simplified softplus approx
         val xSquared = ops.multiply(input, input)
-        val posTerm1 = ops.multiply(alphaPEff, xSquared)
-        val posTerm2 = ops.multiply(beta, input)
-        val posResult = ops.add(posTerm1, posTerm2)
+        val posResult = ops.add(ops.mulScalar(xSquared, alphaPEff), ops.mulScalar(input, beta))
         val posContrib = ops.multiply(posResult, posMask)
 
-        // Negative branch: (expm1(clamp(x, eps)) - x) * (β + softplus(αn)) + β * x
-        val clamped = ops.clamp(input, -10.0f, 0.0f)
-        val expm1Val = ops.expm1(clamped)
-        val expm1MinusX = ops.subtract(expm1Val, input)
-        val alphaNEff = ops.add(beta, ops.exp(alphaN))  // simplified softplus
-        val negTerm1 = ops.multiply(expm1MinusX, alphaNEff)
-        val negTerm2 = ops.multiply(beta, input)
-        val negResult = ops.add(negTerm1, negTerm2)
+        // Negative branch: (expm1(min(x, eps)) - x) * (β + softplus(αn)) + β * x.
+        // The lower clamp only keeps exp() in float range: expm1 saturates at -1 long
+        // before -88, so it does not perturb the reference math.
+        val clamped = ops.clamp(input, -88.0f, eps)
+        val expm1MinusX = ops.subtract(ops.expm1(clamped), input)
+        val negResult = ops.add(ops.mulScalar(expm1MinusX, alphaNEff), ops.mulScalar(input, beta))
         val negContrib = ops.multiply(negResult, negMask)
 
         return ops.add(posContrib, negContrib)
     }
+
+    private fun scalarValue(tensor: Tensor<T, V>): Float =
+        (tensor.data.get(0) as Number).toFloat()
+
+    /** `softplus(x) = ln(1 + exp(x))` with the standard large-x shortcut (exp overflow). */
+    private fun softplus(x: Float): Float =
+        if (x > 20f) x else kotlin.math.ln(1f + kotlin.math.exp(x))
 }

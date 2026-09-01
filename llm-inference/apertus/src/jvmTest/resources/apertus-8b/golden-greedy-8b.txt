@@ -1,0 +1,17 @@
+# Apertus-8B-Instruct-2509 Q4_K_S greedy parity fixture (#346 gate retrofit)
+#
+# Oracle: MAINLINE llama.cpp (brew, version 0.3.0 build 10621 commit c1d0e7a00) — Q4_K_S is a
+# native mainline quantization, so like the Llama/Qwen gates this asserts FULL
+# cross-implementation text equality on the DSL path. Exercises the family's distinguishing
+# machinery: QK-norm, per-layer xIELU activation parameters, ungated FFN.
+# The prompt is chosen for greedy decisiveness: the oracle's smallest top-1/top-2 logprob gap
+# across all 32 steps is 2.73 nats ("The first ten prime numbers are" dips to 0.28 at step 0
+# on this model). NOTE: the Apertus tokenizer DOES add a BOS token (id 1) — prompt_tokens is
+# the oracle's add_special encoding, BOS included.
+#   llama-server -m Apertus-8B-Instruct-2509-Q4_K_S.gguf -ngl 0 -t 4 --port 8815
+#   curl :8815/tokenize   -d '{"content": "1, 2, 3, 4, 5, 6,", "add_special": true}'
+#   curl :8815/completion -d '{"prompt": "1, 2, 3, 4, 5, 6,", "n_predict": 32, "temperature": 0, "top_k": 1}'
+prompt=1, 2, 3, 4, 5, 6,
+steps=32
+prompt_tokens=1,1049,1044,1032,1050,1044,1032,1051,1044,1032,1052,1044,1032,1053,1044,1032,1054,1044
+oracle_text= 7, 8, 9, 10, 11, 12, 13, 14, 15

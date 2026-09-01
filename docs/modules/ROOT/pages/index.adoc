@@ -14,42 +14,66 @@ It loads GGUF and SafeTensors models, builds compute graphs from DSL network def
 
 == Supported Model Families
 
-[cols="1,2,1,1"]
+Every generative family below with a "Verified" entry has a model-gated golden-token parity
+test asserting greedy-decode equality against a reference implementation, on the same DSL
+path the CLIs ship. The tests skip quietly when the model file is absent, and the fixture
+headers record the exact oracle build and commands.
+
+[cols="1,2,2,1,1"]
 |===
-|Family |Models |Tool Calling |DSL Network
+|Family |Models |Verified against |Tool Calling |DSL Network
 
 |LLaMA
 |LLaMA 2/3, Mistral
+|mainline llama.cpp — full greedy text equality (Llama-3.2-1B-Instruct Q8_0)
 |Yes
 |`llamaNetwork()`
 
 |Qwen
-|Qwen2, Qwen3, Qwen3.5
+|Qwen2, Qwen2.5, Qwen3, Qwen3.5
+|mainline llama.cpp — full greedy text equality on both variants (Qwen2.5-0.5B-Instruct Q8_0 with attention biases; Qwen3-1.7B Q8_0 with QK-norm)
 |Yes
 |`qwenNetwork()`
 
 |Gemma
-|Gemma 2, Gemma 3n, Gemma 4
+|Gemma 3 (FunctionGemma), Gemma 4. Gemma 2 has no supported path.
+|llama.cpp — golden-token chat parity (Gemma-4 E2B GGUF)
 |Yes
+|`gemmaNetwork()`
+
+|Gemma 3n
+|Gemma 3n E2B/E4B
+|Not yet — hand-rolled runtime (AltUp, per-layer embeddings); gate tracked in issue #377
+|No
 |Hand-coded
 
 |Apertus
 |Apertus 8B
+|mainline llama.cpp — full greedy text equality (Apertus-8B-Instruct Q4_K_S; QK-norm, xIELU, ungated FFN)
 |No
 |`apertusNetwork()`
 
+|BitNet
+|BitNet b1.58 2B4T
+|bitnet.cpp *and* the HF BF16 reference — three-way token equality on the packed I2_S path
+|No
+|`bitnetNetwork()`
+
 |BERT
-|MiniLM, BERT variants
+|MiniLM, BERT variants, LEAF/BGE/E5 embedders
+|sentence-transformers (MongoDB/mdbr-leaf embeddings)
 |No
 |`bertNetwork()`
 
 |T5
 |gtr-t5-base (GTR embedder, vec2text inversion)
+|Real-weights gtr-base round-trip test
 |No
 |Hand-coded
 
 |Voxtral
 |Voxtral TTS
+|Not yet — architecture code only, no runtime facade
 |No
 |`voxtralBackboneNetwork()`
 |===
