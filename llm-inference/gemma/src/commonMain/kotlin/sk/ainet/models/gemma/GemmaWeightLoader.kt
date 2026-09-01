@@ -87,10 +87,12 @@ public class GemmaWeightLoader private constructor(
     public constructor(
         sourceProvider: () -> Source,
         loadTensorData: Boolean = true,
+        dtypePolicy: DTypePolicy = DTypePolicy.Any,
     ) : this(
         sourceProvider = sourceProvider,
         randomAccessProvider = null,
         loadTensorData = loadTensorData,
+        dtypePolicy = dtypePolicy,
     )
 
     /**
@@ -365,164 +367,115 @@ public class GemmaWeightLoader private constructor(
     private fun metadataFromGguf(
         fields: Map<String, ReaderField>,
         tensors: List<ReaderTensor>
-    ): GemmaModelMetadata {
-        val arch = fields["general.architecture"]?.stringValue() ?: "unknown"
-        val prefix = findArchPrefix(fields, listOf("gemma3", "gemma4", "gemma", "llama"))
-
-        val embeddingLength = fields["$prefix.embedding_length"]?.scalarInt()
-            ?: inferEmbeddingFromTensor(tensors)
-        val contextLength = fields["$prefix.context_length"]?.scalarInt() ?: 131072
-        val blockCount = fields["$prefix.block_count"]?.scalarInt() ?: 34
-        val headCount = fields["$prefix.attention.head_count"]?.scalarInt() ?: 8
-        val kvHeadCount = fields["$prefix.attention.head_count_kv"]?.scalarInt() ?: 4
-        // GGUF uses attention.key_length_swa for sliding head dim, attention.key_length for global
-        val headDim = fields["$prefix.attention.key_length_swa"]?.scalarInt()
-            ?: fields["$prefix.attention.head_dim"]?.scalarInt()
-            ?: 256
-        val globalHeadDim = fields["$prefix.attention.key_length"]?.scalarInt()
-            ?: fields["$prefix.attention.global_head_dim"]?.scalarInt()
-            ?: headDim
-        val vocabSize = fields["$prefix.vocab_size"]?.scalarInt()
-            ?: inferVocabFromTensor(tensors)
-        val ffnField = fields["$prefix.feed_forward_length"]
-        val perLayerIntermediateSize: List<Int> = ffnField
-            ?.let { runCatching { it.intListValue() }.getOrNull() }
-            ?: emptyList()
-        val intermediateSize = ffnField?.scalarInt()
-            ?: perLayerIntermediateSize.firstOrNull()
-            ?: (embeddingLength * 4)
-        val slidingWindow = fields["$prefix.attention.sliding_window"]?.scalarInt()
-            ?: GemmaModelMetadata.DEFAULT_SLIDING_WINDOW
-        // See streaming-path note: absent KV-sharing key ⇒ no sharing (0).
-        val kvSharedLayers = fields["$prefix.attention.shared_kv_layers"]?.scalarInt()
-            ?: fields["$prefix.kv_shared_layers"]?.scalarInt()
-            ?: 0
-        val perLayerEmbeddingLength = fields["$prefix.embedding_length_per_layer_input"]?.scalarInt() ?: 0
-
-        val layerTypes = extractLayerTypes(fields, prefix, blockCount)
-
-        val ropeBase = fields["$prefix.rope.freq_base"]?.scalarFloat() ?: 1000000f
-        // GGUF uses rope.freq_base_swa for sliding window RoPE base
-        val ropeBaseLocal = fields["$prefix.rope.freq_base_swa"]?.scalarFloat()
-            ?: fields["$prefix.rope.freq_base_local"]?.scalarFloat()
-            ?: 10000f
-        val ropeFactor = fields["$prefix.rope.factor"]?.scalarFloat() ?: 1.0f
-        // GGUF does not carry partial_rotary_factor directly for Gemma 4, but it DOES carry
-        // rope.dimension_count — the actual number of dims rotated for the global/full scheme
-        // (this checkpoint: 512, equal to key_length=512, i.e. full rotation, factor=1.0 — NOT
-        // the previously-hardcoded 0.25 "HF config" guess, which silently rotated only 128 of
-        // 512 dims on every global attention layer and corrupted decode, worsening with
-        // sequence position. Derive the factor from the real field when present; only fall back
-        // to the guessed default when the checkpoint omits rope.dimension_count entirely.
-        val partialRotaryDefault = if (arch.startsWith("gemma")) 0.25f else 1.0f
-        val ropeDimensionCount = fields["$prefix.rope.dimension_count"]?.scalarInt()
-        val partialRotaryFactor = fields["$prefix.rope.partial_rotary_factor"]?.scalarFloat()
-            ?: ropeDimensionCount?.takeIf { globalHeadDim > 0 }?.let { it.toFloat() / globalHeadDim }
-            ?: partialRotaryDefault
-        val finalLogitSoftcapping = fields["$prefix.final_logit_softcapping"]?.scalarFloat() ?: 0f
-        val rmsNormEps = fields["$prefix.attention.layer_norm_rms_epsilon"]?.scalarFloat() ?: 1e-6f
-        // Token ids: without these, downstream defaults prefill BOS=1 — which is
-        // Gemma's <eos> — and generation collapses into turn-token spam (#325 arc).
-        val bosTokenId = fields["tokenizer.ggml.bos_token_id"]?.scalarInt() ?: 2
-        val eosTokenId = fields["tokenizer.ggml.eos_token_id"]?.scalarInt() ?: 1
-        val padTokenId = fields["tokenizer.ggml.padding_token_id"]?.scalarInt() ?: 0
-
-        return GemmaModelMetadata(
-            architecture = arch,
-            embeddingLength = embeddingLength,
-            contextLength = contextLength,
-            blockCount = blockCount,
-            headCount = headCount,
-            kvHeadCount = kvHeadCount,
-            intermediateSize = intermediateSize,
-            headDim = headDim,
-            globalHeadDim = globalHeadDim,
-            vocabSize = vocabSize,
-            slidingWindow = slidingWindow,
-            kvSharedLayers = kvSharedLayers,
-            layerTypes = layerTypes,
-            ropeParametersFull = GemmaRopeConfig(
-                base = ropeBase,
-                ropeType = "proportional",
-                factor = ropeFactor,
-                partialRotaryFactor = partialRotaryFactor
-            ),
-            ropeParametersSliding = GemmaRopeConfig(
-                base = ropeBaseLocal,
-                ropeType = "default"
-            ),
-            maxPositionEmbeddings = contextLength,
-            perLayerEmbeddingLength = perLayerEmbeddingLength,
-            perLayerIntermediateSize = perLayerIntermediateSize,
-            bosTokenId = bosTokenId,
-            eosTokenId = eosTokenId,
-            padTokenId = padTokenId,
-            rmsNormEps = rmsNormEps,
-            finalLogitSoftcapping = finalLogitSoftcapping
-        )
-    }
+    ): GemmaModelMetadata = parseGemmaMetadata(
+        object : GgufFieldAccess {
+            override fun has(key: String): Boolean = key in fields
+            override fun string(key: String): String? = fields[key]?.stringValue()
+            override fun int(key: String): Int? = fields[key]?.scalarInt()
+            override fun float(key: String): Float? = fields[key]?.scalarFloat()
+            override fun intList(key: String): List<Int>? =
+                fields[key]?.let { runCatching { it.intListValue() }.getOrNull() }
+            override fun boolList(key: String): List<Boolean>? =
+                fields[key]?.let { runCatching { it.boolListValue() }.getOrNull() }
+            override fun stringList(key: String): List<String>? =
+                fields[key]?.let { runCatching { it.stringListValue() }.getOrNull() }
+            override val tensorShapes: List<Pair<String, List<Int>>> =
+                tensors.map { t -> t.name to t.shape.map { d -> d.toInt() } }
+        },
+    )
 
     private fun metadataFromStreamingGguf(
         fields: Map<String, Any?>,
         tensors: List<StreamingTensorInfo>
-    ): GemmaModelMetadata {
-        val arch = (fields["general.architecture"] as? String) ?: "unknown"
-        val prefix = findStreamingArchPrefix(fields, listOf("gemma3", "gemma4", "gemma", "llama"))
+    ): GemmaModelMetadata = parseGemmaMetadata(
+        object : GgufFieldAccess {
+            override fun has(key: String): Boolean = key in fields
+            override fun string(key: String): String? = fields[key] as? String
+            override fun int(key: String): Int? = fields[key]?.toIntValue()
+            override fun float(key: String): Float? = fields[key]?.toFloatValue()
+            override fun intList(key: String): List<Int>? =
+                (fields[key] as? List<*>)?.mapNotNull { (it as? Number)?.toInt() }
+            override fun boolList(key: String): List<Boolean>? =
+                (fields[key] as? List<*>)?.mapNotNull { it as? Boolean }
+            override fun stringList(key: String): List<String>? =
+                (fields[key] as? List<*>)?.mapNotNull { it as? String }
+            override val tensorShapes: List<Pair<String, List<Int>>> =
+                tensors.map { it.name to it.shape.map { d -> d.toInt() } }
+        },
+    )
 
-        val embeddingLength = fields["$prefix.embedding_length"]?.toIntValue()
-            ?: inferEmbeddingFromStreamingTensor(tensors)
-        val contextLength = fields["$prefix.context_length"]?.toIntValue() ?: 131072
-        val blockCount = fields["$prefix.block_count"]?.toIntValue() ?: 34
-        val headCount = fields["$prefix.attention.head_count"]?.toIntValue() ?: 8
-        val kvHeadCount = fields["$prefix.attention.head_count_kv"]?.toIntValue() ?: 4
-        val headDim = fields["$prefix.attention.key_length_swa"]?.toIntValue()
-            ?: fields["$prefix.attention.head_dim"]?.toIntValue()
-            ?: 256
-        val globalHeadDim = fields["$prefix.attention.key_length"]?.toIntValue()
-            ?: fields["$prefix.attention.global_head_dim"]?.toIntValue()
-            ?: headDim
-        val vocabSize = fields["$prefix.vocab_size"]?.toIntValue()
-            ?: inferVocabFromStreamingTensor(tensors)
-        val ffnField = fields["$prefix.feed_forward_length"]
-        val perLayerIntermediateSize: List<Int> = (ffnField as? List<*>)
-            ?.mapNotNull { (it as? Number)?.toInt() }
-            ?: emptyList()
-        val intermediateSize = ffnField?.toIntValue()
+    /**
+     * The GGUF field surface the metadata parse needs, abstracted over the two reader APIs
+     * (sequential `ReaderField` vs streaming `Any?`) — the pre-#375 twin ~100-line parsers had
+     * to be kept in sync by hand and had already drifted in their inference fallbacks.
+     */
+    private interface GgufFieldAccess {
+        fun has(key: String): Boolean
+        fun string(key: String): String?
+        fun int(key: String): Int?
+        fun float(key: String): Float?
+        fun intList(key: String): List<Int>?
+        fun boolList(key: String): List<Boolean>?
+        fun stringList(key: String): List<String>?
+        val tensorShapes: List<Pair<String, List<Int>>>
+    }
+
+    /** The single Gemma GGUF metadata parse — both reader lanes feed it via [GgufFieldAccess]. */
+    private fun parseGemmaMetadata(f: GgufFieldAccess): GemmaModelMetadata {
+        val arch = f.string("general.architecture") ?: "unknown"
+        val prefix = listOf("gemma3", "gemma4", "gemma", "llama")
+            .firstOrNull { f.has("$it.embedding_length") || f.has("$it.block_count") } ?: arch
+
+        val tokenShape = f.tensorShapes.firstOrNull { it.first == GemmaTensorNames.TOKEN_EMBEDDINGS }?.second
+        val embeddingLength = f.int("$prefix.embedding_length") ?: tokenShape?.minOrNull() ?: 2304
+        val contextLength = f.int("$prefix.context_length") ?: 131072
+        val blockCount = f.int("$prefix.block_count") ?: 34
+        val headCount = f.int("$prefix.attention.head_count") ?: 8
+        val kvHeadCount = f.int("$prefix.attention.head_count_kv") ?: 4
+        // GGUF uses attention.key_length_swa for the sliding head dim, attention.key_length for global.
+        val headDim = f.int("$prefix.attention.key_length_swa") ?: f.int("$prefix.attention.head_dim") ?: 256
+        val globalHeadDim = f.int("$prefix.attention.key_length") ?: f.int("$prefix.attention.global_head_dim") ?: headDim
+        val vocabSize = f.int("$prefix.vocab_size") ?: tokenShape?.maxOrNull() ?: 262144
+        val perLayerIntermediateSize = f.intList("$prefix.feed_forward_length") ?: emptyList()
+        val intermediateSize = f.int("$prefix.feed_forward_length")
             ?: perLayerIntermediateSize.firstOrNull()
             ?: (embeddingLength * 4)
-        val slidingWindow = fields["$prefix.attention.sliding_window"]?.toIntValue()
-            ?: GemmaModelMetadata.DEFAULT_SLIDING_WINDOW
-        // KV-sharing only applies when the gguf explicitly declares it (gemma3n
-        // / gemma-4). A plain gemma3 checkpoint (e.g. FunctionGemma-270M) omits
-        // the key and uses no KV-sharing — default 0, NOT DEFAULT_KV_SHARED_LAYERS
-        // (20), which on an 18-layer model gives firstSharedLayer = 18-20 = -2
-        // and crashes GemmaNetworkDef.
-        val kvSharedLayers = fields["$prefix.attention.shared_kv_layers"]?.toIntValue()
-            ?: fields["$prefix.kv_shared_layers"]?.toIntValue()
-            ?: 0
-        val perLayerEmbeddingLength = fields["$prefix.embedding_length_per_layer_input"]?.toIntValue() ?: 0
+        val slidingWindow = f.int("$prefix.attention.sliding_window") ?: GemmaModelMetadata.DEFAULT_SLIDING_WINDOW
+        // KV-sharing only applies when the gguf explicitly declares it (gemma3n / gemma-4). A plain
+        // gemma3 checkpoint (e.g. FunctionGemma-270M) omits the key and uses no KV-sharing —
+        // default 0, NOT DEFAULT_KV_SHARED_LAYERS (20), which on an 18-layer model gives
+        // firstSharedLayer = 18-20 = -2 and crashes GemmaNetworkDef.
+        val kvSharedLayers = f.int("$prefix.attention.shared_kv_layers") ?: f.int("$prefix.kv_shared_layers") ?: 0
+        val perLayerEmbeddingLength = f.int("$prefix.embedding_length_per_layer_input") ?: 0
 
-        val layerTypes = extractStreamingLayerTypes(fields, prefix, blockCount)
+        // sliding_window_pattern is a boolean list: true = sliding_attention, false = full_attention.
+        val layerTypes = f.boolList("$prefix.attention.sliding_window_pattern")
+            ?.takeIf { it.size == blockCount }
+            ?.map { if (it) "sliding_attention" else "full_attention" }
+            ?: f.stringList("$prefix.attention.layer_types")
+            ?: f.stringList("$prefix.attention.layer_pattern")
+            ?: buildDefaultLayerTypes(blockCount)
 
-        val ropeBase = fields["$prefix.rope.freq_base"]?.toFloatValue() ?: 1000000f
-        val ropeBaseLocal = fields["$prefix.rope.freq_base_swa"]?.toFloatValue()
-            ?: fields["$prefix.rope.freq_base_local"]?.toFloatValue()
-            ?: 10000f
-        val ropeFactor = fields["$prefix.rope.factor"]?.toFloatValue() ?: 1.0f
-        // See the non-streaming metadata parse above — derive from the real
-        // rope.dimension_count field rather than guessing 0.25.
+        val ropeBase = f.float("$prefix.rope.freq_base") ?: 1000000f
+        // GGUF uses rope.freq_base_swa for the sliding-window RoPE base.
+        val ropeBaseLocal = f.float("$prefix.rope.freq_base_swa") ?: f.float("$prefix.rope.freq_base_local") ?: 10000f
+        val ropeFactor = f.float("$prefix.rope.factor") ?: 1.0f
+        // GGUF does not carry partial_rotary_factor directly for Gemma 4, but it DOES carry
+        // rope.dimension_count — the actual number of dims rotated for the global/full scheme.
+        // Derive the factor from the real field when present; only fall back to the guessed
+        // default when the checkpoint omits rope.dimension_count entirely (the old hardcoded
+        // 0.25 silently rotated 128 of 512 dims on every global layer and corrupted decode).
         val partialRotaryDefault = if (arch.startsWith("gemma")) 0.25f else 1.0f
-        val ropeDimensionCount = fields["$prefix.rope.dimension_count"]?.toIntValue()
-        val partialRotaryFactor = fields["$prefix.rope.partial_rotary_factor"]?.toFloatValue()
-            ?: ropeDimensionCount?.takeIf { globalHeadDim > 0 }?.let { it.toFloat() / globalHeadDim }
+        val partialRotaryFactor = f.float("$prefix.rope.partial_rotary_factor")
+            ?: f.int("$prefix.rope.dimension_count")?.takeIf { globalHeadDim > 0 }?.let { it.toFloat() / globalHeadDim }
             ?: partialRotaryDefault
-        val finalLogitSoftcapping = fields["$prefix.final_logit_softcapping"]?.toFloatValue() ?: 0f
-        val rmsNormEps = fields["$prefix.attention.layer_norm_rms_epsilon"]?.toFloatValue() ?: 1e-6f
-        // Token ids: without these, downstream defaults prefill BOS=1 — which is
-        // Gemma's <eos> — and generation collapses into turn-token spam (#325 arc).
-        val bosTokenId = fields["tokenizer.ggml.bos_token_id"]?.toIntValue() ?: 2
-        val eosTokenId = fields["tokenizer.ggml.eos_token_id"]?.toIntValue() ?: 1
-        val padTokenId = fields["tokenizer.ggml.padding_token_id"]?.toIntValue() ?: 0
+        val finalLogitSoftcapping = f.float("$prefix.final_logit_softcapping") ?: 0f
+        val rmsNormEps = f.float("$prefix.attention.layer_norm_rms_epsilon") ?: 1e-6f
+        // Token ids: without these, downstream defaults prefill BOS=1 — which is Gemma's <eos> —
+        // and generation collapses into turn-token spam (#325 arc).
+        val bosTokenId = f.int("tokenizer.ggml.bos_token_id") ?: 2
+        val eosTokenId = f.int("tokenizer.ggml.eos_token_id") ?: 1
+        val padTokenId = f.int("tokenizer.ggml.padding_token_id") ?: 0
 
         return GemmaModelMetadata(
             architecture = arch,
@@ -561,68 +514,9 @@ public class GemmaWeightLoader private constructor(
 
     // ============== Helpers ==============
 
-    private fun findArchPrefix(fields: Map<String, ReaderField>, prefixes: List<String>): String {
-        for (prefix in prefixes) {
-            if (fields["$prefix.embedding_length"] != null || fields["$prefix.block_count"] != null) {
-                return prefix
-            }
-        }
-        return prefixes.first()
-    }
 
-    private fun findStreamingArchPrefix(fields: Map<String, Any?>, prefixes: List<String>): String {
-        for (prefix in prefixes) {
-            if (fields["$prefix.embedding_length"] != null || fields["$prefix.block_count"] != null) {
-                return prefix
-            }
-        }
-        return prefixes.first()
-    }
 
-    private fun extractLayerTypes(
-        fields: Map<String, ReaderField>,
-        prefix: String,
-        blockCount: Int
-    ): List<String> {
-        fields["$prefix.attention.sliding_window_pattern"]?.let { field ->
-            runCatching { field.boolListValue() }.getOrNull()?.let { bools ->
-                if (bools.size == blockCount) {
-                    return bools.map { if (it) "sliding_attention" else "full_attention" }
-                }
-            }
-        }
-        val patternField = fields["$prefix.attention.layer_types"]
-            ?: fields["$prefix.attention.layer_pattern"]
-        if (patternField != null) {
-            return try {
-                patternField.stringListValue()
-            } catch (_: Exception) {
-                buildDefaultLayerTypes(blockCount)
-            }
-        }
-        return buildDefaultLayerTypes(blockCount)
-    }
 
-    private fun extractStreamingLayerTypes(
-        fields: Map<String, Any?>,
-        prefix: String,
-        blockCount: Int
-    ): List<String> {
-        // sliding_window_pattern is a boolean list: True = sliding_attention, False = full_attention.
-        val slidingPattern = fields["$prefix.attention.sliding_window_pattern"]
-        if (slidingPattern is List<*>) {
-            val bools = slidingPattern.mapNotNull { it as? Boolean }
-            if (bools.size == blockCount) {
-                return bools.map { if (it) "sliding_attention" else "full_attention" }
-            }
-        }
-        val value = fields["$prefix.attention.layer_types"]
-            ?: fields["$prefix.attention.layer_pattern"]
-        if (value is List<*>) {
-            return value.mapNotNull { it as? String }
-        }
-        return buildDefaultLayerTypes(blockCount)
-    }
 
     private fun buildDefaultLayerTypes(blockCount: Int): List<String> {
         return List(blockCount) { idx ->
@@ -732,33 +626,9 @@ public class GemmaWeightLoader private constructor(
 
     // ============== Helper methods ==============
 
-    private fun inferEmbeddingFromTensor(tensors: List<ReaderTensor>): Int {
-        val token = tensors.firstOrNull { it.name == GemmaTensorNames.TOKEN_EMBEDDINGS }
-            ?: error("Cannot infer embedding length without token embeddings tensor")
-        return token.shape.map { it.toInt() }.minOrNull()
-            ?: error("Cannot infer embedding length from tensor shape ${token.shape}")
-    }
 
-    private fun inferVocabFromTensor(tensors: List<ReaderTensor>): Int {
-        val token = tensors.firstOrNull { it.name == GemmaTensorNames.TOKEN_EMBEDDINGS }
-            ?: error("Cannot infer vocab size without token embeddings tensor")
-        return token.shape.map { it.toInt() }.maxOrNull()
-            ?: error("Cannot infer vocab size from tensor shape ${token.shape}")
-    }
 
-    private fun inferEmbeddingFromStreamingTensor(tensors: List<StreamingTensorInfo>): Int {
-        val token = tensors.firstOrNull { it.name == GemmaTensorNames.TOKEN_EMBEDDINGS }
-            ?: return 2304
-        // GGUF stores shapes in column-major order; embedding is the smaller dimension
-        return token.shape.map { it.toInt() }.minOrNull() ?: 2304
-    }
 
-    private fun inferVocabFromStreamingTensor(tensors: List<StreamingTensorInfo>): Int {
-        val token = tensors.firstOrNull { it.name == GemmaTensorNames.TOKEN_EMBEDDINGS }
-            ?: return 262144
-        // GGUF stores shapes in column-major order; vocab is the larger dimension
-        return token.shape.map { it.toInt() }.maxOrNull() ?: 262144
-    }
 
     private fun ReaderField.scalarInt(): Int {
         val idx = data.firstOrNull() ?: 0

@@ -21,6 +21,12 @@ import kotlin.reflect.KClass
  * - Uses GemmaConfigParser instead of Gemma3nConfigParser
  * - No AltUp, Laurel, or activation sparsity tensors
  * - Per-layer head dim may vary (global_head_dim vs head_dim)
+  *
+ * Engine-delegation status (#375): the sharded READING already rides the engine
+ * (`StreamingShardedSafeTensorsReader` / `SafeTensorsIndexParser`); what remains family-side is
+ * the per-tensor materialization policy (bf16/f16 widening, row-major transpose, size guards),
+ * because the engine's `SafeTensorsParametersLoader` is single-file only. Once SKaiNET#1246
+ * ships a sharded ParametersLoader with narrow-float policies, this class collapses onto it.
  */
 public class GemmaSafeTensorsLoader(
     private val indexPath: String
