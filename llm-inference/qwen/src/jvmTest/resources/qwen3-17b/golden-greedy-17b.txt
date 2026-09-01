@@ -1,0 +1,16 @@
+# Qwen3-1.7B Q8_0 greedy parity fixture (transformers#352 arc)
+#
+# Oracle: MAINLINE llama.cpp (brew, version 0.3.0 build 10621 commit c1d0e7a00). Qwen3 is the
+# no-bias + QK-norm variant of the family — this fixture pins the path that was already
+# working so the qwen2 bias machinery can never regress it. The prompt is chosen for greedy
+# decisiveness: the oracle's smallest top-1/top-2 logprob gap across all 32 steps is 1.66
+# nats ("The capital of France is" hits a 0.06-nat three-way tie at step 6 on this model,
+# which Q8_0 cross-implementation noise legitimately flips). NOTE: Qwen GGUFs add no BOS
+# token — prompt_tokens is the raw encoding and the runtime must not prepend one.
+#   llama-server -m Qwen3-1.7B-Q8_0.gguf -ngl 0 -t 4 --port 8814
+#   curl :8814/tokenize   -d '{"content": "The first ten prime numbers are", "add_special": true}'
+#   curl :8814/completion -d '{"prompt": "The first ten prime numbers are", "n_predict": 32, "temperature": 0, "top_k": 1}'
+prompt=The first ten prime numbers are
+steps=32
+prompt_tokens=785,1156,5779,10250,5109,525
+oracle_text= 2, 3, 5, 7, 11, 13, 17, 19, 23,

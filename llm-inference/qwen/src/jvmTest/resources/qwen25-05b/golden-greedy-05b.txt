@@ -1,0 +1,16 @@
+# Qwen2.5-0.5B-Instruct Q8_0 greedy parity fixture (transformers#352)
+#
+# Oracle: MAINLINE llama.cpp (brew, version 0.3.0 build 10621 commit c1d0e7a00) — Q8_0 on
+# mainline is the native case, so like the Llama gate this asserts FULL cross-implementation
+# text equality on the DSL path. Qwen2/2.5 is the family that exercises the attention
+# projection biases (`blk.N.attn_{q,k,v}.bias`) — the #352 silent-garbage failure was these
+# tensors loading but never binding (dropped by the decoder loader's wanted-set, then
+# unmapped by the llama name resolver). NOTE: Qwen GGUFs add no BOS token — prompt_tokens
+# is the raw encoding and the runtime must not prepend one.
+#   llama-server -m qwen2.5-0.5b-instruct-q8_0.gguf -ngl 0 -t 4 --port 8813
+#   curl :8813/tokenize   -d '{"content": "The capital of France is", "add_special": true}'
+#   curl :8813/completion -d '{"prompt": "The capital of France is", "n_predict": 32, "temperature": 0, "top_k": 1}'
+prompt=The capital of France is
+steps=32
+prompt_tokens=785,6722,315,9625,374
+oracle_text= Paris. It is the largest city in Europe and the second largest in the world. It is located in the center of the French Alps, in the south of

@@ -668,12 +668,16 @@ public final class sk/ainet/lang/nn/dsl/decoder/DecoderTensorNames {
 	public static final field ROPE_FREQS_REAL Ljava/lang/String;
 	public static final field TOKEN_EMBEDDINGS Ljava/lang/String;
 	public final fun attnK (I)Ljava/lang/String;
+	public final fun attnKBias (I)Ljava/lang/String;
 	public final fun attnKNorm (I)Ljava/lang/String;
 	public final fun attnNorm (I)Ljava/lang/String;
 	public final fun attnOut (I)Ljava/lang/String;
+	public final fun attnOutBias (I)Ljava/lang/String;
 	public final fun attnQ (I)Ljava/lang/String;
+	public final fun attnQBias (I)Ljava/lang/String;
 	public final fun attnQNorm (I)Ljava/lang/String;
 	public final fun attnV (I)Ljava/lang/String;
+	public final fun attnVBias (I)Ljava/lang/String;
 	public final fun ffnDown (I)Ljava/lang/String;
 	public final fun ffnGate (I)Ljava/lang/String;
 	public final fun ffnNorm (I)Ljava/lang/String;
