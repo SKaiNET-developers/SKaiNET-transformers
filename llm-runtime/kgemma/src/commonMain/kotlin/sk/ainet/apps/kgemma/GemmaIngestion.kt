@@ -11,14 +11,14 @@ import sk.ainet.io.RandomAccessSource
 import sk.ainet.lang.memory.ExperimentalMemoryApi
 import sk.ainet.lang.memory.plan.WeightForm
 import sk.ainet.lang.types.DType
-import sk.ainet.models.gemma.Gemma4RuntimeWeights
-import sk.ainet.models.gemma.Gemma4SafeTensorsWeightLoader
-import sk.ainet.models.gemma.Gemma4WeightLoader
-import sk.ainet.models.gemma.Gemma4Weights
+import sk.ainet.models.gemma.GemmaRuntimeWeights
+import sk.ainet.models.gemma.GemmaSafeTensorsLoader
+import sk.ainet.models.gemma.GemmaWeightLoader
+import sk.ainet.models.gemma.GemmaWeights
 import sk.ainet.models.gemma.GemmaNetworkLoader
-import sk.ainet.models.gemma.loadGemma4RuntimeWeights
-import sk.ainet.models.gemma.loadGemma4RuntimeWeightsFromSafeTensors
-import sk.ainet.models.gemma.loadGemma4RuntimeWeightsStreaming
+import sk.ainet.models.gemma.loadGemmaRuntimeWeights
+import sk.ainet.models.gemma.loadGemmaRuntimeWeightsFromSafeTensors
+import sk.ainet.models.gemma.loadGemmaRuntimeWeightsStreaming
 
 /**
  * Load configuration for Gemma 4 models.
@@ -48,7 +48,7 @@ public data class Gemma4LoadConfig(
  * packed matmul kernels via `linearProject` / `matmulWeightTransposed`.
  */
 @OptIn(ExperimentalMemoryApi::class)
-public class Gemma4Ingestion<T : DType>(
+public class GemmaIngestion<T : DType>(
     private val ctx: ExecutionContext,
     private val dtype: KClass<T>,
     private val config: Gemma4LoadConfig = Gemma4LoadConfig()
@@ -56,16 +56,16 @@ public class Gemma4Ingestion<T : DType>(
 
     // --- Raw weight loading (used by the DSL path and by tests) ---
 
-    public suspend fun load(sourceProvider: () -> Source): Gemma4RuntimeWeights<T> {
-        return loadGemma4RuntimeWeights(
+    public suspend fun load(sourceProvider: () -> Source): GemmaRuntimeWeights<T> {
+        return loadGemmaRuntimeWeights(
             ctx = ctx,
             sourceProvider = sourceProvider,
             dtype = dtype
         )
     }
 
-    public suspend fun loadStreaming(randomAccessProvider: () -> RandomAccessSource): Gemma4RuntimeWeights<T> {
-        return loadGemma4RuntimeWeightsStreaming(
+    public suspend fun loadStreaming(randomAccessProvider: () -> RandomAccessSource): GemmaRuntimeWeights<T> {
+        return loadGemmaRuntimeWeightsStreaming(
             ctx = ctx,
             randomAccessProvider = randomAccessProvider,
             dtype = dtype,
@@ -73,8 +73,8 @@ public class Gemma4Ingestion<T : DType>(
         )
     }
 
-    public suspend fun loadFromSafeTensors(indexPath: String): Gemma4RuntimeWeights<T> {
-        return loadGemma4RuntimeWeightsFromSafeTensors(ctx, indexPath, dtype)
+    public suspend fun loadFromSafeTensors(indexPath: String): GemmaRuntimeWeights<T> {
+        return loadGemmaRuntimeWeightsFromSafeTensors(ctx, indexPath, dtype)
     }
 
     // --- DSL path: gemmaNetwork() + OptimizedLLMRuntime ---
@@ -84,7 +84,7 @@ public class Gemma4Ingestion<T : DType>(
      * floats) and return the DSL-based [InferenceRuntime].
      */
     public suspend fun loadDslRuntime(sourceProvider: () -> Source): InferenceRuntime<T> {
-        val weights = Gemma4WeightLoader(
+        val weights = GemmaWeightLoader(
             sourceProvider = sourceProvider
         ).loadToMap<T, Float>(ctx, dtype)
         return buildDslRuntime(weights)
@@ -96,7 +96,7 @@ public class Gemma4Ingestion<T : DType>(
      * (see [Gemma4LoadConfig.weightForm]).
      */
     public suspend fun loadDslRuntimeStreaming(randomAccessProvider: () -> RandomAccessSource): InferenceRuntime<T> {
-        val weights = Gemma4WeightLoader(
+        val weights = GemmaWeightLoader(
             randomAccessProvider = randomAccessProvider,
             weightForm = config.weightForm
         ).loadToMapStreaming<T, Float>(ctx, dtype)
@@ -106,16 +106,16 @@ public class Gemma4Ingestion<T : DType>(
     /** Same as [loadDslRuntime] but reads a sharded SafeTensors model by index file. */
     public suspend fun loadDslRuntimeFromSafeTensors(indexPath: String): InferenceRuntime<T> {
         @Suppress("UNCHECKED_CAST")
-        val weights = Gemma4SafeTensorsWeightLoader(indexPath).loadToMap(ctx, dtype) as Gemma4Weights<T, Float>
+        val weights = GemmaSafeTensorsLoader(indexPath).loadToMap(ctx, dtype) as GemmaWeights<T, Float>
         return buildDslRuntime(weights)
     }
 
     /**
      * Builds a DSL runtime from pre-loaded raw Gemma weights. Shared with the
      * `loadDslRuntime*` entry points and also useful for synthetic-weight
-     * tests where the caller already constructed a [Gemma4Weights] map.
+     * tests where the caller already constructed a [GemmaWeights] map.
      */
-    public fun buildDslRuntime(weights: Gemma4Weights<T, Float>): InferenceRuntime<T> {
+    public fun buildDslRuntime(weights: GemmaWeights<T, Float>): InferenceRuntime<T> {
         val model = GemmaNetworkLoader.fromWeights(ctx, weights, dtype)
         return OptimizedLLMRuntime(model, ctx, OptimizedLLMMode.DIRECT, dtype, random = Random.Default)
     }

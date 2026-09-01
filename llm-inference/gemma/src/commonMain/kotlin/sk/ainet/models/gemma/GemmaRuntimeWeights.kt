@@ -17,7 +17,7 @@ import kotlin.reflect.KClass
  * Simpler than Gemma 3n: no AltUp, no activation sparsity, no Laurel.
  * Supports per-layer varying head dimensions via global_head_dim.
  */
-public data class Gemma4LayerWeights<T : DType>(
+public data class GemmaLayerWeights<T : DType>(
     val inputLayernorm: Tensor<T, Float>,
     val wq: Tensor<T, Float>,
     val wk: Tensor<T, Float>,
@@ -39,12 +39,12 @@ public data class Gemma4LayerWeights<T : DType>(
 /**
  * Complete runtime weights for Gemma 4 model.
  */
-public data class Gemma4RuntimeWeights<T : DType>(
-    val metadata: Gemma4ModelMetadata,
+public data class GemmaRuntimeWeights<T : DType>(
+    val metadata: GemmaModelMetadata,
     val tokenEmbedding: Tensor<T, Float>,
     val ropeFreqReal: Tensor<T, Float>?,
     val ropeFreqImag: Tensor<T, Float>?,
-    val layers: List<Gemma4LayerWeights<T>>,
+    val layers: List<GemmaLayerWeights<T>>,
     val finalNorm: Tensor<T, Float>,
     val lmHead: Tensor<T, Float>,
     /** Per-layer token embedding [perLayerDim * blockCount, vocabSize] (optional PLE) */
@@ -62,15 +62,15 @@ public data class Gemma4RuntimeWeights<T : DType>(
  * from the engine loader as packed block tensor data with `[out, in]`
  * shapes, dense tensors as plain FP32.
  */
-public data class Gemma4Weights<T : DType, V>(
-    val metadata: Gemma4ModelMetadata,
+public data class GemmaWeights<T : DType, V>(
+    val metadata: GemmaModelMetadata,
     val tensors: Map<String, Tensor<T, V>>
 )
 
 /**
  * Tensor name constants for Gemma 4 GGUF format.
  */
-public object Gemma4TensorNames {
+public object GemmaTensorNames {
     public const val TOKEN_EMBEDDINGS: String = "token_embd.weight"
     public const val OUTPUT_NORM: String = "output_norm.weight"
     public const val OUTPUT_WEIGHT: String = "output.weight"
@@ -108,9 +108,9 @@ public object Gemma4TensorNames {
 /**
  * Maps raw weights to runtime structure with shape validation.
  */
-public object Gemma4WeightMapper {
+public object GemmaWeightMapper {
 
-    public fun <T : DType> map(weights: Gemma4Weights<T, Float>): Gemma4RuntimeWeights<T> {
+    public fun <T : DType> map(weights: GemmaWeights<T, Float>): GemmaRuntimeWeights<T> {
         val metadata = weights.metadata
 
         fun get(name: String): Tensor<T, Float> =
@@ -132,31 +132,31 @@ public object Gemma4WeightMapper {
         fun Tensor<*, *>.require1D(size: Int, label: String, tensorName: String) =
             requireShape(Shape(size), label, tensorName)
 
-        val tokenEmbedding = get(Gemma4TensorNames.TOKEN_EMBEDDINGS)
+        val tokenEmbedding = get(GemmaTensorNames.TOKEN_EMBEDDINGS)
         tokenEmbedding.require2D(
             metadata.vocabSize,
             metadata.embeddingLength,
             "token embedding",
-            Gemma4TensorNames.TOKEN_EMBEDDINGS
+            GemmaTensorNames.TOKEN_EMBEDDINGS
         )
 
-        val finalNorm = get(Gemma4TensorNames.OUTPUT_NORM)
+        val finalNorm = get(GemmaTensorNames.OUTPUT_NORM)
         finalNorm.require1D(
             metadata.embeddingLength,
             "output norm",
-            Gemma4TensorNames.OUTPUT_NORM
+            GemmaTensorNames.OUTPUT_NORM
         )
 
-        val lmHead = get(Gemma4TensorNames.OUTPUT_WEIGHT)
+        val lmHead = get(GemmaTensorNames.OUTPUT_WEIGHT)
         lmHead.require2D(
             metadata.vocabSize,
             metadata.embeddingLength,
             "lm head",
-            Gemma4TensorNames.OUTPUT_WEIGHT
+            GemmaTensorNames.OUTPUT_WEIGHT
         )
 
-        val ropeReal = getOptional(Gemma4TensorNames.ROPE_FREQS_REAL)
-        val ropeImag = getOptional(Gemma4TensorNames.ROPE_FREQS_IMAG)
+        val ropeReal = getOptional(GemmaTensorNames.ROPE_FREQS_REAL)
+        val ropeImag = getOptional(GemmaTensorNames.ROPE_FREQS_IMAG)
 
         val layers = (0 until metadata.blockCount).map { layer ->
             val layerHeadDim = metadata.getHeadDim(layer)
@@ -164,35 +164,35 @@ public object Gemma4WeightMapper {
             val kvDim = metadata.kvHeadCount * layerHeadDim
             val ffnDim = metadata.getIntermediateSize(layer)
 
-            val inputLayernorm = get(Gemma4TensorNames.inputLayernorm(layer)).apply {
-                require1D(metadata.embeddingLength, "blk.$layer.attn_norm", Gemma4TensorNames.inputLayernorm(layer))
+            val inputLayernorm = get(GemmaTensorNames.inputLayernorm(layer)).apply {
+                require1D(metadata.embeddingLength, "blk.$layer.attn_norm", GemmaTensorNames.inputLayernorm(layer))
             }
-            val wq = get(Gemma4TensorNames.attnQ(layer)).apply {
-                require2D(qDim, metadata.embeddingLength, "blk.$layer.attn_q", Gemma4TensorNames.attnQ(layer))
+            val wq = get(GemmaTensorNames.attnQ(layer)).apply {
+                require2D(qDim, metadata.embeddingLength, "blk.$layer.attn_q", GemmaTensorNames.attnQ(layer))
             }
-            val wk = get(Gemma4TensorNames.attnK(layer)).apply {
-                require2D(kvDim, metadata.embeddingLength, "blk.$layer.attn_k", Gemma4TensorNames.attnK(layer))
+            val wk = get(GemmaTensorNames.attnK(layer)).apply {
+                require2D(kvDim, metadata.embeddingLength, "blk.$layer.attn_k", GemmaTensorNames.attnK(layer))
             }
-            val wv = get(Gemma4TensorNames.attnV(layer)).apply {
-                require2D(kvDim, metadata.embeddingLength, "blk.$layer.attn_v", Gemma4TensorNames.attnV(layer))
+            val wv = get(GemmaTensorNames.attnV(layer)).apply {
+                require2D(kvDim, metadata.embeddingLength, "blk.$layer.attn_v", GemmaTensorNames.attnV(layer))
             }
-            val wo = get(Gemma4TensorNames.attnOut(layer)).apply {
-                require2D(metadata.embeddingLength, qDim, "blk.$layer.attn_output", Gemma4TensorNames.attnOut(layer))
+            val wo = get(GemmaTensorNames.attnOut(layer)).apply {
+                require2D(metadata.embeddingLength, qDim, "blk.$layer.attn_output", GemmaTensorNames.attnOut(layer))
             }
-            val postAttentionLayernorm = get(Gemma4TensorNames.postAttentionLayernorm(layer)).apply {
-                require1D(metadata.embeddingLength, "blk.$layer.ffn_norm", Gemma4TensorNames.postAttentionLayernorm(layer))
+            val postAttentionLayernorm = get(GemmaTensorNames.postAttentionLayernorm(layer)).apply {
+                require1D(metadata.embeddingLength, "blk.$layer.ffn_norm", GemmaTensorNames.postAttentionLayernorm(layer))
             }
-            val gateProj = get(Gemma4TensorNames.ffnGate(layer)).apply {
-                require2D(ffnDim, metadata.embeddingLength, "blk.$layer.ffn_gate", Gemma4TensorNames.ffnGate(layer))
+            val gateProj = get(GemmaTensorNames.ffnGate(layer)).apply {
+                require2D(ffnDim, metadata.embeddingLength, "blk.$layer.ffn_gate", GemmaTensorNames.ffnGate(layer))
             }
-            val downProj = get(Gemma4TensorNames.ffnDown(layer)).apply {
-                require2D(metadata.embeddingLength, ffnDim, "blk.$layer.ffn_down", Gemma4TensorNames.ffnDown(layer))
+            val downProj = get(GemmaTensorNames.ffnDown(layer)).apply {
+                require2D(metadata.embeddingLength, ffnDim, "blk.$layer.ffn_down", GemmaTensorNames.ffnDown(layer))
             }
-            val upProj = get(Gemma4TensorNames.ffnUp(layer)).apply {
-                require2D(ffnDim, metadata.embeddingLength, "blk.$layer.ffn_up", Gemma4TensorNames.ffnUp(layer))
+            val upProj = get(GemmaTensorNames.ffnUp(layer)).apply {
+                require2D(ffnDim, metadata.embeddingLength, "blk.$layer.ffn_up", GemmaTensorNames.ffnUp(layer))
             }
 
-            Gemma4LayerWeights(
+            GemmaLayerWeights(
                 inputLayernorm = inputLayernorm,
                 wq = wq,
                 wk = wk,
@@ -202,14 +202,14 @@ public object Gemma4WeightMapper {
                 gateProj = gateProj,
                 upProj = upProj,
                 downProj = downProj,
-                perLayerInput = getOptional(Gemma4TensorNames.perLayerInput(layer)),
-                perLayerOutput = getOptional(Gemma4TensorNames.perLayerOutput(layer)),
-                attnQNorm = getOptional(Gemma4TensorNames.attnQNorm(layer)),
-                attnKNorm = getOptional(Gemma4TensorNames.attnKNorm(layer))
+                perLayerInput = getOptional(GemmaTensorNames.perLayerInput(layer)),
+                perLayerOutput = getOptional(GemmaTensorNames.perLayerOutput(layer)),
+                attnQNorm = getOptional(GemmaTensorNames.attnQNorm(layer)),
+                attnKNorm = getOptional(GemmaTensorNames.attnKNorm(layer))
             )
         }
 
-        return Gemma4RuntimeWeights(
+        return GemmaRuntimeWeights(
             metadata = metadata,
             tokenEmbedding = tokenEmbedding,
             ropeFreqReal = ropeReal,
@@ -217,9 +217,9 @@ public object Gemma4WeightMapper {
             layers = layers,
             finalNorm = finalNorm,
             lmHead = lmHead,
-            perLayerTokenEmbedding = getOptional(Gemma4TensorNames.PER_LAYER_TOKEN_EMBD),
-            perLayerModelProj = getOptional(Gemma4TensorNames.PER_LAYER_MODEL_PROJ),
-            perLayerProjNorm = getOptional(Gemma4TensorNames.PER_LAYER_PROJ_NORM)
+            perLayerTokenEmbedding = getOptional(GemmaTensorNames.PER_LAYER_TOKEN_EMBD),
+            perLayerModelProj = getOptional(GemmaTensorNames.PER_LAYER_MODEL_PROJ),
+            perLayerProjNorm = getOptional(GemmaTensorNames.PER_LAYER_PROJ_NORM)
         )
     }
 }
@@ -228,21 +228,21 @@ public object Gemma4WeightMapper {
  * Convenience loader: reads weights from GGUF source (sequential — always
  * dequantized to dense floats), maps them into runtime structure.
  */
-public suspend fun <T : DType> loadGemma4RuntimeWeights(
+public suspend fun <T : DType> loadGemmaRuntimeWeights(
     ctx: ExecutionContext,
     sourceProvider: () -> Source,
     dtype: KClass<T>
-): Gemma4RuntimeWeights<T> {
-    val loader = Gemma4WeightLoader(sourceProvider = sourceProvider)
+): GemmaRuntimeWeights<T> {
+    val loader = GemmaWeightLoader(sourceProvider = sourceProvider)
     val loaded = loader.loadToMap<T, Float>(ctx, dtype)
-    return Gemma4WeightMapper.map(loaded)
+    return GemmaWeightMapper.map(loaded)
 }
 
 /** Backward-compatible overload defaulting to FP32. */
-public suspend fun loadGemma4RuntimeWeights(
+public suspend fun loadGemmaRuntimeWeights(
     ctx: ExecutionContext,
     sourceProvider: () -> Source
-): Gemma4RuntimeWeights<FP32> = loadGemma4RuntimeWeights(ctx, sourceProvider, FP32::class)
+): GemmaRuntimeWeights<FP32> = loadGemmaRuntimeWeights(ctx, sourceProvider, FP32::class)
 
 // ============== Streaming API (for large files >2GB) ==============
 
@@ -251,24 +251,24 @@ public suspend fun loadGemma4RuntimeWeights(
  * quantized tensors packed; pass [GEMMA_DEQUANTIZE_ALL] for dense FP32.
  */
 @ExperimentalMemoryApi
-public suspend fun <T : DType> loadGemma4RuntimeWeightsStreaming(
+public suspend fun <T : DType> loadGemmaRuntimeWeightsStreaming(
     ctx: ExecutionContext,
     randomAccessProvider: () -> RandomAccessSource,
     dtype: KClass<T>,
     weightForm: WeightForm? = null
-): Gemma4RuntimeWeights<T> {
-    val loader = Gemma4WeightLoader(
+): GemmaRuntimeWeights<T> {
+    val loader = GemmaWeightLoader(
         randomAccessProvider = randomAccessProvider,
         weightForm = weightForm
     )
     val loaded = loader.loadToMapStreaming<T, Float>(ctx, dtype)
-    return Gemma4WeightMapper.map(loaded)
+    return GemmaWeightMapper.map(loaded)
 }
 
 /** Backward-compatible overload defaulting to FP32. */
 @ExperimentalMemoryApi
-public suspend fun loadGemma4RuntimeWeightsStreaming(
+public suspend fun loadGemmaRuntimeWeightsStreaming(
     ctx: ExecutionContext,
     randomAccessProvider: () -> RandomAccessSource,
     weightForm: WeightForm? = null
-): Gemma4RuntimeWeights<FP32> = loadGemma4RuntimeWeightsStreaming(ctx, randomAccessProvider, FP32::class, weightForm)
+): GemmaRuntimeWeights<FP32> = loadGemmaRuntimeWeightsStreaming(ctx, randomAccessProvider, FP32::class, weightForm)

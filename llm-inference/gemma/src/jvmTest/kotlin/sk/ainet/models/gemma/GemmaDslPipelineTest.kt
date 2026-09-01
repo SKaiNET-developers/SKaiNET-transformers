@@ -45,7 +45,7 @@ class GemmaDslPipelineTest {
         return ctx.fromFloatArray(shape, FP32::class, values)
     }
 
-    private val metadata = Gemma4ModelMetadata(
+    private val metadata = GemmaModelMetadata(
         architecture = "gemma4",
         embeddingLength = dim,
         contextLength = seqLen,
@@ -59,27 +59,27 @@ class GemmaDslPipelineTest {
         slidingWindow = seqLen,
         kvSharedLayers = 0,
         layerTypes = listOf("full_attention"),
-        ropeParametersFull = Gemma4RopeConfig(base = 10000f),
-        ropeParametersSliding = Gemma4RopeConfig(base = 10000f),
+        ropeParametersFull = GemmaRopeConfig(base = 10000f),
+        ropeParametersSliding = GemmaRopeConfig(base = 10000f),
         maxPositionEmbeddings = seqLen
     )
 
-    private fun buildWeights(): Gemma4Weights<FP32, Float> {
+    private fun buildWeights(): GemmaWeights<FP32, Float> {
         val tensors = linkedMapOf<String, Tensor<FP32, Float>>(
-            Gemma4TensorNames.TOKEN_EMBEDDINGS to randn(Shape(vocabSize, dim), seed = 10),
-            Gemma4TensorNames.OUTPUT_NORM to ones(Shape(dim)),
-            Gemma4TensorNames.OUTPUT_WEIGHT to randn(Shape(vocabSize, dim), seed = 11),
-            Gemma4TensorNames.inputLayernorm(0) to ones(Shape(dim)),
-            Gemma4TensorNames.attnQ(0) to randn(Shape(dim, dim), seed = 1),
-            Gemma4TensorNames.attnK(0) to randn(Shape(dim, dim), seed = 2),
-            Gemma4TensorNames.attnV(0) to randn(Shape(dim, dim), seed = 3),
-            Gemma4TensorNames.attnOut(0) to randn(Shape(dim, dim), seed = 4),
-            Gemma4TensorNames.postAttentionLayernorm(0) to ones(Shape(dim)),
-            Gemma4TensorNames.ffnGate(0) to randn(Shape(ffDim, dim), seed = 5),
-            Gemma4TensorNames.ffnDown(0) to randn(Shape(dim, ffDim), seed = 6),
-            Gemma4TensorNames.ffnUp(0) to randn(Shape(ffDim, dim), seed = 7)
+            GemmaTensorNames.TOKEN_EMBEDDINGS to randn(Shape(vocabSize, dim), seed = 10),
+            GemmaTensorNames.OUTPUT_NORM to ones(Shape(dim)),
+            GemmaTensorNames.OUTPUT_WEIGHT to randn(Shape(vocabSize, dim), seed = 11),
+            GemmaTensorNames.inputLayernorm(0) to ones(Shape(dim)),
+            GemmaTensorNames.attnQ(0) to randn(Shape(dim, dim), seed = 1),
+            GemmaTensorNames.attnK(0) to randn(Shape(dim, dim), seed = 2),
+            GemmaTensorNames.attnV(0) to randn(Shape(dim, dim), seed = 3),
+            GemmaTensorNames.attnOut(0) to randn(Shape(dim, dim), seed = 4),
+            GemmaTensorNames.postAttentionLayernorm(0) to ones(Shape(dim)),
+            GemmaTensorNames.ffnGate(0) to randn(Shape(ffDim, dim), seed = 5),
+            GemmaTensorNames.ffnDown(0) to randn(Shape(dim, ffDim), seed = 6),
+            GemmaTensorNames.ffnUp(0) to randn(Shape(ffDim, dim), seed = 7)
         )
-        return Gemma4Weights(metadata = metadata, tensors = tensors)
+        return GemmaWeights(metadata = metadata, tensors = tensors)
     }
 
     @Test

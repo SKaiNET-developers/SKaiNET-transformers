@@ -51,7 +51,7 @@ class GemmaDslPleTest {
         return ctx.fromFloatArray(shape, FP32::class, values)
     }
 
-    private val metadata = Gemma4ModelMetadata(
+    private val metadata = GemmaModelMetadata(
         architecture = "gemma4",
         embeddingLength = dim,
         contextLength = seqLen,
@@ -65,20 +65,20 @@ class GemmaDslPleTest {
         slidingWindow = seqLen,
         kvSharedLayers = 0,
         layerTypes = List(numLayers) { "full_attention" },
-        ropeParametersFull = Gemma4RopeConfig(base = 10000f),
-        ropeParametersSliding = Gemma4RopeConfig(base = 10000f),
+        ropeParametersFull = GemmaRopeConfig(base = 10000f),
+        ropeParametersSliding = GemmaRopeConfig(base = 10000f),
         maxPositionEmbeddings = seqLen,
         perLayerEmbeddingLength = perLayerDim
     )
 
     /** Build a fixture including every tensor `gemmaNetwork(ple=true)` asks for. */
-    private fun buildWeights(): Gemma4Weights<FP32, Float> {
+    private fun buildWeights(): GemmaWeights<FP32, Float> {
         val tensors = linkedMapOf<String, Tensor<FP32, Float>>()
 
         // Top-level.
-        tensors[Gemma4TensorNames.TOKEN_EMBEDDINGS] = randn(Shape(vocabSize, dim), seed = 10)
-        tensors[Gemma4TensorNames.OUTPUT_NORM] = ones(Shape(dim))
-        tensors[Gemma4TensorNames.OUTPUT_WEIGHT] = randn(Shape(vocabSize, dim), seed = 11)
+        tensors[GemmaTensorNames.TOKEN_EMBEDDINGS] = randn(Shape(vocabSize, dim), seed = 10)
+        tensors[GemmaTensorNames.OUTPUT_NORM] = ones(Shape(dim))
+        tensors[GemmaTensorNames.OUTPUT_WEIGHT] = randn(Shape(vocabSize, dim), seed = 11)
 
         // PLE top-level tensors.
         tensors["per_layer_token_embd.weight"] =
@@ -89,15 +89,15 @@ class GemmaDslPleTest {
 
         // Per-block.
         for (layer in 0 until numLayers) {
-            tensors[Gemma4TensorNames.inputLayernorm(layer)] = ones(Shape(dim))
-            tensors[Gemma4TensorNames.attnQ(layer)] = randn(Shape(dim, dim), seed = 100 + layer * 10)
-            tensors[Gemma4TensorNames.attnK(layer)] = randn(Shape(dim, dim), seed = 101 + layer * 10)
-            tensors[Gemma4TensorNames.attnV(layer)] = randn(Shape(dim, dim), seed = 102 + layer * 10)
-            tensors[Gemma4TensorNames.attnOut(layer)] = randn(Shape(dim, dim), seed = 103 + layer * 10)
-            tensors[Gemma4TensorNames.postAttentionLayernorm(layer)] = ones(Shape(dim))
-            tensors[Gemma4TensorNames.ffnGate(layer)] = randn(Shape(ffDim, dim), seed = 104 + layer * 10)
-            tensors[Gemma4TensorNames.ffnDown(layer)] = randn(Shape(dim, ffDim), seed = 105 + layer * 10)
-            tensors[Gemma4TensorNames.ffnUp(layer)] = randn(Shape(ffDim, dim), seed = 106 + layer * 10)
+            tensors[GemmaTensorNames.inputLayernorm(layer)] = ones(Shape(dim))
+            tensors[GemmaTensorNames.attnQ(layer)] = randn(Shape(dim, dim), seed = 100 + layer * 10)
+            tensors[GemmaTensorNames.attnK(layer)] = randn(Shape(dim, dim), seed = 101 + layer * 10)
+            tensors[GemmaTensorNames.attnV(layer)] = randn(Shape(dim, dim), seed = 102 + layer * 10)
+            tensors[GemmaTensorNames.attnOut(layer)] = randn(Shape(dim, dim), seed = 103 + layer * 10)
+            tensors[GemmaTensorNames.postAttentionLayernorm(layer)] = ones(Shape(dim))
+            tensors[GemmaTensorNames.ffnGate(layer)] = randn(Shape(ffDim, dim), seed = 104 + layer * 10)
+            tensors[GemmaTensorNames.ffnDown(layer)] = randn(Shape(dim, ffDim), seed = 105 + layer * 10)
+            tensors[GemmaTensorNames.ffnUp(layer)] = randn(Shape(ffDim, dim), seed = 106 + layer * 10)
 
             // PLE block-level tensors.
             tensors["blk.$layer.inp_gate.weight"] = randn(Shape(perLayerDim, dim), seed = 200 + layer * 10)
@@ -105,7 +105,7 @@ class GemmaDslPleTest {
             tensors["blk.$layer.post_norm.weight"] = ones(Shape(dim))
         }
 
-        return Gemma4Weights(metadata = metadata, tensors = tensors)
+        return GemmaWeights(metadata = metadata, tensors = tensors)
     }
 
     @Test
@@ -170,7 +170,7 @@ class GemmaDslPleTest {
                 remove("blk.$layer.post_norm.weight")
             }
         }
-        val weightsWithoutPle = Gemma4Weights(metadata = metadata, tensors = strippedTensors.toMap().let { linkedMapOf(*it.entries.map { e -> e.key to e.value }.toTypedArray()) })
+        val weightsWithoutPle = GemmaWeights(metadata = metadata, tensors = strippedTensors.toMap().let { linkedMapOf(*it.entries.map { e -> e.key to e.value }.toTypedArray()) })
         val withoutPleModel = GemmaNetworkLoader.fromWeights(ctx, weightsWithoutPle)
         val withoutPle = (withoutPleModel as GemmaModel<FP32, Float>).ple
         assertTrue(withoutPle == null, "fromWeights without PLE tensors must leave ple = null")
@@ -198,7 +198,7 @@ class GemmaDslPleTest {
         // Baseline: no layer_output_scale tensors. Auto-detect must leave
         // LayerScalarMul out of the block (hasLayerOutputScale = false).
         val baseTensors = buildWeights().tensors.toMutableMap()
-        val baseWeights = Gemma4Weights(
+        val baseWeights = GemmaWeights(
             metadata = metadata,
             tensors = linkedMapOf<String, Tensor<FP32, Float>>().apply { putAll(baseTensors) }
         )
@@ -219,7 +219,7 @@ class GemmaDslPleTest {
                 )
             }
         }
-        val scaledWeights = Gemma4Weights(metadata = metadata, tensors = scaledTensors)
+        val scaledWeights = GemmaWeights(metadata = metadata, tensors = scaledTensors)
         val scaledModel = GemmaNetworkLoader.fromWeights(ctx, scaledWeights) as GemmaModel<FP32, Float>
         val hasScaleScaled = scaledModel.blocks.first().modules.any {
             it is sk.ainet.lang.nn.transformer.LayerScalarMul<*, *>

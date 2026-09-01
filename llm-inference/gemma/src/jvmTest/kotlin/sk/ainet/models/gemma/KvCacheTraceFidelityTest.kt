@@ -23,12 +23,12 @@ import kotlin.test.assertTrue
 class KvCacheTraceFidelityTest {
     @Test
     fun tracedDecoderKeepsComputedKV() {
-        val meta = Gemma4ModelMetadata(
+        val meta = GemmaModelMetadata(
             architecture = "gemma3", embeddingLength = 64, contextLength = 128, blockCount = 2,
             headCount = 2, kvHeadCount = 1, intermediateSize = 128, headDim = 32, globalHeadDim = 32,
             vocabSize = 48, slidingWindow = 64, kvSharedLayers = 0, layerTypes = List(2) { "full_attention" },
-            ropeParametersFull = Gemma4RopeConfig(base = 10000.0f),
-            ropeParametersSliding = Gemma4RopeConfig(base = 10000.0f), maxPositionEmbeddings = 128,
+            ropeParametersFull = GemmaRopeConfig(base = 10000.0f),
+            ropeParametersSliding = GemmaRopeConfig(base = 10000.0f), maxPositionEmbeddings = 128,
         )
         val model = gemmaNetwork<FP32, Float>(meta, FP32::class, maxInferenceLen = 4, sandwichNorms = true)
         val input = VoidOpsTensor(object : TensorData<FP32, Float> {
@@ -61,12 +61,12 @@ class KvCacheTraceFidelityTest {
      */
     @Test
     fun tracedKvSharedDecoderKeepsComputedKV() {
-        val meta = Gemma4ModelMetadata(
+        val meta = GemmaModelMetadata(
             architecture = "gemma3", embeddingLength = 64, contextLength = 128, blockCount = 3,
             headCount = 2, kvHeadCount = 1, intermediateSize = 128, headDim = 32, globalHeadDim = 32,
             vocabSize = 48, slidingWindow = 64, kvSharedLayers = 1, layerTypes = List(3) { "full_attention" },
-            ropeParametersFull = Gemma4RopeConfig(base = 10000.0f),
-            ropeParametersSliding = Gemma4RopeConfig(base = 10000.0f), maxPositionEmbeddings = 128,
+            ropeParametersFull = GemmaRopeConfig(base = 10000.0f),
+            ropeParametersSliding = GemmaRopeConfig(base = 10000.0f), maxPositionEmbeddings = 128,
         )
         // maxInferenceLen = 8 (not 4): OwnerReadOnlyKVCache.position mirrors the owner's already-
         // bumped counter, so the follower's RoPE offset for a 4-token step is 4 — the RoPE tables

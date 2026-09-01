@@ -18,7 +18,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
-import sk.ainet.apps.kgemma.Gemma4Ingestion
+import sk.ainet.apps.kgemma.GemmaIngestion
 import sk.ainet.apps.kgemma.Gemma4LoadConfig
 import sk.ainet.models.gemma.GEMMA_DEQUANTIZE_ALL
 import sk.ainet.apps.kllama.GGUFTokenizer
@@ -154,7 +154,7 @@ class Gemma4E2BToolCallSmokeTest {
                 } else {
                     null
                 }
-                val ingestion = Gemma4Ingestion<FP32>(
+                val ingestion = GemmaIngestion<FP32>(
                     ctx = ctx,
                     dtype = FP32::class,
                     config = Gemma4LoadConfig(weightForm = weightForm)

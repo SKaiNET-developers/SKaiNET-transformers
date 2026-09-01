@@ -18,7 +18,7 @@ import sk.ainet.apps.llm.tokenizer.GGUFTokenizer
  * vocab it is simply skipped. The tokenizer's own `eosTokenId` is always
  * included.
  */
-public object Gemma4StopTokens {
+public object GemmaStopTokens {
 
     /**
      * Literal stop-marker strings as they appear in the Gemma 4 vocab.

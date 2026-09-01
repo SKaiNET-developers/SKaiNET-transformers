@@ -9,11 +9,11 @@ import sk.ainet.llm.api.Message
 
 /**
  * THROWAWAY spike (EdgeTranslator Phase 0, see the "Gemma via the SkaiNet engine" plan) — not part
- * of the permanent suite, delete after use. Proves whether Gemma4ChatModel.fromSafeTensors produces
+ * of the permanent suite, delete after use. Proves whether GemmaChatModel.fromSafeTensors produces
  * a real *translation* (not just a chat reply) and whether the #325 residual repetition-loop bug
  * (tool-calling prompts degrade after 3-4 tokens) shows up on a short translate-shaped prompt too.
  *
- * Self-skips when GEMMA4_E2B_SAFETENSORS_PATH is unset. Gemma4ChatModel.fromSafeTensors now installs
+ * Self-skips when GEMMA4_E2B_SAFETENSORS_PATH is unset. GemmaChatModel.fromSafeTensors now installs
  * the 0.51 kernel packs itself (this spike's own fix, applied to production code) — without that,
  * this 5B dense FP32 model would fall to the reference kernel path, which prior measurement showed
  * is hours-scale, not a real test.
@@ -34,7 +34,7 @@ class Gemma4SafeTensorsTranslateSpike {
         }
 
         val t0 = System.nanoTime()
-        val model = Gemma4ChatModel.fromSafeTensors(
+        val model = GemmaChatModel.fromSafeTensors(
             indexPath = path.toString(),
             options = ChatOptions(temperature = 0f, maxTokens = 64),
         )

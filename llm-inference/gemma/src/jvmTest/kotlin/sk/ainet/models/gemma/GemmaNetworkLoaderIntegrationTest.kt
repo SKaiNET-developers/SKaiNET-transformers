@@ -35,7 +35,7 @@ import sk.ainet.lang.types.FP32
  *
  * 1. `UnifiedModelLoader.peek()` identifies the checkpoint as the GEMMA
  *    family and exposes block/vocab/embedding dimensions.
- * 2. `Gemma4WeightLoader(loadTensorData = false)` parses the full Gemma 4
+ * 2. `GemmaWeightLoader(loadTensorData = false)` parses the full Gemma 4
  *    metadata (headDim, ropeParameters, layerTypes, etc.).
  * 3. `gemmaNetwork()` builds a DSL module tree from that real-world
  *    metadata with the expected structure (embedding, N transformer blocks,
@@ -73,16 +73,16 @@ class GemmaNetworkLoaderIntegrationTest {
             "UnifiedModelLoader should detect Gemma family, got ${info.family} for arch='${info.architecture}'"
         )
 
-        // 2. Metadata-only parse via Gemma4WeightLoader (no tensor data → no 20 GB blow-up).
+        // 2. Metadata-only parse via GemmaWeightLoader (no tensor data → no 20 GB blow-up).
         // Use the random-access streaming path because the sequential Source reader
         // tries to slurp the whole file into a ByteArray and overflows Int.MAX_VALUE
         // on a 3 GB GGUF.
         val ctx = DirectCpuExecutionContext()
-        val loader = Gemma4WeightLoader(
+        val loader = GemmaWeightLoader(
             randomAccessProvider = { JvmRandomAccessSource.open(modelPath) },
             loadTensorData = false
         )
-        val metadata: Gemma4ModelMetadata = loader.loadStreaming<FP32, Float>(
+        val metadata: GemmaModelMetadata = loader.loadStreaming<FP32, Float>(
             ctx = ctx,
             dtype = FP32::class,
             onTensorLoaded = { _: String, _: Tensor<FP32, Float> -> /* ignored: loadTensorData = false */ }
@@ -136,11 +136,11 @@ class GemmaNetworkLoaderIntegrationTest {
         skipIfModelNotPresent()
 
         val ctx = DirectCpuExecutionContext()
-        val loader = Gemma4WeightLoader(
+        val loader = GemmaWeightLoader(
             randomAccessProvider = { JvmRandomAccessSource.open(modelPath) },
             loadTensorData = false
         )
-        val metadata: Gemma4ModelMetadata = loader.loadStreaming<FP32, Float>(
+        val metadata: GemmaModelMetadata = loader.loadStreaming<FP32, Float>(
             ctx = ctx,
             dtype = FP32::class,
             onTensorLoaded = { _: String, _: Tensor<FP32, Float> -> }
@@ -168,7 +168,7 @@ class GemmaNetworkLoaderIntegrationTest {
         // Gemma 4; our loader must default to 0.25 (matches HF config for
         // google/gemma-4-e2b-it). If this assertion fails with 1.0 after an
         // upstream GGUF format change, re-read the Gemma 4 spec and update the
-        // default in Gemma4WeightLoader.
+        // default in GemmaWeightLoader.
         assertEquals(
             0.25f,
             metadata.ropeParametersFull.partialRotaryFactor,

@@ -21,16 +21,16 @@ import sk.ainet.llm.api.ChatResponse
 import sk.ainet.llm.api.ChatResponseChunk
 import sk.ainet.llm.api.StreamingChatModel
 import sk.ainet.llm.providers.SkaiNetChatModel
-import sk.ainet.models.gemma.Gemma4SafeTensorsMappedPle
-import sk.ainet.models.gemma.Gemma4SafeTensorsWeightLoader
-import sk.ainet.models.gemma.Gemma4Weights
+import sk.ainet.models.gemma.GemmaSafeTensorsMappedPle
+import sk.ainet.models.gemma.GemmaSafeTensorsLoader
+import sk.ainet.models.gemma.GemmaWeights
 
 /**
  * One-call factory that wires a Gemma 4 SafeTensors checkpoint into the
  * Spring-AI-style [SkaiNetChatModel] surface for text-only chat.
  *
  * Composes the four already-existing pieces:
- *  1. [Gemma4Ingestion.loadDslRuntimeFromSafeTensors] — produces an
+ *  1. [GemmaIngestion.loadDslRuntimeFromSafeTensors] — produces an
  *     `InferenceRuntime<FP32>` from the DSL `gemmaNetwork()` definition.
  *  2. [GGUFTokenizer.fromTokenizerJson] — loads HF `tokenizer.json` next to
  *     the index file (same loader the kgemma CLI uses).
@@ -40,7 +40,7 @@ import sk.ainet.models.gemma.Gemma4Weights
  * Caller experience:
  *
  * ```
- * val model = Gemma4ChatModel.fromSafeTensors("/path/to/model.safetensors.index.json")
+ * val model = GemmaChatModel.fromSafeTensors("/path/to/model.safetensors.index.json")
  * println(model.call(ChatRequest("Hello!")).result.text)
  * ```
  *
@@ -60,7 +60,7 @@ import sk.ainet.models.gemma.Gemma4Weights
  * state is mutated across forward passes. Use one instance per concurrent
  * request.
  */
-public object Gemma4ChatModel {
+public object GemmaChatModel {
 
     /**
      * Installs the 0.51 view-keyed kernel tiers exactly once per process. Shared with the
@@ -74,7 +74,7 @@ public object Gemma4ChatModel {
      * Build a [SkaiNetChatModel] for a Gemma 4 GGUF checkpoint.
      *
      * Composes the same four pieces as [fromSafeTensors], sourced from GGUF instead:
-     *  1. [Gemma4Ingestion.loadDslRuntimeStreaming] — streams the GGUF via a random-access
+     *  1. [GemmaIngestion.loadDslRuntimeStreaming] — streams the GGUF via a random-access
      *     source through the engine loader; quantized (K-quant) tensors stay packed by default
      *     (see [Gemma4LoadConfig.weightForm]), same mechanism [sk.ainet.apps.kllama.java.KLlamaJava]
      *     uses for Llama.
@@ -108,7 +108,7 @@ public object Gemma4ChatModel {
         ensureKernelPacksInstalled()
         require(Paths.get(path).exists()) { "GGUF not found: $path" }
 
-        val ingestion = Gemma4Ingestion<FP32>(
+        val ingestion = GemmaIngestion<FP32>(
             ctx = ctx,
             dtype = FP32::class,
             config = Gemma4LoadConfig(),
@@ -129,7 +129,7 @@ public object Gemma4ChatModel {
         val chatTemplate = Gemma4ChatTemplate(enableThinking = enableThinking)
         // GGUF carries only a single eos id; resolve the full Gemma 4 stop set
         // ({<eos>, <turn|>, chat-end} per generation_config.json) from the vocab.
-        val eosTokenIds = Gemma4StopTokens.resolve(tokenizer)
+        val eosTokenIds = GemmaStopTokens.resolve(tokenizer)
 
         val delegate = SkaiNetChatModel(
             runtime = runtime,
@@ -173,7 +173,7 @@ public object Gemma4ChatModel {
             "SafeTensors index not found: $resolvedIndex"
         }
 
-        val ingestion = Gemma4Ingestion<FP32>(
+        val ingestion = GemmaIngestion<FP32>(
             ctx = ctx,
             dtype = FP32::class,
             config = Gemma4LoadConfig(),
@@ -188,11 +188,11 @@ public object Gemma4ChatModel {
         // a follow-up will plumb explicit close via a wrapping ChatModel.
         @Suppress("UNCHECKED_CAST")
         val rawWeights = runBlocking {
-            Gemma4SafeTensorsWeightLoader(resolvedIndex.toString())
+            GemmaSafeTensorsLoader(resolvedIndex.toString())
                 .loadToMap(ctx, FP32::class)
-        } as Gemma4Weights<FP32, Float>
+        } as GemmaWeights<FP32, Float>
         val pleArena = Arena.ofShared()
-        val weights = Gemma4SafeTensorsMappedPle.injectIfMissing(
+        val weights = GemmaSafeTensorsMappedPle.injectIfMissing(
             weights = rawWeights,
             indexPath = resolvedIndex.toString(),
             ctx = ctx,

@@ -9,7 +9,7 @@ import sk.ainet.apps.llm.generateUntilStop
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
 import sk.ainet.lang.types.FP32
-import sk.ainet.models.gemma.Gemma4WeightLoader
+import sk.ainet.models.gemma.GemmaWeightLoader
 import sk.ainet.models.gemma.GemmaNetworkLoader
 import sk.ainet.apps.kllama.chat.ChatMessage
 import sk.ainet.apps.kllama.chat.ChatRole
@@ -143,7 +143,7 @@ public class FunctionGemma private constructor(
             // checkpoint ships BF16, and a decode step is bound by the bytes it reads: halving them
             // halves the traffic, and the bf16 matmul kernel is the fastest of the set (14.33
             // GFLOP/s vs 7.48 for fp32 on a decode-shaped problem — bf16 decodes by a bit-shift).
-            val weights = Gemma4WeightLoader(
+            val weights = GemmaWeightLoader(
                 randomAccessProvider = { JvmRandomAccessSource.open(gguf) },
                 dtypePolicy = sk.ainet.lang.types.DTypePolicy.Prefer(sk.ainet.lang.types.BF16),
             ).loadToMapStreaming<FP32, Float>(ctx, FP32::class)

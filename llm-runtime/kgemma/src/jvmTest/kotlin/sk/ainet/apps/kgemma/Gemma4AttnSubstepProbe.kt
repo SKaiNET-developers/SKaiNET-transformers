@@ -6,7 +6,7 @@ import sk.ainet.io.JvmRandomAccessSource
 import sk.ainet.lang.nn.transformer.MultiHeadAttentionDiag
 import sk.ainet.lang.nn.transformer.mhaStatSink
 import sk.ainet.lang.types.FP32
-import sk.ainet.models.gemma.Gemma4WeightLoader
+import sk.ainet.models.gemma.GemmaWeightLoader
 import sk.ainet.models.gemma.GemmaNetworkLoader
 import kotlin.test.Test
 
@@ -38,7 +38,7 @@ class Gemma4AttnSubstepProbe {
         }
         val ctx = DirectCpuExecutionContext.create()
         val weights = runBlocking {
-            Gemma4WeightLoader(
+            GemmaWeightLoader(
                 randomAccessProvider = { JvmRandomAccessSource.open(gguf) },
             ).loadToMapStreaming<FP32, Float>(ctx, FP32::class)
         }

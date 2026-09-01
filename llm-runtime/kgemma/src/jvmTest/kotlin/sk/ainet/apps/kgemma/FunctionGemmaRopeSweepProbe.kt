@@ -5,8 +5,8 @@ import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
 import sk.ainet.lang.types.FP32
 import sk.ainet.models.gemma.GEMMA_DEQUANTIZE_ALL
-import sk.ainet.models.gemma.Gemma4ModelMetadata
-import sk.ainet.models.gemma.Gemma4WeightLoader
+import sk.ainet.models.gemma.GemmaModelMetadata
+import sk.ainet.models.gemma.GemmaWeightLoader
 import sk.ainet.models.gemma.GemmaNetworkLoader
 import kotlin.test.Test
 
@@ -41,7 +41,7 @@ class FunctionGemmaRopeSweepProbe {
         }
         val ctx = DirectCpuExecutionContext.create()
         val weights = runBlocking {
-            Gemma4WeightLoader(
+            GemmaWeightLoader(
                 randomAccessProvider = { JvmRandomAccessSource.open(gguf) },
                 weightForm = GEMMA_DEQUANTIZE_ALL,
             ).loadToMapStreaming<FP32, Float>(ctx, FP32::class)
@@ -55,7 +55,7 @@ class FunctionGemmaRopeSweepProbe {
         val allFull = List(base.blockCount) { "full_attention" }
         val allSliding = List(base.blockCount) { "sliding_attention" }
 
-        val configs: List<Pair<String, Gemma4ModelMetadata>> = listOf(
+        val configs: List<Pair<String, GemmaModelMetadata>> = listOf(
             "A baseline(partial=1.0)" to base.copy(
                 ropeParametersFull = base.ropeParametersFull.copy(partialRotaryFactor = 1.0f),
             ),

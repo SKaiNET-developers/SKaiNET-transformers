@@ -44,7 +44,7 @@ class GemmaBehavioralAbTest {
     fun behavioralParity() = runBlocking {
         val ctx = DirectCpuExecutionContext.create()
         val tokenizer = GGUFTokenizer.fromSource(SystemFileSystem.source(Path(gguf)).buffered())
-        val weights = Gemma4WeightLoader(
+        val weights = GemmaWeightLoader(
             randomAccessProvider = { JvmRandomAccessSource.open(gguf) },
             weightForm = GEMMA_DEQUANTIZE_ALL,
         ).loadToMapStreaming<FP32, Float>(ctx, FP32::class)

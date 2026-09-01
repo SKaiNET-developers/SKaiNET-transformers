@@ -43,7 +43,7 @@ class FunctionGemmaOfficialProbe {
         )
         val ctx = sk.ainet.context.DirectCpuExecutionContext.create()
         val weights = kotlinx.coroutines.runBlocking {
-            sk.ainet.models.gemma.Gemma4WeightLoader(
+            sk.ainet.models.gemma.GemmaWeightLoader(
                 randomAccessProvider = { sk.ainet.io.JvmRandomAccessSource.open(gguf) },
                 weightForm = sk.ainet.models.gemma.GEMMA_DEQUANTIZE_ALL,
             ).loadToMapStreaming<sk.ainet.lang.types.FP32, Float>(ctx, sk.ainet.lang.types.FP32::class)

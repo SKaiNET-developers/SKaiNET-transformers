@@ -3,19 +3,19 @@ package sk.ainet.models.gemma
 /**
  * Parser for HuggingFace Gemma 4 config.json files.
  *
- * Extracts model configuration and converts it to [Gemma4ModelMetadata].
+ * Extracts model configuration and converts it to [GemmaModelMetadata].
  * Recognizes `model_type=gemma4` and `architectures=["Gemma4ForConditionalGeneration"]`.
  */
-public object Gemma4ConfigParser {
+public object GemmaConfigParser {
 
     /**
-     * Parse HuggingFace config.json content and extract Gemma4ModelMetadata.
+     * Parse HuggingFace config.json content and extract GemmaModelMetadata.
      *
      * @param configJson The raw JSON string from config.json
      * @return Parsed model metadata
      * @throws IllegalArgumentException if required fields are missing
      */
-    public fun parseFromJson(configJson: String): Gemma4ModelMetadata {
+    public fun parseFromJson(configJson: String): GemmaModelMetadata {
         val trimmed = configJson.trim()
         require(trimmed.startsWith("{") && trimmed.endsWith("}")) {
             "Invalid config.json: not a JSON object"
@@ -50,13 +50,13 @@ public object Gemma4ConfigParser {
         val intermediateSize = textConfigMap["intermediate_size"]?.toIntSafe()
             ?: (embeddingLength * 4)
         val globalHeadDim = textConfigMap["global_head_dim"]?.toIntSafe()
-            ?: Gemma4ModelMetadata.DEFAULT_GLOBAL_HEAD_DIM
+            ?: GemmaModelMetadata.DEFAULT_GLOBAL_HEAD_DIM
         val contextLength = textConfigMap["max_position_embeddings"]?.toIntSafe()
             ?: 131072
         val slidingWindow = textConfigMap["sliding_window"]?.toIntSafe()
-            ?: Gemma4ModelMetadata.DEFAULT_SLIDING_WINDOW
+            ?: GemmaModelMetadata.DEFAULT_SLIDING_WINDOW
         val kvSharedLayers = textConfigMap["num_kv_shared_layers"]?.toIntSafe()
-            ?: Gemma4ModelMetadata.DEFAULT_KV_SHARED_LAYERS
+            ?: GemmaModelMetadata.DEFAULT_KV_SHARED_LAYERS
         val perLayerEmbeddingLength = textConfigMap["hidden_size_per_layer_input"]?.toIntSafe()
             ?: 0
 
@@ -71,7 +71,7 @@ public object Gemma4ConfigParser {
         val eosTokenId = topLevel["eos_token_id"]?.toIntSafe() ?: 1
         val padTokenId = topLevel["pad_token_id"]?.toIntSafe() ?: 0
 
-        return Gemma4ModelMetadata(
+        return GemmaModelMetadata(
             architecture = architecture,
             embeddingLength = embeddingLength,
             contextLength = contextLength,
@@ -125,7 +125,7 @@ public object Gemma4ConfigParser {
     @Suppress("UNCHECKED_CAST")
     private fun extractRopeParameters(
         textConfig: Map<String, Any?>
-    ): Pair<Gemma4RopeConfig, Gemma4RopeConfig> {
+    ): Pair<GemmaRopeConfig, GemmaRopeConfig> {
         val ropeParams = textConfig["rope_parameters"]
 
         if (ropeParams is Map<*, *>) {
@@ -141,10 +141,10 @@ public object Gemma4ConfigParser {
         val ropeTheta = textConfig["rope_theta"]?.toFloatSafe() ?: 1000000f
         val ropeLocalBase = textConfig["rope_local_base_freq"]?.toFloatSafe() ?: 10000f
 
-        return Gemma4RopeConfig(
+        return GemmaRopeConfig(
             base = ropeTheta,
             ropeType = "proportional"
-        ) to Gemma4RopeConfig(
+        ) to GemmaRopeConfig(
             base = ropeLocalBase,
             ropeType = "default"
         )
@@ -154,9 +154,9 @@ public object Gemma4ConfigParser {
     private fun extractSingleRopeConfig(
         config: Any?,
         defaultRopeType: String
-    ): Gemma4RopeConfig {
+    ): GemmaRopeConfig {
         if (config !is Map<*, *>) {
-            return Gemma4RopeConfig(
+            return GemmaRopeConfig(
                 base = if (defaultRopeType == "proportional") 1000000f else 10000f,
                 ropeType = defaultRopeType
             )
@@ -170,7 +170,7 @@ public object Gemma4ConfigParser {
         val base = map["base"]?.toFloatSafe()
             ?: if (ropeType == "proportional") 1000000f else 10000f
 
-        return Gemma4RopeConfig(
+        return GemmaRopeConfig(
             base = base,
             ropeType = ropeType,
             factor = factor,

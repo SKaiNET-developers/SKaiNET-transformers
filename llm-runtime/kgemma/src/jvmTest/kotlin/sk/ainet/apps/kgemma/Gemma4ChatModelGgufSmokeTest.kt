@@ -9,7 +9,7 @@ import sk.ainet.llm.api.ChatRequest
 import sk.ainet.llm.api.Message
 
 /**
- * End-to-end smoke test for [Gemma4ChatModel.fromGguf] against a real quantized Gemma 4 GGUF —
+ * End-to-end smoke test for [GemmaChatModel.fromGguf] against a real quantized Gemma 4 GGUF —
  * the new factory this arc adds (mirrors [Gemma4ChatModelSmokeTest]'s SafeTensors coverage, and
  * [sk.ainet.apps.kllama.java.KLlamaJavaKernelPackTimingProbe]'s timing-probe shape).
  *
@@ -29,7 +29,7 @@ class Gemma4ChatModelGgufSmokeTest {
 
         var model: sk.ainet.llm.api.StreamingChatModel? = null
         val load = measureTime {
-            model = Gemma4ChatModel.fromGguf(
+            model = GemmaChatModel.fromGguf(
                 path = path.toString(),
                 options = ChatOptions(temperature = 0f, maxTokens = 16),
             )
@@ -54,7 +54,7 @@ class Gemma4ChatModelGgufSmokeTest {
         val path = locateGguf() ?: return
 
         val maxTokens = 128
-        val model = Gemma4ChatModel.fromGguf(
+        val model = GemmaChatModel.fromGguf(
             path = path.toString(),
             options = ChatOptions(temperature = 0f, maxTokens = maxTokens),
         )

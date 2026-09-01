@@ -108,7 +108,7 @@ class GemmaDslQuantizedTest {
     private fun ones(shape: Shape): Tensor<FP32, Float> =
         fp32Tensor(shape, FloatArray(shape.volume) { 1.0f })
 
-    private val metadata = Gemma4ModelMetadata(
+    private val metadata = GemmaModelMetadata(
         architecture = "gemma4",
         embeddingLength = dim,
         contextLength = seqLen,
@@ -122,8 +122,8 @@ class GemmaDslQuantizedTest {
         slidingWindow = seqLen,
         kvSharedLayers = 0,
         layerTypes = listOf("full_attention"),
-        ropeParametersFull = Gemma4RopeConfig(base = 10000f, ropeType = "default", factor = 1.0f, partialRotaryFactor = 1.0f),
-        ropeParametersSliding = Gemma4RopeConfig(base = 10000f, ropeType = "default"),
+        ropeParametersFull = GemmaRopeConfig(base = 10000f, ropeType = "default", factor = 1.0f, partialRotaryFactor = 1.0f),
+        ropeParametersSliding = GemmaRopeConfig(base = 10000f, ropeType = "default"),
         maxPositionEmbeddings = seqLen
     )
 
@@ -132,7 +132,7 @@ class GemmaDslQuantizedTest {
      * that share identical logical values, so any divergence in output comes
      * from the matmul dispatch, not weight initialisation drift.
      */
-    private fun buildWeights(arena: Arena): Pair<Gemma4Weights<FP32, Float>, Gemma4Weights<FP32, Float>> {
+    private fun buildWeights(arena: Arena): Pair<GemmaWeights<FP32, Float>, GemmaWeights<FP32, Float>> {
         // Small integer weights → Q8 round-to-int exact with scale=1.
         val tokenEmb = FloatArray(vocabSize * dim) { ((it % 5) - 2).toFloat() }
         val finalNormVals = FloatArray(dim) { 1f }
@@ -149,41 +149,41 @@ class GemmaDslQuantizedTest {
         val downVals = FloatArray(dim * ffnDim) { (((it * 7) % 5) - 2).toFloat() }
 
         fun fp32Map() = linkedMapOf<String, Tensor<FP32, Float>>(
-            Gemma4TensorNames.TOKEN_EMBEDDINGS to fp32Tensor(Shape(vocabSize, dim), tokenEmb),
-            Gemma4TensorNames.OUTPUT_NORM to fp32Tensor(Shape(dim), finalNormVals),
-            Gemma4TensorNames.OUTPUT_WEIGHT to fp32Tensor(Shape(vocabSize, dim), lmHeadVals),
-            Gemma4TensorNames.inputLayernorm(0) to fp32Tensor(Shape(dim), attnNormVals),
-            Gemma4TensorNames.attnQ(0) to fp32Tensor(Shape(nHeads * headDim, dim), qVals),
-            Gemma4TensorNames.attnK(0) to fp32Tensor(Shape(nKvHeads * headDim, dim), kVals),
-            Gemma4TensorNames.attnV(0) to fp32Tensor(Shape(nKvHeads * headDim, dim), vVals),
-            Gemma4TensorNames.attnOut(0) to fp32Tensor(Shape(dim, nHeads * headDim), oVals),
-            Gemma4TensorNames.postAttentionLayernorm(0) to fp32Tensor(Shape(dim), postNormVals),
-            Gemma4TensorNames.ffnGate(0) to fp32Tensor(Shape(ffnDim, dim), gateVals),
-            Gemma4TensorNames.ffnUp(0) to fp32Tensor(Shape(ffnDim, dim), upVals),
-            Gemma4TensorNames.ffnDown(0) to fp32Tensor(Shape(dim, ffnDim), downVals),
+            GemmaTensorNames.TOKEN_EMBEDDINGS to fp32Tensor(Shape(vocabSize, dim), tokenEmb),
+            GemmaTensorNames.OUTPUT_NORM to fp32Tensor(Shape(dim), finalNormVals),
+            GemmaTensorNames.OUTPUT_WEIGHT to fp32Tensor(Shape(vocabSize, dim), lmHeadVals),
+            GemmaTensorNames.inputLayernorm(0) to fp32Tensor(Shape(dim), attnNormVals),
+            GemmaTensorNames.attnQ(0) to fp32Tensor(Shape(nHeads * headDim, dim), qVals),
+            GemmaTensorNames.attnK(0) to fp32Tensor(Shape(nKvHeads * headDim, dim), kVals),
+            GemmaTensorNames.attnV(0) to fp32Tensor(Shape(nKvHeads * headDim, dim), vVals),
+            GemmaTensorNames.attnOut(0) to fp32Tensor(Shape(dim, nHeads * headDim), oVals),
+            GemmaTensorNames.postAttentionLayernorm(0) to fp32Tensor(Shape(dim), postNormVals),
+            GemmaTensorNames.ffnGate(0) to fp32Tensor(Shape(ffnDim, dim), gateVals),
+            GemmaTensorNames.ffnUp(0) to fp32Tensor(Shape(ffnDim, dim), upVals),
+            GemmaTensorNames.ffnDown(0) to fp32Tensor(Shape(dim, ffnDim), downVals),
         )
 
-        val fp32 = Gemma4Weights(metadata, fp32Map())
+        val fp32 = GemmaWeights(metadata, fp32Map())
 
         // Quantized map: reuse FP32 for norms, embeddings, and lm_head (all
         // non-matmul or sub-32-block). Swap Q/K/V/O/Gate/Up/Down for Q8 MemSeg
         // — these all have volume divisible by 32 given dim=8, ffnDim=32.
         val q8 = linkedMapOf<String, Tensor<FP32, Float>>(
-            Gemma4TensorNames.TOKEN_EMBEDDINGS to fp32Tensor(Shape(vocabSize, dim), tokenEmb),
-            Gemma4TensorNames.OUTPUT_NORM to fp32Tensor(Shape(dim), finalNormVals),
-            Gemma4TensorNames.OUTPUT_WEIGHT to fp32Tensor(Shape(vocabSize, dim), lmHeadVals),
-            Gemma4TensorNames.inputLayernorm(0) to fp32Tensor(Shape(dim), attnNormVals),
-            Gemma4TensorNames.attnQ(0) to q8Tensor(nHeads * headDim, dim, qVals, arena),
-            Gemma4TensorNames.attnK(0) to q8Tensor(nKvHeads * headDim, dim, kVals, arena),
-            Gemma4TensorNames.attnV(0) to q8Tensor(nKvHeads * headDim, dim, vVals, arena),
-            Gemma4TensorNames.attnOut(0) to q8Tensor(dim, nHeads * headDim, oVals, arena),
-            Gemma4TensorNames.postAttentionLayernorm(0) to fp32Tensor(Shape(dim), postNormVals),
-            Gemma4TensorNames.ffnGate(0) to q8Tensor(ffnDim, dim, gateVals, arena),
-            Gemma4TensorNames.ffnUp(0) to q8Tensor(ffnDim, dim, upVals, arena),
-            Gemma4TensorNames.ffnDown(0) to q8Tensor(dim, ffnDim, downVals, arena),
+            GemmaTensorNames.TOKEN_EMBEDDINGS to fp32Tensor(Shape(vocabSize, dim), tokenEmb),
+            GemmaTensorNames.OUTPUT_NORM to fp32Tensor(Shape(dim), finalNormVals),
+            GemmaTensorNames.OUTPUT_WEIGHT to fp32Tensor(Shape(vocabSize, dim), lmHeadVals),
+            GemmaTensorNames.inputLayernorm(0) to fp32Tensor(Shape(dim), attnNormVals),
+            GemmaTensorNames.attnQ(0) to q8Tensor(nHeads * headDim, dim, qVals, arena),
+            GemmaTensorNames.attnK(0) to q8Tensor(nKvHeads * headDim, dim, kVals, arena),
+            GemmaTensorNames.attnV(0) to q8Tensor(nKvHeads * headDim, dim, vVals, arena),
+            GemmaTensorNames.attnOut(0) to q8Tensor(dim, nHeads * headDim, oVals, arena),
+            GemmaTensorNames.postAttentionLayernorm(0) to fp32Tensor(Shape(dim), postNormVals),
+            GemmaTensorNames.ffnGate(0) to q8Tensor(ffnDim, dim, gateVals, arena),
+            GemmaTensorNames.ffnUp(0) to q8Tensor(ffnDim, dim, upVals, arena),
+            GemmaTensorNames.ffnDown(0) to q8Tensor(dim, ffnDim, downVals, arena),
         )
 
-        return fp32 to Gemma4Weights(metadata, q8)
+        return fp32 to GemmaWeights(metadata, q8)
     }
 
     @Test

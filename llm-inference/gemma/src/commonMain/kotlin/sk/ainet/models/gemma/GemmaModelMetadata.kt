@@ -10,7 +10,7 @@ package sk.ainet.models.gemma
  * - Up to 256K context (128K for E2B/E4B, 256K for 31B)
  * - No AltUp or activation sparsity (those are Gemma3n-specific)
  */
-public data class Gemma4ModelMetadata(
+public data class GemmaModelMetadata(
     val architecture: String,
     val embeddingLength: Int,
     val contextLength: Int,
@@ -26,9 +26,9 @@ public data class Gemma4ModelMetadata(
     /** Full per-layer list of attention types (not a repeating pattern). */
     val layerTypes: List<String>,
     /** RoPE parameters for full (global) attention layers. */
-    val ropeParametersFull: Gemma4RopeConfig,
+    val ropeParametersFull: GemmaRopeConfig,
     /** RoPE parameters for sliding (local) attention layers. */
-    val ropeParametersSliding: Gemma4RopeConfig,
+    val ropeParametersSliding: GemmaRopeConfig,
     /** Maximum position embeddings (128K for E2B/E4B, 256K for 31B). */
     val maxPositionEmbeddings: Int,
     /** Per-layer embedding dimension (PLE). 0 if not used. */
@@ -137,7 +137,7 @@ public data class Gemma4ModelMetadata(
 /**
  * RoPE configuration for a specific attention type (full or sliding).
  */
-public data class Gemma4RopeConfig(
+public data class GemmaRopeConfig(
     /** Base frequency (theta) for RoPE. */
     val base: Float,
     /** RoPE type: "default" for standard, "proportional" for p-RoPE. */

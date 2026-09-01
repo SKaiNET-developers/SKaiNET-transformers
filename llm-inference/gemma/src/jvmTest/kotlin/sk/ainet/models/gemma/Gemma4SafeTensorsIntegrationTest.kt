@@ -36,7 +36,7 @@ class Gemma4SafeTensorsIntegrationTest {
         val configJson = readTextFile(configPath)
         assertNotNull(configJson, "Failed to read config.json")
 
-        val metadata = Gemma4ConfigParser.parseFromJson(configJson)
+        val metadata = GemmaConfigParser.parseFromJson(configJson)
 
         assertEquals("gemma4", metadata.architecture)
         assertTrue(metadata.blockCount > 0, "blockCount should be positive")
@@ -103,49 +103,14 @@ class Gemma4SafeTensorsIntegrationTest {
 
     @Test
     fun `test Gemma4 tensor name mapping`() {
-        assertEquals("token_embd.weight", Gemma4TensorNames.TOKEN_EMBEDDINGS)
-        assertEquals("output_norm.weight", Gemma4TensorNames.OUTPUT_NORM)
-        assertEquals("output.weight", Gemma4TensorNames.OUTPUT_WEIGHT)
+        assertEquals("token_embd.weight", GemmaTensorNames.TOKEN_EMBEDDINGS)
+        assertEquals("output_norm.weight", GemmaTensorNames.OUTPUT_NORM)
+        assertEquals("output.weight", GemmaTensorNames.OUTPUT_WEIGHT)
 
-        assertEquals("blk.0.attn_norm.weight", Gemma4TensorNames.inputLayernorm(0))
-        assertEquals("blk.5.attn_q.weight", Gemma4TensorNames.attnQ(5))
-        assertEquals("blk.10.ffn_gate.weight", Gemma4TensorNames.ffnGate(10))
-        assertEquals("blk.3.attn_q_norm.weight", Gemma4TensorNames.attnQNorm(3))
+        assertEquals("blk.0.attn_norm.weight", GemmaTensorNames.inputLayernorm(0))
+        assertEquals("blk.5.attn_q.weight", GemmaTensorNames.attnQ(5))
+        assertEquals("blk.10.ffn_gate.weight", GemmaTensorNames.ffnGate(10))
+        assertEquals("blk.3.attn_q_norm.weight", GemmaTensorNames.attnQNorm(3))
     }
 
-    @Test
-    fun `test Gemma4Config fromMetadata creates valid config`() {
-        val metadata = Gemma4ModelMetadata(
-            architecture = "gemma4",
-            embeddingLength = 2304,
-            contextLength = 131072,
-            blockCount = 34,
-            headCount = 8,
-            kvHeadCount = 4,
-            intermediateSize = 9216,
-            headDim = 256,
-            globalHeadDim = 256,
-            vocabSize = 262144,
-            slidingWindow = 512,
-            kvSharedLayers = 20,
-            layerTypes = listOf("sliding_attention", "full_attention"),
-            ropeParametersFull = Gemma4RopeConfig(
-                base = 1000000f,
-                ropeType = "proportional",
-                factor = 2.0f,
-                partialRotaryFactor = 0.5f
-            ),
-            ropeParametersSliding = Gemma4RopeConfig(base = 10000f),
-            maxPositionEmbeddings = 131072
-        )
-
-        val config = Gemma4Config.fromMetadata(metadata)
-
-        assertEquals(2304, config.hiddenSize)
-        assertEquals(34, config.numLayers)
-        assertEquals(256, config.globalHeadDim)
-        assertEquals("proportional", config.ropeType)
-        assertEquals(0.5f, config.partialRotaryFactor)
-        assertEquals(15, config.effectiveCacheLayers)
-    }
 }

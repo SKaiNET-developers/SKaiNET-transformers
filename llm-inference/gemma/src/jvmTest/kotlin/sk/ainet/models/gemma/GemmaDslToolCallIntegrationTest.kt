@@ -93,7 +93,7 @@ class GemmaDslToolCallIntegrationTest {
      * feature wires up. `perLayerEmbeddingLength` triggers PLE through
      * `GemmaNetworkLoader.fromWeights`.
      */
-    private val metadata = Gemma4ModelMetadata(
+    private val metadata = GemmaModelMetadata(
         architecture = "gemma4",
         embeddingLength = dim,
         contextLength = seqLen,
@@ -107,37 +107,37 @@ class GemmaDslToolCallIntegrationTest {
         slidingWindow = seqLen,
         kvSharedLayers = 0,
         layerTypes = List(numLayers) { "full_attention" },
-        ropeParametersFull = Gemma4RopeConfig(base = 10000f),
-        ropeParametersSliding = Gemma4RopeConfig(base = 10000f),
+        ropeParametersFull = GemmaRopeConfig(base = 10000f),
+        ropeParametersSliding = GemmaRopeConfig(base = 10000f),
         maxPositionEmbeddings = seqLen,
         perLayerEmbeddingLength = perLayerDim
     )
 
-    private fun buildWeights(): Gemma4Weights<FP32, Float> {
+    private fun buildWeights(): GemmaWeights<FP32, Float> {
         val tensors = linkedMapOf<String, Tensor<FP32, Float>>()
-        tensors[Gemma4TensorNames.TOKEN_EMBEDDINGS] = randn(Shape(vocabSize, dim), seed = 10)
-        tensors[Gemma4TensorNames.OUTPUT_NORM] = ones(Shape(dim))
-        tensors[Gemma4TensorNames.OUTPUT_WEIGHT] = randn(Shape(vocabSize, dim), seed = 11)
+        tensors[GemmaTensorNames.TOKEN_EMBEDDINGS] = randn(Shape(vocabSize, dim), seed = 10)
+        tensors[GemmaTensorNames.OUTPUT_NORM] = ones(Shape(dim))
+        tensors[GemmaTensorNames.OUTPUT_WEIGHT] = randn(Shape(vocabSize, dim), seed = 11)
         tensors["per_layer_token_embd.weight"] =
             randn(Shape(vocabSize, numLayers * perLayerDim), seed = 30)
         tensors["per_layer_model_proj.weight"] =
             randn(Shape(numLayers * perLayerDim, dim), seed = 31)
         tensors["per_layer_proj_norm.weight"] = ones(Shape(perLayerDim))
         for (layer in 0 until numLayers) {
-            tensors[Gemma4TensorNames.inputLayernorm(layer)] = ones(Shape(dim))
-            tensors[Gemma4TensorNames.attnQ(layer)] = randn(Shape(dim, dim), seed = 100 + layer * 10)
-            tensors[Gemma4TensorNames.attnK(layer)] = randn(Shape(dim, dim), seed = 101 + layer * 10)
-            tensors[Gemma4TensorNames.attnV(layer)] = randn(Shape(dim, dim), seed = 102 + layer * 10)
-            tensors[Gemma4TensorNames.attnOut(layer)] = randn(Shape(dim, dim), seed = 103 + layer * 10)
-            tensors[Gemma4TensorNames.postAttentionLayernorm(layer)] = ones(Shape(dim))
-            tensors[Gemma4TensorNames.ffnGate(layer)] = randn(Shape(ffDim, dim), seed = 104 + layer * 10)
-            tensors[Gemma4TensorNames.ffnDown(layer)] = randn(Shape(dim, ffDim), seed = 105 + layer * 10)
-            tensors[Gemma4TensorNames.ffnUp(layer)] = randn(Shape(ffDim, dim), seed = 106 + layer * 10)
+            tensors[GemmaTensorNames.inputLayernorm(layer)] = ones(Shape(dim))
+            tensors[GemmaTensorNames.attnQ(layer)] = randn(Shape(dim, dim), seed = 100 + layer * 10)
+            tensors[GemmaTensorNames.attnK(layer)] = randn(Shape(dim, dim), seed = 101 + layer * 10)
+            tensors[GemmaTensorNames.attnV(layer)] = randn(Shape(dim, dim), seed = 102 + layer * 10)
+            tensors[GemmaTensorNames.attnOut(layer)] = randn(Shape(dim, dim), seed = 103 + layer * 10)
+            tensors[GemmaTensorNames.postAttentionLayernorm(layer)] = ones(Shape(dim))
+            tensors[GemmaTensorNames.ffnGate(layer)] = randn(Shape(ffDim, dim), seed = 104 + layer * 10)
+            tensors[GemmaTensorNames.ffnDown(layer)] = randn(Shape(dim, ffDim), seed = 105 + layer * 10)
+            tensors[GemmaTensorNames.ffnUp(layer)] = randn(Shape(ffDim, dim), seed = 106 + layer * 10)
             tensors["blk.$layer.inp_gate.weight"] = randn(Shape(perLayerDim, dim), seed = 200 + layer * 10)
             tensors["blk.$layer.proj.weight"] = randn(Shape(dim, perLayerDim), seed = 201 + layer * 10)
             tensors["blk.$layer.post_norm.weight"] = ones(Shape(dim))
         }
-        return Gemma4Weights(metadata = metadata, tensors = tensors)
+        return GemmaWeights(metadata = metadata, tensors = tensors)
     }
 
     private fun oneHotLogits(argmax: Int): Tensor<FP32, Float> {

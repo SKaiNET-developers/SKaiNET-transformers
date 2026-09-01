@@ -59,7 +59,7 @@ class Gemma4ChatGoldenTokenTest {
         val ctx = DirectCpuExecutionContext(tensorDataFactory = memSeg)
         try {
             val runtime = runBlocking {
-                Gemma4Ingestion<FP32>(ctx = ctx, dtype = FP32::class, config = Gemma4LoadConfig())
+                GemmaIngestion<FP32>(ctx = ctx, dtype = FP32::class, config = Gemma4LoadConfig())
                     .loadDslRuntimeStreaming { JvmRandomAccessSource.open(path) }
             }
             // Ordinary prose, no control tokens: BOS + encoded sentence.
@@ -112,7 +112,7 @@ class Gemma4ChatGoldenTokenTest {
             val ctx = DirectCpuExecutionContext(tensorDataFactory = memSeg)
             try {
                 val runtime = runBlocking {
-                    Gemma4Ingestion<FP32>(ctx = ctx, dtype = FP32::class, config = cfg)
+                    GemmaIngestion<FP32>(ctx = ctx, dtype = FP32::class, config = cfg)
                         .loadDslRuntimeStreaming { JvmRandomAccessSource.open(path) }
                 }
                 var logits = runtime.forward(REFERENCE_PROMPT_IDS[0])
@@ -166,7 +166,7 @@ class Gemma4ChatGoldenTokenTest {
         val ctx = DirectCpuExecutionContext(tensorDataFactory = memSeg)
         try {
             val runtime = runBlocking {
-                Gemma4Ingestion<FP32>(ctx = ctx, dtype = FP32::class, config = Gemma4LoadConfig())
+                GemmaIngestion<FP32>(ctx = ctx, dtype = FP32::class, config = Gemma4LoadConfig())
                     .loadDslRuntimeStreaming { JvmRandomAccessSource.open(path) }
             }
             var logits = runtime.forward(REFERENCE_PROMPT_IDS[0])
