@@ -1,0 +1,203 @@
+= Qwen Tool Calling in Your Own App
+:description: Embed a Qwen3 model with native tool calling in your own Kotlin application.
+
+This tutorial builds a small Kotlin application that loads a Qwen3 GGUF model, registers a
+custom tool, and runs a complete agent round-trip: the model emits a `<tool_call>`, your
+code executes it, the result goes back to the model, and the model produces the final
+answer grounded on it.
+
+Qwen is the best-supported tool-calling family in SKaiNET Transformers: the decode path is
+verified token-for-token against mainline llama.cpp (see the
+xref:../index.adoc#_supported_model_families[verified-model matrix]), and
+`QwenChatTemplate` is faithful to the official Qwen3 chat template — including thinking
+mode and the `<tool_response>` result convention.
+
+== Prerequisites
+
+* JDK 21+.
+* A Qwen3 instruct GGUF. This tutorial uses the smallest one — good enough for real tool
+  calls and quick to download (~640 MB):
+
+[source,bash]
+----
+curl -L -o Qwen3-0.6B-Q8_0.gguf \
+  "https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q8_0.gguf"
+----
+
+== Step 1: Dependencies
+
+[source,kotlin]
+----
+dependencies {
+    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:<version>"))
+
+    implementation("sk.ainet.transformers:skainet-transformers-inference-qwen")  // QwenWeightLoader / QwenNetworkLoader
+    implementation("sk.ainet.transformers:skainet-transformers-agent")           // ChatSession, AgentLoop, Tool
+}
+----
+
+== Step 2: Load the Model
+
+The Qwen family loads through the engine-delegated DSL path — the same one the parity
+gate certifies:
+
+[source,kotlin]
+----
+import sk.ainet.apps.llm.OptimizedLLMMode
+import sk.ainet.apps.llm.OptimizedLLMRuntime
+import sk.ainet.apps.llm.tokenizer.TokenizerFactory
+import sk.ainet.context.DirectCpuExecutionContext
+import sk.ainet.io.JvmRandomAccessSource
+import sk.ainet.io.gguf.StreamingGGUFReader
+import sk.ainet.lang.types.FP32
+import sk.ainet.models.qwen.QwenNetworkLoader
+import sk.ainet.models.qwen.QwenWeightLoader
+
+val modelPath = "Qwen3-0.6B-Q8_0.gguf"
+val ctx = DirectCpuExecutionContext()
+
+val fields = StreamingGGUFReader.open(JvmRandomAccessSource.open(modelPath)).use { it.fields }
+val tokenizer = TokenizerFactory.fromGgufFields(fields)
+
+val weights = QwenWeightLoader.loadToMapStreaming<FP32, Float>(
+    ctx, { JvmRandomAccessSource.open(modelPath) },
+)
+val model = QwenNetworkLoader.fromWeights(weights)
+val runtime = OptimizedLLMRuntime(model, ctx, OptimizedLLMMode.DIRECT, FP32::class)
+----
+
+== Step 3: Define a Tool
+
+A tool is a `definition` (name, description, JSON-schema parameters — this is what the
+model sees inside `<tools></tools>`) plus an `execute` function:
+
+[source,kotlin]
+----
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonObject
+import sk.ainet.apps.kllama.chat.Tool
+import sk.ainet.apps.kllama.chat.ToolDefinition
+
+class WeatherTool : Tool {
+    override val definition = ToolDefinition(
+        name = "get_weather",
+        description = "Get the current weather for a city",
+        parameters = buildJsonObject {
+            put("type", "object")
+            putJsonObject("properties") {
+                putJsonObject("city") {
+                    put("type", "string")
+                    put("description", "City name")
+                }
+            }
+        }
+    )
+
+    override fun execute(arguments: JsonObject): String {
+        val city = arguments["city"]?.jsonPrimitive?.content ?: return "missing city"
+        return "18°C, light rain in $city"   // call your real weather API here
+    }
+}
+----
+
+== Step 4: Run the Agent Round-Trip
+
+`ChatSession` picks `QwenChatTemplate` automatically from the model metadata:
+
+[source,kotlin]
+----
+import sk.ainet.apps.kllama.chat.ChatSession
+import sk.ainet.apps.kllama.chat.ModelMetadata
+
+val session = ChatSession(
+    runtime = runtime,
+    tokenizer = tokenizer,
+    metadata = ModelMetadata(family = "qwen", architecture = "qwen3"),
+)
+
+val answer = session.runSingleTurn(
+    prompt = "What's the weather like in Zurich?",
+    tools = listOf(WeatherTool()),
+    maxTokens = 512,
+    temperature = 0.0f,
+)
+println(answer)   // "It's currently 18°C with light rain in Zurich."
+----
+
+Behind the scenes, the conversation the model sees follows the official Qwen3 contract:
+
+----
+<|im_start|>system
+...# Tools ... <tools>{"type":"function","function":{"name":"get_weather",...}}</tools> ...<|im_end|>
+<|im_start|>user
+What's the weather like in Zurich?<|im_end|>
+<|im_start|>assistant
+<tool_call>
+{"name": "get_weather", "arguments": {"city": "Zurich"}}
+</tool_call><|im_end|>
+<|im_start|>user
+<tool_response>
+18°C, light rain in Zurich
+</tool_response><|im_end|>
+<|im_start|>assistant
+----
+
+Note the tool result goes back as a *user* turn wrapped in `<tool_response>` — Qwen3 was
+never trained on a literal `tool` role.
+
+== Thinking Mode
+
+Qwen3 models *think by default*: output starts with a `<think>…</think>` block before the
+answer (and before tool calls). The template handles this for you — reasoning is surfaced
+through `AgentListener.onThinking` and stripped from the visible answer and from the
+conversation history.
+
+Two practical knobs:
+
+* **Budget.** In thinking mode a small model can spend a few hundred tokens reasoning
+  before it reaches the `<tool_call>`, so give `maxTokens` headroom (512 is a good floor
+  for Qwen3-0.6B).
+* **Turning thinking off.** The official `enable_thinking=false` behaviour — the
+  generation prompt is pre-filled with an empty `<think>` block — is available by
+  constructing the template yourself and driving `AgentLoop` directly:
+
+[source,kotlin]
+----
+import sk.ainet.apps.kllama.chat.AgentConfig
+import sk.ainet.apps.kllama.chat.AgentLoop
+import sk.ainet.apps.kllama.chat.QwenChatTemplate
+import sk.ainet.apps.kllama.chat.ToolRegistry
+
+val registry = ToolRegistry().apply { register(WeatherTool()) }
+val agent = AgentLoop(
+    runtime = runtime,
+    template = QwenChatTemplate(enableThinking = false),
+    toolRegistry = registry,
+    eosTokenId = tokenizer.eosTokenId,
+    config = AgentConfig(maxToolRounds = 5, maxTokensPerRound = 256, temperature = 0.0f),
+    decode = { tokenizer.decode(it) },
+)
+----
+
+== Trying It from the CLI First
+
+Before wiring your own app, the same loop is one command away:
+
+[source,bash]
+----
+./gradlew :llm-apps:kllama-cli:run \
+  --args="-m Qwen3-0.6B-Q8_0.gguf --demo -s 512 -k 0.0 'What is 17 * 3?'"
+----
+
+Expected: a `[Tool Call] calculator({"expression":"17 * 3"})` line, the tool result, and a
+final answer of 51 — the built-in calculator/file-listing demo running the exact pipeline
+this tutorial embeds.
+
+== Next Steps
+
+* xref:tool-calling.adoc[Tool Calling with Any Model] — the runtime-agnostic pipeline in depth.
+* xref:../reference/chat-session-api.adoc[ChatSession API] — chat, agent, and demo modes.
+* xref:../how-to/add-tool.adoc[Add a Custom Tool] — validation, error handling, registries.
