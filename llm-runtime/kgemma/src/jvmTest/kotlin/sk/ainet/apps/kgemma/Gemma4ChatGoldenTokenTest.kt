@@ -30,6 +30,8 @@ import kotlin.test.assertTrue
  *
  * Gated on `GEMMA4_E2B_GGUF_PATH`.
  */
+@org.junit.jupiter.api.Tag("smoke-reference")
+@org.junit.jupiter.api.Tag("integration")
 class Gemma4ChatGoldenTokenTest {
 
     private companion object {

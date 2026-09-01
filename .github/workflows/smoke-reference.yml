@@ -3,6 +3,7 @@ name: Smoke Reference
 # Runs the three reference-model smoke tests tagged `@Tag("smoke-reference")`:
 #  - Qwen3-1.7B Q8_0 GGUF        (kllama runner)
 #  - Gemma-4 E2B SafeTensors     (kgemma runner)
+#  - Gemma-4 E2B GGUF golden-token + timed smoke (kgemma runner, optional input)
 #  - BERT + LEAF SafeTensors     (llm-test-java)
 #
 # By default each test self-skips when its model artifact is not resolvable
@@ -32,6 +33,10 @@ on:
         default: ""
       gemma4_safetensors_dir_url:
         description: "Direct URL to a tar.gz containing the Gemma-4 E2B SafeTensors checkpoint directory. Leave blank to skip the kgemma test."
+        required: false
+        default: ""
+      gemma4_gguf_url:
+        description: "Direct URL to gemma-4-E2B-it-Q4_K_M.gguf (~3.1 GB). Enables the GGUF golden-token + timed smoke tests (needs a large-memory runner: the probe wants ~24g test heap). Leave blank to skip."
         required: false
         default: ""
       leaf_safetensors_dir_url:
@@ -83,6 +88,17 @@ jobs:
           mkdir -p "$RUNNER_TEMP/models/gemma4"
           curl -fsSL "$URL" | tar -xz -C "$RUNNER_TEMP/models/gemma4"
           echo "GEMMA4_E2B_SAFETENSORS_PATH=$RUNNER_TEMP/models/gemma4" >> "$GITHUB_ENV"
+
+      - name: Stage Gemma-4 E2B GGUF
+        if: inputs.gemma4_gguf_url != ''
+        env:
+          URL: ${{ inputs.gemma4_gguf_url }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/models/gemma4-gguf"
+          curl -fsSL "$URL" -o "$RUNNER_TEMP/models/gemma4-gguf/gemma-4-E2B-it-Q4_K_M.gguf"
+          echo "GEMMA4_E2B_GGUF_PATH=$RUNNER_TEMP/models/gemma4-gguf/gemma-4-E2B-it-Q4_K_M.gguf" >> "$GITHUB_ENV"
+          echo "GEMMA4_PROBE=1" >> "$GITHUB_ENV"
 
       - name: Stage MongoDB LEAF SafeTensors
         if: inputs.leaf_safetensors_dir_url != ''

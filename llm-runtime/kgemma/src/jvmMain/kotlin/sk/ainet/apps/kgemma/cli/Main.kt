@@ -30,13 +30,14 @@ import kotlin.time.measureTime
 
 private enum class ModelFormat { GGUF, SAFETENSORS }
 
-private enum class GemmaVariant { GEMMA3N, GEMMA4 }
+private enum class GemmaVariant { GEMMA3, GEMMA3N, GEMMA4 }
 
 /**
  * Detect Gemma model variant from config.json or GGUF metadata.
  * For SafeTensors directories: reads model_type from config.json.
  * For GGUF files: peeks at general.architecture metadata field.
- * Falls back to GEMMA3N if detection fails.
+ * Falls back to GEMMA3 (the DSL lane) if detection fails — the old GEMMA3N fallback sent
+ * plain gemma3 checkpoints (FunctionGemma-270M) through the hand-rolled 3n runtime (#376).
  */
 private fun detectGemmaVariant(modelPath: Path, format: ModelFormat): GemmaVariant {
     // Try config.json in model directory
@@ -49,7 +50,8 @@ private fun detectGemmaVariant(modelPath: Path, format: ModelFormat): GemmaVaria
         if (match != null) {
             val modelType = match.groupValues[1]
             if (modelType == "gemma4") return GemmaVariant.GEMMA4
-            if (modelType.startsWith("gemma3") || modelType == "gemma3n") return GemmaVariant.GEMMA3N
+            if (modelType == "gemma3n") return GemmaVariant.GEMMA3N
+            if (modelType.startsWith("gemma3") || modelType.startsWith("gemma")) return GemmaVariant.GEMMA3
         }
     }
 
@@ -59,14 +61,17 @@ private fun detectGemmaVariant(modelPath: Path, format: ModelFormat): GemmaVaria
             JvmRandomAccessSource.open(modelPath.toString()).use { source ->
                 val reader = sk.ainet.io.gguf.StreamingGGUFReader.open(source)
                 val arch = reader.fields["general.architecture"]
-                if (arch is String && arch.contains("gemma4", ignoreCase = true)) {
-                    return GemmaVariant.GEMMA4
+                if (arch is String) {
+                    if (arch.contains("gemma4", ignoreCase = true)) return GemmaVariant.GEMMA4
+                    if (arch.equals("gemma3n", ignoreCase = true)) return GemmaVariant.GEMMA3N
+                    if (arch.startsWith("gemma", ignoreCase = true)) return GemmaVariant.GEMMA3
                 }
                 // Also check filename as last resort
                 val filename = modelPath.fileName.toString().lowercase()
                 if (filename.contains("gemma-4") || filename.contains("gemma4")) {
                     return GemmaVariant.GEMMA4
                 }
+                if (filename.contains("3n")) return GemmaVariant.GEMMA3N
             }
         } catch (_: Exception) {
             // Fall through to default
@@ -79,7 +84,8 @@ private fun detectGemmaVariant(modelPath: Path, format: ModelFormat): GemmaVaria
         return GemmaVariant.GEMMA4
     }
 
-    return GemmaVariant.GEMMA3N
+    if (filename.contains("3n")) return GemmaVariant.GEMMA3N
+    return GemmaVariant.GEMMA3
 }
 
 private data class CliArgs(
@@ -199,16 +205,20 @@ fun main(args: Array<String>) {
         println("Detected model variant: $variant")
 
         val runtime: InferenceRuntime<FP32> = when (variant) {
-            GemmaVariant.GEMMA4 -> {
+            // Gemma 3 and Gemma 4 share the DSL lane: the metadata parse derives the
+            // per-generation knobs (vNorm / attention scale / partial rotary) from the
+            // checkpoint itself, so one ingestion path serves both (#375, #376).
+            GemmaVariant.GEMMA3, GemmaVariant.GEMMA4 -> {
                 val ingestion = GemmaIngestion<FP32>(
                     ctx = ctx,
                     dtype = FP32::class,
                     config = Gemma4LoadConfig()
                 )
+                val genLabel = if (variant == GemmaVariant.GEMMA4) "Gemma 4" else "Gemma 3"
                 val runtimeLabel = "gemmaNetwork() + OptimizedLLMRuntime (DSL, engine loader, keep-packed)"
                 when (format) {
                     ModelFormat.GGUF -> {
-                        println("Loading Gemma 4 GGUF model from $modelPath via $runtimeLabel (streaming)...")
+                        println("Loading $genLabel GGUF model from $modelPath via $runtimeLabel (streaming)...")
                         ingestion.loadDslRuntimeStreaming(
                             randomAccessProvider = { JvmRandomAccessSource.open(modelPath.toString()) }
                         )
@@ -218,7 +228,7 @@ fun main(args: Array<String>) {
                         val indexPath = modelDir.resolve("model.safetensors.index.json")
                         val safetensorsPath = if (indexPath.exists()) indexPath.toString()
                             else modelDir.resolve("model.safetensors").toString()
-                        println("Loading Gemma 4 SafeTensors model from $safetensorsPath via $runtimeLabel...")
+                        println("Loading $genLabel SafeTensors model from $safetensorsPath via $runtimeLabel...")
                         ingestion.loadDslRuntimeFromSafeTensors(safetensorsPath)
                     }
                 }
@@ -277,6 +287,7 @@ fun main(args: Array<String>) {
                 architecture = when (variant) {
                     GemmaVariant.GEMMA4 -> "gemma4"
                     GemmaVariant.GEMMA3N -> "gemma3n"
+                    GemmaVariant.GEMMA3 -> "gemma3"
                 },
                 sourceFormat = when (format) {
                     ModelFormat.GGUF -> "gguf"
@@ -323,7 +334,8 @@ fun main(args: Array<String>) {
             val renderedPrompt = if (cliArgs.chat) {
                 val template = when (variant) {
                     GemmaVariant.GEMMA4 -> Gemma4ChatTemplate()
-                    GemmaVariant.GEMMA3N -> GemmaChatTemplate()
+                    // gemma3 and 3n use the gemma2/3 <start_of_turn> template.
+                    GemmaVariant.GEMMA3, GemmaVariant.GEMMA3N -> GemmaChatTemplate()
                 }
                 template.apply(
                     messages = listOf(ChatMessage(ChatRole.USER, cliArgs.prompt)),

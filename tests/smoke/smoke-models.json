@@ -57,6 +57,13 @@
       "reference": true
     },
     {
+      "name": "Gemma4-E2B-GGUF",
+      "runner": "kgemma",
+      "model": "gemma-4-gguf/gemma-4-E2B-it-Q4_K_M.gguf",
+      "format": "gguf",
+      "steps": 16
+    },
+    {
       "name": "all-MiniLM-L6-v2",
       "runner": "kbert",
       "model": "all-MiniLM-L6-v2.gguf",
