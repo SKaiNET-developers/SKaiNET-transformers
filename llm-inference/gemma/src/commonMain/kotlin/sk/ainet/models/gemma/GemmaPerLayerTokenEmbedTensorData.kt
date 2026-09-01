@@ -23,7 +23,7 @@ import kotlin.reflect.KClass
  * non-canonical block order, off-heap storage without a heap byte view).
  */
 @Suppress("UNCHECKED_CAST")
-internal fun <T : DType, V> wrapGemmaPleIfPacked(
+public fun <T : DType, V> wrapGemmaPleIfPacked(
     ctx: ExecutionContext,
     dtype: KClass<T>,
     tensor: Tensor<T, V>,
