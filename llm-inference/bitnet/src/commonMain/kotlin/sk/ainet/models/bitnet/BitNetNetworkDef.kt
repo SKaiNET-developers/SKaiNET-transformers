@@ -18,7 +18,12 @@ import sk.ainet.models.llama.LlamaModelMetadata
  *   `down(subNorm(relu(gate(x))² * up(x)))` — not SwiGLU.
  * - **`attn_sub_norm`** ([decoderTransformerNetwork]'s `attnSubNorm`): an RMSNorm on the merged
  *   attention output BEFORE the o_projection.
- * - RoPE INTERLEAVED pairing (llama.cpp `LLAMA_ROPE_TYPE_NORM`, BitNet.cpp's `LLM_ARCH_BITNET`).
+ * - **RoPE NEOX-style pairing** ([RoPEMode.SPLIT_HALF]): bitnet.cpp places all three BITNET
+ *   arches in the `LLAMA_ROPE_TYPE_NEOX` group (pairs offset by `n_rot/2`), and the HF BF16
+ *   reference (`microsoft/bitnet-b1.58-2B-4T`) agrees. The previous INTERLEAVED pairing was a
+ *   real numerics bug — greedy decode diverged from the reference at generated token 4; with
+ *   SPLIT_HALF it matches for 17 tokens and the residual divergence is a reference-side
+ *   near-tie (transformers#360's arbitration, 2026-08-31).
  * - RMSNorm eps from metadata (1e-5 for 2B4T).
  *
  * The metadata type stays [LlamaModelMetadata] — BitNet GGUFs use the Llama-family tensor naming
@@ -34,7 +39,7 @@ public inline fun <reified T : DType, V> bitnetNetwork(
     maxInferenceLen: Int = minOf(metadata.contextLength, 4096),
 ): Module<T, V> = decoderTransformerNetwork<T, V>(
     metadata = metadata,
-    ropeMode = RoPEMode.INTERLEAVED,
+    ropeMode = RoPEMode.SPLIT_HALF,
     maxInferenceLen = maxInferenceLen,
     ffnKind = DecoderFfnKind.RELU2_SUBLN,
     attnSubNorm = true,
