@@ -31,6 +31,10 @@ on:
         description: "Direct URL to Qwen3-1.7B-Q8_0.gguf (~1.9 GB). Leave blank to skip the kllama test."
         required: false
         default: ""
+      qwen25_gguf_url:
+        description: "Direct URL to qwen2.5-0.5b-instruct-q8_0.gguf (~0.5 GB). Enables the Qwen2.5 golden-token parity gate (the #352 bias-path regression gate). Leave blank to skip."
+        required: false
+        default: ""
       gemma4_safetensors_dir_url:
         description: "Direct URL to a tar.gz containing the Gemma-4 E2B SafeTensors checkpoint directory. Leave blank to skip the kgemma test."
         required: false
@@ -78,6 +82,18 @@ jobs:
           mkdir -p "$RUNNER_TEMP/models/qwen3"
           curl -fsSL "$URL" -o "$RUNNER_TEMP/models/qwen3/Qwen3-1.7B-Q8_0.gguf"
           echo "QWEN3_1B7_MODEL_PATH=$RUNNER_TEMP/models/qwen3/Qwen3-1.7B-Q8_0.gguf" >> "$GITHUB_ENV"
+          # Same file also feeds the Qwen3 golden-token parity gate.
+          echo "QWEN3_17B_GGUF=$RUNNER_TEMP/models/qwen3/Qwen3-1.7B-Q8_0.gguf" >> "$GITHUB_ENV"
+
+      - name: Stage Qwen2.5-0.5B-Instruct Q8_0 GGUF
+        if: inputs.qwen25_gguf_url != ''
+        env:
+          URL: ${{ inputs.qwen25_gguf_url }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/models/qwen25"
+          curl -fsSL "$URL" -o "$RUNNER_TEMP/models/qwen25/qwen2.5-0.5b-instruct-q8_0.gguf"
+          echo "QWEN25_05B_GGUF=$RUNNER_TEMP/models/qwen25/qwen2.5-0.5b-instruct-q8_0.gguf" >> "$GITHUB_ENV"
 
       - name: Stage Gemma-4 E2B SafeTensors
         if: inputs.gemma4_safetensors_dir_url != ''
