@@ -7,11 +7,9 @@ import sk.ainet.apps.llm.OptimizedLLMRuntime
 import sk.ainet.apps.llm.UnifiedModelLoader
 import sk.ainet.apps.llm.sampleFromTensor
 import sk.ainet.apps.llm.tokenizer.TokenizerFactory
-import sk.ainet.backend.api.kernel.KernelPacks
+import sk.ainet.backend.api.kernel.KernelDispatch
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.context.ExecutionContext
-import sk.ainet.exec.kernel.NativeTernaryF32GemvKernel
-import sk.ainet.exec.kernel.NativeTernaryLmheadKernel
 import sk.ainet.io.JvmRandomAccessSource
 import sk.ainet.lang.memory.ExperimentalMemoryApi
 import sk.ainet.lang.memory.trace.GenerationMetrics
@@ -39,8 +37,9 @@ import kotlin.system.exitProcess
  *   (keep-packed, `MAPPED` where the file can be served zero-copy); this sample carries no
  *   policy flags at all.
  * - **A traced run is a reportable run.** The generation loop opens the `prefill` /
- *   `decode` / `sample` spans on a [RecordingTraceSink]; kernel runs and adapter insertions
- *   arrive through `KernelDispatch.defaultSink`; [GenerationMetrics.from] reads the stream back.
+ *   `decode` / `sample` spans on a [RecordingTraceSink]; kernel runs, adapter insertions and
+ *   byte counters arrive through `KernelDispatch.defaultSink`; [GenerationMetrics.from] reads
+ *   the stream back.
  *
  * Families: BitNet (packed I2_S path) and the shared decoder families (Llama / Mistral / Qwen).
  */
@@ -66,23 +65,16 @@ fun main(args: Array<String>) {
         exitProcess(1)
     }
 
-    // One sink sees the loop's phase spans (via ctx.traceSink) and whatever the engine emits.
-    // TODO on the 0.52+ BOM bump: set `KernelDispatch.defaultSink = sink` (the 0.52 diagnostic
-    // hook) so per-kernel runs, adapter insertions and byte counters flow too — on 0.51 the
-    // report carries the phase-level numbers (TTFT, prefill/decode tok/s, sample share).
+    // One sink sees everything: the loop's phase spans (via ctx.traceSink) and — through the
+    // 0.52 diagnostic hook — every kernel run, adapter insertion and byte counter the
+    // dispatcher emits. That is what lights up the bandwidth / kernel-share rows below.
     val sink = RecordingTraceSink(capacity = 1 shl 20)
+    KernelDispatch.defaultSink = sink
     val ctx: ExecutionContext = object : ExecutionContext by DirectCpuExecutionContext() {
         override val traceSink: TraceSink get() = sink
     }
-    // 0.51-era kernel bootstrap, exactly as skainet-cli does it; the ternary installs stay
-    // load-bearing until an engine release with SKaiNET#1240's self-healing packs is consumed.
-    @OptIn(ExperimentalMemoryApi::class)
-    run {
-        KernelPacks.install()
-        sk.ainet.exec.kernel.FfmRowMajorKernelPack.install()
-    }
-    NativeTernaryF32GemvKernel.install()
-    NativeTernaryLmheadKernel.install()
+    // Self-healing dispatch (ternary packs included, SKaiNET#1240) — no per-pack bootstrap.
+    KernelDispatch.ensureInstalled()
 
     runBlocking {
         val modelInfo = UnifiedModelLoader.peek { JvmRandomAccessSource.open(modelPath) }

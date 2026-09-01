@@ -15,9 +15,8 @@ import sk.ainet.apps.llm.backend.BackendRegistry
 import sk.ainet.apps.llm.backend.bestAvailable
 import sk.ainet.apps.llm.tokenizer.TokenizerFactory
 import sk.ainet.apps.kllama.chat.ModelMetadata
-import sk.ainet.backend.api.kernel.KernelPacks
+import sk.ainet.backend.api.kernel.KernelDispatch
 import sk.ainet.context.DirectCpuExecutionContext
-import sk.ainet.exec.kernel.FfmRowMajorKernelPack
 import sk.ainet.io.JvmRandomAccessSource
 import sk.ainet.io.gguf.I2sGgufLayout
 import sk.ainet.io.gguf.StreamingGGUFReader
@@ -30,7 +29,6 @@ import sk.ainet.lang.memory.plan.WeightShapeOrientation
 import sk.ainet.lang.types.FP32
 import sk.ainet.models.llama.DecoderGgufWeightLoader
 import sk.ainet.models.llama.LlamaNetworkLoader
-import sk.ainet.exec.kernel.NativeTernaryF32GemvKernel
 import sk.ainet.exec.kernel.NativeTernaryLmheadKernel
 import sk.ainet.models.bitnet.BitNetNetworkLoader
 import sk.ainet.models.bitnet.BitNetWeightLoader
@@ -172,14 +170,13 @@ fun main(args: Array<String>) {
         val provider = BackendRegistry.bestAvailable()
         println("Backend: ${provider.displayName}")
 
-        // 0.51 view-keyed kernel tiers (#338 arc): KernelPacks wires the reference +
-        // best provider's FP32/prepacked kernels into KernelDispatch; the FFM
-        // row-major pack serves canonical packed weights — mapped OR un-prepacked
-        // heap — zero-copy, which is what makes WeightForm(residency = MAPPED) fast.
+        // 0.52 self-healing dispatch: providers, the row-major packs AND the ternary packs
+        // (SKaiNET#1240) are ServiceLoader-discovered — one call replaces the per-pack
+        // bootstrap this file used to carry. Explicit here (rather than lazy-on-first-matmul)
+        // so the packs are in before the loaders' mapped-staging decisions.
         @OptIn(sk.ainet.lang.memory.ExperimentalMemoryApi::class)
         run {
-            KernelPacks.install()
-            FfmRowMajorKernelPack.install()
+            KernelDispatch.ensureInstalled()
         }
 
         // Memory plan before anything is allocated: header-only arithmetic
@@ -276,12 +273,8 @@ fun main(args: Array<String>) {
                 else -> usage("Invalid --i2s-layout '${cliArgs.i2sLayout}' (group128 | group64 | sequential).")
             }
             println("Loading BitNet GGUF model from $modelPath via BitNetWeightLoader (packed I2_S, ${i2sLayout.name} flavor)...")
-            // Load-bearing until SKaiNET#1240 ships in a consumed BOM: the engine's self-healing
-            // dispatch does not yet discover the ternary packs, so without these two lines the
-            // packed weights silently dispatch to the ~120x slower reference/int8 paths. Drop
-            // them once the BOM bump lands (tracked in #360).
-            NativeTernaryF32GemvKernel.install { println("[skainet] $it") }
-            NativeTernaryLmheadKernel.install { println("[skainet] $it") }
+            // Ternary kernels arrive via the self-healing SPI (SKaiNET#1240, in this BOM) —
+            // the explicit installs this branch used to carry are gone.
             val weights = BitNetWeightLoader.loadRuntimeWeights(
                 ctx,
                 sourceProvider = { JvmRandomAccessSource.open(modelPath.toString()) },
