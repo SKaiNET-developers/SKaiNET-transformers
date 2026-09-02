@@ -8,7 +8,6 @@ import kotlin.io.path.exists
 import kotlin.io.path.isDirectory
 import kotlin.io.path.readText
 import kotlin.random.Random
-import kotlin.test.Ignore
 import kotlin.test.Test
 import kotlin.test.assertTrue
 import kotlin.test.fail
@@ -118,9 +117,10 @@ class Gemma4E2BToolCallSmokeTest {
     }
 
     @Test
-    @Ignore // Gemma 4 E2B emits coherent English on the calculator prompt but no <|tool_call> markup.
-            // Format-grammar gap is upstream of the agent loop (suspected prefill/sampling divergence).
-            // Re-enable once the underlying fix lands; the assertions here are the regression guard.
+    // Was @Ignore'd ("emits coherent English but no <|tool_call> markup"). Under engine
+    // 0.53.0 the real E2B Q4_K_M checkpoint emits `<|tool_call>call:calculator{expression:...}`
+    // and this test passes (~80 s on an M-series host); it stays env-gated on
+    // GEMMA4_E2B_MODEL_PATH, so CI without the checkpoint still skips.
     fun `real Gemma 4 E2B emits parseable tool_call against Gemma4ChatTemplate`() {
         val modelPath = System.getenv("GEMMA4_E2B_MODEL_PATH")?.trim().orEmpty()
         if (modelPath.isEmpty()) {
