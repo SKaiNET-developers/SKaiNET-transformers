@@ -4,7 +4,7 @@ Reusable **Gemma** model (incl. the FunctionGemma tool-calling fine-tune) author
 a portable graph producer with **no runtime/board/Torq code**. Pair it with the runtime module below to
 decode on-device.
 
-- **Coordinate:** `sk.ainet.transformers:skainet-transformers-inference-gemma:0.40.2`
+- **Coordinate:** `sk.ainet.transformers:skainet-transformers-inference-gemma:0.53.0`
 - **Targets:** `android`, `iosArm64`, `iosSimulatorArm64`, `macosArm64`, `linuxX64`, `linuxArm64` (broadly
   portable — mobile through server).
 - **Entry point:** `gemmaNetwork()` / `GemmaNetworkLoader` (loads a GGUF, builds the DSL graph, incl. the
@@ -24,8 +24,8 @@ FunctionGemma has a one-liner facade in `…:skainet-transformers-runtime-kgemma
 
 ```kotlin
 dependencies {
-    implementation("sk.ainet.transformers:skainet-transformers-inference-gemma:0.40.2")
-    implementation("sk.ainet.transformers:skainet-transformers-runtime-gemma-iree:0.40.2") // on-device decode
+    implementation("sk.ainet.transformers:skainet-transformers-inference-gemma:0.53.0")
+    implementation("sk.ainet.transformers:skainet-transformers-runtime-gemma-iree:0.53.0") // on-device decode
 }
 ```
 

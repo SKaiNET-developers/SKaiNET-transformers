@@ -9,6 +9,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.53.0] — 2026-09-02
+
+Version lock-step with the engine is restored: this release ships against **SKaiNET 0.53.0**
+(#397), which brings the billion-parameter export fixes
+([SKaiNET#1247](https://github.com/SKaiNET-developers/SKaiNET/issues/1247)) and the sharded
+SafeTensors `ParametersLoader` ([SKaiNET#1246](https://github.com/SKaiNET-developers/SKaiNET/issues/1246))
+this repository's Gemma 3n export and family loaders were waiting on. Everything accumulated under
+"Unreleased" since 0.40.2 — BitNet, the engine-loader migration, the Gemma 3n DSL path, the Qwen and
+Apertus fixes — ships here too.
+
+### Added — skainet-decode on Android (SKaiNET#1244)
+
+- **`llm-apps:skainet-decode-core`** (#395): the decode-and-measure flow extracted from the JVM CLI
+  into a common `DecodeSession` (jvm + android) — traced prefill/decode/sample loop,
+  `MemoryProbe.sample().emitTo(sink)` inside every decode span so the page-fault/RSS rows of
+  `GenerationMetrics` populate on Android *and* Linux, optional extra `TraceSink` for Perfetto.
+  The JVM `skainet-decode` CLI is a thin caller with identical output.
+- **`llm-apps:skainet-decode-android`** (#395): the repository's first `com.android.application` —
+  a single-activity app that loads a pushed GGUF through `MappedRandomAccessSource`, refuses via
+  `AndroidGguf.fits` before allocating, decodes on one dedicated thread, and reports
+  `GenerationMetrics` plus RSS/page-fault deltas to screen, logcat and `decode-report.md`. The APK
+  carries both JNI kernel variants and the `ViewKernelPack`/`KernelProvider` ServiceLoader entries,
+  so the engine's self-healing dispatch survives packaging. The physical-device measurement lane
+  (the SKEEP-002 numbers) is documented in the module README and still to be recorded.
+
+### Changed — SafeTensors loading rides the engine (SKaiNET#1246)
+
+- **Gemma** (#398), **the shared decoder loader** (#400), **Apertus and Gemma 3n** (#401): the
+  hand-rolled per-family SafeTensors materialization (bf16/f16 widening, byte decoding, size guards,
+  dead transposes) collapses onto the engine's `ShardedSafeTensorsParametersLoader` /
+  `SafeTensorsParametersLoader`. Each family keeps only its HF→GGUF slot table, name allowlist
+  (as the engine's `tensorFilter`) and any shape normalization; every dtype decision — including
+  `Require(BF16)`/`Require(FP16)` keep-native, now accepted on the SafeTensors lane — is the
+  engine's. Every collapsed loader gains a `dtypePolicy: DTypePolicy = Any` parameter (existing
+  call sites source-compatible) and a synthetic 2-shard fixture test written with the engine's
+  `SafeTensorsWriter`. Not yet collapsed: Voxtral (custom `QUANT4` format) and llm-core's legacy
+  Q4/non-float path, both waiting on a single-file `tensorFilter`
+  ([SKaiNET#1256](https://github.com/SKaiNET-developers/SKaiNET/issues/1256)).
+
+### Fixed — Gemma 3n export writes weights through the BufferResolver (SKaiNET#1247)
+
+- **`Gemma3nExportHarness.writeSafetensors`** (#396) no longer casts every constant to
+  `BufferHandle.Owned`: with engine 0.53.0, ≥2 GiB FP32 constants arrive as an aliased
+  `BufferHandle.Floats` (the tied embedding is exactly `Int.MAX_VALUE + 1` bytes), so the harness
+  streams every handle through `DefaultBufferResolver` in bounded chunks with the same chunked
+  bf16 conversion. The full 30-layer E2B export now emits a 15k-line StableHLO module with zero
+  failure comments and a 4.6 GB safetensors in under a minute, where it previously OOMed a
+  46 GB heap.
+
+### Verified — tool calling against engine 0.53.0
+
+- **`Gemma4E2BToolCallSmokeTest` re-enabled** (#399): the real Gemma 4 E2B Q4_K_M checkpoint now
+  emits `<|tool_call>call:calculator{expression:...}` and every assertion holds (it had been
+  `@Ignore`d for emitting prose without markup). Also re-run green in the same pass:
+  `FunctionGemmaOfficialGgufTest` (parsed `get_weather` call) and `QwenToolCallSmokeTest` with
+  Qwen3-1.7B-Q8 (well-formed `<tool_call>` calculator call).
+
 ### Added — Gemma 3n StableHLO/IREE export harness + hybrid-AI design note
 
 - **`exportGemma3n`** (`Gemma3nExportHarness`, SmolLM2/FunctionGemma redecode pattern):

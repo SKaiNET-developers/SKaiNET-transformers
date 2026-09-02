@@ -108,28 +108,39 @@ Honest status — see the project-status note at the top of this README.
 
 ## Current release
 
-The current release is **0.40.2** (against **SKaiNET 0.40.1**) — the release that rounds
-out the **compiled on-device path**: FunctionGemma and SmolLM2 each get a standalone
-DSL → StableHLO → IREE export module, and a new generic Android JNI runtime
-(`llm-runtime/iree-android`) serves any compiled model the way `skainet-backend-jni-cpu`
-already serves the eager path.
+The current release is **0.53.0** (against **SKaiNET 0.53.0**) — version lock-step with the engine
+is restored, and the release ships everything accumulated since 0.40.2: BitNet b1.58, the
+engine-loader migration (every GGUF weight loader a thin engine wrapper, MAPPED residency by
+default), the Gemma 3n DSL path with its StableHLO/IREE export harness, and the Qwen / Apertus
+decode and tool-calling fixes.
 
-**Tool-calling epic substrate lands.** Three stacked PRs complete the shared architecture
-behind #35: HF-side chat-template auto-detection, registerable parser strategies,
-resolution diagnostics, and validation against a real Qwen instruct checkpoint —
-`AgentCli` now reports *why* a model resolved to native or generic tool-calling mode, in
-every mode.
+**The Gemma 3n export actually emits.** Engine 0.53.0 closes SKaiNET#1247 — allocation-free void
+tracing, aliased constant extraction, strict StableHLO conversion, and an array-free path for the
+≥2 GiB tied embedding — and the harness streams weights through the `BufferResolver` (#396). The
+full 30-layer E2B export produces a 15k-line module with zero failure comments and a 4.6 GB
+safetensors in under a minute, where it previously OOMed a 46 GB heap.
 
-**Packed-quant weights, one shared packer.** The GGUF-block → engine packing logic
-gemma/llama/apertus each carried privately is hoisted into `BlockQuantPacking`
-(transformer-core); Q5_0/Q5_1 join Q4_K/Q5_K/Q6_K/Q8_0 as kept-packed (instead of falling
-back to FP32 dequant) now that engine 0.40.0 shipped native Q5 kernels. 0.40.2 also fixes
-a real matmul-corruption regression the engine pin bump exposed on the classic
-(non-pre-transposed) packed path — see [#311](https://github.com/SKaiNET-developers/SKaiNET-transformers/pull/311).
+**SafeTensors loading rides the engine.** The per-family hand-rolled SafeTensors materialization
+(Gemma, the shared decoder loader, Apertus, Gemma 3n) collapses onto the engine's sharded /
+single-file `ParametersLoader`s (#398, #400, #401): each family keeps only its slot table and
+allowlist, every dtype decision is the engine's, and `Require(BF16)`/`Require(FP16)` keep-native is
+accepted on the SafeTensors lane.
 
-**SmolLM2** joins the tool-calling families (`SmolLMChatTemplate` + parser strategy), and a
-cross-target **SmolLM2-135M inference spike** in `kllama`'s commonTest gives directly comparable
-load/tok-s numbers from one source on JVM, Linux native, and the iOS simulator.
+**skainet-decode on Android.** `llm-apps:skainet-decode-core` (the shared `DecodeSession`) and
+`llm-apps:skainet-decode-android`, the repository's first Android application: load a pushed GGUF
+memory-mapped, refuse before allocating when it doesn't fit, decode on one thread, and report
+`GenerationMetrics` with the page-fault and RSS rows only a device can show (#395).
+
+**Tool calling re-verified against the new engine.** `Gemma4E2BToolCallSmokeTest` is re-enabled —
+the real E2B checkpoint now emits parseable `<|tool_call>` markup (#399) — and FunctionGemma and
+Qwen3 tool calling were re-run green in the same pass.
+
+It builds on **0.40.2**, which rounded out the **compiled on-device path** (standalone
+DSL → StableHLO → IREE export modules for FunctionGemma and SmolLM2, the generic Android JNI
+runtime `llm-runtime/iree-android`), landed the tool-calling epic substrate behind #35
+(chat-template auto-detection, registerable parser strategies, resolution diagnostics), hoisted
+the packed-quant packing into `BlockQuantPacking` with Q5_0/Q5_1 kept packed, and brought
+SmolLM2 into the tool-calling families.
 
 It builds on **0.38.0**, which completed **Moonshine v2 streaming ASR entirely in the SKaiNET NN
 DSL** (frontend, sliding-window encoder, adapter, KV-cache decoder — no vendor neural binaries,
@@ -199,7 +210,7 @@ The recommended way to consume is via the BOM. It pins every published `skainet-
 
 ```kotlin
 dependencies {
-    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.40.2"))
+    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.53.0"))
 
     // Versions resolved from the BOM:
     implementation("sk.ainet.transformers:skainet-transformers-core")
