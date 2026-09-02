@@ -67,6 +67,18 @@ kotlin {
                 implementation(libs.skainet.backend.api)
         }
 
+        val jvmMain by getting {
+            dependencies {
+                implementation(project.dependencies.platform(project(":llm-bom")))
+                // The StableHLO export harness (Gemma3nExportHarness) is host tooling:
+                // trace gemma3nNetwork() to a ComputeGraph and lower to StableHLO. JVM-only
+                // — compile-hlo/-dag publish no JS variant (same note as jvmTest below).
+                implementation(libs.skainet.compile.dag)
+                implementation(libs.skainet.compile.hlo)
+                implementation(libs.skainet.backend.cpu)
+            }
+        }
+
         val jvmTest by getting {
             dependencies {
                 implementation(project.dependencies.platform(project(":llm-bom")))
@@ -148,4 +160,22 @@ tasks.matching { it.name == "jsBrowserTest" || it.name == "wasmJsBrowserTest" }.
     (this as? org.jetbrains.kotlin.gradle.targets.js.testing.KotlinJsTest)
         ?.failOnNoDiscoveredTests = false
     enabled = includeBrowserTests
+}
+
+// Gemma 3n compiled-export entry point (SmolLM2/FunctionGemma pattern):
+//   GEMMA3N_GGUF=…gemma-3n-E2B-it-Q4_K_M.gguf GEMMA3N_OUT_DIR=build/gemma3n-export \
+//     ./gradlew :llm-inference:gemma3n:exportGemma3n -PexportMaxHeap=30g
+tasks.register<JavaExec>("exportGemma3n") {
+    group = "bridge"
+    description = "Export Gemma 3n -> StableHLO MLIR (redecode, argMax tail) + safetensors + manifest from the GGUF."
+    val jvmMainComp = kotlin.jvm().compilations.getByName("main")
+    dependsOn(jvmMainComp.compileTaskProvider)
+    classpath = jvmMainComp.output.allOutputs + jvmMainComp.runtimeDependencyFiles
+    mainClass.set("sk.ainet.models.gemma3n.Gemma3nExportCliKt")
+    // Dense trunk + trace zeros + graph constant copies peak ~44 GB on E2B (the
+    // all-zero trace pages compress well under macOS) — override to fit the host.
+    maxHeapSize = (findProperty("exportMaxHeap") as? String) ?: "46g"
+    listOf("GEMMA3N_GGUF", "GEMMA3N_OUT_DIR", "GEN_SEQ", "GEMMA3N_DTYPE", "GEMMA3N_LAYERS").forEach { k ->
+        System.getenv(k)?.let { environment(k, it) }
+    }
 }

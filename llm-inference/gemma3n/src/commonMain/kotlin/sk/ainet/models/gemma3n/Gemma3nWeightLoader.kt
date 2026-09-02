@@ -260,7 +260,12 @@ public class Gemma3nWeightLoader private constructor(
             weightForm = defaultForm,
             weightFormFor = { name ->
                 when (name) {
+                    // Embedding.gather needs element access — always dense.
                     Gemma3nTensorNames.TOKEN_EMBEDDINGS -> GEMMA_DEQUANTIZE_ALL
+                    // The PLE table ALWAYS stays packed (row-dequant wrapper) — that is
+                    // PLE's design point: per-layer embeddings live off-accelerator, on
+                    // the CPU side, even for the compiled mobile path (where
+                    // per_layer_inputs is a graph INPUT, not a baked parameter).
                     Gemma3nTensorNames.PER_LAYER_TOKEN_EMBD ->
                         WeightForm(shape = WeightShapeOrientation.OUT_IN)
                     else -> null

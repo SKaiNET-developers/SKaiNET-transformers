@@ -1,0 +1,93 @@
+= Gemma 3n — Mobile-First Architecture, and Why SKaiNET Fits It
+:description: What makes Gemma 3n different, and why SKaiNET's DSL → DAG → StableHLO / eager design serves it well.
+
+Gemma 3n is Google's mobile-first generation of open models
+(https://developers.googleblog.com/en/introducing-gemma-3n-developer-guide/[developer guide]):
+it is engineered so that a model with 5B raw parameters (E2B) or 8B (E4B) runs in the
+memory footprint of a much smaller one (~2 GB / ~3 GB respectively). Every one of its
+architectural tricks is a memory-or-latency trade tailored to phones — and each maps
+naturally onto a SKaiNET mechanism.
+
+== What Gemma 3n actually is
+
+*MatFormer (Matryoshka Transformer)*::
+A nested transformer built for elastic inference: the E4B model contains a fully
+functional E2B sub-model, co-trained. Beyond the two pre-extracted sizes, *Mix-n-Match*
+slices custom-sized models between them by adjusting per-layer feed-forward widths
+(8192 → 16384) and skipping layers. This is why the GGUF stores
+`feed_forward_length` as a *per-layer array* — and why `gemma3nNetwork()` builds each
+layer's FFN width independently.
+
+*Per-Layer Embeddings (PLE)*::
+A large per-layer embedding table (262 144 × layers·256) that improves quality without
+growing the accelerator-resident core: only the ~2B (E2B) / ~4B (E4B) trunk weights need
+fast memory — the PLE parameters can stay on CPU and be *gathered per token*.
+
+*KV-cache sharing*::
+The last block of layers reuses the K/V of the last non-shared layer of the same
+attention type — Google reports a *2× prefill improvement* over Gemma 3 4B.
+
+*Hybrid attention + AltUp + activation sparsity*::
+4-out-of-5 layers use a 512-token sliding window (10k RoPE base); every 5th sees the
+full context (1M base). AltUp keeps four parallel hidden streams but routes only one
+through the expensive layers; the first ten layers apply Gaussian-top-k activation
+sparsity (95%) to their FFN gates.
+
+== Why SKaiNET is a natural fit
+
+*One declarative definition, two execution paths.*::
+`gemma3nNetwork()` declares the architecture once, through the transformer DSL. The same
+module tree runs **eagerly** on the JVM (`OptimizedLLMRuntime` — the path the
+golden-token parity gate certifies token-for-token against mainline llama.cpp) and
+**traces to a compute graph** for StableHLO emission and `iree-compile` to a mobile
+`vmfb` (`exportGemma3n`). No hand-written second implementation to drift.
+
+*PLE lands exactly where Google designed it to.*::
+SKaiNET's loader keeps the PLE table *packed* (its stored quantization, ~2 GB instead of
+8 GB dense) and gathers rows on demand on the CPU — for eager decode via a row-dequant
+wrapper, and for the compiled path by making `per_layer_inputs` a *graph input* computed
+host-side, so the accelerator archive carries only the trunk. That is the PLE
+memory-split from the Gemma 3n paper, realized by the engine's `WeightForm` machinery
+rather than bespoke code.
+
+*Packed, memory-mapped weights.*::
+The engine's `StreamingGgufParametersLoader` serves quantized tensors zero-copy from
+file-backed pages (`MAPPED` residency). A phone-class memory budget is the entire point
+of Gemma 3n; the loading path honors it instead of inflating everything to FP32.
+
+*Per-layer heterogeneity is free in the DSL.*::
+MatFormer's variable FFN widths, the 4+1 sliding/global pattern, dual RoPE bases and
+per-type shared KV caches (`OwnerReadOnlyKVCache`) are all per-layer decisions in a
+plain Kotlin loop — the DSL builds a different stage per layer, no special casing.
+
+*Kotlin Multiplatform reach.*::
+The same codebase targets JVM/desktop, Android (eager via the JNI NEON backend, or
+compiled via `llm-runtime/iree-android`), and Kotlin/Native — matching Gemma 3n's
+"everywhere on-device" distribution story.
+
+*Faithfulness is gated, not claimed.*::
+`Gemma3nGoldenTokenParityTest` asserts full 32-step greedy text equality against
+mainline llama.cpp on a real E2B checkpoint — AltUp router, Laurel, sparsity, PLE and
+KV-sharing all exercised. See the
+xref:../index.adoc#_supported_model_families[verified-model matrix].
+
+== Where the pieces live
+
+|===
+|Concern |Code
+
+|DSL definition
+|`llm-inference/gemma3n` — `gemma3nNetwork()`, `Gemma3nModel`, `Gemma3nAltUpBlock`,
+ `Gemma3nLaurelBlock`, `Gemma3nSparseGeGluFFN`, `Gemma3nPerLayerApply`
+
+|PLE machinery (shared with Gemma 4)
+|`llm-inference/gemma` — `PerLayerEmbedding` (packed row-dequant + traceable
+ `indexSelect` path)
+
+|Compiled export
+|`Gemma3nExportHarness` / `exportGemma3n` gradle task → `gemma3n-gen.mlir` +
+ `gemma3n.safetensors` (bf16) + `manifest.json`
+
+|Parity gate
+|`Gemma3nGoldenTokenParityTest` (model-gated, smoke-reference tier)
+|===

@@ -82,7 +82,6 @@ If the architecture uses standard building blocks (MHA, RMSNorm, FFN), the DSL a
 Some architectures have components the DSL cannot express:
 
 * *Qwen3.5 DeltaNet* -- hybrid DeltaNet (linear attention + SSM) layers with causal 1D convolution
-* *Gemma3n* -- variable FFN dimensions per layer (MatFormer), per-layer embeddings
 * *Voxtral* -- ODE flow matching for audio codec
 
 These use `DecoderRuntime` directly.
@@ -126,9 +125,9 @@ The goal is to extend the DSL to support these patterns over time.
 |`voxtralBackboneNetwork()`
 |Partial DSL
 
-|Gemma3n
-|_none_
-|Hand-coded only
+|Gemma 3n
+|`gemma3nNetwork()`
+|DSL lane for GGUF (AltUp/Laurel/sparsity/PLE as DSL modules, parity-gated); legacy runtime remains for SafeTensors only
 
 |Qwen3.5
 |_none_

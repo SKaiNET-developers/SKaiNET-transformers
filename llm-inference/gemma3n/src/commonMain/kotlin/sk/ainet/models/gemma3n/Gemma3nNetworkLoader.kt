@@ -33,6 +33,8 @@ public object Gemma3nNetworkLoader {
         dtype: KClass<T>,
         maxInferenceLen: Int? = null,
         debug: Boolean = false,
+        /** PLE table coverage — see [gemma3nNetwork]'s `pleNumLayers` (export truncation). */
+        pleNumLayers: Int? = null,
     ): Module<T, V> {
         val md = weights.metadata
         // laurel_rank is not a GGUF field — read it off the checkpoint's own tensor.
@@ -43,6 +45,7 @@ public object Gemma3nNetworkLoader {
             dtype,
             maxInferenceLen = maxInferenceLen ?: minOf(md.contextLength, 4096),
             laurelRank = laurelRank,
+            pleNumLayers = pleNumLayers ?: md.blockCount,
         )
 
         val weightTensors = weights.tensors.map { (name, tensor) ->
@@ -80,5 +83,6 @@ public object Gemma3nNetworkLoader {
         weights: Gemma3nWeights<T, V>,
         maxInferenceLen: Int? = null,
         debug: Boolean = false,
-    ): Module<T, V> = fromWeights(ctx, weights, T::class, maxInferenceLen, debug)
+        pleNumLayers: Int? = null,
+    ): Module<T, V> = fromWeights(ctx, weights, T::class, maxInferenceLen, debug, pleNumLayers)
 }

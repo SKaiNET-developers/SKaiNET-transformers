@@ -43,9 +43,9 @@ headers record the exact oracle build and commands.
 
 |Gemma 3n
 |Gemma 3n E2B/E4B
-|Not yet — hand-rolled runtime (AltUp, per-layer embeddings); gate tracked in issue #377
+|mainline llama.cpp — full greedy text equality (gemma-3n-E2B-it Q4_K_M; AltUp, Laurel, sparsity, PLE, shared KV)
 |No
-|Hand-coded
+|`gemma3nNetwork()`
 
 |Apertus
 |Apertus 8B

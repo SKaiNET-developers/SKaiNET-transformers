@@ -84,9 +84,11 @@ public class Gemma3nAltUpBlock<T : DType, V>(
         return ops.tanh(linearProject(ops, scaled, params[0].value))    // [S, n]
     }
 
-    /** One learned scalar column `[S, 1]` broadcast-multiplied over `[S, H]`. */
+    /** One learned scalar column `[.., 1]` broadcast-multiplied over `[.., H]` —
+     *  rank-general (the trunk runs rank-2 `[S, H]` eagerly, rank-3 `[B, S, H]` under
+     *  the export trace). */
     private fun scaleBy(coefs: Tensor<T, V>, col: Int, x: Tensor<T, V>, ctx: ExecutionContext): Tensor<T, V> =
-        ctx.ops.multiply(x, ctx.ops.narrow(coefs, dim = 1, start = col, length = 1))
+        ctx.ops.multiply(x, ctx.ops.narrow(coefs, dim = coefs.rank - 1, start = col, length = 1))
 
     public fun predict(streams: List<Tensor<T, V>>, ctx: ExecutionContext): List<Tensor<T, V>> {
         val ops = ctx.ops

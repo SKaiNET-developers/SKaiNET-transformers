@@ -52,6 +52,15 @@ public class Gemma3nModel<T : DType, V>(
     override val name: String = "Gemma3nModel",
 ) : Module<T, V>() {
 
+    /**
+     * Export/runtime injection point: when set, [onForward] uses this tensor
+     * (`[batch, seq, numLayers, pleDim]`) as the per-layer inputs and skips [ple].compute —
+     * the compiled StableHLO graph takes per_layer_inputs as a second INPUT, computed on
+     * the CPU from the packed PLE table at runtime (PLE's whole design point: those
+     * parameters stay off the accelerator). Eager decode leaves this null.
+     */
+    public var externalPerLayerInputs: Tensor<T, V>? = null
+
     override val modules: List<Module<T, V>> = buildList {
         add(tokenEmbedding)
         add(ple)
@@ -103,9 +112,11 @@ public class Gemma3nModel<T : DType, V>(
 
         // 2 — per-layer inputs [B, S, L, pleDim] (identical math to gemma-4: token-identity
         // gather * sqrt(pleDim), context projection * hidden^-0.5, norm, sum * 1/sqrt2).
-        val ids2d = if (input.rank == 1) ops.unsqueeze(input, 0) else input
-        val embeds3d = if (h0.rank == 2) ops.unsqueeze(h0, 0) else h0
-        val perLayerInputs = ple.compute(ids2d, embeds3d, ctx, dtype)
+        val perLayerInputs = externalPerLayerInputs ?: run {
+            val ids2d = if (input.rank == 1) ops.unsqueeze(input, 0) else input
+            val embeds3d = if (h0.rank == 2) ops.unsqueeze(h0, 0) else h0
+            ple.compute(ids2d, embeds3d, ctx, dtype)
+        }
 
         // 3 — AltUp stream init.
         var streams = altupGlobals.initStreams(h0, ctx)

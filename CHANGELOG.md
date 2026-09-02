@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Gemma 3n StableHLO/IREE export harness + hybrid-AI design note
+
+- **`exportGemma3n`** (`Gemma3nExportHarness`, SmolLM2/FunctionGemma redecode pattern):
+  traces `gemma3nNetwork()` to StableHLO with external bf16 params and an in-graph argMax
+  tail. Mobile-honest contract: **`per_layer_inputs` is a graph INPUT** computed on the
+  CPU from the packed PLE table at runtime (PLE's design point — those parameters stay
+  off the accelerator), so the parameter archive carries the trunk + token embedding
+  only. `PerLayerEmbedding` gained a traceable `indexSelect` path while recording;
+  `GEMMA3N_LAYERS` truncates the trunk for pipeline verification on smaller hosts. Full
+  E2B emission is **blocked on engine SKaiNET#1247** (trace memory co-residency + an HLO
+  converter operand-linkage defect) — the harness hard-fails on both signatures instead
+  of shipping a silently-unservable module.
+- New antora explanation page `explanation/gemma3n.adoc` (why Gemma 3n's mobile-first
+  architecture and why SKaiNET fits it) and pre-PRD design note
+  `docs/specs/matformer-hybrid-on-device-ai.md` (MatFormer elasticity in SKaiNET +
+  hybrid on-device/cloud routing: draft-first, escalate-on-evidence).
+
 ### Added — Gemma 3n runs on the DSL path, parity-gated (#377)
 
 - **`gemma3nNetwork()` + `Gemma3nModel`** — the full Gemma 3n text architecture declared
