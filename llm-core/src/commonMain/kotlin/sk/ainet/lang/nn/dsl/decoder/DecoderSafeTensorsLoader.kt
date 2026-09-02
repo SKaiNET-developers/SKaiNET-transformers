@@ -2,15 +2,14 @@ package sk.ainet.lang.nn.dsl.decoder
 
 import sk.ainet.context.ExecutionContext
 import sk.ainet.io.RandomAccessSource
-import sk.ainet.lang.nn.dsl.decoder.GgufDecoderMetadata
-import sk.ainet.lang.nn.dsl.decoder.DecoderGgufWeights
-import sk.ainet.lang.nn.dsl.decoder.DecoderTensorNames
 import sk.ainet.io.model.DataType
-import sk.ainet.io.safetensors.StreamingSafeTensorsReader
+import sk.ainet.io.safetensors.SafeTensorsParametersLoader
 import sk.ainet.io.safetensors.StreamingSafeTensorInfo
+import sk.ainet.io.safetensors.StreamingSafeTensorsReader
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.Tensor
 import sk.ainet.apps.llm.DTypePolicyValidation
+import sk.ainet.lang.tensor.data.FloatArrayTensorData
 import sk.ainet.lang.tensor.data.NarrowFloatDenseTensorData
 import sk.ainet.lang.tensor.data.NarrowFloatInputMajorTensorData
 import sk.ainet.lang.tensor.data.NarrowFloatTensorData
@@ -23,31 +22,39 @@ import sk.ainet.lang.types.DType
 import sk.ainet.lang.types.DTypePolicy
 import sk.ainet.lang.types.FP16
 import sk.ainet.lang.types.FP32
+import kotlin.coroutines.Continuation
+import kotlin.coroutines.EmptyCoroutineContext
+import kotlin.coroutines.startCoroutine
 import kotlin.math.pow
 import kotlin.reflect.KClass
 
 /**
- * Loads LLaMA weights from HuggingFace SafeTensors format and maps them to
- * the canonical GGUF tensor naming used by [LlamaWeightMapper].
+ * Loads LLaMA-family weights from a HuggingFace SafeTensors file and maps them to
+ * the canonical GGUF tensor naming used by `LlamaWeightMapper`.
  *
- * Handles:
- * - HuggingFace → GGUF tensor name mapping
- * - Q4 + .qb companion tensor dequantization to FP32
- * - BF16/F16 dequantization to FP32 (default)
- * - **Narrow-float KEEP_NATIVE** when [dtypePolicy] admits BF16 or F16
- *   (SKaiNET 0.38.0): keeps the on-disk 2-bytes-per-element buffer so the narrow-float
- *   matmul kernel can run without a 2× memory blow-up. Matmul weights are relaid
- *   input-major so the per-forward transpose is free — see [narrowData].
+ * Reading and materialization ride the engine (SKaiNET#1246): the file goes through
+ * [SafeTensorsParametersLoader.withPolicy], which owns the BF16/F16 widening and
+ * keep-native decisions for [dtypePolicy]. What stays family-side is the policy the
+ * engine does not know about:
+ *
+ * - HuggingFace → GGUF tensor name mapping ([HfTensorNameMapper]); unmapped tensors are dropped
  * - Shape normalization ([1, dim] norms → [dim])
+ * - **Input-major relayout of keep-native matmul weights** — see [narrowData]
  * - Tied word embeddings (output.weight = token_embd.weight)
+ *
+ * One file shape cannot go through the engine yet: the legacy `Q4` + `.qb` companion export
+ * (a SKaiNET-specific format the engine has no dtype for), and files that carry non-float or
+ * F64 tensors, which the engine's single-file loader would either reject or widen instead of
+ * skipping. Those files take [loadLegacy], the pre-#1246 reader kept verbatim for them.
+ * Engine follow-up: a `tensorFilter` on the single-file loader (the sharded one has it) would
+ * let the standard tensors of such files ride the engine as well.
  *
  * @param dtypePolicy declarative dtype constraint. Default [DTypePolicy.Any]
  *   = widen everything to FP32. `Require(X)` / `Prefer(X)` / `OneOf` containing
  *   X keeps X-encoded source tensors packed, for X in {BF16, FP16}. The two
  *   formats are resolved independently — `Require(BF16)` still widens F16
  *   sources, since neither narrow format can be re-encoded as the other without
- *   a lossy round-trip. Mirrors the engine-side
- *   `SafeTensorsParametersLoader.mapPolicyToNarrow` semantics.
+ *   a lossy round-trip. This is the engine's own `mapPolicyToNarrow` semantics.
  */
 public class DecoderSafeTensorsLoader<T : DType>(
     private val ctx: ExecutionContext,
@@ -58,10 +65,8 @@ public class DecoderSafeTensorsLoader<T : DType>(
 ) {
 
     /**
-     * Returns `true` iff [dtypePolicy] wants BF16 weights kept in their
-     * packed 2-bytes-per-element form rather than widened to FP32.
-     * Matches the engine-side `SafeTensorsParametersLoader.mapPolicyToNarrow`
-     * cases that resolve to `NarrowFloatLoadPolicy.KEEP_NATIVE`.
+     * Returns `true` iff [dtypePolicy] wants BF16 weights kept in their packed form —
+     * used by the legacy path only; the engine resolves this itself on the main path.
      */
     private val keepBf16Native: Boolean = DTypePolicyValidation.keepsNative(dtypePolicy, BF16)
 
@@ -73,6 +78,88 @@ public class DecoderSafeTensorsLoader<T : DType>(
      * Useful for feeding into [WeightMapper] with a [WeightNameResolver].
      */
     public fun loadToMap(randomAccessProvider: () -> RandomAccessSource): DecoderGgufWeights<T, Float> {
+        // Header-only pass: decide whether the engine loader can consume this file.
+        val header = StreamingSafeTensorsReader.open(randomAccessProvider()).use { it.tensors.toList() }
+        val tensors = if (engineEligible(header)) {
+            loadViaEngine(randomAccessProvider)
+        } else {
+            loadLegacy(randomAccessProvider)
+        }
+
+        // Handle tied embeddings: reuse token_embd as output.weight
+        if (tiedEmbeddings && !tensors.containsKey(DecoderTensorNames.OUTPUT_WEIGHT)) {
+            val embedding = tensors[DecoderTensorNames.TOKEN_EMBEDDINGS]
+                ?: error("tie_word_embeddings=true but token embedding not found")
+            tensors[DecoderTensorNames.OUTPUT_WEIGHT] = embedding
+            println("  Tied: ${DecoderTensorNames.OUTPUT_WEIGHT} → ${DecoderTensorNames.TOKEN_EMBEDDINGS}")
+        }
+
+        return DecoderGgufWeights<T, Float>(
+            metadata = metadata,
+            tensors = tensors
+        )
+    }
+
+    // ========== Engine path ==========
+
+    /**
+     * The engine's single-file loader delivers every tensor in the file and requires an FP32
+     * dtype witness for float sources; it has no filter, so a file is engine-eligible only when
+     * every tensor is one the engine materializes the way this loader always did (F32/F16/BF16).
+     */
+    private fun engineEligible(header: List<StreamingSafeTensorInfo>): Boolean =
+        dtype == FP32::class && header.all { it.dataType in ENGINE_FLOAT_TYPES }
+
+    private fun loadViaEngine(randomAccessProvider: () -> RandomAccessSource): MutableMap<String, Tensor<T, Float>> {
+        val tensors = linkedMapOf<String, Tensor<T, Float>>()
+        val loader = SafeTensorsParametersLoader.withPolicy(randomAccessProvider, dtypePolicy)
+        runNonSuspending {
+            loader.load<T, Float>(ctx, dtype) { hfName, tensor ->
+                val canonicalName = HfTensorNameMapper.toCanonical(hfName) ?: return@load
+                val adapted = adapt(canonicalName, tensor)
+                tensors[canonicalName] = adapted
+                println("  Loaded: $hfName ${tensor.shape} → $canonicalName ${adapted.shape}")
+            }
+        }
+        return tensors
+    }
+
+    /**
+     * Apply the family-side shape/layout policy to an engine-materialized tensor: norm shape
+     * normalization, and the input-major relayout of keep-native matmul weights. Tensors that
+     * need neither are returned as delivered (no copy).
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun adapt(canonicalName: String, tensor: Tensor<T, Float>): Tensor<T, Float> {
+        val targetShape = normalizeNormShape(tensor.shape)
+        return when (val data = tensor.data) {
+            is NarrowFloatDenseTensorData -> {
+                val relaid = narrowData(canonicalName, targetShape, data.packedData, data.codec, existing = data)
+                if (relaid === data) tensor else ctx.fromData(relaid as TensorData<T, Float>, dtype)
+            }
+            is FloatArrayTensorData<*> -> {
+                if (targetShape == tensor.shape) tensor
+                else ctx.wrapFloatArray<T, Float>(targetShape, dtype, data.buffer) as Tensor<T, Float>
+            }
+            else -> tensor
+        }
+    }
+
+    /**
+     * The engine's single-file `load` is `suspend` by interface contract but never actually
+     * suspends (the reader is synchronous), so it can be driven to completion without a
+     * coroutine runtime — which keeps [loadToMap] a plain function for the Java consumers
+     * (`KLlamaJava`) and the non-suspending network loaders that call it.
+     */
+    private fun <R> runNonSuspending(block: suspend () -> R): R {
+        var outcome: Result<R>? = null
+        block.startCoroutine(Continuation(EmptyCoroutineContext) { outcome = it })
+        return (outcome ?: error("engine SafeTensors load suspended unexpectedly")).getOrThrow()
+    }
+
+    // ========== Legacy path (Q4 + .qb export, non-float tensors, non-FP32 witnesses) ==========
+
+    private fun loadLegacy(randomAccessProvider: () -> RandomAccessSource): MutableMap<String, Tensor<T, Float>> {
         val tensors = mutableMapOf<String, Tensor<T, Float>>()
 
         StreamingSafeTensorsReader.open(randomAccessProvider()).use { reader ->
@@ -101,17 +188,6 @@ public class DecoderSafeTensorsLoader<T : DType>(
                         val bytes = reader.loadTensorData(info)
                         val targetShape = normalizeNormShape(info.shape)
                         if (keepBf16Native) {
-                            // KEEP_NATIVE: wrap the packed 2-bytes-per-element
-                            // BF16 buffer as `Bf16DenseTensorData`. The matmul
-                            // dispatch in `DefaultCpuOpsJvm` (SKaiNET 0.38.0)
-                            // detects `NarrowFloatTensorData` at runtime and
-                            // picks the kernel by codec — avoiding the 2× memory
-                            // inflation of the FP32 dequant path.
-                            //
-                            // The declared dtype generic stays `T` (typically
-                            // FP32) because consumers don't care about the
-                            // physical encoding — the get/set surface still
-                            // returns Float.
                             val data = narrowData(canonicalName, targetShape, bytes, Bf16Codec)
                             @Suppress("UNCHECKED_CAST")
                             ctx.fromData(data as TensorData<T, Float>, dtype) as Tensor<T, Float>
@@ -125,11 +201,6 @@ public class DecoderSafeTensorsLoader<T : DType>(
                         val bytes = reader.loadTensorData(info)
                         val targetShape = normalizeNormShape(info.shape)
                         if (keepFp16Native) {
-                            // Mirrors the BF16 arm above. Distinct from it on purpose:
-                            // both formats are 2 bytes per element, so handing F16 bytes
-                            // to the BF16 decode would not throw — it would produce
-                            // plausible-looking wrong numbers. The codec carried by
-                            // `Fp16DenseTensorData` is what keeps the dispatch honest.
                             val data = narrowData(canonicalName, targetShape, bytes, Fp16Codec)
                             @Suppress("UNCHECKED_CAST")
                             ctx.fromData(data as TensorData<T, Float>, dtype) as Tensor<T, Float>
@@ -156,21 +227,8 @@ public class DecoderSafeTensorsLoader<T : DType>(
                 println("  Loaded: ${info.name} (${info.dtype} ${info.shape}) → $canonicalName ${tensor.shape}")
             }
         }
-
-        // Handle tied embeddings: reuse token_embd as output.weight
-        if (tiedEmbeddings && !tensors.containsKey(DecoderTensorNames.OUTPUT_WEIGHT)) {
-            val embedding = tensors[DecoderTensorNames.TOKEN_EMBEDDINGS]
-                ?: error("tie_word_embeddings=true but token embedding not found")
-            tensors[DecoderTensorNames.OUTPUT_WEIGHT] = embedding
-            println("  Tied: ${DecoderTensorNames.OUTPUT_WEIGHT} → ${DecoderTensorNames.TOKEN_EMBEDDINGS}")
-        }
-
-        return DecoderGgufWeights<T, Float>(
-            metadata = metadata,
-            tensors = tensors
-        )
+        return tensors
     }
-
 
     /**
      * Build the KEEP_NATIVE storage for one narrow-float tensor, choosing its byte layout.
@@ -191,18 +249,22 @@ public class DecoderSafeTensorsLoader<T : DType>(
      *    Note this also covers tied embeddings: `output.weight` aliases `token_embd`, so in the
      *    tied case the output projection stays row-major too and forgoes the transpose win. That
      *    is deliberate — one shared buffer cannot be optimal for both access patterns.
+     *
+     * @param existing the engine-delivered row-major data, returned as-is when it already has
+     *   the right layout and shape (so the engine path adds no copy for norms/embeddings).
      */
     private fun narrowData(
         canonicalName: String,
         shape: Shape,
         bytes: ByteArray,
         codec: NarrowFloatCodec,
+        existing: NarrowFloatDenseTensorData? = null,
     ): NarrowFloatTensorData {
         val isGatheredEmbedding = canonicalName == DecoderTensorNames.TOKEN_EMBEDDINGS
-        return if (shape.rank == 2 && !isGatheredEmbedding) {
-            NarrowFloatInputMajorTensorData.fromRowMajor(shape, bytes, codec)
-        } else {
-            NarrowFloatDenseTensorData(shape, bytes, codec)
+        return when {
+            shape.rank == 2 && !isGatheredEmbedding -> NarrowFloatInputMajorTensorData.fromRowMajor(shape, bytes, codec)
+            existing != null && existing.shape == shape -> existing
+            else -> NarrowFloatDenseTensorData(shape, bytes, codec)
         }
     }
 
@@ -224,6 +286,11 @@ public class DecoderSafeTensorsLoader<T : DType>(
         } else {
             Shape(*shape.map { it.toInt() }.toIntArray())
         }
+    }
+
+    private fun normalizeNormShape(shape: Shape): Shape {
+        val dims = shape.dimensions
+        return if (dims.size == 2 && dims[0] == 1) Shape(dims[1]) else shape
     }
 
     // ========== Q4 Dequantization ==========
@@ -290,7 +357,7 @@ public class DecoderSafeTensorsLoader<T : DType>(
         return out
     }
 
-    // ========== BF16/F16 Dequantization ==========
+    // ========== BF16/F16 Dequantization (legacy path) ==========
 
     private fun dequantBF16(bytes: ByteArray): FloatArray {
         val out = FloatArray(bytes.size / 2)
@@ -346,6 +413,11 @@ public class DecoderSafeTensorsLoader<T : DType>(
             out[i] = Float.fromBits(bits)
         }
         return out
+    }
+
+    private companion object {
+        /** Source dtypes the engine's single-file loader materializes exactly as this loader always did. */
+        val ENGINE_FLOAT_TYPES: Set<DataType> = setOf(DataType.FLOAT32, DataType.FLOAT16, DataType.BFLOAT16)
     }
 }
 
