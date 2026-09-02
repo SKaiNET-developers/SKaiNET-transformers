@@ -1,13 +1,13 @@
 package sk.ainet.models.gemma3n
 
 import sk.ainet.context.ExecutionContext
-import sk.ainet.io.gguf.dequant.DequantOps
+import sk.ainet.io.load
+import sk.ainet.io.safetensors.ShardedSafeTensorsParametersLoader
 import sk.ainet.io.safetensors.ShardedTensorInfo
-import sk.ainet.io.safetensors.StreamingShardedSafeTensorsReader
 import sk.ainet.io.safetensors.readTextFile
-import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.types.DType
+import sk.ainet.lang.types.DTypePolicy
 import sk.ainet.lang.types.FP32
 import kotlin.reflect.KClass
 
@@ -20,19 +20,31 @@ import kotlin.reflect.KClass
  * Supports sharded models (multiple .safetensors files with index.json).
  *
  * Key differences from GGUF:
- * - Uses BF16 dtype (needs conversion to FP32)
  * - Different tensor name format (model.language_model.layers.X.* vs blk.X.*)
  * - Weight tying: embed_tokens.weight is reused for output projection
+ *
+ * Engine delegation (SKaiNET#1246): reading AND per-tensor materialization ride the engine's
+ * [ShardedSafeTensorsParametersLoader]. This class owns only the family policy — which HF
+ * tensors are wanted (the `tensorFilter`), the HF → GGUF slot renaming, and the PLE-table size
+ * guard — while every dtype decision (BF16/F16 widening vs keep-native, F32 passthrough) is the
+ * engine's, driven by [dtypePolicy] exactly as on the GGUF lane. No per-family dequant code
+ * remains here (#346).
+ *
+ * @param indexPath path to `model.safetensors.index.json`.
+ * @param dtypePolicy narrow-float policy forwarded to
+ *   [ShardedSafeTensorsParametersLoader.withPolicy]: `Any` (default) widens BF16/F16 to FP32;
+ *   `Require(BF16)` / `Require(FP16)` keep the native encoding under an FP32-typed tensor.
  */
 public class Gemma3nSafeTensorsWeightLoader(
-    private val indexPath: String
+    private val indexPath: String,
+    private val dtypePolicy: DTypePolicy = DTypePolicy.Any,
 ) {
 
     /**
      * Load weights into a map, mapping HuggingFace names to GGUF-style names.
      *
      * @param ctx Execution context for tensor operations
-     * @param dtype Target dtype (FP32 or FP16)
+     * @param dtype Target dtype (FP32)
      * @return Gemma3nWeights with mapped tensor names
      */
     public suspend fun <T : DType> loadToMap(
@@ -51,31 +63,28 @@ public class Gemma3nSafeTensorsWeightLoader(
 
         val metadata = Gemma3nConfigParser.parseFromJson(configJson)
 
-        // Open sharded reader
-        val reader = StreamingShardedSafeTensorsReader.openFromIndex(indexPath)
+        // Family policy as the engine loader's filter: only the tensors this family maps
+        // (vision/audio towers and anything unmapped never materialize, and are exempt from the
+        // fail-fast dtype pre-scan), and the PLE table only when it fits the eager path — the
+        // engine returns each tensor as one array, which the JVM caps at Int.MAX_VALUE bytes;
+        // an oversized table is left absent, which disables PLE downstream instead of failing.
+        val wanted = wantedHfNames(metadata.blockCount)
+        val loader = ShardedSafeTensorsParametersLoader.withPolicy(
+            indexPath = indexPath,
+            policy = dtypePolicy,
+            tensorFilter = { info: ShardedTensorInfo ->
+                info.name in wanted && (info.name != HF_PER_LAYER_TOKEN_EMBD || info.sizeInBytes <= MAX_BYTES_PER_TENSOR)
+            },
+        )
+        val tensorsByHfName = linkedMapOf<String, Tensor<T, Float>>()
+        loader.load<T, Float>(ctx, dtype) { name, tensor -> tensorsByHfName[name] = tensor }
 
-        return reader.use {
-            loadFromReader(ctx, dtype, it, metadata)
-        }
-    }
-
-    private fun <T : DType> loadFromReader(
-        ctx: ExecutionContext,
-        dtype: KClass<T>,
-        reader: StreamingShardedSafeTensorsReader,
-        metadata: Gemma3nModelMetadata
-    ): Gemma3nWeights<T, Float> {
         val tensorsByGgufName = linkedMapOf<String, Tensor<T, Float>>()
-
-        // Build lookup by HuggingFace name
-        val tensorsByHfName = reader.tensors.associateBy { it.name }
-
-        // Load global tensors
-        loadGlobalTensors(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName, metadata)
-
-        // Load layer tensors
+        loadGlobalTensors(tensorsByHfName, tensorsByGgufName)
         for (layer in 0 until metadata.blockCount) {
-            loadLayerTensors(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName, metadata, layer)
+            for ((hfName, ggufName) in layerSlots(layer)) {
+                tensorsByHfName[hfName]?.let { tensorsByGgufName[ggufName] = it }
+            }
         }
 
         return Gemma3nWeights(
@@ -85,222 +94,34 @@ public class Gemma3nSafeTensorsWeightLoader(
     }
 
     private fun <T : DType> loadGlobalTensors(
-        ctx: ExecutionContext,
-        dtype: KClass<T>,
-        reader: StreamingShardedSafeTensorsReader,
-        tensorsByHfName: Map<String, ShardedTensorInfo>,
-        tensorsByGgufName: MutableMap<String, Tensor<T, Float>>,
-        metadata: Gemma3nModelMetadata
+        tensorsByHfName: Map<String, Tensor<T, Float>>,
+        tensorsByGgufName: MutableMap<String, Tensor<T, Float>>
     ) {
-        // Token embeddings - do NOT transpose, keep as [vocab_size, embedding_dim]
-        val embedTokens = tensorsByHfName[HF_EMBED_TOKENS]
+        // Token embeddings, kept as [vocab_size, embedding_dim]
+        val embedTensor = tensorsByHfName[HF_EMBED_TOKENS]
             ?: error("Missing tensor: $HF_EMBED_TOKENS")
-        val embedTensor = loadAndConvertTensor<T>(ctx, dtype, reader, embedTokens, transpose = false)
         tensorsByGgufName[Gemma3nTensorNames.TOKEN_EMBEDDINGS] = embedTensor
 
         // Output norm
-        val norm = tensorsByHfName[HF_OUTPUT_NORM]
+        tensorsByGgufName[Gemma3nTensorNames.OUTPUT_NORM] = tensorsByHfName[HF_OUTPUT_NORM]
             ?: error("Missing tensor: $HF_OUTPUT_NORM")
-        val normTensor = loadAndConvertTensor<T>(ctx, dtype, reader, norm, transpose = false)
-        tensorsByGgufName[Gemma3nTensorNames.OUTPUT_NORM] = normTensor
 
         // Output weight (weight tying - reuse embed_tokens)
-        // Gemma 3n ties the output projection to the embedding weights
         tensorsByGgufName[Gemma3nTensorNames.OUTPUT_WEIGHT] = embedTensor
 
-        // Global AltUp tensors (optional, E4B)
-        loadTensorIfExists(
-            ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            HF_ALTUP_PROJ, Gemma3nTensorNames.ALTUP_PROJ,
-            transpose = false
-        )
-        loadTensorIfExists(
-            ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            HF_ALTUP_UNEMBD_PROJ, Gemma3nTensorNames.ALTUP_UNEMBD_PROJ,
-            transpose = false
-        )
-
-        // Global per-layer embedding tensors (E4B)
-        loadTensorIfExists(
-            ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            HF_PER_LAYER_TOKEN_EMBD, Gemma3nTensorNames.PER_LAYER_TOKEN_EMBD,
-            transpose = false
-        )
-        loadTensorIfExists(
-            ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            HF_PER_LAYER_MODEL_PROJ, Gemma3nTensorNames.PER_LAYER_MODEL_PROJ,
-            transpose = false
-        )
-        loadTensorIfExists(
-            ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            HF_PER_LAYER_PROJ_NORM, Gemma3nTensorNames.PER_LAYER_PROJ_NORM,
-            transpose = false
-        )
-    }
-
-    private fun <T : DType> loadLayerTensors(
-        ctx: ExecutionContext,
-        dtype: KClass<T>,
-        reader: StreamingShardedSafeTensorsReader,
-        tensorsByHfName: Map<String, ShardedTensorInfo>,
-        tensorsByGgufName: MutableMap<String, Tensor<T, Float>>,
-        metadata: Gemma3nModelMetadata,
-        layer: Int
-    ) {
-        // Input layernorm
-        loadTensorIfExists(
-            ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            hfInputLayernorm(layer), Gemma3nTensorNames.inputLayernorm(layer),
-            transpose = false
-        )
-
-        // Attention weights
-        loadTensorIfExists(
-            ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            hfAttnQ(layer), Gemma3nTensorNames.attnQ(layer)
-        )
-        loadTensorIfExists(
-            ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            hfAttnK(layer), Gemma3nTensorNames.attnK(layer)
-        )
-        loadTensorIfExists(
-            ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            hfAttnV(layer), Gemma3nTensorNames.attnV(layer)
-        )
-        loadTensorIfExists(
-            ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            hfAttnO(layer), Gemma3nTensorNames.attnOut(layer)
-        )
-
-        // Post-attention layernorm
-        loadTensorIfExists(
-            ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            hfPostAttnLayernorm(layer), Gemma3nTensorNames.postAttentionLayernorm(layer),
-            transpose = false
-        )
-
-        // MLP weights
-        loadTensorIfExists(
-            ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            hfMlpGate(layer), Gemma3nTensorNames.ffnGate(layer)
-        )
-        loadTensorIfExists(
-            ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            hfMlpUp(layer), Gemma3nTensorNames.ffnUp(layer)
-        )
-        loadTensorIfExists(
-            ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            hfMlpDown(layer), Gemma3nTensorNames.ffnDown(layer)
-        )
-
-        // Per-layer projection (optional)
-        loadTensorIfExists(
-            ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            hfPerLayerProjection(layer), Gemma3nTensorNames.perLayerInput(layer)
-        )
-
-        // E4B per-layer AltUp tensors
-        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            hfAltupPredictCoef(layer), Gemma3nTensorNames.altupPredictCoef(layer), transpose = false)
-        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            hfAltupCorrectCoef(layer), Gemma3nTensorNames.altupCorrectCoef(layer), transpose = false)
-        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            hfAltupCorrectScale(layer), Gemma3nTensorNames.altupCorrectScale(layer), transpose = false)
-        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            hfAltupRouter(layer), Gemma3nTensorNames.altupRouter(layer))
-        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            hfAltupRouterNorm(layer), Gemma3nTensorNames.altupRouterNorm(layer), transpose = false)
-
-        // E4B additional norms and weights
-        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            hfAttnQNorm(layer), Gemma3nTensorNames.attnQNorm(layer), transpose = false)
-        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            hfAttnKNorm(layer), Gemma3nTensorNames.attnKNorm(layer), transpose = false)
-        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            hfPostAttentionNorm(layer), Gemma3nTensorNames.postAttentionNorm(layer), transpose = false)
-        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            hfPostFfwNorm(layer), Gemma3nTensorNames.postFfwNorm(layer), transpose = false)
-        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            hfPostNorm(layer), Gemma3nTensorNames.postNorm(layer), transpose = false)
-        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            hfInputGate(layer), Gemma3nTensorNames.inputGate(layer))
-        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            hfProj(layer), Gemma3nTensorNames.proj(layer))
-        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            hfLaurelL(layer), Gemma3nTensorNames.laurelL(layer))
-        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            hfLaurelR(layer), Gemma3nTensorNames.laurelR(layer))
-        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            hfLaurelPostNorm(layer), Gemma3nTensorNames.laurelPostNorm(layer), transpose = false)
-    }
-
-    private fun <T : DType> loadTensorIfExists(
-        ctx: ExecutionContext,
-        dtype: KClass<T>,
-        reader: StreamingShardedSafeTensorsReader,
-        tensorsByHfName: Map<String, ShardedTensorInfo>,
-        tensorsByGgufName: MutableMap<String, Tensor<T, Float>>,
-        hfName: String,
-        ggufName: String,
-        transpose: Boolean = false
-    ) {
-        val info = tensorsByHfName[hfName]
-        if (info != null) {
-            val tensor = loadAndConvertTensor<T>(ctx, dtype, reader, info, transpose)
-            tensorsByGgufName[ggufName] = tensor
+        // Optional globals: AltUp (E4B) and per-layer embedding tensors.
+        for ((hfName, ggufName) in GLOBAL_OPTIONAL_SLOTS) {
+            tensorsByHfName[hfName]?.let { tensorsByGgufName[ggufName] = it }
         }
-    }
-
-    @Suppress("UNCHECKED_CAST")
-    private fun <T : DType> loadAndConvertTensor(
-        ctx: ExecutionContext,
-        dtype: KClass<T>,
-        reader: StreamingShardedSafeTensorsReader,
-        info: ShardedTensorInfo,
-        transpose: Boolean = false
-    ): Tensor<T, Float> {
-        val bytes = reader.loadTensorData(info)
-        val shape = Shape(*info.shape.map { it.toInt() }.toIntArray())
-
-        // Convert bytes to float array based on dtype
-        val floats = when (info.dtype.uppercase()) {
-            "BF16" -> dequantBF16FromBytes(bytes)
-            "F16" -> dequantF16FromBytes(bytes)
-            "F32" -> bytesToFloatArray(bytes)
-            else -> error("Unsupported SafeTensors dtype: ${info.dtype}")
-        }
-
-        // Transpose 2D tensors from row-major (PyTorch) to our expected format
-        return if (transpose && shape.rank == 2) {
-            val rows = shape[0]
-            val cols = shape[1]
-            val transposed = transposeRowMajor(floats, rows, cols)
-            val newShape = Shape(cols, rows)
-            ctx.fromFloatArray<T, Float>(newShape, dtype, transposed) as Tensor<T, Float>
-        } else {
-            ctx.fromFloatArray<T, Float>(shape, dtype, floats) as Tensor<T, Float>
-        }
-    }
-
-    // ========== Byte Conversion Helpers (delegating to DequantOps) ==========
-
-    private fun bytesToFloatArray(bytes: ByteArray): FloatArray = DequantOps.bytesToFloatArray(bytes)
-    private fun dequantF16FromBytes(bytes: ByteArray): FloatArray = DequantOps.dequantF16FromBytes(bytes)
-    private fun dequantBF16FromBytes(bytes: ByteArray): FloatArray = DequantOps.dequantBF16FromBytes(bytes)
-
-    private fun transposeRowMajor(data: FloatArray, rows: Int, cols: Int): FloatArray {
-        val out = FloatArray(data.size)
-        for (r in 0 until rows) {
-            for (c in 0 until cols) {
-                out[c * rows + r] = data[r * cols + c]
-            }
-        }
-        return out
     }
 
     // ========== HuggingFace Tensor Name Constants ==========
 
     private companion object {
+        // The engine's eager loader path returns each tensor as a single
+        // array, which the JVM caps at Int.MAX_VALUE bytes. Keep a little headroom.
+        const val MAX_BYTES_PER_TENSOR: Long = Int.MAX_VALUE.toLong() - 1024L
+
         // Global tensors
         const val HF_EMBED_TOKENS = "model.language_model.embed_tokens.weight"
         const val HF_OUTPUT_NORM = "model.language_model.norm.weight"
@@ -313,6 +134,55 @@ public class Gemma3nSafeTensorsWeightLoader(
         const val HF_PER_LAYER_TOKEN_EMBD = "model.language_model.per_layer_token_embd.weight"
         const val HF_PER_LAYER_MODEL_PROJ = "model.language_model.per_layer_model_proj.weight"
         const val HF_PER_LAYER_PROJ_NORM = "model.language_model.per_layer_proj_norm.weight"
+
+        /** Optional global HF → GGUF slot pairs. */
+        val GLOBAL_OPTIONAL_SLOTS: List<Pair<String, String>> by lazy {
+            listOf(
+                HF_ALTUP_PROJ to Gemma3nTensorNames.ALTUP_PROJ,
+                HF_ALTUP_UNEMBD_PROJ to Gemma3nTensorNames.ALTUP_UNEMBD_PROJ,
+                HF_PER_LAYER_TOKEN_EMBD to Gemma3nTensorNames.PER_LAYER_TOKEN_EMBD,
+                HF_PER_LAYER_MODEL_PROJ to Gemma3nTensorNames.PER_LAYER_MODEL_PROJ,
+                HF_PER_LAYER_PROJ_NORM to Gemma3nTensorNames.PER_LAYER_PROJ_NORM,
+            )
+        }
+
+        /** Every HF tensor this family maps, for [blockCount] layers — the engine loader's allowlist. */
+        fun wantedHfNames(blockCount: Int): Set<String> = buildSet {
+            add(HF_EMBED_TOKENS); add(HF_OUTPUT_NORM)
+            addAll(GLOBAL_OPTIONAL_SLOTS.map { it.first })
+            for (layer in 0 until blockCount) addAll(layerSlots(layer).map { it.first })
+        }
+
+        /** Per-layer HF → GGUF slot pairs; all optional (E2B vs E4B differ), mapped when present. */
+        fun layerSlots(layer: Int): List<Pair<String, String>> = listOf(
+            hfInputLayernorm(layer) to Gemma3nTensorNames.inputLayernorm(layer),
+            hfAttnQ(layer) to Gemma3nTensorNames.attnQ(layer),
+            hfAttnK(layer) to Gemma3nTensorNames.attnK(layer),
+            hfAttnV(layer) to Gemma3nTensorNames.attnV(layer),
+            hfAttnO(layer) to Gemma3nTensorNames.attnOut(layer),
+            hfPostAttnLayernorm(layer) to Gemma3nTensorNames.postAttentionLayernorm(layer),
+            hfMlpGate(layer) to Gemma3nTensorNames.ffnGate(layer),
+            hfMlpUp(layer) to Gemma3nTensorNames.ffnUp(layer),
+            hfMlpDown(layer) to Gemma3nTensorNames.ffnDown(layer),
+            hfPerLayerProjection(layer) to Gemma3nTensorNames.perLayerInput(layer),
+            // E4B per-layer AltUp tensors
+            hfAltupPredictCoef(layer) to Gemma3nTensorNames.altupPredictCoef(layer),
+            hfAltupCorrectCoef(layer) to Gemma3nTensorNames.altupCorrectCoef(layer),
+            hfAltupCorrectScale(layer) to Gemma3nTensorNames.altupCorrectScale(layer),
+            hfAltupRouter(layer) to Gemma3nTensorNames.altupRouter(layer),
+            hfAltupRouterNorm(layer) to Gemma3nTensorNames.altupRouterNorm(layer),
+            // E4B additional norms and weights
+            hfAttnQNorm(layer) to Gemma3nTensorNames.attnQNorm(layer),
+            hfAttnKNorm(layer) to Gemma3nTensorNames.attnKNorm(layer),
+            hfPostAttentionNorm(layer) to Gemma3nTensorNames.postAttentionNorm(layer),
+            hfPostFfwNorm(layer) to Gemma3nTensorNames.postFfwNorm(layer),
+            hfPostNorm(layer) to Gemma3nTensorNames.postNorm(layer),
+            hfInputGate(layer) to Gemma3nTensorNames.inputGate(layer),
+            hfProj(layer) to Gemma3nTensorNames.proj(layer),
+            hfLaurelL(layer) to Gemma3nTensorNames.laurelL(layer),
+            hfLaurelR(layer) to Gemma3nTensorNames.laurelR(layer),
+            hfLaurelPostNorm(layer) to Gemma3nTensorNames.laurelPostNorm(layer),
+        )
 
         // Layer tensor name builders
         fun hfInputLayernorm(layer: Int) = "model.language_model.layers.$layer.input_layernorm.weight"
