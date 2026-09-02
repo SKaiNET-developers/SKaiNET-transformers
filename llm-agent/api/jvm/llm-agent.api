@@ -1,6 +1,8 @@
 public final class sk/ainet/apps/kllama/agent/GenerateExtensionsKt {
 	public static final fun generateUntilStop (Lsk/ainet/apps/llm/InferenceRuntime;[IIIFLkotlin/random/Random;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function2;Lsk/ainet/apps/llm/PrefillStrategy;)Lsk/ainet/apps/llm/GenerateResult;
+	public static final fun generateUntilStop (Lsk/ainet/apps/llm/InferenceRuntime;[IILjava/util/Set;FLkotlin/random/Random;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function2;Lsk/ainet/apps/llm/PrefillStrategy;)Lsk/ainet/apps/llm/GenerateResult;
 	public static synthetic fun generateUntilStop$default (Lsk/ainet/apps/llm/InferenceRuntime;[IIIFLkotlin/random/Random;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function2;Lsk/ainet/apps/llm/PrefillStrategy;ILjava/lang/Object;)Lsk/ainet/apps/llm/GenerateResult;
+	public static synthetic fun generateUntilStop$default (Lsk/ainet/apps/llm/InferenceRuntime;[IILjava/util/Set;FLkotlin/random/Random;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function2;Lsk/ainet/apps/llm/PrefillStrategy;ILjava/lang/Object;)Lsk/ainet/apps/llm/GenerateResult;
 	public static final fun sampleFromLogits (Lsk/ainet/lang/tensor/Tensor;FLkotlin/random/Random;)I
 	public static synthetic fun sampleFromLogits$default (Lsk/ainet/lang/tensor/Tensor;FLkotlin/random/Random;ILjava/lang/Object;)I
 }
@@ -82,6 +84,7 @@ public final class sk/ainet/apps/kllama/chat/ApertusChatTemplate : sk/ainet/apps
 	public fun containsToolCall (Ljava/lang/String;)Z
 	public fun parseThinkingBlocks (Ljava/lang/String;)Ljava/util/List;
 	public fun parseToolCalls (Ljava/lang/String;)Ljava/util/List;
+	public fun stopTokenStrings ()Ljava/util/List;
 	public fun stripThinking (Ljava/lang/String;)Ljava/lang/String;
 	public final fun withCurrentDate (Ljava/lang/String;)Lsk/ainet/apps/kllama/chat/ApertusChatTemplate;
 }
@@ -105,12 +108,32 @@ public final class sk/ainet/apps/kllama/chat/ApertusToolCallingSupport : sk/aine
 	public fun toolCallingMode (Lsk/ainet/apps/kllama/chat/ModelMetadata;)Lsk/ainet/apps/kllama/chat/ToolCallingMode;
 }
 
+public final class sk/ainet/apps/kllama/chat/BitNetChatSupport : sk/ainet/apps/kllama/chat/ToolCallingSupport {
+	public fun <init> ()V
+	public fun createChatTemplate ()Lsk/ainet/apps/kllama/chat/ChatTemplate;
+	public fun getFamily ()Ljava/lang/String;
+	public fun parseToolCalls (Ljava/lang/String;)Ljava/util/List;
+	public fun supports (Lsk/ainet/apps/kllama/chat/ModelMetadata;)Z
+	public fun toolCallingMode (Lsk/ainet/apps/kllama/chat/ModelMetadata;)Lsk/ainet/apps/kllama/chat/ToolCallingMode;
+}
+
+public final class sk/ainet/apps/kllama/chat/BitNetChatTemplate : sk/ainet/apps/kllama/chat/ChatTemplate {
+	public fun <init> ()V
+	public fun apply (Ljava/util/List;Ljava/util/List;Z)Ljava/lang/String;
+	public fun containsToolCall (Ljava/lang/String;)Z
+	public fun parseThinkingBlocks (Ljava/lang/String;)Ljava/util/List;
+	public fun parseToolCalls (Ljava/lang/String;)Ljava/util/List;
+	public fun stopTokenStrings ()Ljava/util/List;
+	public fun stripThinking (Ljava/lang/String;)Ljava/lang/String;
+}
+
 public final class sk/ainet/apps/kllama/chat/ChatMLTemplate : sk/ainet/apps/kllama/chat/ChatTemplate {
 	public fun <init> ()V
 	public fun apply (Ljava/util/List;Ljava/util/List;Z)Ljava/lang/String;
 	public fun containsToolCall (Ljava/lang/String;)Z
 	public fun parseThinkingBlocks (Ljava/lang/String;)Ljava/util/List;
 	public fun parseToolCalls (Ljava/lang/String;)Ljava/util/List;
+	public fun stopTokenStrings ()Ljava/util/List;
 	public fun stripThinking (Ljava/lang/String;)Ljava/lang/String;
 }
 
@@ -180,6 +203,7 @@ public abstract interface class sk/ainet/apps/kllama/chat/ChatTemplate {
 	public fun containsToolCall (Ljava/lang/String;)Z
 	public fun parseThinkingBlocks (Ljava/lang/String;)Ljava/util/List;
 	public fun parseToolCalls (Ljava/lang/String;)Ljava/util/List;
+	public fun stopTokenStrings ()Ljava/util/List;
 	public fun stripThinking (Ljava/lang/String;)Ljava/lang/String;
 }
 
@@ -188,6 +212,7 @@ public final class sk/ainet/apps/kllama/chat/ChatTemplate$DefaultImpls {
 	public static fun containsToolCall (Lsk/ainet/apps/kllama/chat/ChatTemplate;Ljava/lang/String;)Z
 	public static fun parseThinkingBlocks (Lsk/ainet/apps/kllama/chat/ChatTemplate;Ljava/lang/String;)Ljava/util/List;
 	public static fun parseToolCalls (Lsk/ainet/apps/kllama/chat/ChatTemplate;Ljava/lang/String;)Ljava/util/List;
+	public static fun stopTokenStrings (Lsk/ainet/apps/kllama/chat/ChatTemplate;)Ljava/util/List;
 	public static fun stripThinking (Lsk/ainet/apps/kllama/chat/ChatTemplate;Ljava/lang/String;)Ljava/lang/String;
 }
 
@@ -210,6 +235,7 @@ public final class sk/ainet/apps/kllama/chat/Gemma4ChatTemplate : sk/ainet/apps/
 	public fun containsToolCall (Ljava/lang/String;)Z
 	public fun parseThinkingBlocks (Ljava/lang/String;)Ljava/util/List;
 	public fun parseToolCalls (Ljava/lang/String;)Ljava/util/List;
+	public fun stopTokenStrings ()Ljava/util/List;
 	public fun stripThinking (Ljava/lang/String;)Ljava/lang/String;
 }
 
@@ -228,6 +254,7 @@ public final class sk/ainet/apps/kllama/chat/GemmaChatTemplate : sk/ainet/apps/k
 	public fun containsToolCall (Ljava/lang/String;)Z
 	public fun parseThinkingBlocks (Ljava/lang/String;)Ljava/util/List;
 	public fun parseToolCalls (Ljava/lang/String;)Ljava/util/List;
+	public fun stopTokenStrings ()Ljava/util/List;
 	public fun stripThinking (Ljava/lang/String;)Ljava/lang/String;
 }
 
@@ -264,6 +291,7 @@ public final class sk/ainet/apps/kllama/chat/Llama3ChatTemplate : sk/ainet/apps/
 	public fun containsToolCall (Ljava/lang/String;)Z
 	public fun parseThinkingBlocks (Ljava/lang/String;)Ljava/util/List;
 	public fun parseToolCalls (Ljava/lang/String;)Ljava/util/List;
+	public fun stopTokenStrings ()Ljava/util/List;
 	public fun stripThinking (Ljava/lang/String;)Ljava/lang/String;
 }
 
@@ -319,10 +347,13 @@ public final class sk/ainet/apps/kllama/chat/ModelMetadataExtraction {
 
 public final class sk/ainet/apps/kllama/chat/QwenChatTemplate : sk/ainet/apps/kllama/chat/ChatTemplate {
 	public fun <init> ()V
+	public fun <init> (Z)V
+	public synthetic fun <init> (ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun apply (Ljava/util/List;Ljava/util/List;Z)Ljava/lang/String;
 	public fun containsToolCall (Ljava/lang/String;)Z
 	public fun parseThinkingBlocks (Ljava/lang/String;)Ljava/util/List;
 	public fun parseToolCalls (Ljava/lang/String;)Ljava/util/List;
+	public fun stopTokenStrings ()Ljava/util/List;
 	public fun stripThinking (Ljava/lang/String;)Ljava/lang/String;
 }
 
@@ -356,6 +387,7 @@ public final class sk/ainet/apps/kllama/chat/SmolLMChatTemplate : sk/ainet/apps/
 	public fun containsToolCall (Ljava/lang/String;)Z
 	public fun parseThinkingBlocks (Ljava/lang/String;)Ljava/util/List;
 	public fun parseToolCalls (Ljava/lang/String;)Ljava/util/List;
+	public fun stopTokenStrings ()Ljava/util/List;
 	public fun stripThinking (Ljava/lang/String;)Ljava/lang/String;
 }
 

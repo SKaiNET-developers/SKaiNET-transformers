@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — Qwen tool calling follows the official Qwen3 chat template
+
+- **`QwenChatTemplate` rewritten against the official Qwen3 `chat_template`** (verified
+  against `Qwen/Qwen3-0.6B`), fixing the drift that made small checkpoints unreliable in
+  agent loops: tool results now render as **`user` turns wrapped in `<tool_response>`**
+  (consecutive results merged into one turn) instead of a literal `tool` role Qwen was
+  never trained on; tools are listed one JSON object per line inside `<tools>`; the
+  hardcoded "You are Qwen…" persona is gone (the caller's own system message leads the
+  tools block); past assistant tool calls replay as `<tool_call>` blocks rebuilt from the
+  structured `toolCalls` (raw XML in content is de-duplicated). **Thinking mode** is now
+  handled: `<think>…</think>` blocks are surfaced via `AgentListener.onThinking` and
+  stripped from the visible answer and the history (unterminated blocks included), and
+  `QwenChatTemplate(enableThinking = false)` reproduces the official
+  `enable_thinking=false` empty-`<think>`-prefill. Verified end-to-end on Qwen3-0.6B Q8_0
+  through kllama-cli `--demo`: calculator and file-listing round-trips both produce
+  correct, thinking-free final answers. New antora tutorial
+  `tutorials/qwen-tool-calling.adoc` shows the whole flow embedded in your own app.
+
 ### Fixed — Apertus GGUF decode produced garbage; maturity gate retrofit caught it
 
 - **The gate retrofit found the family broken in production** — the CLI decoded real
