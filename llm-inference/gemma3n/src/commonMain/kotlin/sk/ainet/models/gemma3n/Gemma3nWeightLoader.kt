@@ -386,9 +386,14 @@ public class Gemma3nWeightLoader private constructor(
         // Gemma 3n specific
         val slidingWindow = fields["$prefix.attention.sliding_window"]?.toIntValue()
             ?: Gemma3nModelMetadata.DEFAULT_SLIDING_WINDOW
+        // Real llama.cpp gemma3n GGUFs declare only `rope.freq_base` (the global/full base,
+        // 1M) — the sliding/local base is the SWA default 10k (llama.cpp
+        // `rope_freq_base_train_swa`). Legacy keys tried first for synthetic fixtures.
         val ropeBaseLocal = fields["$prefix.rope.freq_base_local"]?.toFloatValue()
+            ?: fields["$prefix.rope.freq_base_swa"]?.toFloatValue()
             ?: Gemma3nModelMetadata.DEFAULT_ROPE_BASE_LOCAL
         val ropeBaseGlobal = fields["$prefix.rope.freq_base_global"]?.toFloatValue()
+            ?: fields["$prefix.rope.freq_base"]?.toFloatValue()
             ?: Gemma3nModelMetadata.DEFAULT_ROPE_BASE_GLOBAL
         val kvSharedLayers = fields["$prefix.kv_shared_layers"]?.toIntValue()
             ?: fields["$prefix.attention.shared_kv_layers"]?.toIntValue()
@@ -408,6 +413,15 @@ public class Gemma3nWeightLoader private constructor(
         // Activation sparsity
         val activationSparsityPattern = extractStreamingActivationSparsityPattern(fields, prefix)
         val activationSparsityScale = fields["$prefix.activation_sparsity_scale"]?.toFloatValue() ?: 0f
+        // Real GGUFs store the per-layer std multipliers directly (1.6449 on sparse layers,
+        // -inf on the rest); the DSL path consumes this list.
+        val activationSparsityScales = when (val v = fields["$prefix.activation_sparsity_scale"]) {
+            is List<*> -> v.mapNotNull { (it as? Number)?.toFloat() }
+            is FloatArray -> v.toList()
+            is DoubleArray -> v.map { it.toFloat() }
+            else -> emptyList()
+        }
+        val rmsNormEps = fields["$prefix.attention.layer_norm_rms_epsilon"]?.toFloatValue() ?: 1e-6f
 
         return Gemma3nModelMetadata(
             architecture = arch,
@@ -428,7 +442,9 @@ public class Gemma3nWeightLoader private constructor(
             numAltupInputs = numAltupInputs,
             altupActiveIdx = altupActiveIdx,
             activationSparsityPattern = activationSparsityPattern,
-            activationSparsityScale = activationSparsityScale
+            activationSparsityScale = activationSparsityScale,
+            rmsNormEps = rmsNormEps,
+            activationSparsityScales = activationSparsityScales,
         )
     }
 
@@ -483,6 +499,11 @@ public class Gemma3nWeightLoader private constructor(
         if (perLayerValue != null && perLayerValue is List<*>) {
             return perLayerValue.mapNotNull { (it as? Number)?.toInt() }
         }
+        // Real llama.cpp GGUFs store the per-layer array under the SINGULAR key.
+        val singular = fields["$prefix.feed_forward_length"]
+        if (singular is List<*> && singular.size > 1) {
+            return singular.mapNotNull { (it as? Number)?.toInt() }
+        }
 
         // Fall back to single FFN length
         val ffnLength = fields["$prefix.feed_forward_length"]?.toIntValue() ?: (embeddingLength * 4)
@@ -507,6 +528,11 @@ public class Gemma3nWeightLoader private constructor(
         val patternValue = fields[patternKey]
         if (patternValue != null && patternValue is List<*>) {
             return patternValue.mapNotNull { it as? String }
+        }
+        // Real llama.cpp GGUFs store per-layer booleans: true = sliding, false = full.
+        val swaPattern = fields["$prefix.attention.sliding_window_pattern"]
+        if (swaPattern is List<*> && swaPattern.isNotEmpty() && swaPattern.first() is Boolean) {
+            return swaPattern.map { if (it == true) "sliding" else "full" }
         }
         return Gemma3nModelMetadata.DEFAULT_LAYER_PATTERN
     }

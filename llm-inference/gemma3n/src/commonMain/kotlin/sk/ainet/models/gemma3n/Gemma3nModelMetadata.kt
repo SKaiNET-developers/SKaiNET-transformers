@@ -34,8 +34,19 @@ public data class Gemma3nModelMetadata(
     /** Per-layer activation sparsity rates. Empty means no sparsity. */
     val activationSparsityPattern: List<Float> = emptyList(),
     /** Activation sparsity scale factor (from GGUF: gemma3n.activation_sparsity_scale). */
-    val activationSparsityScale: Float = 0f
+    val activationSparsityScale: Float = 0f,
+    /** RMSNorm epsilon (`gemma3n.attention.layer_norm_rms_epsilon`; real E2B/E4B: 1e-6). */
+    val rmsNormEps: Float = 1e-6f,
+    /**
+     * Per-layer activation-sparsity std multipliers (`gemma3n.activation_sparsity_scale`).
+     * Real checkpoints store `Φ⁻¹(target_sparsity) ≈ 1.6449` on sparse layers and `-inf`
+     * on the rest — non-finite (or empty list) disables sparsity for that layer.
+     */
+    val activationSparsityScales: List<Float> = emptyList(),
 ) {
+    /** The std multiplier for one layer, or `null` when sparsity is off there. */
+    public fun sparsityScaleFor(layerIdx: Int): Float? =
+        activationSparsityScales.getOrNull(layerIdx)?.takeIf { it.isFinite() && it > 0f }
     /**
      * Returns the layer type at the given layer index.
      * Pattern repeats: ["sliding", "sliding", "sliding", "sliding", "full"]

@@ -242,26 +242,34 @@ fun main(args: Array<String>) {
 
         val runtime: InferenceRuntime<FP32> = if (modelInfo.family == ModelFamily.GEMMA) {
             // ModelFamily.GEMMA claims every gemma* architecture, but this DSL lane serves
-            // gemma3/gemma4 only (#376): 3n needs the hand-rolled runtime (AltUp/PLE/activation
-            // sparsity — kgemma CLI, split tracked in #377), and gemma2 has no supported path.
-            when (modelInfo.architecture) {
-                "gemma3n" -> error(
-                    "Gemma 3n is not supported by the unified CLI's DSL lane — use the kgemma " +
-                        "CLI (:llm-runtime:kgemma), which carries its hand-rolled runtime (#377).",
-                )
-                "gemma2", "gemma" -> error(
-                    "Architecture '${modelInfo.architecture}' has no supported path — the Gemma " +
-                        "lane serves gemma3/gemma4 checkpoints (#376).",
-                )
+            // gemma3/gemma4/gemma3n (#376, #377): gemma3n runs its own DSL lane
+            // (gemma3nNetwork() — AltUp/Laurel/sparsity/PLE, parity-gated vs llama.cpp);
+            // gemma2 has no supported path.
+            if (modelInfo.architecture == "gemma3n") {
+                println("Loading Gemma 3n GGUF model from $modelPath via gemma3nNetwork() + OptimizedLLMRuntime (engine loader, keep-packed, mapped)...")
+                val model3n = kotlinx.coroutines.runBlocking {
+                    sk.ainet.models.gemma3n.Gemma3nNetworkLoader.fromGguf<FP32, Float>(
+                        ctx,
+                        { JvmRandomAccessSource.open(modelPath.toString()) },
+                    )
+                }
+                OptimizedLLMRuntime(model3n, ctx, OptimizedLLMMode.DIRECT, FP32::class)
+            } else {
+                when (modelInfo.architecture) {
+                    "gemma2", "gemma" -> error(
+                        "Architecture '${modelInfo.architecture}' has no supported path — the Gemma " +
+                            "lane serves gemma3/gemma4/gemma3n checkpoints (#376, #377).",
+                    )
+                }
+                println("Loading Gemma GGUF model from $modelPath via gemmaNetwork() + OptimizedLLMRuntime (engine loader, keep-packed, mapped)...")
+                if (cliArgs.contextLength != null) {
+                    println("  --context flag currently ignored on the Gemma path; uses model default capped to 4096.")
+                }
+                val model = GemmaNetworkLoader.fromGguf(
+                    randomAccessProvider = { JvmRandomAccessSource.open(modelPath.toString()) }
+                ).load<FP32, Float>(ctx)
+                OptimizedLLMRuntime(model, ctx, OptimizedLLMMode.DIRECT, FP32::class)
             }
-            println("Loading Gemma GGUF model from $modelPath via gemmaNetwork() + OptimizedLLMRuntime (engine loader, keep-packed, mapped)...")
-            if (cliArgs.contextLength != null) {
-                println("  --context flag currently ignored on the Gemma path; uses model default capped to 4096.")
-            }
-            val model = GemmaNetworkLoader.fromGguf(
-                randomAccessProvider = { JvmRandomAccessSource.open(modelPath.toString()) }
-            ).load<FP32, Float>(ctx)
-            OptimizedLLMRuntime(model, ctx, OptimizedLLMMode.DIRECT, FP32::class)
         } else if (modelInfo.family == ModelFamily.APERTUS) {
             println("Loading Apertus GGUF model from $modelPath via apertusNetwork() + OptimizedLLMRuntime (engine loader, keep-packed, mapped)...")
             if (cliArgs.contextLength != null) {

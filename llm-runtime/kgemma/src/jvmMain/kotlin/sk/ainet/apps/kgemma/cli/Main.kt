@@ -234,19 +234,32 @@ fun main(args: Array<String>) {
                 }
             }
             GemmaVariant.GEMMA3N -> {
-                val ingestion = Gemma3nIngestion<FP32>(
-                    ctx = ctx,
-                    dtype = FP32::class,
-                    config = Gemma3nLoadConfig()
-                )
                 when (format) {
                     ModelFormat.GGUF -> {
-                        println("Loading Gemma 3n GGUF model from $modelPath (streaming mode)...")
-                        ingestion.loadRuntimeStreaming {
-                            JvmRandomAccessSource.open(modelPath.toString())
+                        // The DSL lane (#377): engine loading (packed/MAPPED),
+                        // gemma3nNetwork() with AltUp/Laurel/sparsity/PLE, verified
+                        // token-for-token vs mainline llama.cpp by
+                        // Gemma3nGoldenTokenParityTest. The hand-rolled
+                        // Gemma3nRuntime never applied PLE and predates the gate.
+                        println("Loading Gemma 3n GGUF model from $modelPath via gemma3nNetwork() + OptimizedLLMRuntime (engine loader, keep-packed, mapped)...")
+                        val model = kotlinx.coroutines.runBlocking {
+                            sk.ainet.models.gemma3n.Gemma3nNetworkLoader.fromGguf<FP32, Float>(
+                                ctx,
+                                { JvmRandomAccessSource.open(modelPath.toString()) },
+                            )
                         }
+                        sk.ainet.apps.llm.OptimizedLLMRuntime(
+                            model, ctx, sk.ainet.apps.llm.OptimizedLLMMode.DIRECT, FP32::class,
+                        )
                     }
                     ModelFormat.SAFETENSORS -> {
+                        // SafeTensors stays on the legacy hand-rolled runtime until the DSL
+                        // lane grows a SafeTensors leg (tracked with the #377 remainder).
+                        val ingestion = Gemma3nIngestion<FP32>(
+                            ctx = ctx,
+                            dtype = FP32::class,
+                            config = Gemma3nLoadConfig()
+                        )
                         val modelDir = if (modelPath.isDirectory()) modelPath else modelPath.parent ?: modelPath
                         val indexPath = modelDir.resolve("model.safetensors.index.json")
                         val safetensorsPath = if (indexPath.exists()) indexPath.toString()

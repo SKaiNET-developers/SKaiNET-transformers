@@ -9,6 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Gemma 3n runs on the DSL path, parity-gated (#377)
+
+- **`gemma3nNetwork()` + `Gemma3nModel`** — the full Gemma 3n text architecture declared
+  in the DSL, faithful to HF `modeling_gemma3n.py`: **AltUp** (four parallel hidden
+  streams with the tanh modality router; `Gemma3nAltUpBlock` per layer,
+  `Gemma3nAltUpGlobals` for the magnitude-renormed stream init/merge), **Laurel**,
+  **Gaussian-top-k activation sparsity** on the first ten layers (driven by the GGUF's
+  precomputed per-layer std multipliers; `-inf` = off), **PLE feeding the non-active
+  streams** (reusing the gemma-4 lane's `PerLayerEmbedding` — the math is identical),
+  per-type **shared KV** for the last ten layers, hybrid sliding/global attention with
+  dual RoPE bases, q/k-norm + parameterless v-norm, attention scale 1.0. All math goes
+  through `ctx.ops`, so the model is traceable for the StableHLO → IREE mobile path.
+- **The hand-rolled `Gemma3nRuntime` was never faithful to real checkpoints**: it loaded
+  the PLE tensors but never applied them, had no Laurel, ignored the AltUp router, and
+  its `E2B_DEFAULT` config claimed AltUp/sparsity were E4B-only — the real E2B GGUF has
+  `altup.num_inputs=4` and first-10-layer sparsity. The GGUF CLI paths (kgemma, unified
+  skainet-cli) now route gemma3n through the DSL lane; SafeTensors stays on the legacy
+  runtime until the DSL grows that leg.
+- **`Gemma3nGoldenTokenParityTest`** (#346 gate, the last ungated generative family):
+  full 32-step greedy text equality vs mainline llama.cpp b10621 on
+  `gemma-3n-E2B-it-Q4_K_M.gguf`, on the exact CLI path — engine loading stays
+  packed/MAPPED (the PLE table row-dequants on demand). Wired into the smoke-reference
+  tier (`gemma3n_gguf_url` + 20g heap arg); `smoke-models.json` gains a Gemma3n-E2B row.
+  Metadata parsing now reads the real llama.cpp GGUF keys (`sliding_window_pattern`
+  booleans, per-layer `activation_sparsity_scale`, `rope.freq_base` fallback,
+  `rms_norm_eps`, per-layer `feed_forward_length`).
+
 ### Fixed — Qwen tool calling follows the official Qwen3 chat template
 
 - **`QwenChatTemplate` rewritten against the official Qwen3 `chat_template`** (verified
