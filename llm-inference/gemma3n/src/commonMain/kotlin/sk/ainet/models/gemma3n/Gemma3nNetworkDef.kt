@@ -39,6 +39,10 @@ public fun <T : DType, V> gemma3nNetwork(
     /** HF `laurel_rank` (64 on real checkpoints; not in the GGUF — the loader derives it
      *  from `blk.0.laurel_l`'s shape). */
     laurelRank: Int = LAUREL_RANK,
+    /** Number of layers the PLE tensors cover — normally [Gemma3nModelMetadata.blockCount],
+     *  but a layer-truncated export build keeps the FULL table so the stored
+     *  `per_layer_*` tensors still bind shape-exact. */
+    pleNumLayers: Int = metadata.blockCount,
 ): Module<T, V> {
     val dim = metadata.embeddingLength
     val nHeads = metadata.headCount
@@ -163,7 +167,7 @@ public fun <T : DType, V> gemma3nNetwork(
     val ple = PerLayerEmbedding<T, V>(
         vocabSize = vocabSize,
         hiddenSize = dim,
-        numLayers = nLayers,
+        numLayers = pleNumLayers,
         perLayerDim = metadata.perLayerEmbeddingLength,
         rmsEps = eps,
     )

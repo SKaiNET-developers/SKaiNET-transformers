@@ -145,6 +145,42 @@ public final class sk/ainet/models/gemma3n/Gemma3nConfigParser {
 	public final fun parseFromJson (Ljava/lang/String;)Lsk/ainet/models/gemma3n/Gemma3nModelMetadata;
 }
 
+public final class sk/ainet/models/gemma3n/Gemma3nExportCliKt {
+	public static final fun main ()V
+	public static synthetic fun main ([Ljava/lang/String;)V
+}
+
+public final class sk/ainet/models/gemma3n/Gemma3nExportHarness {
+	public static final field FN_REDECODE Ljava/lang/String;
+	public static final field INSTANCE Lsk/ainet/models/gemma3n/Gemma3nExportHarness;
+	public static final field PARAMETER_SCOPE Ljava/lang/String;
+	public final fun export (Ljava/lang/String;Ljava/lang/String;IZLjava/lang/Integer;)Lsk/ainet/models/gemma3n/Gemma3nExportHarness$RedecodeResult;
+	public static synthetic fun export$default (Lsk/ainet/models/gemma3n/Gemma3nExportHarness;Ljava/lang/String;Ljava/lang/String;IZLjava/lang/Integer;ILjava/lang/Object;)Lsk/ainet/models/gemma3n/Gemma3nExportHarness$RedecodeResult;
+}
+
+public final class sk/ainet/models/gemma3n/Gemma3nExportHarness$RedecodeResult {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;IJII)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()I
+	public final fun component5 ()J
+	public final fun component6 ()I
+	public final fun component7 ()I
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;IJII)Lsk/ainet/models/gemma3n/Gemma3nExportHarness$RedecodeResult;
+	public static synthetic fun copy$default (Lsk/ainet/models/gemma3n/Gemma3nExportHarness$RedecodeResult;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;IJIIILjava/lang/Object;)Lsk/ainet/models/gemma3n/Gemma3nExportHarness$RedecodeResult;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getExternalParamCount ()I
+	public final fun getManifestPath ()Ljava/lang/String;
+	public final fun getMlirPath ()Ljava/lang/String;
+	public final fun getSafetensorsPath ()Ljava/lang/String;
+	public final fun getSeq ()I
+	public final fun getVocabSize ()I
+	public final fun getWeightMiB ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
 public final class sk/ainet/models/gemma3n/Gemma3nGGUFNameResolver : sk/ainet/io/weights/WeightNameResolver {
 	public fun <init> ()V
 	public fun resolve (Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
@@ -229,12 +265,14 @@ public final class sk/ainet/models/gemma3n/Gemma3nModel : sk/ainet/lang/nn/Modul
 	public final fun getBlocks ()Ljava/util/List;
 	public final fun getDtype ()Lkotlin/reflect/KClass;
 	public final fun getEmbedScale ()F
+	public final fun getExternalPerLayerInputs ()Lsk/ainet/lang/tensor/Tensor;
 	public final fun getLmHead ()Lsk/ainet/lang/nn/transformer/VoidDense;
 	public fun getModules ()Ljava/util/List;
 	public fun getName ()Ljava/lang/String;
 	public final fun getOutputNorm ()Lsk/ainet/lang/nn/normalization/RMSNormalization;
 	public final fun getPle ()Lsk/ainet/models/gemma/PerLayerEmbedding;
 	public final fun getTokenEmbedding ()Lsk/ainet/lang/nn/layers/EmbeddingAdapter;
+	public final fun setExternalPerLayerInputs (Lsk/ainet/lang/tensor/Tensor;)V
 }
 
 public final class sk/ainet/models/gemma3n/Gemma3nModel$BlockRefs {
@@ -320,14 +358,14 @@ public final class sk/ainet/models/gemma3n/Gemma3nModelMetadata$Companion {
 
 public final class sk/ainet/models/gemma3n/Gemma3nNetworkDefKt {
 	public static final field LAUREL_RANK I
-	public static final fun gemma3nNetwork (Lsk/ainet/models/gemma3n/Gemma3nModelMetadata;Lkotlin/reflect/KClass;II)Lsk/ainet/lang/nn/Module;
-	public static synthetic fun gemma3nNetwork$default (Lsk/ainet/models/gemma3n/Gemma3nModelMetadata;Lkotlin/reflect/KClass;IIILjava/lang/Object;)Lsk/ainet/lang/nn/Module;
+	public static final fun gemma3nNetwork (Lsk/ainet/models/gemma3n/Gemma3nModelMetadata;Lkotlin/reflect/KClass;III)Lsk/ainet/lang/nn/Module;
+	public static synthetic fun gemma3nNetwork$default (Lsk/ainet/models/gemma3n/Gemma3nModelMetadata;Lkotlin/reflect/KClass;IIIILjava/lang/Object;)Lsk/ainet/lang/nn/Module;
 }
 
 public final class sk/ainet/models/gemma3n/Gemma3nNetworkLoader {
 	public static final field INSTANCE Lsk/ainet/models/gemma3n/Gemma3nNetworkLoader;
-	public final fun fromWeights (Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/gemma3n/Gemma3nWeights;Lkotlin/reflect/KClass;Ljava/lang/Integer;Z)Lsk/ainet/lang/nn/Module;
-	public static synthetic fun fromWeights$default (Lsk/ainet/models/gemma3n/Gemma3nNetworkLoader;Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/gemma3n/Gemma3nWeights;Lkotlin/reflect/KClass;Ljava/lang/Integer;ZILjava/lang/Object;)Lsk/ainet/lang/nn/Module;
+	public final fun fromWeights (Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/gemma3n/Gemma3nWeights;Lkotlin/reflect/KClass;Ljava/lang/Integer;ZLjava/lang/Integer;)Lsk/ainet/lang/nn/Module;
+	public static synthetic fun fromWeights$default (Lsk/ainet/models/gemma3n/Gemma3nNetworkLoader;Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/gemma3n/Gemma3nWeights;Lkotlin/reflect/KClass;Ljava/lang/Integer;ZLjava/lang/Integer;ILjava/lang/Object;)Lsk/ainet/lang/nn/Module;
 }
 
 public final class sk/ainet/models/gemma3n/Gemma3nPerLayerApply : sk/ainet/lang/nn/Module {

@@ -126,6 +126,34 @@ public class PerLayerEmbedding<T : DType, V>(
     ): Tensor<T, V> {
         val ops = ctx.ops
 
+        // Graph-recording path (StableHLO/IREE export): every step must go through
+        // ctx.ops to be traceable — the manual buffer gather below would bake the
+        // fixture tokens' rows in as frozen constants. indexSelect keeps the
+        // token-identity lookup a real graph op on the (dense) PLE table.
+        if (ctx.isRecording) {
+            val idsShapeR = tokenIds.shape
+            require(idsShapeR.rank == 2) {
+                "$name.compute: tokenIds must be [batch, seq], got shape=${tokenIds.shape}"
+            }
+            val batchR = idsShapeR[0]
+            val seqR = idsShapeR[1]
+            @Suppress("UNCHECKED_CAST")
+            val idsFlatT = ops.reshape(tokenIds as Tensor<T, V>, Shape(batchR * seqR))
+            @Suppress("UNCHECKED_CAST")
+            var rawR = ops.indexSelect(
+                embedTokensWeight, idsFlatT as Tensor<DType, *>, dim = 0,
+            ) // [B*S, perLayerTotal]
+            rawR = ops.mulScalar(rawR, embedScale)
+            val rawReshapedR = ops.reshape(rawR, Shape(batchR, seqR, numLayers, perLayerDim))
+
+            val flatEmbedsR = ops.reshape(inputsEmbeds, Shape(batchR * seqR, hiddenSize))
+            var projR = linearProject(ops, flatEmbedsR, modelProjWeight)
+            projR = ops.reshape(projR, Shape(batchR, seqR, numLayers, perLayerDim))
+            projR = ops.mulScalar(projR, projScale)
+            projR = projectionNorm.forward(projR, ctx)
+            return ops.mulScalar(ops.add(projR, rawReshapedR), inputScale)
+        }
+
         // (1) Token-identity: gather rows of embedTokensWeight by tokenIds.
         // We do the gather via a manual buffer build; `ops.gather` would also
         // work but needs Int32 handling that varies by backend. Since the
