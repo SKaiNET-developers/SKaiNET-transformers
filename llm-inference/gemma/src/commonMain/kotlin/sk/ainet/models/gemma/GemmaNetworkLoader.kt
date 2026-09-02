@@ -45,8 +45,8 @@ public class GemmaNetworkLoader @PublishedApi internal constructor(
         // The GGUF lane honors narrow-float keep-native exactly as llama's shared loader does
         // (GemmaWeightLoader resolves keepF16Native/keepBf16Native from the policy) — the old
         // `keepNative = emptySet()` claim predated that and silently rejected `Require(BF16)`
-        // on a loader that supports it (#375). The SafeTensors lane still widens; it re-validates
-        // against an empty set at its own dispatch site below.
+        // on a loader that supports it (#375). The SafeTensors lane now rides the engine's
+        // sharded loader (SKaiNET#1246) and keeps native under the same set.
         DTypePolicyValidation.validate(
             policy, "GemmaNetworkLoader.withDtypePolicy",
             keepNative = sk.ainet.lang.nn.dsl.decoder.DECODER_NARROW_KEEP_NATIVE,
@@ -146,12 +146,14 @@ public class GemmaNetworkLoader @PublishedApi internal constructor(
                 loader.loadToMapStreaming<T, V>(ctx)
             }
             is WeightsProvider.SafeTensorsIndex -> {
-                // The hand-rolled SafeTensors reader widens every narrow float (#375): reject a
-                // Require() policy here rather than accept-and-ignore it.
+                // The SafeTensors lane rides the engine's ShardedSafeTensorsParametersLoader
+                // (SKaiNET#1246), which keeps BF16/FP16 native under Require() exactly as the
+                // GGUF lane does — the same keep-native set applies.
                 DTypePolicyValidation.validate(
-                    dtypePolicy, "GemmaNetworkLoader(SafeTensors)", keepNative = emptySet(),
+                    dtypePolicy, "GemmaNetworkLoader(SafeTensors)",
+                    keepNative = sk.ainet.lang.nn.dsl.decoder.DECODER_NARROW_KEEP_NATIVE,
                 )
-                val loader = GemmaSafeTensorsLoader(wp.indexPath)
+                val loader = GemmaSafeTensorsLoader(wp.indexPath, dtypePolicy = dtypePolicy)
                 @Suppress("UNCHECKED_CAST")
                 loader.loadToMap(ctx, T::class) as GemmaWeights<T, V>
             }

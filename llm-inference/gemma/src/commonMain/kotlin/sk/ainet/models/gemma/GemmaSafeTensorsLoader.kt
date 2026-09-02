@@ -1,13 +1,13 @@
 package sk.ainet.models.gemma
 
 import sk.ainet.context.ExecutionContext
-import sk.ainet.io.gguf.dequant.DequantOps
+import sk.ainet.io.load
+import sk.ainet.io.safetensors.ShardedSafeTensorsParametersLoader
 import sk.ainet.io.safetensors.ShardedTensorInfo
-import sk.ainet.io.safetensors.StreamingShardedSafeTensorsReader
 import sk.ainet.io.safetensors.readTextFile
-import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.types.DType
+import sk.ainet.lang.types.DTypePolicy
 import sk.ainet.lang.types.FP32
 import kotlin.reflect.KClass
 
@@ -21,15 +21,22 @@ import kotlin.reflect.KClass
  * - Uses GemmaConfigParser instead of Gemma3nConfigParser
  * - No AltUp, Laurel, or activation sparsity tensors
  * - Per-layer head dim may vary (global_head_dim vs head_dim)
-  *
- * Engine-delegation status (#375): the sharded READING already rides the engine
- * (`StreamingShardedSafeTensorsReader` / `SafeTensorsIndexParser`); what remains family-side is
- * the per-tensor materialization policy (bf16/f16 widening, row-major transpose, size guards),
- * because the engine's `SafeTensorsParametersLoader` is single-file only. Once SKaiNET#1246
- * ships a sharded ParametersLoader with narrow-float policies, this class collapses onto it.
+ *
+ * Engine delegation (#375 → SKaiNET#1246): reading AND per-tensor materialization ride the
+ * engine's [ShardedSafeTensorsParametersLoader]. This class owns only the family policy —
+ * which HF tensors are wanted (the `tensorFilter`), the HF → GGUF slot renaming, and the PLE
+ * size guard — while every dtype decision (BF16/F16 widening vs keep-native, F32 passthrough)
+ * is the engine's, driven by [dtypePolicy] exactly as on the GGUF lane. No per-family dequant
+ * code remains here (#346).
+ *
+ * @param indexPath path to `model.safetensors.index.json`.
+ * @param dtypePolicy narrow-float policy forwarded to
+ *   [ShardedSafeTensorsParametersLoader.withPolicy]: `Any` (default) widens BF16/F16 to FP32;
+ *   `Require(BF16)` / `Require(FP16)` keep the native encoding under an FP32-typed tensor.
  */
 public class GemmaSafeTensorsLoader(
-    private val indexPath: String
+    private val indexPath: String,
+    private val dtypePolicy: DTypePolicy = DTypePolicy.Any,
 ) {
 
     public suspend fun <T : DType> loadToMap(
@@ -47,25 +54,25 @@ public class GemmaSafeTensorsLoader(
 
         val metadata = GemmaConfigParser.parseFromJson(configJson)
 
-        val reader = StreamingShardedSafeTensorsReader.openFromIndex(indexPath)
+        // Family policy, expressed as the engine loader's filter: only the tensors this
+        // family maps (vision/audio towers and anything unmapped never materialize, and are
+        // exempt from the fail-fast dtype pre-scan), and the PLE table only when it fits the
+        // eager ByteArray path — see the note in loadGlobalTensors.
+        val wanted = wantedHfNames(metadata.blockCount)
+        val loader = ShardedSafeTensorsParametersLoader.withPolicy(
+            indexPath = indexPath,
+            policy = dtypePolicy,
+            tensorFilter = { info: ShardedTensorInfo ->
+                info.name in wanted && (info.name !in PLE_TABLE_CANDIDATES || info.sizeInBytes <= MAX_BYTES_PER_TENSOR)
+            },
+        )
+        val tensorsByHfName = linkedMapOf<String, Tensor<T, Float>>()
+        loader.load<T, Float>(ctx, dtype) { name, tensor -> tensorsByHfName[name] = tensor }
 
-        return reader.use {
-            loadFromReader(ctx, dtype, it, metadata)
-        }
-    }
-
-    private fun <T : DType> loadFromReader(
-        ctx: ExecutionContext,
-        dtype: KClass<T>,
-        reader: StreamingShardedSafeTensorsReader,
-        metadata: GemmaModelMetadata
-    ): GemmaWeights<T, Float> {
         val tensorsByGgufName = linkedMapOf<String, Tensor<T, Float>>()
-        val tensorsByHfName = reader.tensors.associateBy { it.name }
-
-        loadGlobalTensors(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName)
+        loadGlobalTensors(tensorsByHfName, tensorsByGgufName)
         for (layer in 0 until metadata.blockCount) {
-            loadLayerTensors(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName, layer)
+            loadLayerTensors(tensorsByHfName, tensorsByGgufName, layer)
         }
 
         return GemmaWeights(
@@ -75,23 +82,17 @@ public class GemmaSafeTensorsLoader(
     }
 
     private fun <T : DType> loadGlobalTensors(
-        ctx: ExecutionContext,
-        dtype: KClass<T>,
-        reader: StreamingShardedSafeTensorsReader,
-        tensorsByHfName: Map<String, ShardedTensorInfo>,
+        tensorsByHfName: Map<String, Tensor<T, Float>>,
         tensorsByGgufName: MutableMap<String, Tensor<T, Float>>
     ) {
         // Token embeddings
-        val embedTokens = tensorsByHfName[HF_EMBED_TOKENS]
+        val embedTensor = tensorsByHfName[HF_EMBED_TOKENS]
             ?: error("Missing tensor: $HF_EMBED_TOKENS")
-        val embedTensor = loadAndConvertTensor<T>(ctx, dtype, reader, embedTokens, transpose = false)
         tensorsByGgufName[GemmaTensorNames.TOKEN_EMBEDDINGS] = embedTensor
 
         // Output norm
-        val norm = tensorsByHfName[HF_OUTPUT_NORM]
+        tensorsByGgufName[GemmaTensorNames.OUTPUT_NORM] = tensorsByHfName[HF_OUTPUT_NORM]
             ?: error("Missing tensor: $HF_OUTPUT_NORM")
-        val normTensor = loadAndConvertTensor<T>(ctx, dtype, reader, norm, transpose = false)
-        tensorsByGgufName[GemmaTensorNames.OUTPUT_NORM] = normTensor
 
         // Output weight (weight tying - reuse embed_tokens)
         tensorsByGgufName[GemmaTensorNames.OUTPUT_WEIGHT] = embedTensor
@@ -103,207 +104,111 @@ public class GemmaSafeTensorsLoader(
         //
         // The token-embeddings-per-layer tensor on real Gemma-4 E2B is
         // [vocab_size, num_layers, per_layer_dim] in BF16 — 4.7 GB raw, well
-        // over the 2 GB JVM ByteArray limit our reader uses. The GGUF path
-        // sidesteps this by keeping the table Q6_K-packed (~1.8 GB) with a
-        // dedicated row-dequant data type. We don't have an equivalent for
-        // SafeTensors yet, so when the BF16 source is too large we skip the
-        // load — leaving `per_layer_token_embd.weight` absent from the
-        // tensor map, which auto-disables PLE in `GemmaNetworkLoader`. The
-        // model still runs (sandwich norms, layer_output_scale and softcap
-        // are intact) but without the per-layer side-channel signal. PLE
-        // support on the SafeTensors path is tracked separately.
-        loadFirstExistingIfFits(
-            ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            ggufName = GemmaTensorNames.PER_LAYER_TOKEN_EMBD,
-            hfCandidates = listOf(HF_EMBED_TOKENS_PER_LAYER, HF_PER_LAYER_TOKEN_EMBD),
-            transpose = false,
-        )
-        loadFirstExisting(
-            ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            ggufName = GemmaTensorNames.PER_LAYER_MODEL_PROJ,
-            hfCandidates = listOf(HF_PER_LAYER_MODEL_PROJECTION, HF_PER_LAYER_MODEL_PROJ),
-            transpose = false,
-        )
-        loadFirstExisting(
-            ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            ggufName = GemmaTensorNames.PER_LAYER_PROJ_NORM,
-            hfCandidates = listOf(HF_PER_LAYER_PROJECTION_NORM, HF_PER_LAYER_PROJ_NORM),
-            transpose = false,
-        )
+        // over the 2 GB JVM ByteArray limit the eager reader path is bound by.
+        // The GGUF path sidesteps this by keeping the table Q6_K-packed
+        // (~1.8 GB) with a dedicated row-dequant data type. On SafeTensors the
+        // tensorFilter (see loadToMap) skips the table when it is too large —
+        // leaving `per_layer_token_embd.weight` absent from the tensor map,
+        // which auto-disables PLE in `GemmaNetworkLoader`. The model still
+        // runs (sandwich norms, layer_output_scale and softcap are intact)
+        // but without the per-layer side-channel signal; the JVM
+        // `GemmaSafeTensorsMappedPle` path injects it file-backed afterwards.
+        mapFirstExisting(tensorsByHfName, tensorsByGgufName,
+            GemmaTensorNames.PER_LAYER_TOKEN_EMBD, PLE_TABLE_CANDIDATES)
+        mapFirstExisting(tensorsByHfName, tensorsByGgufName,
+            GemmaTensorNames.PER_LAYER_MODEL_PROJ, listOf(HF_PER_LAYER_MODEL_PROJECTION, HF_PER_LAYER_MODEL_PROJ))
+        mapFirstExisting(tensorsByHfName, tensorsByGgufName,
+            GemmaTensorNames.PER_LAYER_PROJ_NORM, listOf(HF_PER_LAYER_PROJECTION_NORM, HF_PER_LAYER_PROJ_NORM))
     }
 
     private fun <T : DType> loadLayerTensors(
-        ctx: ExecutionContext,
-        dtype: KClass<T>,
-        reader: StreamingShardedSafeTensorsReader,
-        tensorsByHfName: Map<String, ShardedTensorInfo>,
+        tensorsByHfName: Map<String, Tensor<T, Float>>,
         tensorsByGgufName: MutableMap<String, Tensor<T, Float>>,
         layer: Int
     ) {
-        // Pre-attention input layernorm (HF: input_layernorm; GGUF slot: attn_norm).
-        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            hfInputLayernorm(layer), GemmaTensorNames.inputLayernorm(layer), transpose = false)
-
-        // Attention projections.
-        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            hfAttnQ(layer), GemmaTensorNames.attnQ(layer))
-        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            hfAttnK(layer), GemmaTensorNames.attnK(layer))
-        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            hfAttnV(layer), GemmaTensorNames.attnV(layer))
-        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            hfAttnO(layer), GemmaTensorNames.attnOut(layer))
-
-        // Sandwich norms — Gemma 4 has FOUR norms per block:
-        //  - attn_norm           ← input_layernorm (already loaded above)
-        //  - post_attention_norm ← post_attention_layernorm    (Gemma-4 only)
-        //  - ffn_norm            ← pre_feedforward_layernorm   (Gemma-4 only)
-        //  - post_ffw_norm       ← post_feedforward_layernorm  (Gemma-4 only)
-        // The GGUF naming on `GemmaTensorNames.postAttentionLayernorm` is a
-        // legacy alias for the pre-FFN norm slot (`ffn_norm`); the proper
-        // Gemma-4 source for that slot is HF `pre_feedforward_layernorm`.
-        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            hfPostAttnLayernorm(layer), GemmaTensorNames.postAttentionNorm(layer), transpose = false)
-        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            hfPreFfwLayernorm(layer), GemmaTensorNames.postAttentionLayernorm(layer), transpose = false)
-        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            hfPostFfwLayernorm(layer), GemmaTensorNames.postFfwNorm(layer), transpose = false)
-
-        // MLP weights.
-        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            hfMlpGate(layer), GemmaTensorNames.ffnGate(layer))
-        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            hfMlpUp(layer), GemmaTensorNames.ffnUp(layer))
-        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            hfMlpDown(layer), GemmaTensorNames.ffnDown(layer))
-
-        // Per-layer scalar (HF: `layer_scalar`, no `.weight` suffix; scalar shape).
-        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            hfLayerScalar(layer), GemmaTensorNames.layerOutputScale(layer), transpose = false)
-
-        // Optional Per-Layer Embedding (PLE) per-layer tensors.
-        // The HF projection sends [B,S,perLayerDim] back into the residual at
-        // hidden_size, so it goes into the `proj` slot, NOT `per_layer_input`.
-        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            hfPerLayerInputGate(layer), GemmaTensorNames.pleInpGate(layer))
-        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            hfPerLayerProjection(layer), GemmaTensorNames.pleProj(layer))
-        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            hfPostPerLayerInputNorm(layer), GemmaTensorNames.plePostNorm(layer), transpose = false)
-
-        // Optional QK normalization (per-head Q/K RMSNorm).
-        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            hfAttnQNorm(layer), GemmaTensorNames.attnQNorm(layer), transpose = false)
-        loadTensorIfExists(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            hfAttnKNorm(layer), GemmaTensorNames.attnKNorm(layer), transpose = false)
+        for ((hfName, ggufName) in layerSlots(layer)) {
+            mapIfExists(tensorsByHfName, tensorsByGgufName, hfName, ggufName)
+        }
     }
 
-    private fun <T : DType> loadTensorIfExists(
-        ctx: ExecutionContext,
-        dtype: KClass<T>,
-        reader: StreamingShardedSafeTensorsReader,
-        tensorsByHfName: Map<String, ShardedTensorInfo>,
+    private fun <T : DType> mapIfExists(
+        tensorsByHfName: Map<String, Tensor<T, Float>>,
         tensorsByGgufName: MutableMap<String, Tensor<T, Float>>,
         hfName: String,
-        ggufName: String,
-        transpose: Boolean = false
+        ggufName: String
     ) {
-        val info = tensorsByHfName[hfName]
-        if (info != null) {
-            val tensor = loadAndConvertTensor<T>(ctx, dtype, reader, info, transpose)
+        tensorsByHfName[hfName]?.let { tensorsByGgufName[ggufName] = it }
+    }
+
+    private fun <T : DType> mapFirstExisting(
+        tensorsByHfName: Map<String, Tensor<T, Float>>,
+        tensorsByGgufName: MutableMap<String, Tensor<T, Float>>,
+        ggufName: String,
+        hfCandidates: List<String>
+    ) {
+        for (hfName in hfCandidates) {
+            val tensor = tensorsByHfName[hfName] ?: continue
             tensorsByGgufName[ggufName] = tensor
-        }
-    }
-
-    private fun <T : DType> loadFirstExisting(
-        ctx: ExecutionContext,
-        dtype: KClass<T>,
-        reader: StreamingShardedSafeTensorsReader,
-        tensorsByHfName: Map<String, ShardedTensorInfo>,
-        tensorsByGgufName: MutableMap<String, Tensor<T, Float>>,
-        ggufName: String,
-        hfCandidates: List<String>,
-        transpose: Boolean = false
-    ) {
-        for (hfName in hfCandidates) {
-            val info = tensorsByHfName[hfName] ?: continue
-            tensorsByGgufName[ggufName] = loadAndConvertTensor<T>(ctx, dtype, reader, info, transpose)
             return
         }
-    }
-
-    /**
-     * Variant of [loadFirstExisting] that silently skips the load if the
-     * raw on-disk tensor exceeds [MAX_BYTES_PER_TENSOR] (the JVM ByteArray
-     * limit our streaming reader is bound by). Used for PLE globals on
-     * real Gemma-4 SafeTensors checkpoints, where the BF16 source is too
-     * large for the eager reader path.
-     */
-    private fun <T : DType> loadFirstExistingIfFits(
-        ctx: ExecutionContext,
-        dtype: KClass<T>,
-        reader: StreamingShardedSafeTensorsReader,
-        tensorsByHfName: Map<String, ShardedTensorInfo>,
-        tensorsByGgufName: MutableMap<String, Tensor<T, Float>>,
-        ggufName: String,
-        hfCandidates: List<String>,
-        transpose: Boolean = false
-    ) {
-        for (hfName in hfCandidates) {
-            val info = tensorsByHfName[hfName] ?: continue
-            if (info.sizeInBytes > MAX_BYTES_PER_TENSOR) {
-                // Leave the slot empty so PLE auto-detection turns off cleanly.
-                return
-            }
-            tensorsByGgufName[ggufName] = loadAndConvertTensor<T>(ctx, dtype, reader, info, transpose)
-            return
-        }
-    }
-
-    @Suppress("UNCHECKED_CAST")
-    private fun <T : DType> loadAndConvertTensor(
-        ctx: ExecutionContext,
-        dtype: KClass<T>,
-        reader: StreamingShardedSafeTensorsReader,
-        info: ShardedTensorInfo,
-        transpose: Boolean = false
-    ): Tensor<T, Float> {
-        val bytes = reader.loadTensorData(info)
-        val shape = Shape(*info.shape.map { it.toInt() }.toIntArray())
-
-        val floats = when (info.dtype.uppercase()) {
-            "BF16" -> DequantOps.dequantBF16FromBytes(bytes)
-            "F16" -> DequantOps.dequantF16FromBytes(bytes)
-            "F32" -> DequantOps.bytesToFloatArray(bytes)
-            else -> error("Unsupported SafeTensors dtype: ${info.dtype}")
-        }
-
-        return if (transpose && shape.rank == 2) {
-            val rows = shape[0]
-            val cols = shape[1]
-            val transposed = transposeRowMajor(floats, rows, cols)
-            val newShape = Shape(cols, rows)
-            ctx.fromFloatArray<T, Float>(newShape, dtype, transposed) as Tensor<T, Float>
-        } else {
-            ctx.fromFloatArray<T, Float>(shape, dtype, floats) as Tensor<T, Float>
-        }
-    }
-
-    private fun transposeRowMajor(data: FloatArray, rows: Int, cols: Int): FloatArray {
-        val out = FloatArray(data.size)
-        for (r in 0 until rows) {
-            for (c in 0 until cols) {
-                out[c * rows + r] = data[r * cols + c]
-            }
-        }
-        return out
     }
 
     private companion object {
-        // The streaming sharded reader returns each tensor as a single
+        // The engine's eager loader path returns each tensor as a single
         // ByteArray, which the JVM caps at Int.MAX_VALUE bytes. Keep a
         // little headroom for safety.
         const val MAX_BYTES_PER_TENSOR: Long = Int.MAX_VALUE.toLong() - 1024L
+
+        /** HF names of the PLE table, new-name first; the only tensors subject to the size guard. */
+        val PLE_TABLE_CANDIDATES: List<String> by lazy {
+            listOf(HF_EMBED_TOKENS_PER_LAYER, HF_PER_LAYER_TOKEN_EMBD)
+        }
+
+        /** Every HF tensor this family maps, for [blockCount] layers — the engine loader's allowlist. */
+        fun wantedHfNames(blockCount: Int): Set<String> = buildSet {
+            add(HF_EMBED_TOKENS); add(HF_OUTPUT_NORM)
+            addAll(PLE_TABLE_CANDIDATES)
+            add(HF_PER_LAYER_MODEL_PROJECTION); add(HF_PER_LAYER_MODEL_PROJ)
+            add(HF_PER_LAYER_PROJECTION_NORM); add(HF_PER_LAYER_PROJ_NORM)
+            for (layer in 0 until blockCount) addAll(layerSlots(layer).map { it.first })
+        }
+
+        /**
+         * Per-layer HF → GGUF slot pairs, in the order the GGUF lane populates them.
+         *
+         * Sandwich norms — Gemma 4 has FOUR norms per block:
+         *  - attn_norm           ← input_layernorm
+         *  - post_attention_norm ← post_attention_layernorm    (Gemma-4 only)
+         *  - ffn_norm            ← pre_feedforward_layernorm   (Gemma-4 only)
+         *  - post_ffw_norm       ← post_feedforward_layernorm  (Gemma-4 only)
+         * The GGUF naming on `GemmaTensorNames.postAttentionLayernorm` is a legacy alias for
+         * the pre-FFN norm slot (`ffn_norm`); the proper Gemma-4 source for that slot is HF
+         * `pre_feedforward_layernorm`.
+         *
+         * PLE: the HF projection sends [B,S,perLayerDim] back into the residual at
+         * hidden_size, so it goes into the `proj` slot, NOT `per_layer_input`.
+         */
+        fun layerSlots(layer: Int): List<Pair<String, String>> = listOf(
+            hfInputLayernorm(layer) to GemmaTensorNames.inputLayernorm(layer),
+            hfAttnQ(layer) to GemmaTensorNames.attnQ(layer),
+            hfAttnK(layer) to GemmaTensorNames.attnK(layer),
+            hfAttnV(layer) to GemmaTensorNames.attnV(layer),
+            hfAttnO(layer) to GemmaTensorNames.attnOut(layer),
+            hfPostAttnLayernorm(layer) to GemmaTensorNames.postAttentionNorm(layer),
+            hfPreFfwLayernorm(layer) to GemmaTensorNames.postAttentionLayernorm(layer),
+            hfPostFfwLayernorm(layer) to GemmaTensorNames.postFfwNorm(layer),
+            hfMlpGate(layer) to GemmaTensorNames.ffnGate(layer),
+            hfMlpUp(layer) to GemmaTensorNames.ffnUp(layer),
+            hfMlpDown(layer) to GemmaTensorNames.ffnDown(layer),
+            // Per-layer scalar (HF: `layer_scalar`, no `.weight` suffix; scalar shape).
+            hfLayerScalar(layer) to GemmaTensorNames.layerOutputScale(layer),
+            hfPerLayerInputGate(layer) to GemmaTensorNames.pleInpGate(layer),
+            hfPerLayerProjection(layer) to GemmaTensorNames.pleProj(layer),
+            hfPostPerLayerInputNorm(layer) to GemmaTensorNames.plePostNorm(layer),
+            // Optional QK normalization (per-head Q/K RMSNorm).
+            hfAttnQNorm(layer) to GemmaTensorNames.attnQNorm(layer),
+            hfAttnKNorm(layer) to GemmaTensorNames.attnKNorm(layer),
+        )
 
         const val HF_EMBED_TOKENS = "model.language_model.embed_tokens.weight"
         const val HF_OUTPUT_NORM = "model.language_model.norm.weight"
