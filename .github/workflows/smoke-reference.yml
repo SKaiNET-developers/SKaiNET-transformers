@@ -126,6 +126,8 @@ jobs:
           echo "GEMMA3N_E2B_GGUF=$RUNNER_TEMP/models/gemma3n/gemma-3n-E2B-it-Q4_K_M.gguf" >> "$GITHUB_ENV"
           # The E2B parity gate self-skips below 16 GB test heap.
           echo "GEMMA3N_HEAP_ARG=-PgemmaTestMaxHeap=20g" >> "$GITHUB_ENV"
+
+      - name: Stage Gemma-4 E2B SafeTensors
         if: inputs.gemma4_safetensors_dir_url != ''
         env:
           URL: ${{ inputs.gemma4_safetensors_dir_url }}
