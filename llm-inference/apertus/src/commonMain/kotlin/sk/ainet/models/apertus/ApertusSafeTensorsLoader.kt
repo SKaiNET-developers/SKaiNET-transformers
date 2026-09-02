@@ -2,30 +2,39 @@ package sk.ainet.models.apertus
 
 import sk.ainet.context.ExecutionContext
 import sk.ainet.io.gguf.dequant.DequantOps
+import sk.ainet.io.load
+import sk.ainet.io.safetensors.ShardedSafeTensorsParametersLoader
 import sk.ainet.io.safetensors.ShardedTensorInfo
-import sk.ainet.io.safetensors.StreamingShardedSafeTensorsReader
 import sk.ainet.io.safetensors.StreamingSafeTensorsReader
 import sk.ainet.io.safetensors.StreamingSafeTensorInfo
 import sk.ainet.io.safetensors.readTextFile
 import sk.ainet.io.RandomAccessSource
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.Tensor
+import sk.ainet.lang.tensor.data.FloatArrayTensorData
 import sk.ainet.lang.types.DType
+import sk.ainet.lang.types.DTypePolicy
 import sk.ainet.lang.types.FP32
 import kotlin.reflect.KClass
 
 /**
  * Loads Apertus weights from HuggingFace SafeTensors format (sharded).
  *
- * Handles:
- * - HuggingFace → GGUF tensor name mapping
- * - BF16/F16/F32 dequantization to FP32
- * - Shape normalization ([1, dim] norms → [dim])
- * - Scalar tensor extraction for xIELU parameters
- * - Tied word embeddings (output.weight = token_embd.weight)
+ * Engine delegation (SKaiNET#1246): reading AND per-tensor materialization ride the engine's
+ * [ShardedSafeTensorsParametersLoader]. This class owns only the family policy — which HF
+ * tensors are wanted (the `tensorFilter`), the HF → GGUF slot renaming, the `[1, dim]` norm
+ * shape normalization, the xIELU scalar extraction, and tied embeddings — while every dtype
+ * decision (BF16/F16 widening vs keep-native, F32 passthrough) is the engine's, driven by
+ * [dtypePolicy] exactly as on the GGUF lane. No per-family dequant code remains here (#346).
+ *
+ * @param indexPath path to `model.safetensors.index.json`.
+ * @param dtypePolicy narrow-float policy forwarded to
+ *   [ShardedSafeTensorsParametersLoader.withPolicy]: `Any` (default) widens BF16/F16 to FP32;
+ *   `Require(BF16)` / `Require(FP16)` keep the native encoding under an FP32-typed tensor.
  */
 public class ApertusSafeTensorsLoader(
-    private val indexPath: String
+    private val indexPath: String,
+    private val dtypePolicy: DTypePolicy = DTypePolicy.Any,
 ) {
 
     /**
@@ -46,30 +55,23 @@ public class ApertusSafeTensorsLoader(
 
         val metadata = ApertusConfigParser.parse(configJson)
 
-        val reader = StreamingShardedSafeTensorsReader.openFromIndex(indexPath)
+        // Family policy as the engine loader's filter: only the tensors this family maps
+        // (anything unmapped never materializes and is exempt from the fail-fast dtype pre-scan).
+        val wanted = wantedHfNames(metadata.blockCount)
+        val loader = ShardedSafeTensorsParametersLoader.withPolicy(
+            indexPath = indexPath,
+            policy = dtypePolicy,
+            tensorFilter = { info: ShardedTensorInfo -> info.name in wanted },
+        )
+        val tensorsByHfName = linkedMapOf<String, Tensor<T, Float>>()
+        loader.load<T, Float>(ctx, dtype) { name, tensor -> tensorsByHfName[name] = tensor }
 
-        return reader.use {
-            loadFromReader(ctx, dtype, it, metadata)
-        }
-    }
-
-    private fun <T : DType> loadFromReader(
-        ctx: ExecutionContext,
-        dtype: KClass<T>,
-        reader: StreamingShardedSafeTensorsReader,
-        metadata: ApertusModelMetadata
-    ): ApertusWeights<T, Float> {
         val tensorsByGgufName = linkedMapOf<String, Tensor<T, Float>>()
         val xieluParams = mutableMapOf<Int, ApertusXIELUParams>()
 
-        val tensorsByHfName = reader.tensors.associateBy { it.name }
-
-        // Load global tensors
-        loadGlobalTensors(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName, metadata)
-
-        // Load layer tensors
+        loadGlobalTensors(ctx, dtype, tensorsByHfName, tensorsByGgufName, metadata)
         for (layer in 0 until metadata.blockCount) {
-            loadLayerTensors(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName, xieluParams, layer)
+            loadLayerTensors(ctx, dtype, tensorsByHfName, tensorsByGgufName, xieluParams, layer)
         }
 
         return ApertusWeights(
@@ -82,31 +84,24 @@ public class ApertusSafeTensorsLoader(
     private fun <T : DType> loadGlobalTensors(
         ctx: ExecutionContext,
         dtype: KClass<T>,
-        reader: StreamingShardedSafeTensorsReader,
-        tensorsByHfName: Map<String, ShardedTensorInfo>,
+        tensorsByHfName: Map<String, Tensor<T, Float>>,
         tensorsByGgufName: MutableMap<String, Tensor<T, Float>>,
         metadata: ApertusModelMetadata
     ) {
         // Token embeddings
-        val embedTokens = tensorsByHfName[HF_EMBED_TOKENS]
-            ?: error("Missing tensor: $HF_EMBED_TOKENS")
-        val embedTensor = loadAndConvertTensor<T>(ctx, dtype, reader, embedTokens, transpose = false)
+        val embedTensor = normalizeNormShape(ctx, dtype, required(tensorsByHfName, HF_EMBED_TOKENS))
         tensorsByGgufName[ApertusTensorNames.TOKEN_EMBEDDINGS] = embedTensor
 
         // Output norm
-        val norm = tensorsByHfName[HF_OUTPUT_NORM]
-            ?: error("Missing tensor: $HF_OUTPUT_NORM")
-        val normTensor = loadAndConvertTensor<T>(ctx, dtype, reader, norm, transpose = false)
-        tensorsByGgufName[ApertusTensorNames.OUTPUT_NORM] = normTensor
+        tensorsByGgufName[ApertusTensorNames.OUTPUT_NORM] =
+            normalizeNormShape(ctx, dtype, required(tensorsByHfName, HF_OUTPUT_NORM))
 
         // Output weight (may be tied to embeddings)
         val lmHead = tensorsByHfName[HF_LM_HEAD]
         if (lmHead != null) {
-            tensorsByGgufName[ApertusTensorNames.OUTPUT_WEIGHT] =
-                loadAndConvertTensor(ctx, dtype, reader, lmHead, transpose = false)
+            tensorsByGgufName[ApertusTensorNames.OUTPUT_WEIGHT] = normalizeNormShape(ctx, dtype, lmHead)
         } else if (metadata.tiedEmbeddings) {
             tensorsByGgufName[ApertusTensorNames.OUTPUT_WEIGHT] = embedTensor
-            println("  Tied: ${ApertusTensorNames.OUTPUT_WEIGHT} → ${ApertusTensorNames.TOKEN_EMBEDDINGS}")
         } else {
             error("Missing lm_head.weight and tie_word_embeddings is false")
         }
@@ -115,144 +110,52 @@ public class ApertusSafeTensorsLoader(
     private fun <T : DType> loadLayerTensors(
         ctx: ExecutionContext,
         dtype: KClass<T>,
-        reader: StreamingShardedSafeTensorsReader,
-        tensorsByHfName: Map<String, ShardedTensorInfo>,
+        tensorsByHfName: Map<String, Tensor<T, Float>>,
         tensorsByGgufName: MutableMap<String, Tensor<T, Float>>,
         xieluParams: MutableMap<Int, ApertusXIELUParams>,
         layer: Int
     ) {
-        // Attention norm (Apertus uses "attention_layernorm")
-        loadRequiredTensor(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            hfAttnNorm(layer), ApertusTensorNames.attnNorm(layer), transpose = false)
+        for ((hfName, ggufName) in layerSlots(layer)) {
+            tensorsByGgufName[ggufName] = normalizeNormShape(ctx, dtype, required(tensorsByHfName, hfName))
+        }
 
-        // QKV + output projections
-        loadRequiredTensor(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            hfAttnQ(layer), ApertusTensorNames.attnQ(layer))
-        loadRequiredTensor(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            hfAttnK(layer), ApertusTensorNames.attnK(layer))
-        loadRequiredTensor(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            hfAttnV(layer), ApertusTensorNames.attnV(layer))
-        loadRequiredTensor(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            hfAttnO(layer), ApertusTensorNames.attnOut(layer))
-
-        // QK-norm weights
-        loadRequiredTensor(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            hfQNorm(layer), ApertusTensorNames.attnQNorm(layer), transpose = false)
-        loadRequiredTensor(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            hfKNorm(layer), ApertusTensorNames.attnKNorm(layer), transpose = false)
-
-        // FFN norm (Apertus uses "feedforward_layernorm")
-        loadRequiredTensor(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            hfFfnNorm(layer), ApertusTensorNames.ffnNorm(layer), transpose = false)
-
-        // MLP weights (ungated: up + down only, no gate_proj)
-        loadRequiredTensor(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            hfMlpUp(layer), ApertusTensorNames.ffnUp(layer))
-        loadRequiredTensor(ctx, dtype, reader, tensorsByHfName, tensorsByGgufName,
-            hfMlpDown(layer), ApertusTensorNames.ffnDown(layer))
-
-        // xIELU scalar parameters
-        val alphaP = loadScalarParam(reader, tensorsByHfName, hfXieluAlphaP(layer))
-        val alphaN = loadScalarParam(reader, tensorsByHfName, hfXieluAlphaN(layer))
-        val beta = loadScalarParam(reader, tensorsByHfName, hfXieluBeta(layer))
-        val eps = loadScalarParam(reader, tensorsByHfName, hfXieluEps(layer))
+        // xIELU scalar parameters (shape [] or [1]; consumed as plain floats).
         xieluParams[layer] = ApertusXIELUParams(
-            alphaP = alphaP,
-            alphaN = alphaN,
-            beta = beta,
-            eps = eps
+            alphaP = scalar(tensorsByHfName, hfXieluAlphaP(layer)),
+            alphaN = scalar(tensorsByHfName, hfXieluAlphaN(layer)),
+            beta = scalar(tensorsByHfName, hfXieluBeta(layer)),
+            eps = scalar(tensorsByHfName, hfXieluEps(layer))
         )
     }
 
-    private fun <T : DType> loadRequiredTensor(
-        ctx: ExecutionContext,
-        dtype: KClass<T>,
-        reader: StreamingShardedSafeTensorsReader,
-        tensorsByHfName: Map<String, ShardedTensorInfo>,
-        tensorsByGgufName: MutableMap<String, Tensor<T, Float>>,
-        hfName: String,
-        ggufName: String,
-        transpose: Boolean = false
-    ) {
-        val info = tensorsByHfName[hfName]
-            ?: error("Missing required tensor: $hfName")
-        val tensor = loadAndConvertTensor<T>(ctx, dtype, reader, info, transpose)
-        tensorsByGgufName[ggufName] = tensor
-        println("  Loaded: $hfName (${info.dtype} ${info.shape}) → $ggufName")
+    private fun <T : DType> required(tensorsByHfName: Map<String, Tensor<T, Float>>, hfName: String): Tensor<T, Float> =
+        tensorsByHfName[hfName] ?: error("Missing required tensor: $hfName")
+
+    private fun <T : DType> scalar(tensorsByHfName: Map<String, Tensor<T, Float>>, hfName: String): Float {
+        val tensor = tensorsByHfName[hfName] ?: error("Missing scalar tensor: $hfName")
+        return tensor.data.copyToFloatArray()[0]
     }
 
     /**
-     * Load a scalar parameter from a tensor with shape [] or [1].
+     * Some exports store norms as `[1, dim]`; the runtime expects `[dim]`. A widened tensor is
+     * re-wrapped over the same buffer (no copy); a keep-native tensor is widened for this one
+     * defensive edge case, since the norm is tiny.
      */
-    private fun loadScalarParam(
-        reader: StreamingShardedSafeTensorsReader,
-        tensorsByHfName: Map<String, ShardedTensorInfo>,
-        hfName: String
-    ): Float {
-        val info = tensorsByHfName[hfName]
-            ?: error("Missing scalar tensor: $hfName")
-        val bytes = reader.loadTensorData(info)
-        return when (info.dtype.uppercase()) {
-            "BF16" -> dequantBF16FromBytes(bytes)[0]
-            "F16" -> dequantF16FromBytes(bytes)[0]
-            "F32" -> bytesToFloatArray(bytes)[0]
-            else -> error("Unsupported dtype for scalar: ${info.dtype}")
-        }
-    }
-
     @Suppress("UNCHECKED_CAST")
-    private fun <T : DType> loadAndConvertTensor(
+    private fun <T : DType> normalizeNormShape(
         ctx: ExecutionContext,
         dtype: KClass<T>,
-        reader: StreamingShardedSafeTensorsReader,
-        info: ShardedTensorInfo,
-        transpose: Boolean = false
+        tensor: Tensor<T, Float>
     ): Tensor<T, Float> {
-        val bytes = reader.loadTensorData(info)
-        val shape = normalizeNormShape(info.shape)
-
-        val floats = when (info.dtype.uppercase()) {
-            "BF16" -> dequantBF16FromBytes(bytes)
-            "F16" -> dequantF16FromBytes(bytes)
-            "F32" -> bytesToFloatArray(bytes)
-            else -> error("Unsupported SafeTensors dtype: ${info.dtype}")
-        }
-
-        return if (transpose && shape.rank == 2) {
-            val rows = shape[0]
-            val cols = shape[1]
-            val transposed = transposeRowMajor(floats, rows, cols)
-            val newShape = Shape(cols, rows)
-            ctx.fromFloatArray<T, Float>(newShape, dtype, transposed)
+        val dims = tensor.shape.dimensions
+        if (dims.size != 2 || dims[0] != 1) return tensor
+        val newShape = Shape(dims[1])
+        val data = tensor.data
+        return if (data is FloatArrayTensorData<*>) {
+            ctx.wrapFloatArray(newShape, dtype, (data as FloatArrayTensorData<T>).buffer)
         } else {
-            ctx.fromFloatArray<T, Float>(shape, dtype, floats)
+            ctx.fromFloatArray(newShape, dtype, data.copyToFloatArray())
         }
-    }
-
-    private fun normalizeNormShape(shape: List<Long>): Shape {
-        return if (shape.size == 2 && shape[0] == 1L) {
-            Shape(shape[1].toInt())
-        } else if (shape.isEmpty()) {
-            Shape(1) // scalar → [1]
-        } else {
-            Shape(*shape.map { it.toInt() }.toIntArray())
-        }
-    }
-
-    // ========== Byte Conversion Helpers ==========
-
-    private fun bytesToFloatArray(bytes: ByteArray): FloatArray = DequantOps.bytesToFloatArray(bytes)
-    private fun dequantF16FromBytes(bytes: ByteArray): FloatArray = DequantOps.dequantF16FromBytes(bytes)
-    private fun dequantBF16FromBytes(bytes: ByteArray): FloatArray = DequantOps.dequantBF16FromBytes(bytes)
-
-    private fun transposeRowMajor(data: FloatArray, rows: Int, cols: Int): FloatArray {
-        val out = FloatArray(data.size)
-        for (r in 0 until rows) {
-            for (c in 0 until cols) {
-                out[c * rows + r] = data[r * cols + c]
-            }
-        }
-        return out
     }
 
     // ========== HuggingFace Tensor Name Constants ==========
@@ -261,6 +164,34 @@ public class ApertusSafeTensorsLoader(
         const val HF_EMBED_TOKENS = "model.embed_tokens.weight"
         const val HF_OUTPUT_NORM = "model.norm.weight"
         const val HF_LM_HEAD = "lm_head.weight"
+
+        /** Every HF tensor this family maps, for [blockCount] layers — the engine loader's allowlist. */
+        fun wantedHfNames(blockCount: Int): Set<String> = buildSet {
+            add(HF_EMBED_TOKENS); add(HF_OUTPUT_NORM); add(HF_LM_HEAD)
+            for (layer in 0 until blockCount) {
+                addAll(layerSlots(layer).map { it.first })
+                add(hfXieluAlphaP(layer)); add(hfXieluAlphaN(layer)); add(hfXieluBeta(layer)); add(hfXieluEps(layer))
+            }
+        }
+
+        /** Per-layer HF → GGUF slot pairs; every one is required. */
+        fun layerSlots(layer: Int): List<Pair<String, String>> = listOf(
+            // Attention norm (Apertus uses "attention_layernorm")
+            hfAttnNorm(layer) to ApertusTensorNames.attnNorm(layer),
+            // QKV + output projections
+            hfAttnQ(layer) to ApertusTensorNames.attnQ(layer),
+            hfAttnK(layer) to ApertusTensorNames.attnK(layer),
+            hfAttnV(layer) to ApertusTensorNames.attnV(layer),
+            hfAttnO(layer) to ApertusTensorNames.attnOut(layer),
+            // QK-norm weights
+            hfQNorm(layer) to ApertusTensorNames.attnQNorm(layer),
+            hfKNorm(layer) to ApertusTensorNames.attnKNorm(layer),
+            // FFN norm (Apertus uses "feedforward_layernorm")
+            hfFfnNorm(layer) to ApertusTensorNames.ffnNorm(layer),
+            // MLP weights (ungated: up + down only, no gate_proj)
+            hfMlpUp(layer) to ApertusTensorNames.ffnUp(layer),
+            hfMlpDown(layer) to ApertusTensorNames.ffnDown(layer),
+        )
 
         fun hfAttnNorm(layer: Int) = "model.layers.$layer.attention_layernorm.weight"
         fun hfAttnQ(layer: Int) = "model.layers.$layer.self_attn.q_proj.weight"
