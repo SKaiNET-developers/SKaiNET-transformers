@@ -51,7 +51,9 @@ llm-apps/
   skainet-cli/              Unified CLI (auto-detects architecture, routes every GGUF family)
   kllama-cli/               Llama-family CLI with agent/tool-calling mode
   kbert-cli/                BERT CLI
-  skainet-decode/           Shared decode entry points
+  skainet-decode/           GGUF decode + GenerationMetrics CLI (JVM leg, SKaiNET#1129)
+  skainet-decode-core/      Shared DecodeSession flow behind both decode legs (KMP: jvm + android)
+  skainet-decode-android/   On-device decode/metrics activity (Android leg, SKaiNET#1244)
   kllama-java-sample/       Java interop sample
 llm-performance/            Benchmarking module
 ----
