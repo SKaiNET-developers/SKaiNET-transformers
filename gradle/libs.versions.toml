@@ -108,6 +108,7 @@ skainet-io-safetensors = { module = "sk.ainet.core:skainet-io-safetensors" }
 skainet-data-source = { module = "sk.ainet.core:skainet-data-source" }
 
 [plugins]
+androidApplication = { id = "com.android.application", version.ref = "agp" }
 androidLibrary = { id = "com.android.library", version.ref = "agp" }
 androidMultiplatformLibrary = { id = "com.android.kotlin.multiplatform.library", version.ref = "agp" }
 kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }

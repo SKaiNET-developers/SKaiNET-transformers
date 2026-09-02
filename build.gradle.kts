@@ -5,6 +5,9 @@ plugins {
     // :llm-runtime:iree-android, which bundles prebuilt JNI .so's via jniLibs, matching
     // the engine repo's skainet-backend-jni-cpu precedent.
     alias(libs.plugins.androidLibrary) apply false
+    // com.android.application: :llm-apps:skainet-decode-android, the on-device decode/metrics
+    // sample (SKaiNET#1244) — first application module in the repo.
+    alias(libs.plugins.androidApplication) apply false
     alias(libs.plugins.jetbrainsKotlinJvm) apply false
     alias(libs.plugins.vanniktech.mavenPublish) apply false
     alias(libs.plugins.kover)
