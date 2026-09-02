@@ -20,7 +20,7 @@ import sk.ainet.lang.tensor.VoidOpsTensor
 import sk.ainet.lang.tensor.data.Bf16TensorData
 import sk.ainet.lang.tensor.data.TensorData
 import sk.ainet.lang.tensor.ops.VoidTensorOps
-import sk.ainet.lang.tensor.storage.BufferHandle
+import sk.ainet.lang.tensor.storage.DefaultBufferResolver
 import sk.ainet.lang.types.FP32
 import sk.ainet.tape.Execution
 import java.io.BufferedOutputStream
@@ -265,30 +265,38 @@ public object Gemma3nExportHarness {
             os.write(ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN).putLong(headerBytes.size.toLong()).array())
             os.write(headerBytes)
             val chunkElems = 1 shl 24 // 16M floats per conversion chunk (32 MiB bf16 out)
+            // Read every handle through the resolver instead of casting to
+            // BufferHandle.Owned: with SKaiNET#1247 the engine hands ≥2 GiB
+            // FP32 constants over as an aliased FloatArray (BufferHandle.Floats)
+            // that never exists as one ByteArray, and the resolver streams it
+            // as little-endian bytes in bounded chunks.
+            val resolver = DefaultBufferResolver()
             for (e in ext) {
-                val src = e.source as BufferHandle.Owned
-                if (bf16) {
-                    val data = src.data
-                    val n = (src.sizeInBytes / 4).toInt()
-                    var done = 0
-                    while (done < n) {
-                        val take = minOf(chunkElems, n - done)
-                        val obuf = ByteArray(take * 2)
-                        for (j in 0 until take) {
-                            val o = src.offset + (done + j) * 4
-                            val fb = (data[o].toInt() and 0xFF) or
-                                ((data[o + 1].toInt() and 0xFF) shl 8) or
-                                ((data[o + 2].toInt() and 0xFF) shl 16) or
-                                ((data[o + 3].toInt() and 0xFF) shl 24)
-                            val bf = Bf16TensorData.floatToBf16Bits(Float.fromBits(fb))
-                            obuf[j * 2] = (bf and 0xFF).toByte()
-                            obuf[j * 2 + 1] = ((bf ushr 8) and 0xFF).toByte()
+                resolver.resolve(e.source).use { acc ->
+                    val total = acc.sizeInBytes
+                    var doneBytes = 0L
+                    while (doneBytes < total) {
+                        val takeBytes = minOf(chunkElems.toLong() * 4L, total - doneBytes).toInt()
+                        val data = acc.readBytes(doneBytes, takeBytes)
+                        if (bf16) {
+                            val take = takeBytes / 4
+                            val obuf = ByteArray(take * 2)
+                            for (j in 0 until take) {
+                                val o = j * 4
+                                val fb = (data[o].toInt() and 0xFF) or
+                                    ((data[o + 1].toInt() and 0xFF) shl 8) or
+                                    ((data[o + 2].toInt() and 0xFF) shl 16) or
+                                    ((data[o + 3].toInt() and 0xFF) shl 24)
+                                val bf = Bf16TensorData.floatToBf16Bits(Float.fromBits(fb))
+                                obuf[j * 2] = (bf and 0xFF).toByte()
+                                obuf[j * 2 + 1] = ((bf ushr 8) and 0xFF).toByte()
+                            }
+                            os.write(obuf)
+                        } else {
+                            os.write(data)
                         }
-                        os.write(obuf)
-                        done += take
+                        doneBytes += takeBytes
                     }
-                } else {
-                    os.write(src.data, src.offset, src.sizeInBytes.toInt())
                 }
             }
         }
