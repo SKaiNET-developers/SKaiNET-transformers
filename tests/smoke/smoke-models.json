@@ -64,6 +64,14 @@
       "steps": 16
     },
     {
+      "name": "Gemma3n-E2B-GGUF",
+      "runner": "skainet",
+      "model": "gemma-3n-E2B-it-Q4_K_M.gguf",
+      "format": "gguf",
+      "steps": 12,
+      "prompt": "The first ten prime numbers are"
+    },
+    {
       "name": "Gemma4-E4B-GGUF",
       "runner": "kgemma",
       "model": "~/.lmstudio/models/lmstudio-community/gemma-4-E4B-it-GGUF/gemma-4-E4B-it-Q4_K_M.gguf",

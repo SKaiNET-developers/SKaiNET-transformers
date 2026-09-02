@@ -39,6 +39,10 @@ on:
         description: "Direct URL to Apertus-8B-Instruct-2509-Q4_K_S.gguf (~4.6 GB). Enables the Apertus golden-token parity gate (QK-norm + xIELU + ungated FFN). Leave blank to skip."
         required: false
         default: ""
+      gemma3n_gguf_url:
+        description: "Direct URL to gemma-3n-E2B-it-Q4_K_M.gguf (~3.0 GB). Enables the Gemma 3n golden-token parity gate on the DSL lane (AltUp + Laurel + sparsity + PLE + shared KV; needs a large-memory runner: 20g test heap). Leave blank to skip."
+        required: false
+        default: ""
       gemma4_safetensors_dir_url:
         description: "Direct URL to a tar.gz containing the Gemma-4 E2B SafeTensors checkpoint directory. Leave blank to skip the kgemma test."
         required: false
@@ -110,6 +114,18 @@ jobs:
           echo "APERTUS_GGUF_PATH=$RUNNER_TEMP/models/apertus/Apertus-8B-Instruct-2509-Q4_K_S.gguf" >> "$GITHUB_ENV"
           # The 8B parity gate needs more than the module's 6g default test heap.
           echo "APERTUS_HEAP_ARG=-PapertusTestMaxHeap=12g" >> "$GITHUB_ENV"
+
+      - name: Stage Gemma 3n E2B GGUF
+        if: inputs.gemma3n_gguf_url != ''
+        env:
+          URL: ${{ inputs.gemma3n_gguf_url }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/models/gemma3n"
+          curl -fsSL "$URL" -o "$RUNNER_TEMP/models/gemma3n/gemma-3n-E2B-it-Q4_K_M.gguf"
+          echo "GEMMA3N_E2B_GGUF=$RUNNER_TEMP/models/gemma3n/gemma-3n-E2B-it-Q4_K_M.gguf" >> "$GITHUB_ENV"
+          # The E2B parity gate self-skips below 16 GB test heap.
+          echo "GEMMA3N_HEAP_ARG=-PgemmaTestMaxHeap=20g" >> "$GITHUB_ENV"
         if: inputs.gemma4_safetensors_dir_url != ''
         env:
           URL: ${{ inputs.gemma4_safetensors_dir_url }}
@@ -149,6 +165,7 @@ jobs:
             -Dorg.gradle.configuration-cache=true \
             -PsmokeReference -PincludeIntegration \
             ${APERTUS_HEAP_ARG:-} \
+            ${GEMMA3N_HEAP_ARG:-} \
             test
 
       - name: Disk space (after run)

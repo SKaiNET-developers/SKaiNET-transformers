@@ -25,6 +25,7 @@ dependencies {
     implementation(project(":llm-inference:qwen"))
     implementation(project(":llm-inference:bitnet"))
     implementation(project(":llm-inference:gemma"))
+    implementation(project(":llm-inference:gemma3n"))
     implementation(project(":llm-inference:apertus"))
 
     // SKaiNET core libraries
