@@ -34,9 +34,10 @@
 static void log_and_ignore(const char* what, iree_status_t st) {
   if (iree_status_is_ok(st)) return;
   char* buf = NULL; iree_host_size_t len = 0;
-  if (iree_status_to_string(st, &iree_allocator_system(), &buf, &len) && buf) {
+  iree_allocator_t alloc = iree_allocator_system();
+  if (iree_status_to_string(st, &alloc, &buf, &len) && buf) {
     __android_log_print(ANDROID_LOG_ERROR, "skainet_iree", "%s: %.*s", what, (int)len, buf);
-    iree_allocator_free(iree_allocator_system(), buf);
+    iree_allocator_free(alloc, buf);
   } else {
     __android_log_print(ANDROID_LOG_ERROR, "skainet_iree", "%s: status code %d", what, (int)iree_status_code(st));
   }
