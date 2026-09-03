@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — schedule-driven attention: parallel heads, copy-free K/V (SKaiNET SKEEP-005)
+
+- **Attention heads run in parallel** (#413): `MultiHeadAttention` maps heads (or GQA groups) onto
+  cores through the engine's new `ExecutionContext.schedule`
+  ([SKaiNET SKEEP-005](https://skainet-developers.github.io/SKaiNET/skainet/skeep/005-schedules-structured-concurrency.html)).
+  `AttentionSchedulePolicy` (`Sequential` / `PerHead` / `PerKVGroup` / `Auto`, default `Auto`)
+  plans the tasks; `ScalarHeadAttentionKernel` keeps the exact per-head rounding order, so the
+  result is bit-identical to 0.53.0. The fused path now also covers batched prefill and
+  sliding-window layers (engine SDPA rounding order), removing `repeatKVHeads`/`permute`/`reshape`
+  from the hot path. The DSL is unchanged; override per layer with `mha.schedule` /
+  `mha.schedulePolicy` or `Module.configureAttention(...)`.
+- **Copy-free K/V views** (#412): `KVCache.updateInPlace` returns a `KVBufferView` over the cache's
+  own buffers for `PositionalKVCache` and its shared / padded / read-only wrappers (best-effort for
+  `AppendKVCache`), so decode no longer copies the whole prefix per layer per token.
+- **Positional cache for Llama and Qwen**: `DecoderKVCacheKind` (`APPEND` default, `POSITIONAL`),
+  `decoderTransformerNetwork(kvCacheKind = …)`, the `ATTENTION.positionalKvCache(...)` DSL clause,
+  and `LlamaNetworkLoader / QwenNetworkLoader.withKVCacheKind(...)` / `fromWeights(weights,
+  kvCacheKind = …)`.
+- **Verification**: `MultiHeadAttentionScheduleParityTest`, `KVCacheInPlaceViewTest`; the Llama and
+  Qwen golden gates accept `SKAINET_ATTN_SCHEDULE=sequential|parallel` and
+  `SKAINET_KV_CACHE=append|positional`; `AttentionScheduleSpeedProfile` (opt-in) measures all four
+  combinations. Docs: `docs/specs/attention-schedule.md`, the *Parallel Attention Heads via
+  Schedules* explanation and the *Parallel Attention — Getting Started* tutorial.
+- Requires engine **0.54.0** (until released: `-PuseLocalSkainet=true` against the
+  `feature/skeep-005-schedules` checkout).
+
 ## [0.53.0] — 2026-09-02
 
 Version lock-step with the engine is restored: this release ships against **SKaiNET 0.53.0**

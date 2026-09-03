@@ -82,6 +82,8 @@ public inline fun <reified T : DType, V> decoderTransformerNetwork(
     /** BitNet-style `attn_sub_norm` between the attention output and o_proj. */
     attnSubNorm: Boolean = false,
     @Suppress("UNUSED_PARAMETER") dtypePolicy: DTypePolicy = DTypePolicy.Any,
+    /** Which KV cache each layer gets; [DecoderKVCacheKind.POSITIONAL] lets attention read it in place (SKEEP-005). */
+    kvCacheKind: DecoderKVCacheKind = DecoderKVCacheKind.APPEND,
 ): Module<T, V> {
     val dim = metadata.embeddingLength
     val nHeads = metadata.headCount
@@ -114,7 +116,10 @@ public inline fun <reified T : DType, V> decoderTransformerNetwork(
                 id = "attn",
             ) {
                 rope(headDim, seqLen, mode = ropeMode, base = ropeBase)
-                kvCache(seqLen, nKVHeads, headDim)
+                when (kvCacheKind) {
+                    DecoderKVCacheKind.APPEND -> kvCache(seqLen, nKVHeads, headDim)
+                    DecoderKVCacheKind.POSITIONAL -> positionalKvCache(seqLen, nKVHeads, headDim)
+                }
             }
             stage.residual()
 

@@ -6,6 +6,7 @@ import sk.ainet.lang.nn.layers.EmbeddingAdapter
 import sk.ainet.lang.nn.layers.EmbeddingParams
 import sk.ainet.lang.nn.normalization.RMSNormalization
 import sk.ainet.lang.nn.transformer.AppendKVCache
+import sk.ainet.lang.nn.transformer.PositionalKVCache
 import sk.ainet.lang.nn.transformer.KVCache
 import sk.ainet.lang.nn.transformer.MultiHeadAttention
 import sk.ainet.lang.nn.transformer.ResidualAdd
@@ -65,6 +66,10 @@ public interface ATTENTION<T : DType, V> : NetworkDslItem {
     public fun kvCache(maxSeqLen: Int, nKVHeads: Int, headDim: Int)
     /** Attach a pre-built KV cache variant (e.g. [SlidingWindowKVCache] or [SharedKVCache]). */
     public fun kvCache(cache: KVCache<T, V>)
+    /** Build a pre-allocated [PositionalKVCache] in place — attention reads it without copies (SKEEP-005). */
+    public fun positionalKvCache(maxSeqLen: Int, nKVHeads: Int, headDim: Int) {}
+    /** How this layer splits its heads across the context schedule's tasks (SKEEP-005). */
+    public fun schedulePolicy(policy: sk.ainet.lang.nn.transformer.schedule.AttentionSchedulePolicy) {}
 }
 
 public class AttentionImpl<T : DType, V>(
@@ -128,6 +133,16 @@ public class AttentionImpl<T : DType, V>(
         kvCacheModule = cache
     }
 
+    override fun positionalKvCache(maxSeqLen: Int, nKVHeads: Int, headDim: Int) {
+        kvCacheModule = PositionalKVCache(maxSeqLen = maxSeqLen, nKVHeads = nKVHeads, headDim = headDim, name = "$id.kv_cache")
+    }
+
+    private var schedulePolicy: sk.ainet.lang.nn.transformer.schedule.AttentionSchedulePolicy? = null
+
+    override fun schedulePolicy(policy: sk.ainet.lang.nn.transformer.schedule.AttentionSchedulePolicy) {
+        schedulePolicy = policy
+    }
+
     public fun create(): MultiHeadAttention<T, V> {
         // Pass explicit headDim when it differs from dim/nHeads (e.g. Voxtral: dim=3072, head_dim=128, nHeads=32)
         val needsExplicitHeadDim = explicitHeadDim != null && explicitHeadDim != dim / nHeads
@@ -151,7 +166,7 @@ public class AttentionImpl<T : DType, V>(
             slidingWindow = slidingWindow,
             rightContext = rightContext,
             dtype = kClass
-        )
+        ).also { mha -> schedulePolicy?.let { mha.schedulePolicy = it } }
     }
 }
 
