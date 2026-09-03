@@ -53,6 +53,29 @@ class FunctionGemmaExportDumpTest {
             "withPast=${File(outDir, "gemma-with-past.safetensors").length() / (1 shl 20)}MiB manifest=${r.manifest}")
     }
 
+    @Test
+    fun positionSelectedGraphs_emitContractShapes() {
+        FunctionGemmaFixture.assumeRealCheckpointRunnable()
+        val outDir = File(System.getProperty("java.io.tmpdir"), "functiongemma-export-dump-at").absolutePath
+
+        // ---- gemma_at: (tokens 1xseq i32, select 1xseq f32) -> token 1xi32, fully static ----
+        val r = FunctionGemmaExportHarness.exportRedecodeAt(spec, outDir)
+        val atMlir = File(r.mlirPath).readText()
+        assertTrue(!atMlir.contains("tensor<?"), "gemma_at: dynamic shape leaked into the fixed graph")
+        assertTrue(atMlir.contains("func.func @${FunctionGemmaContract.FN_REDECODE_AT}("), "entry func present")
+        assertTrue(atMlir.contains("tensor<1x${spec.seq}xf32>"), "one-hot select input present")
+        assertTrue(!atMlir.contains("x${spec.seq}x262144xf32>") && !atMlir.contains("x${spec.seq}x262144xi32>"), "gemma_at: no seq x vocab logits/argmax scratch")
+        checkArgCount(atMlir, FunctionGemmaContract.FN_REDECODE_AT, FunctionGemmaContract.selectArgs().size)
+        checkResultCount(atMlir, FunctionGemmaContract.FN_REDECODE_AT, 1)
+
+        // ---- gemma_prefill_at: (tokens seq i32, select 1xseq f32) -> per-layer K/V THEN token last ----
+        val prefillAtMlir = File(outDir, "gemma-prefill-at.mlir").also { FunctionGemmaExportHarness.exportPrefillAt(spec, outDir) }.readText()
+        assertTrue(!prefillAtMlir.contains("tensor<?"), "gemma_prefill_at: must stay fully static (fixed seq)")
+        assertTrue(!prefillAtMlir.contains("x${spec.seq}x262144xf32>"), "gemma_prefill_at: no seq x vocab logits")
+        checkArgCount(prefillAtMlir, FunctionGemmaContract.FN_PREFILL_AT, FunctionGemmaContract.selectArgs().size)
+        checkResultCount(prefillAtMlir, FunctionGemmaContract.FN_PREFILL_AT, FunctionGemmaContract.prefillAtOutputs(spec).size)
+    }
+
     private fun checkArgCount(mlir: String, func: String, expected: Int) {
         val sig = signatureLine(mlir, func)
         val argsPart = sig.substringAfter("@$func(").substringBefore(") ->")

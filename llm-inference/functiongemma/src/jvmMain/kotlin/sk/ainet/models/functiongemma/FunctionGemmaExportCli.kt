@@ -32,8 +32,8 @@ public fun main(args: Array<String>) {
         else -> FunctionGemmaQuant.BF16
     }
     val graph = (System.getenv("GEMMA_GRAPH") ?: "redecode").lowercase()
-    if (graph !in setOf("redecode", "prefill", "with_past", "all")) {
-        error("GEMMA_GRAPH must be redecode|prefill|with_past|all, got '$graph'")
+    if (graph !in setOf("redecode", "prefill", "with_past", "redecode_at", "prefill_at", "all")) {
+        error("GEMMA_GRAPH must be redecode|prefill|with_past|redecode_at|prefill_at|all, got '$graph'")
     }
 
     val spec = FunctionGemmaSpec(gguf = gguf, seq = seq, partialRotary = partial, quant = quant)
@@ -48,6 +48,14 @@ public fun main(args: Array<String>) {
     if (graph == "prefill" || graph == "all") {
         FunctionGemmaExportHarness.exportPrefill(spec, outDir)
         println("[functiongemma-export] prefill: wrote $outDir/gemma-prefill.mlir (seq=$seq)")
+    }
+    if (graph == "redecode_at") {
+        val r = FunctionGemmaExportHarness.exportRedecodeAt(spec, outDir)
+        println("[functiongemma-export] redecode_at: wrote ${r.mlirPath} + ${r.safetensorsPath} (${r.externalParamCount} externals, ${r.weightMiB} MiB, seq=${r.seq})")
+    }
+    if (graph == "prefill_at") {
+        FunctionGemmaExportHarness.exportPrefillAt(spec, outDir)
+        println("[functiongemma-export] prefill_at: wrote $outDir/gemma-prefill-at.mlir + gemma-prefill-at.safetensors")
     }
     if (graph == "with_past" || graph == "all") {
         FunctionGemmaExportHarness.exportWithPast(spec, outDir)

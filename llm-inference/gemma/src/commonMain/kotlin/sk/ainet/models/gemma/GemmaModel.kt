@@ -78,7 +78,20 @@ public class GemmaModel<T : DType, V>(
         add(lmHead)
     }
 
-    override fun onForward(input: Tensor<T, V>, ctx: ExecutionContext): Tensor<T, V> {
+    override fun onForward(input: Tensor<T, V>, ctx: ExecutionContext): Tensor<T, V> = forwardImpl(input, ctx, null)
+
+    /**
+     * [forward] with the LM head applied to ONE position: [selectAt] is a one-hot `[1, seq]` row
+     * that multiplies the final-normed hidden state `[seq, hidden]` down to `[1, hidden]` before
+     * `lm_head`, so the graph returns logits `[1, vocab]` instead of `[seq, vocab]`. For a compiled
+     * re-decode graph this removes the `seq × vocab` logits and argmax scratch that only one position
+     * ever reads (36 % of a FunctionGemma step on a 4-core arm32 box; the reason a 1024-position
+     * graph cannot run in a 32-bit process). Plain matmul on purpose: no dynamic-index op is needed.
+     */
+    public fun forwardAt(input: Tensor<T, V>, selectAt: Tensor<T, V>, ctx: ExecutionContext): Tensor<T, V> =
+        forwardImpl(input, ctx, selectAt)
+
+    private fun forwardImpl(input: Tensor<T, V>, ctx: ExecutionContext, selectAt: Tensor<T, V>?): Tensor<T, V> {
         // Diagnostic: dump per-block hidden state stats when GEMMA4_DUMP_HIDDEN=1.
         // Compares against expected llama.cpp magnitudes to localize the
         // BOS-loop forward-pass bug. See gemma4-research/findings/dsl_vs_llamacpp_logit_divergence.md.
@@ -125,6 +138,11 @@ public class GemmaModel<T : DType, V>(
         // Step 4: final norm + lm_head.
         hidden = outputNorm.forward(hidden, ctx)
         if (dumpHidden) dumpHiddenStats("post-norm    ", hidden)
+        if (selectAt != null) {
+            // [1, seq] x [seq, hidden] -> [1, hidden]; a rank-3 [1, seq, hidden] trunk output is squeezed first.
+            val h2 = if (hidden.rank == 3) ctx.ops.squeeze(hidden, dim = 0) else hidden
+            hidden = ctx.ops.matmul(selectAt, h2)
+        }
         var logits = lmHead.forward(hidden, ctx)
         if (dumpHidden) dumpHiddenStats("logits-pre-sc", logits)
 
@@ -376,6 +394,39 @@ public class GemmaModel<T : DType, V>(
             selfV += ops.unsqueeze(kv.v, 0)
         }
         val logits = applySoftcap(lmHead.forward(outputNorm.forward(h, ctx), ctx), ctx)
+        return GemmaPrefillOutput(logits, selfK, selfV)
+    }
+
+    /**
+     * [forwardPrefill] with the LM head applied to ONE position ([selectAt] = one-hot `[1, seq]`, see
+     * [forwardAt]): logits `[1, vocab]` + the same per-layer initial self K/V. The compiled
+     * `gemma_prefill_at` graph reads the first generated token from this single row instead of
+     * computing `seq × vocab` logits for the padding positions.
+     */
+    public fun forwardPrefillAt(input: Tensor<T, V>, selectAt: Tensor<T, V>, ctx: ExecutionContext): GemmaPrefillOutput<T, V> {
+        require(ple == null) { "GemmaModel.forwardPrefillAt: PLE models not supported by the KV-cache path yet" }
+        stripCaches()
+        val ops = ctx.ops
+        val rawEmbeds = tokenEmbedding.forward(input, ctx)
+        var h = if (embedScale != 1f) ops.mulScalar(rawEmbeds, embedScale) else rawEmbeds
+        val selfK = ArrayList<Tensor<T, V>>(blocks.size)
+        val selfV = ArrayList<Tensor<T, V>>(blocks.size)
+        for (block in blocks) {
+            val r = refsFor(block)
+            val kv = r.mha.forwardWithKV(r.attnNorm.forward(h, ctx), null, ctx)
+            val postAttn = r.postAttnNorm?.forward(kv.output, ctx) ?: kv.output
+            val h1 = ops.add(h, postAttn)
+            val ffnOut = r.ffn.forward(r.ffnNorm.forward(h1, ctx), ctx)
+            val postFfw = r.postFfwNorm?.forward(ffnOut, ctx) ?: ffnOut
+            var h2 = ops.add(h1, postFfw)
+            if (r.outScale != null) h2 = r.outScale.forward(h2, ctx)
+            h = h2
+            selfK += ops.unsqueeze(kv.k, 0)
+            selfV += ops.unsqueeze(kv.v, 0)
+        }
+        val normed = outputNorm.forward(h, ctx)
+        val hAt = ops.matmul(selectAt, if (normed.rank == 3) ops.squeeze(normed, dim = 0) else normed)  // [1, hidden]
+        val logits = applySoftcap(lmHead.forward(hAt, ctx), ctx)                                        // [1, vocab]
         return GemmaPrefillOutput(logits, selfK, selfV)
     }
 

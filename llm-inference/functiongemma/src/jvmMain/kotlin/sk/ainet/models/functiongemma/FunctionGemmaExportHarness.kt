@@ -125,6 +125,24 @@ public object FunctionGemmaExportHarness {
         bf16 = spec.quant != FunctionGemmaQuant.FP32,
     )
 
+    /** The position-selected re-decode graph (`func @gemma_at`) from [spec]. */
+    public fun exportRedecodeAt(spec: FunctionGemmaSpec, outDir: String): RedecodeResult = exportRedecodeAt(
+        gguf = spec.gguf,
+        outDir = outDir,
+        seq = spec.seq,
+        partialRotary = spec.partialRotary,
+        bf16 = spec.quant != FunctionGemmaQuant.FP32,
+    )
+
+    /** The position-selected prefill graph (`func @gemma_prefill_at`) from [spec]. */
+    public fun exportPrefillAt(spec: FunctionGemmaSpec, outDir: String): String = exportPrefillAt(
+        gguf = spec.gguf,
+        outDir = outDir,
+        seq = spec.seq,
+        partialRotary = spec.partialRotary,
+        bf16 = spec.quant != FunctionGemmaQuant.FP32,
+    )
+
     /** Write `manifest.json` (see [FunctionGemmaContract.manifestJson]). */
     public fun writeManifest(spec: FunctionGemmaSpec, outDir: String): File {
         File(outDir).mkdirs()
@@ -431,6 +449,123 @@ public object FunctionGemmaExportHarness {
         File(outDir, "gemma-prefill.mlir").writeText(mlir)
         // This trace's own key numbering -> its own archive (see writeSafetensors).
         writeSafetensors(module.externalParameters, File(outDir, "gemma-prefill.safetensors"), bf16)
+        mlir
+    }
+
+    /**
+     * Position-selected re-decode graph `func @gemma_at(tokens 1x{seq} i32, select 1x{seq} f32) -> token 1xi32`:
+     * the same fixed-[seq] pass as [export], but the LM head runs on ONE position picked by the one-hot
+     * `select` row ([GemmaModel.forwardAt]). Measured on a 4-core arm32 box at seq 64: 6.6 s/step vs
+     * 10.4 s for the all-positions graph, and the 1024-position graph fits a 32-bit process (the
+     * all-positions variant dies on a 1 GB `seq x vocab` argmax scratch). f32 or bf16 externals only.
+     */
+    public fun exportRedecodeAt(
+        gguf: String,
+        outDir: String,
+        seq: Int = 24,
+        partialRotary: Float = 1.0f,
+        bf16: Boolean = true,
+    ): RedecodeResult = runBlocking {
+        val ctx = DirectCpuExecutionContext.create()
+        val weights = GemmaWeightLoader(
+            randomAccessProvider = { JvmRandomAccessSource.open(gguf) },
+            weightForm = GEMMA_DEQUANTIZE_ALL,
+        ).loadToMapStreaming<FP32, Float>(ctx, FP32::class)
+        val patched = weights.copy(
+            metadata = weights.metadata.copy(
+                ropeParametersFull = weights.metadata.ropeParametersFull.copy(partialRotaryFactor = partialRotary),
+            ),
+        )
+        @Suppress("UNCHECKED_CAST")
+        val model = GemmaNetworkLoader.fromWeights(ctx, patched, FP32::class) as GemmaModel<FP32, Float>
+        fun stripKvCache(m: Module<*, *>) {
+            if (m is MultiHeadAttention<*, *>) m.kvCache = null
+            m.modules.forEach { stripKvCache(it) }
+        }
+        stripKvCache(model)
+
+        val input = voidF32(Shape(1, seq))     // token ids -> `1x{seq}xi32`
+        val select = voidF32(Shape(1, seq))    // one-hot position row -> `1x{seq}xf32`
+        val tapeCtx = DefaultGraphExecutionContext.tape(baseOps = VoidTensorOps())
+        val tape = tapeCtx.record {
+            val ct = (this as DefaultGraphExecutionContext).currentTape ?: error("no tape")
+            Execution.tapeStack.pushTape(ct)
+            try {
+                val ectx = this as ExecutionContext
+                val logits = model.forwardAt(input, select, ectx)   // [1, vocab] f32
+                ectx.ops.argMax(logits, dim = -1)                    // [1] i32
+            } finally {
+                Execution.tapeStack.popTape()
+            }
+        }.first
+        val graph = (tape as DefaultExecutionTape).toComputeGraph(synthesizeExternalInputs = true, embedConstants = true)
+        val module = StableHloConverterFactory
+            .createBasic(ConstantMaterializationPolicy.ExternalAlways(scope = "model"))
+            .convert(graph, FunctionGemmaContract.FN_REDECODE_AT)
+        val out = File(outDir).apply { mkdirs() }
+        val ext = module.externalParameters
+        val mlir = if (bf16) rewriteGlobalsToBf16(module.content) else module.content
+        val mlirFile = File(out, "gemma-gen-at.mlir").apply { writeText(mlir) }
+        val stFile = File(out, "gemma-at.safetensors")
+        writeSafetensors(ext, stFile, bf16)
+        val totalF32 = ext.sumOf { it.source.sizeInBytes }
+        RedecodeResult(
+            mlirPath = mlirFile.absolutePath,
+            safetensorsPath = stFile.absolutePath,
+            externalParamCount = ext.size,
+            weightMiB = (if (bf16) totalF32 / 2 else totalF32) / (1024 * 1024),
+            seq = seq,
+        )
+    }
+
+    /**
+     * Position-selected PREFILL graph `func @gemma_prefill_at(tokens {seq} i32, select 1x{seq} f32)` ->
+     * per-layer initial K/V (`1x{nKV}x{seq}x{headDim}`) THEN `token 1xi32` last. Same K/V contract as
+     * [exportPrefill]; the caller passes the one-hot row for position `P-1` instead of reading it out
+     * of a `{seq}xi32` argmax. Writes `gemma-prefill-at.mlir` + its own `gemma-prefill-at.safetensors`.
+     */
+    public fun exportPrefillAt(
+        gguf: String,
+        outDir: String,
+        seq: Int = 24,
+        partialRotary: Float = 1.0f,
+        bf16: Boolean = true,
+    ): String = runBlocking {
+        val ctx = DirectCpuExecutionContext.create()
+        val weights = GemmaWeightLoader(
+            randomAccessProvider = { JvmRandomAccessSource.open(gguf) },
+            weightForm = GEMMA_DEQUANTIZE_ALL,
+        ).loadToMapStreaming<FP32, Float>(ctx, FP32::class)
+        val md = weights.metadata
+        val patched = weights.copy(
+            metadata = md.copy(ropeParametersFull = md.ropeParametersFull.copy(partialRotaryFactor = partialRotary)),
+        )
+        @Suppress("UNCHECKED_CAST")
+        val model = GemmaNetworkLoader.fromWeights(ctx, patched, FP32::class) as GemmaModel<FP32, Float>
+
+        val tokens = voidF32(Shape(seq))       // [seq] token ids -> `{seq}xi32` graph input
+        val select = voidF32(Shape(1, seq))    // one-hot position row -> `1x{seq}xf32`
+        val tapeCtx = DefaultGraphExecutionContext.tape(baseOps = VoidTensorOps())
+        val tape = tapeCtx.record {
+            val ct = (this as DefaultGraphExecutionContext).currentTape ?: error("no tape")
+            Execution.tapeStack.pushTape(ct)
+            try {
+                val ectx = this as ExecutionContext
+                val out = model.forwardPrefillAt(tokens, select, ectx)
+                ectx.ops.argMax(out.logits, dim = -1)   // [1] i32 — the selected position's token
+                // out.selfK / out.selfV are terminal -> per-layer initial K/V outputs.
+            } finally {
+                Execution.tapeStack.popTape()
+            }
+        }.first
+        val graph = (tape as DefaultExecutionTape).toComputeGraph(synthesizeExternalInputs = true, embedConstants = true)
+        val module = StableHloConverterFactory
+            .createBasic(ConstantMaterializationPolicy.ExternalAlways(scope = "model"))
+            .convert(graph, FunctionGemmaContract.FN_PREFILL_AT)
+        val mlir = if (bf16) rewriteGlobalsToBf16(module.content) else module.content
+        File(outDir).apply { mkdirs() }
+        File(outDir, "gemma-prefill-at.mlir").writeText(mlir)
+        writeSafetensors(module.externalParameters, File(outDir, "gemma-prefill-at.safetensors"), bf16)
         mlir
     }
 
