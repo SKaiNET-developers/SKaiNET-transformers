@@ -55,7 +55,10 @@ In:
 Out (follow-ups):
 - Panama-vectorised inner dot products (changes summation order → tolerance-tested, separate PR);
 - growable `PositionalKVCache` buffers (today pre-sized to `maxInferenceLen`);
-- a schedule for the FFN / norm tail; consuming `skainet.schedule` metadata in the IREE lane.
+- a schedule for the FFN / norm tail.
+- ~~consuming `skainet.schedule` metadata in the IREE lane~~ — resolved in phase 2: **not consumed**.
+  The header states structure and is advisory; IREE owns tiling and the core count is a run-time
+  property of the device (see "Phase 2" below).
 
 ## Design
 
@@ -130,6 +133,41 @@ returns `null` (→ copied path) on segment-backed data. Every override returns 
 | AS-6 | parity tests, golden-gate switches, speed profile | done |
 | AS-7 | docs (this spec, explanation, tutorial), changelog, API dumps | done |
 | AS-8 | vectorised inner dots, growable positional cache | follow-up |
+| AS-9 | recording path hands K/V to the GQA-native SDPA (no `repeatKVHeads`); `HybridTransformerBlock` likewise | done (phase 2) |
+| AS-10 | SmolLM2 / FunctionGemma export harnesses run `ScheduleAnnotationPass` → structural `skainet.schedule` header | done (phase 2) |
+| AS-11 | OPTIMIZED-mode parity and timing (`OptimizedModeScheduleParityTest`, profile rows) | done (phase 2) |
+| AS-12 | IREE run-time knob: `IreeRedecodeSession(taskTopologyGroupCount)`, `IreeTaskTopology`, `SKAINET_TASK_GROUPS`, rebuilt `.so`s | done (phase 2) |
+
+## Phase 2 — the compiled leg: structure at compile time, cores at run time
+
+Key decision (recorded with the diagram in
+[SKaiNET SKEEP-005](https://skainet-developers.github.io/SKaiNET/skainet/skeep/005-schedules-structured-concurrency.html)):
+SKaiNET owns the *structure* of the graph — which axes are independent, heads outermost, GQA by
+index and never materialised. IREE owns ISA, tiling and workgroup formation at compile time and the
+placement of workgroups on cores at run time. No artifact carries a core count: the same number that
+drives the eager `Schedule.parallelism` reaches an IREE device as its task-topology group count when
+the device is created.
+
+What that means here:
+
+- **JVM compiled leg.** `OptimizedLLMRuntime` OPTIMIZED mode executes `ComputeGraphExecutor(graph,
+  ctx.ops)`, so it runs under the context's schedule like the eager path; the engine's graph context
+  now reports that schedule instead of downgrading. `OptimizedModeScheduleParityTest` pins
+  sequential == hardware bit for bit and compiled ≈ eager.
+- **GQA on the tape.** With the engine's SDPA grouped-query native, `MultiHeadAttention` and
+  `HybridTransformerBlock` no longer expand K/V (`repeatKVHeads`: nKV × narrow + concat per K and V per
+  layer per step). Exports lower attention with the head groups as a batching dimension.
+- **Structure in the header.** The export harnesses run `ScheduleAnnotationPass`, so every attention
+  states `parallel_dims = [batch, heads]`; `parallelism` appears only when the DSL asked for it and is
+  advisory.
+- **One run-time knob for IREE.** `IreeRedecodeSession(..., taskTopologyGroupCount)` /
+  `IreeRedecodeDecoder.fromAssets(..., taskTopologyGroupCount = IreeTaskTopology.fromEnv())` set the
+  local-task worker group count when the device is created (JNI `nativeCreateWithTopology`, which
+  feeds `--task_topology_group_count` to IREE's flag parser before the driver builds its executors —
+  the same knob `iree-run-module` takes). `IreeTaskTopology.groupCountFor(ctx.schedule.parallelism)`
+  maps an engine schedule; `SKAINET_TASK_GROUPS` is the environment name, shared with `gemma-iree`
+  (`GEMMA_TASK_GROUPS` deprecated alias). `null` keeps IREE's own topology detection. A `.so` that
+  predates the symbol fails loudly rather than ignoring the knob; both ABIs' libraries were rebuilt.
 
 Checkpoints: CP-1 engine `Schedule` API available (SKaiNET `feature/skeep-005-schedules`);
 CP-2 transformer-core parity green; CP-3 golden gates green under every switch; CP-4 both

@@ -13,22 +13,42 @@ package sk.ainet.transformers.iree.android
  * time from the `.irpa` via the IREE `io_parameters` VM module, not baked into the vmfb.
  *
  * The package/class name is the JNI symbol contract with the `.so` — do not move/rename.
+ *
+ * @param taskTopologyGroupCount local-task worker groups for the device this session creates
+ *   (SKaiNET SKEEP-005 phase 2: the vmfb carries no core count; this is the run-time knob, the
+ *   same `--task_topology_group_count` `iree-run-module` takes). `null` leaves IREE's own
+ *   topology detection in charge. Map an engine schedule with [IreeTaskTopology.groupCountFor];
+ *   read the `SKAINET_TASK_GROUPS` environment knob with [IreeTaskTopology.fromEnv].
  */
 public class IreeRedecodeSession(
     vmfbPath: String,
     irpaPath: String,
     functionName: String,
     device: String = DEFAULT_DEVICE,
+    taskTopologyGroupCount: Int? = null,
 ) : AutoCloseable {
 
     private var handle: Long = 0
 
     init {
         loadNativeLibrary()
-        handle = nativeCreate(device, vmfbPath, irpaPath, functionName)
+        handle = if (taskTopologyGroupCount == null) {
+            nativeCreate(device, vmfbPath, irpaPath, functionName)
+        } else {
+            require(taskTopologyGroupCount > 0) { "taskTopologyGroupCount must be >= 1, got $taskTopologyGroupCount" }
+            try {
+                nativeCreateWithTopology(device, vmfbPath, irpaPath, functionName, taskTopologyGroupCount)
+            } catch (e: UnsatisfiedLinkError) {
+                // A `.so` built before the knob existed: refuse rather than silently run on IREE's default topology.
+                throw IllegalStateException(
+                    "libskainet_iree_redecode.so predates the task-topology knob (nativeCreateWithTopology missing); " +
+                        "rebuild it with native/build-iree-redecode.sh or pass taskTopologyGroupCount = null.", e,
+                )
+            }
+        }
         require(handle != 0L) {
-            "IREE redecode session native create failed (device='$device', function='$functionName'); " +
-                "check libskainet_iree_redecode.so, the vmfb, and the irpa."
+            "IREE redecode session native create failed (device='$device', function='$functionName', " +
+                "taskGroups=${taskTopologyGroupCount ?: "auto"}); check libskainet_iree_redecode.so, the vmfb, and the irpa."
         }
     }
 
@@ -44,6 +64,7 @@ public class IreeRedecodeSession(
     }
 
     private external fun nativeCreate(device: String, vmfbPath: String, irpaPath: String, functionName: String): Long
+    private external fun nativeCreateWithTopology(device: String, vmfbPath: String, irpaPath: String, functionName: String, taskTopologyGroupCount: Int): Long
     private external fun nativeStep(handle: Long, tokenIds: IntArray): IntArray?
     private external fun nativeDestroy(handle: Long)
 

@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — SKEEP-005 phase 2: the compiled leg, structure at compile time, cores at run time
+
+- **GQA without head expansion on the tape**: the engine's SDPA is grouped-query native, so
+  `MultiHeadAttention` and `HybridTransformerBlock` hand K/V to it with their own head count —
+  `repeatKVHeads` (nKV × narrow + concat per K and V per layer per step) is gone from tapes, traced
+  graphs and StableHLO exports, which now batch attention over the head groups.
+- **Structure in the export header**: the SmolLM2 and FunctionGemma harnesses run
+  `ScheduleAnnotationPass`, so every exported attention states `parallel_dims = [batch, heads]`
+  (advisory `skainet.schedule`; no core count is ever written into a module).
+- **Compiled JVM leg under the schedule**: OPTIMIZED mode runs `ComputeGraphExecutor` over
+  `ctx.ops`, so a scheduled context parallelises it too — `OptimizedModeScheduleParityTest` (bit-identical
+  sequential vs hardware, compiled ≈ eager), two OPTIMIZED rows in `AttentionScheduleSpeedProfile`.
+- **IREE run-time core knob**: `IreeRedecodeSession(taskTopologyGroupCount)`,
+  `IreeRedecodeDecoder.fromAssets(taskTopologyGroupCount = IreeTaskTopology.fromEnv())`,
+  `IreeTaskTopology` (`SKAINET_TASK_GROUPS`, `groupCountFor(schedule.parallelism)`), JNI
+  `nativeCreateWithTopology` (feeds `--task_topology_group_count` to IREE before the local-task
+  device is created); both ABIs' `libskainet_iree_redecode.so` rebuilt. `gemma-iree` reads
+  `SKAINET_TASK_GROUPS` too (`GEMMA_TASK_GROUPS` deprecated alias). Docs: spec "Phase 2", explanation
+  "The compiled leg", IREE Android runtime reference "Task topology", eager-vs-compiled row.
+
 ### Added — schedule-driven attention: parallel heads, copy-free K/V (SKaiNET SKEEP-005)
 
 - **Attention heads run in parallel** (#413): `MultiHeadAttention` maps heads (or GQA groups) onto

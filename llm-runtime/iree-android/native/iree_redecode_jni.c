@@ -14,13 +14,26 @@
  *
  * Exposes to sk.ainet.transformers.iree.android.IreeRedecodeSession:
  *   long  nativeCreate(String device, String vmfbPath, String irpaPath, String functionName)
+ *   long  nativeCreateWithTopology(String device, String vmfbPath, String irpaPath,
+ *                                  String functionName, int taskTopologyGroupCount)
  *   int[] nativeStep(long h, int[] tokenIds)   // tokenIds.length == the vmfb's fixed SEQ
  *   void  nativeDestroy(long h)
+ *
+ * Task topology (SKaiNET SKEEP-005 phase 2, "structure at compile time, cores at run time"):
+ * the vmfb carries no core count. nativeCreateWithTopology sets the local-task worker group
+ * count for the device it creates — the same `--task_topology_group_count` knob
+ * iree-run-module takes on the command line — by parsing that flag through IREE's flag
+ * parser right before the driver builds its executors (iree/task/api.c reads the flag in
+ * iree_task_executors_create_from_flags). Flags are process-global: the last parse before a
+ * device is created wins. nativeCreate leaves the flag untouched (IREE's physical-core
+ * topology).
  */
 #include <jni.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <stdio.h>
+#include "iree/base/tooling/flags.h"
 #include "iree/runtime/api.h"
 #include "iree/io/file_handle.h"
 #include "iree/io/parameter_index.h"
@@ -76,8 +89,20 @@ static iree_status_t append_parameters_module(Session* s, const char* irpa) {
   return st;
 }
 
-JNIEXPORT jlong JNICALL JNIFN(nativeCreate)(JNIEnv* env, jobject thiz,
-    jstring jdev, jstring jvmfb, jstring jirpa, jstring jfn) {
+/* Sets --task_topology_group_count=|group_count| for the next local-task device creation.
+ * |group_count| <= 0 leaves IREE's own topology detection in charge. */
+static iree_status_t apply_task_topology(int group_count) {
+  if (group_count <= 0) return iree_ok_status();
+  char flag[64];
+  snprintf(flag, sizeof(flag), "--task_topology_group_count=%d", group_count);
+  char* argv_storage[] = { "skainet_iree_redecode", flag };
+  char** argv = argv_storage;
+  int argc = 2;
+  return iree_flags_parse(IREE_FLAGS_PARSE_MODE_UNDEFINED_OK, &argc, &argv);
+}
+
+static jlong create_session(JNIEnv* env, jstring jdev, jstring jvmfb, jstring jirpa,
+                            jstring jfn, int group_count) {
   const char* dev = (*env)->GetStringUTFChars(env, jdev, 0);
   const char* vmfb = (*env)->GetStringUTFChars(env, jvmfb, 0);
   const char* irpa = (*env)->GetStringUTFChars(env, jirpa, 0);
@@ -96,6 +121,8 @@ JNIEXPORT jlong JNICALL JNIFN(nativeCreate)(JNIEnv* env, jobject thiz,
   iree_status_t st = (s && s->fn_name)
       ? iree_runtime_instance_create(&io, iree_allocator_system(), &s->inst)
       : iree_status_from_code(IREE_STATUS_INTERNAL);
+  /* Cores are a run-time property: the group count goes to the driver, never the vmfb. */
+  if (iree_status_is_ok(st)) st = apply_task_topology(group_count);
   if (iree_status_is_ok(st)) {
     st = iree_runtime_instance_try_create_default_device(
         s->inst, iree_make_cstring_view(dev), &s->dev);
@@ -129,6 +156,16 @@ JNIEXPORT jlong JNICALL JNIFN(nativeCreate)(JNIEnv* env, jobject thiz,
     return 0;
   }
   return ret;
+}
+
+JNIEXPORT jlong JNICALL JNIFN(nativeCreate)(JNIEnv* env, jobject thiz,
+    jstring jdev, jstring jvmfb, jstring jirpa, jstring jfn) {
+  return create_session(env, jdev, jvmfb, jirpa, jfn, 0);
+}
+
+JNIEXPORT jlong JNICALL JNIFN(nativeCreateWithTopology)(JNIEnv* env, jobject thiz,
+    jstring jdev, jstring jvmfb, jstring jirpa, jstring jfn, jint group_count) {
+  return create_session(env, jdev, jvmfb, jirpa, jfn, (int)group_count);
 }
 
 JNIEXPORT jintArray JNICALL JNIFN(nativeStep)(JNIEnv* env, jobject thiz,

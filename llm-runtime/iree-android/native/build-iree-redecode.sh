@@ -18,6 +18,11 @@
 # and /iree/build-<ABI> across runs and ABIs.
 # Output: out/libskainet_iree_redecode.so -> copy to
 #   ../src/main/jniLibs/<ABI>/libskainet_iree_redecode.so
+#
+# The flags + task-api links back nativeCreateWithTopology (SKEEP-005 phase 2): the JNI sets
+# --task_topology_group_count through IREE's flag parser before the local-task device is
+# created. A `.so` built without this source predates the symbol; the Kotlin side fails
+# loudly (UnsatisfiedLinkError → IllegalStateException) rather than ignoring the knob.
 set -euo pipefail
 ABI="${1:-arm64-v8a}"
 VULKAN=""
@@ -35,4 +40,6 @@ docker run --rm \
   --link iree_modules_io_parameters_parameters \
   --link iree_io_parameter_index \
   --link iree_io_parameter_index_provider \
-  --link iree_io_formats_irpa_irpa
+  --link iree_io_formats_irpa_irpa \
+  --link iree_base_tooling_flags \
+  --link iree_task_api

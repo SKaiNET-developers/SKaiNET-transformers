@@ -86,6 +86,43 @@ with `withKVCacheKind(DecoderKVCacheKind.POSITIONAL)` and the per-token copy dis
   `TraceEvent.ScheduleDowngraded` when a requested schedule cannot be honoured.
 * **Opt-in positional cache.** It pre-allocates `maxInferenceLen` rows per layer (≈0.9 GB at
   4096 on a 3B model), so it stays a deployment choice.
+* **Structure at compile time, cores at run time.** The compiled leg does not get a second
+  scheduler. SKaiNET states the structure (GQA by index, `parallel_dims` in the header); the
+  compiler backend tiles; the core count is set on the device at run time — see below.
+
+== The compiled leg
+
+[mermaid]
+----
+flowchart LR
+  subgraph structure["Compile time — structure (SKaiNET owns)"]
+    DSL["llamaNetwork { } / qwenNetwork { }"] --> Graph["tape → ComputeGraph<br/>K/V keep nKVHeads"]
+    Graph --> Pass["ScheduleAnnotationPass<br/>parallel_dims = [batch, heads]"]
+    Pass --> HLO["StableHLO<br/>GQA dot_general over [b, nKV]<br/>header advisory"]
+  end
+  subgraph isa["Compile time — ISA / tiling (IREE owns)"]
+    HLO --> VMFB[".vmfb — no core count"]
+  end
+  subgraph cores["Run time — cores (one knob)"]
+    Knob["ctx.schedule.parallelism<br/>SKAINET_TASK_GROUPS"]
+    Knob --> JVM["OPTIMIZED mode<br/>ComputeGraphExecutor over ctx.ops"]
+    Knob --> Task["IreeRedecodeSession<br/>taskTopologyGroupCount"]
+    Graph --> JVM
+    VMFB --> Task
+  end
+----
+
+* On the JVM, `OptimizedLLMMode.OPTIMIZED` executes the traced graph with the context's ops, so a
+  scheduled `DirectCpuExecutionContext` parallelises the engine's SDPA there too; the fused per-head
+  kernel and the copy-free views stay eager-only by design. `OptimizedModeScheduleParityTest` pins
+  sequential == hardware bit for bit and compiled ≈ eager on Llama-3.2-1B (32 heads over 8 KV heads).
+* The tape no longer expands K/V for grouped-query attention: the engine's SDPA is GQA-native and
+  the StableHLO lowering batches over the head groups instead of broadcasting or concatenating.
+* On Android, `IreeRedecodeSession(taskTopologyGroupCount = …)` — or
+  `IreeRedecodeDecoder.fromAssets(...)`, which reads `SKAINET_TASK_GROUPS` — sets the local-task
+  worker group count when the device is created. Map an engine schedule with
+  `IreeTaskTopology.groupCountFor(ctx.schedule.parallelism)`; `null` keeps IREE's own detection. One
+  `.vmfb` runs unchanged on any core count.
 
 == Numbers
 

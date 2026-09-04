@@ -29,11 +29,11 @@ public class GemmaDecoder(
     private val seq: Int = 24,
     ireeBin: String = "iree-run-module",
 ) {
-    // Number of local-task worker groups (= cores). The SL2610 has 2 A55 cores,
-    // so default to 2; override/disable via GEMMA_TASK_GROUPS (0 or empty = let
-    // IREE auto-pick, i.e. drop the flag — the escape hatch if the board rejects it).
-    private val taskGroups: Int? =
-        (getenv("GEMMA_TASK_GROUPS")?.toKString()?.trim()?.toIntOrNull() ?: 2).takeIf { it > 0 }
+    // Number of local-task worker groups (= cores). The SL2610 has 2 A55 cores, so default
+    // to 2; override/disable via SKAINET_TASK_GROUPS — the one run-time core knob shared with
+    // the Android runtime (SKEEP-005 phase 2); GEMMA_TASK_GROUPS is the deprecated alias.
+    // 0 or empty = let IREE auto-pick, i.e. drop the flag.
+    private val taskGroups: Int? = TaskGroupsEnv.read()
 
     // Per-step latency profiling; set VOICECC_PROFILE=1 to print a `[perf]`
     // timing breakdown (Phase-0 perf harness). Safe on this driver's stdout —
