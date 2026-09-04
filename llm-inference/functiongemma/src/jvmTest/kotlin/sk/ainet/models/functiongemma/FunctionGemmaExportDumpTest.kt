@@ -76,6 +76,21 @@ class FunctionGemmaExportDumpTest {
         checkResultCount(prefillAtMlir, FunctionGemmaContract.FN_PREFILL_AT, FunctionGemmaContract.prefillAtOutputs(spec).size)
     }
 
+    @Test
+    fun chunkPrefillWithPast_emitsContractShapes() {
+        FunctionGemmaFixture.assumeRealCheckpointRunnable()
+        val outDir = File(System.getProperty("java.io.tmpdir"), "functiongemma-export-dump-chunk").absolutePath
+        FunctionGemmaExportHarness.exportPrefillWithPast(spec, outDir)
+        val mlir = File(outDir, "gemma-prefill-with-past.mlir").readText()
+        val c = FunctionGemmaContract.DEFAULT_CHUNK
+        assertTrue(mlir.contains("func.func @${FunctionGemmaContract.FN_PREFILL_WITH_PAST}("), "entry func present")
+        assertTrue(mlir.contains("x?x${spec.headDim}"), "dynamic past cache dim must be present")
+        assertTrue(mlir.contains("tensor<1x1x${c}x?xf32>"), "additive mask inputs [1,1,C,?] present")
+        assertTrue(mlir.contains("tensor<${c}x${spec.headDim}xf32>"), "per-position cos/sin tables present")
+        checkArgCount(mlir, FunctionGemmaContract.FN_PREFILL_WITH_PAST, FunctionGemmaContract.prefillWithPastArgs(spec).size)
+        checkResultCount(mlir, FunctionGemmaContract.FN_PREFILL_WITH_PAST, FunctionGemmaContract.prefillWithPastOutputs(spec).size)
+    }
+
     private fun checkArgCount(mlir: String, func: String, expected: Int) {
         val sig = signatureLine(mlir, func)
         val argsPart = sig.substringAfter("@$func(").substringBefore(") ->")

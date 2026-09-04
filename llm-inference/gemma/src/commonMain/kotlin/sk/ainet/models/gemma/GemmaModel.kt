@@ -253,6 +253,23 @@ public class GemmaModel<T : DType, V>(
         public val sinSliding: Tensor<T, V>,
     )
 
+    /**
+     * Inputs of [forwardPrefillWithPast] for a C-token chunk: per-RoPE-base cos/sin tables `[C, headDim]`
+     * (one row per absolute position `past .. past+C-1`, split-half layout as in [buildRopeCosSin]) and
+     * per-layer-type **additive** attention masks `[1, 1, C, past+C]` (0 = attend, -1e30 = masked). The
+     * masks carry everything position-dependent — the causal band inside the chunk, the zero padding
+     * beyond the real tokens, and the 512-position sliding window of the sliding layers — so the graph
+     * itself stays position-agnostic like `gemma_with_past`.
+     */
+    public class ChunkContext<T : DType, V>(
+        public val cosGlobal: Tensor<T, V>,
+        public val sinGlobal: Tensor<T, V>,
+        public val cosSliding: Tensor<T, V>,
+        public val sinSliding: Tensor<T, V>,
+        public val maskGlobal: Tensor<T, V>,
+        public val maskSliding: Tensor<T, V>,
+    )
+
     private class GemmaBlockRefs<T : DType, V>(
         val attnNorm: RMSNormalization<T, V>,
         val mha: MultiHeadAttention<T, V>,
@@ -320,6 +337,89 @@ public class GemmaModel<T : DType, V>(
     /** Hand-wired single-new-token self-attention over the past cache for one block. RoPE applies
      *  at the runtime position via the fed-in [cos]/[sin]. Returns (attnOut `[1, qDim]`,
      *  extendedK `[1, nKVHeads, past+1, headDim]`, extendedV). */
+    /**
+     * KV-cache CHUNK PREFILL: run a fixed-size chunk [tokens] (`[C]` token ids, zero-padded) against the
+     * incoming per-layer self cache (`[1, nKVHeads, past, headDim]`) → logits `[1, vocab]` for the ONE
+     * position picked by the one-hot [selectAt] (`[1, C]`), plus the per-layer cache extended by all C
+     * positions (`[1, nKVHeads, past+C, headDim]`; the caller slices the padding off, as after prefill).
+     * This is what makes a user utterance cost one call instead of C single-token [forwardWithPast] steps.
+     */
+    public fun forwardPrefillWithPast(
+        tokens: Tensor<T, V>,
+        chunk: ChunkContext<T, V>,
+        selectAt: Tensor<T, V>,
+        selfKIn: List<Tensor<T, V>>,
+        selfVIn: List<Tensor<T, V>>,
+        ctx: ExecutionContext,
+    ): GemmaWithPastOutput<T, V> {
+        require(ple == null) { "GemmaModel.forwardPrefillWithPast: PLE models not supported by the KV-cache path yet" }
+        val ops = ctx.ops
+        val rawEmbeds = tokenEmbedding.forward(tokens, ctx)                         // [C, hidden]
+        var h = if (embedScale != 1f) ops.mulScalar(rawEmbeds, embedScale) else rawEmbeds
+        val nsk = ArrayList<Tensor<T, V>>(blocks.size)
+        val nsv = ArrayList<Tensor<T, V>>(blocks.size)
+        for ((i, block) in blocks.withIndex()) {
+            val r = refsFor(block)
+            val isGlobal = r.mha.slidingWindow == null
+            val cos = if (isGlobal) chunk.cosGlobal else chunk.cosSliding
+            val sin = if (isGlobal) chunk.sinGlobal else chunk.sinSliding
+            val mask = if (isGlobal) chunk.maskGlobal else chunk.maskSliding
+            val sn = r.attnNorm.forward(h, ctx)
+            val (attnOut, fullK, fullV) = attnWithPastChunk(r.mha, sn, cos, sin, mask, selfKIn[i], selfVIn[i], ctx)
+            val postAttn = r.postAttnNorm?.forward(attnOut, ctx) ?: attnOut
+            val h1 = ops.add(h, postAttn)
+            val ffnOut = r.ffn.forward(r.ffnNorm.forward(h1, ctx), ctx)
+            val postFfw = r.postFfwNorm?.forward(ffnOut, ctx) ?: ffnOut
+            var h2 = ops.add(h1, postFfw)
+            if (r.outScale != null) h2 = r.outScale.forward(h2, ctx)
+            h = h2
+            nsk += ops.reshape(fullK, fullK.shape)   // identity → distinct graph output node
+            nsv += ops.reshape(fullV, fullV.shape)
+        }
+        val normed = outputNorm.forward(h, ctx)                                       // [C, hidden]
+        val hAt = ops.matmul(selectAt, normed)                                        // [1, hidden]
+        val logits = applySoftcap(lmHead.forward(hAt, ctx), ctx)                      // [1, vocab]
+        return GemmaWithPastOutput(logits, nsk, nsv)
+    }
+
+    /** [attnWithPast] for a C-row chunk: heads-first `[heads, C, headDim]` projections, RoPE from `[C, headDim]`
+     *  tables, and the caller's additive mask `[1, 1, C, past+C]` (no built-in causal path). */
+    private fun attnWithPastChunk(
+        mha: MultiHeadAttention<T, V>,
+        sn: Tensor<T, V>,
+        cos: Tensor<T, V>, sin: Tensor<T, V>,
+        mask: Tensor<T, V>,
+        pastK: Tensor<T, V>, pastV: Tensor<T, V>,
+        ctx: ExecutionContext,
+    ): Triple<Tensor<T, V>, Tensor<T, V>, Tensor<T, V>> {
+        val ops = ctx.ops
+        val rope = mha.rope ?: error("GemmaModel.attnWithPastChunk: MHA has no RoPE")
+        val idx = paramIdx(mha)
+        val c = sn.shape[0]
+        fun headsFirst(x: Tensor<T, V>, heads: Int): Tensor<T, V> =
+            ops.permute(ops.reshape(x, Shape(c, heads, mha.headDim)), intArrayOf(1, 0, 2))   // [heads, C, headDim]
+        var q = headsFirst(linearProject(ops, sn, mha.params[idx[0]].value), mha.nHeads)
+        var k = headsFirst(linearProject(ops, sn, mha.params[idx[1]].value), mha.nKVHeads)
+        val v = headsFirst(linearProject(ops, sn, mha.params[idx[2]].value), mha.nKVHeads)
+        val qn = mha.qNorm; val kn = mha.kNorm
+        if (qn != null && kn != null) { q = qn.forward(q, ctx); k = kn.forward(k, ctx) }  // qkNorm BEFORE RoPE
+        val cos3 = ops.unsqueeze(cos, 0); val sin3 = ops.unsqueeze(sin, 0)                // [1, C, headDim] over heads
+        q = rope.forwardWithCosSin(q, cos3, sin3, ctx)
+        k = rope.forwardWithCosSin(k, cos3, sin3, ctx)
+        val fullK = ops.concat(listOf(pastK, ops.unsqueeze(k, 0)), dim = 2)   // [1, nKVHeads, past+C, headDim]
+        val fullV = ops.concat(listOf(pastV, ops.unsqueeze(v, 0)), dim = 2)
+        val eK = expandKV(fullK, mha.nHeads, mha.nKVHeads, ops)
+        val eV = expandKV(fullV, mha.nHeads, mha.nKVHeads, ops)
+        val scale = mha.attentionScale ?: (1f / sqrt(mha.headDim.toFloat()))
+        val o = ops.scaledDotProductAttention(
+            query = ops.unsqueeze(q, 0), key = eK, value = eV,
+            mask = mask, scale = scale, causal = false,   // the additive mask carries causal + padding + window
+        )   // [1, nHeads, C, headDim]
+        val merged = ops.reshape(ops.permute(ops.squeeze(o, 0), intArrayOf(1, 0, 2)), Shape(c, mha.nHeads * mha.headDim))
+        val attnOut = linearProject(ops, merged, mha.params[idx[3]].value)   // o_proj → [C, hidden]
+        return Triple(attnOut, fullK, fullV)
+    }
+
     private fun attnWithPast(
         mha: MultiHeadAttention<T, V>,
         sn: Tensor<T, V>,
