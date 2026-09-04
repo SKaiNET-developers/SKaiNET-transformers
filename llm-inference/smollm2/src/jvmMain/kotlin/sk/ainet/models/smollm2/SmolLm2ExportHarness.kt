@@ -49,6 +49,9 @@ import java.nio.ByteOrder
  */
 public object SmolLm2ExportHarness {
 
+    /** Target name the structural schedule pass is keyed on (`iree-compile --iree-hal-target-backends=llvm-cpu`). */
+    private const val EXPORT_TARGET: String = "llvm-cpu"
+
     public data class RedecodeResult(
         val mlirPath: String,
         val safetensorsPath: String,
@@ -112,9 +115,14 @@ public object SmolLm2ExportHarness {
             }
         }.first
 
-        val graph = (tape as DefaultExecutionTape).toComputeGraph(
+        val rawGraph = (tape as DefaultExecutionTape).toComputeGraph(
             synthesizeExternalInputs = true, embedConstants = true,
         )
+        // SKEEP-005 phase 2: state the structure (attention → parallel_dims [batch, heads]) in the
+        // module header; advisory only, the core count is a run-time property of the device.
+        val graph = sk.ainet.compile.opt.dagPipelineFor(
+            EXPORT_TARGET, corePasses = listOf(sk.ainet.compile.opt.passes.ScheduleAnnotationPass(EXPORT_TARGET)),
+        ).optimize(rawGraph).graph
         val module = StableHloConverterFactory
             .createBasic(ConstantMaterializationPolicy.ExternalAlways(scope = "model"))
             .convert(graph, "smollm2")
