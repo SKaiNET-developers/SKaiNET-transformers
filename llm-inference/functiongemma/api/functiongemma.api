@@ -1,14 +1,23 @@
 public final class sk/ainet/models/functiongemma/FunctionGemmaContract {
 	public static final field CONTRACT_VERSION I
+	public static final field DEFAULT_CHUNK I
 	public static final field FN_PREFILL Ljava/lang/String;
+	public static final field FN_PREFILL_AT Ljava/lang/String;
+	public static final field FN_PREFILL_WITH_PAST Ljava/lang/String;
 	public static final field FN_REDECODE Ljava/lang/String;
+	public static final field FN_REDECODE_AT Ljava/lang/String;
 	public static final field FN_WITH_PAST Ljava/lang/String;
 	public static final field INSTANCE Lsk/ainet/models/functiongemma/FunctionGemmaContract;
 	public static final field K_FIRST_IN_OUTPUT Z
 	public static final field PARAMETER_SCOPE Ljava/lang/String;
 	public final fun manifestJson (Lsk/ainet/models/functiongemma/FunctionGemmaSpec;)Ljava/lang/String;
 	public final fun prefillArgs ()Ljava/util/List;
+	public final fun prefillAtOutputs (Lsk/ainet/models/functiongemma/FunctionGemmaSpec;)Ljava/util/List;
 	public final fun prefillOutputs (Lsk/ainet/models/functiongemma/FunctionGemmaSpec;)Ljava/util/List;
+	public final fun prefillWithPastArgs (Lsk/ainet/models/functiongemma/FunctionGemmaSpec;)Ljava/util/List;
+	public final fun prefillWithPastOutputs (Lsk/ainet/models/functiongemma/FunctionGemmaSpec;)Ljava/util/List;
+	public final fun qualified (Ljava/lang/String;)Ljava/lang/String;
+	public final fun selectArgs ()Ljava/util/List;
 	public final fun withPastArgs (Lsk/ainet/models/functiongemma/FunctionGemmaSpec;)Ljava/util/List;
 	public final fun withPastOutputs (Lsk/ainet/models/functiongemma/FunctionGemmaSpec;)Ljava/util/List;
 }
@@ -25,7 +34,17 @@ public final class sk/ainet/models/functiongemma/FunctionGemmaExportHarness {
 	public final fun exportPrefill (Ljava/lang/String;Ljava/lang/String;IFZ)Ljava/lang/String;
 	public final fun exportPrefill (Lsk/ainet/models/functiongemma/FunctionGemmaSpec;Ljava/lang/String;)Ljava/lang/String;
 	public static synthetic fun exportPrefill$default (Lsk/ainet/models/functiongemma/FunctionGemmaExportHarness;Ljava/lang/String;Ljava/lang/String;IFZILjava/lang/Object;)Ljava/lang/String;
+	public final fun exportPrefillAt (Ljava/lang/String;Ljava/lang/String;IFZ)Ljava/lang/String;
+	public final fun exportPrefillAt (Lsk/ainet/models/functiongemma/FunctionGemmaSpec;Ljava/lang/String;)Ljava/lang/String;
+	public static synthetic fun exportPrefillAt$default (Lsk/ainet/models/functiongemma/FunctionGemmaExportHarness;Ljava/lang/String;Ljava/lang/String;IFZILjava/lang/Object;)Ljava/lang/String;
+	public final fun exportPrefillWithPast (Ljava/lang/String;Ljava/lang/String;IFZ)Ljava/lang/String;
+	public final fun exportPrefillWithPast (Lsk/ainet/models/functiongemma/FunctionGemmaSpec;Ljava/lang/String;I)Ljava/lang/String;
+	public static synthetic fun exportPrefillWithPast$default (Lsk/ainet/models/functiongemma/FunctionGemmaExportHarness;Ljava/lang/String;Ljava/lang/String;IFZILjava/lang/Object;)Ljava/lang/String;
+	public static synthetic fun exportPrefillWithPast$default (Lsk/ainet/models/functiongemma/FunctionGemmaExportHarness;Lsk/ainet/models/functiongemma/FunctionGemmaSpec;Ljava/lang/String;IILjava/lang/Object;)Ljava/lang/String;
 	public final fun exportRedecode (Lsk/ainet/models/functiongemma/FunctionGemmaSpec;Ljava/lang/String;)Lsk/ainet/models/functiongemma/FunctionGemmaExportHarness$RedecodeResult;
+	public final fun exportRedecodeAt (Ljava/lang/String;Ljava/lang/String;IFZ)Lsk/ainet/models/functiongemma/FunctionGemmaExportHarness$RedecodeResult;
+	public final fun exportRedecodeAt (Lsk/ainet/models/functiongemma/FunctionGemmaSpec;Ljava/lang/String;)Lsk/ainet/models/functiongemma/FunctionGemmaExportHarness$RedecodeResult;
+	public static synthetic fun exportRedecodeAt$default (Lsk/ainet/models/functiongemma/FunctionGemmaExportHarness;Ljava/lang/String;Ljava/lang/String;IFZILjava/lang/Object;)Lsk/ainet/models/functiongemma/FunctionGemmaExportHarness$RedecodeResult;
 	public final fun exportWithPast (Ljava/lang/String;Ljava/lang/String;IZFZ)Ljava/lang/String;
 	public final fun exportWithPast (Lsk/ainet/models/functiongemma/FunctionGemmaSpec;Ljava/lang/String;)Ljava/lang/String;
 	public static synthetic fun exportWithPast$default (Lsk/ainet/models/functiongemma/FunctionGemmaExportHarness;Ljava/lang/String;Ljava/lang/String;IZFZILjava/lang/Object;)Ljava/lang/String;
