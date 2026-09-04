@@ -111,6 +111,8 @@ returns `null` (→ copied path) on segment-backed data. Every override returns 
    recording.
 3. Golden gates (`LlamaGoldenTokenParityTest`, `QwenGoldenTokenParityTest`) pass with
    `SKAINET_ATTN_SCHEDULE=sequential|parallel` × `SKAINET_KV_CACHE=append|positional`.
+   Verified 2026-09-04: Llama-3.2-1B Q8_0, Qwen2.5-0.5B Q8_0 and Qwen3-1.7B Q8_0 under
+   `sequential/append` and `parallel/positional` (`-PincludeIntegration` for the Qwen class).
 4. `AttentionScheduleSpeedProfile` prints tok/s and the `attn.*` buckets for all four
    combinations and asserts identical greedy tokens.
 5. `apiCheck` green: all changes additive (`<init>` signatures unchanged, trailing defaulted
