@@ -8,6 +8,7 @@ import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.context.ExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
 import sk.ainet.lang.tensor.storage.BufferHandle
+import sk.ainet.lang.tensor.storage.DefaultBufferResolver
 import sk.ainet.lang.graph.DefaultExecutionTape
 import sk.ainet.lang.graph.DefaultGraphExecutionContext
 import sk.ainet.lang.nn.Module
@@ -32,6 +33,9 @@ import kotlin.test.Test
  */
 @Tag("integration")
 class RealGemmaBakeIrpaTest {
+
+    /** Little-endian bytes of an external parameter, whatever `BufferHandle` the engine handed over (#420). */
+    private fun bytesOf(h: BufferHandle): ByteArray = DefaultBufferResolver().resolve(h).use { it.readAllBytes() }
     @Test
     fun bakeRealGemmaToIrpa() = runBlocking {
         val path = FunctionGemmaFixture.gguf
@@ -120,10 +124,7 @@ class RealGemmaBakeIrpaTest {
                 .putLong(headerBytes.size.toLong())
             os.write(lenBuf.array())
             os.write(headerBytes)
-            for (e in ext) {
-                val src = e.source as BufferHandle.Owned
-                os.write(src.data, src.offset, src.sizeInBytes.toInt())
-            }
+            for (e in ext) os.write(bytesOf(e.source))
         }
         println("WROTE_SAFETENSORS ${st.absolutePath} sizeMiB=${st.length() / (1024 * 1024)}")
     }

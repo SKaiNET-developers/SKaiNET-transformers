@@ -16,6 +16,7 @@ import sk.ainet.lang.tensor.data.Bf16TensorData
 import sk.ainet.lang.tensor.data.TensorData
 import sk.ainet.lang.tensor.ops.VoidTensorOps
 import sk.ainet.lang.tensor.storage.BufferHandle
+import sk.ainet.lang.tensor.storage.DefaultBufferResolver
 import sk.ainet.lang.types.FP32
 import sk.ainet.models.gemma.GEMMA_DEQUANTIZE_ALL
 import sk.ainet.models.gemma.GemmaWeightLoader
@@ -63,6 +64,9 @@ import java.nio.ByteOrder
  * `scripts/compile-gemma.sh` and the dockerized `skainet/iree-compiler:3.11.0`.
  */
 public object FunctionGemmaExportHarness {
+
+    /** Little-endian bytes of an external parameter, whatever `BufferHandle` the engine handed over (#420). */
+    private fun bytesOf(h: BufferHandle): ByteArray = DefaultBufferResolver().resolve(h).use { it.readAllBytes() }
 
     public data class RedecodeResult(
         val mlirPath: String,
@@ -459,11 +463,10 @@ public object FunctionGemmaExportHarness {
             os.write(ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN).putLong(headerBytes.size.toLong()).array())
             os.write(headerBytes)
             for (e in ext) {
-                val src = e.source as BufferHandle.Owned
+                val data = bytesOf(e.source)
                 if (bf16) {
-                    val data = src.data
-                    val base = src.offset
-                    val n = src.sizeInBytes.toInt() / 4
+                    val base = 0
+                    val n = data.size / 4
                     val obuf = ByteArray(n * 2)
                     for (j in 0 until n) {
                         val o = base + j * 4
@@ -477,7 +480,7 @@ public object FunctionGemmaExportHarness {
                     }
                     os.write(obuf)
                 } else {
-                    os.write(src.data, src.offset, src.sizeInBytes.toInt())
+                    os.write(data)
                 }
             }
         }
@@ -614,9 +617,8 @@ public object FunctionGemmaExportHarness {
             os.write(ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN).putLong(headerBytes.size.toLong()).array())
             os.write(headerBytes)
             for (e in ext) {
-                val src = e.source as BufferHandle.Owned
-                val data = src.data
-                val base = src.offset
+                val data = bytesOf(e.source)
+                val base = 0
                 val qs = quant[e.key]
                 if (qs != null) {
                     val (rows, cols) = qs
@@ -638,7 +640,7 @@ public object FunctionGemmaExportHarness {
                     os.write(q)
                     os.write(sb)
                 } else {
-                    val n = src.sizeInBytes.toInt() / 4
+                    val n = data.size / 4
                     val ob = ByteArray(n * 2)
                     for (j in 0 until n) {
                         val bf = Bf16TensorData.floatToBf16Bits(leF32(data, base + j * 4))
