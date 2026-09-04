@@ -64,6 +64,7 @@ import java.nio.ByteOrder
  */
 public object FunctionGemmaExportHarness {
 
+    /** Little-endian bytes of an external parameter, whatever `BufferHandle` the engine handed over (#420). */
     public data class RedecodeResult(
         val mlirPath: String,
         val safetensorsPath: String,
