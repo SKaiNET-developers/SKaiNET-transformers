@@ -43,7 +43,7 @@ public object FunctionGemmaContract {
 
     /**
      * Chunk prefill against the cache: `gemma_prefill_with_past(tokens C i32, per-base cos/sin [C×headDim],
-     * per-type additive masks [1×1×C×?], select [1×C], per-layer K/V …) → per-layer K/V extended by C, token 1xi32`.
+     * per-type additive masks [1×nHeads×C×?], select [1×C], per-layer K/V …) → per-layer K/V extended by C, token 1xi32`.
      * One call per utterance instead of C `gemma_with_past` steps. Fixed chunk size [DEFAULT_CHUNK]; masks
      * carry causal band, padding and the sliding window (0 = attend, -1e30 = masked).
      */

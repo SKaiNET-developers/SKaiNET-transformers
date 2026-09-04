@@ -256,7 +256,8 @@ public class GemmaModel<T : DType, V>(
     /**
      * Inputs of [forwardPrefillWithPast] for a C-token chunk: per-RoPE-base cos/sin tables `[C, headDim]`
      * (one row per absolute position `past .. past+C-1`, split-half layout as in [buildRopeCosSin]) and
-     * per-layer-type **additive** attention masks `[1, 1, C, past+C]` (0 = attend, -1e30 = masked). The
+     * per-layer-type **additive** attention masks `[1, nHeads, C, past+C]` (0 = attend, -1e30 = masked;
+     * per head because a broadcast over heads to a dynamic shape is not expressible in static StableHLO). The
      * masks carry everything position-dependent — the causal band inside the chunk, the zero padding
      * beyond the real tokens, and the 512-position sliding window of the sliding layers — so the graph
      * itself stays position-agnostic like `gemma_with_past`.
@@ -383,7 +384,7 @@ public class GemmaModel<T : DType, V>(
     }
 
     /** [attnWithPast] for a C-row chunk: heads-first `[heads, C, headDim]` projections, RoPE from `[C, headDim]`
-     *  tables, and the caller's additive mask `[1, 1, C, past+C]` (no built-in causal path). */
+     *  tables, and the caller's additive mask `[1, nHeads, C, past+C]` (no built-in causal path). */
     private fun attnWithPastChunk(
         mha: MultiHeadAttention<T, V>,
         sn: Tensor<T, V>,

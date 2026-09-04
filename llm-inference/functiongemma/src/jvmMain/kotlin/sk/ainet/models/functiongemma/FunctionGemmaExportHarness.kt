@@ -582,7 +582,7 @@ public object FunctionGemmaExportHarness {
      * KV-cache CHUNK PREFILL graph `func @gemma_prefill_with_past`: a fixed [chunk] of token ids against the
      * dynamic per-layer past cache ([GemmaModel.forwardPrefillWithPast]). Inputs beyond the cache are
      * host-built and position-carrying: per-base cos/sin `[chunk, headDim]`, per-layer-type additive
-     * masks `[1, 1, chunk, past+chunk]` (dynamic last dim), and the one-hot `select [1, chunk]` for the
+     * masks `[1, nHeads, chunk, past+chunk]` (dynamic last dim; per head, see the note in the body), and the one-hot `select [1, chunk]` for the
      * last real token. Results: per-layer K/V extended by the chunk (`1x{nKV}x?x{headDim}`, padding
      * positions included — slice like after prefill), then `token 1xi32`. Writes
      * `gemma-prefill-with-past.mlir` + its own `gemma-prefill-with-past.safetensors`.
@@ -616,7 +616,10 @@ public object FunctionGemmaExportHarness {
         val tokens = voidF32(Shape(chunk))
         val cosG = voidF32(Shape(chunk, headDim)); val sinG = voidF32(Shape(chunk, headDim))
         val cosS = voidF32(Shape(chunk, headDim)); val sinS = voidF32(Shape(chunk, headDim))
-        val maskG = voidF32(Shape(1, 1, chunk, kvDim)); val maskS = voidF32(Shape(1, 1, chunk, kvDim))
+        // Masks are per-head [1, nHeads, C, past+C]: a [1, 1, C, ?] mask would need a broadcast to a
+        // dynamic shape inside the attention add, which StableHLO's static broadcast_in_dim cannot express.
+        val nHeads = md.headCount
+        val maskG = voidF32(Shape(1, nHeads, chunk, kvDim)); val maskS = voidF32(Shape(1, nHeads, chunk, kvDim))
         val select = voidF32(Shape(1, chunk))
         val selfKIn = List(nLayers) { voidF32(Shape(1, nKV, pastDim, headDim)) }
         val selfVIn = List(nLayers) { voidF32(Shape(1, nKV, pastDim, headDim)) }
