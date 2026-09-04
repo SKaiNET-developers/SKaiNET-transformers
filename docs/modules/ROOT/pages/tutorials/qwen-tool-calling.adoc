@@ -198,6 +198,6 @@ this tutorial embeds.
 
 == Next Steps
 
-* xref:tool-calling.adoc[Tool Calling with Any Model] — the runtime-agnostic pipeline in depth.
+* xref:tutorials/tool-calling.adoc[Tool Calling with Any Model] — the runtime-agnostic pipeline in depth.
 * xref:../reference/chat-session-api.adoc[ChatSession API] — chat, agent, and demo modes.
 * xref:../how-to/add-tool.adoc[Add a Custom Tool] — validation, error handling, registries.
