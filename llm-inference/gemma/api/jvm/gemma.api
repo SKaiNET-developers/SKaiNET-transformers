@@ -329,7 +329,8 @@ public final class sk/ainet/models/gemma/GemmaSafeTensorsLoader {
 	public static final field HF_PER_LAYER_PROJ_NORM Ljava/lang/String;
 	public static final field HF_PER_LAYER_TOKEN_EMBD Ljava/lang/String;
 	public static final field MAX_BYTES_PER_TENSOR J
-	public fun <init> (Ljava/lang/String;)V
+	public fun <init> (Ljava/lang/String;Lsk/ainet/lang/types/DTypePolicy;)V
+	public synthetic fun <init> (Ljava/lang/String;Lsk/ainet/lang/types/DTypePolicy;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun loadToMap (Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
