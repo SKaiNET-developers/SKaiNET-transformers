@@ -1,6 +1,12 @@
 package sk.ainet.lang.nn.transformer
 
 import sk.ainet.context.ExecutionContext
+import sk.ainet.context.schedule.Schedule
+import sk.ainet.lang.nn.transformer.schedule.AttentionSchedulePolicy
+import sk.ainet.lang.nn.transformer.schedule.plan
+import sk.ainet.lang.tensor.data.DenseFloatArrayTensorData
+import sk.ainet.lang.tensor.data.FloatArrayTensorData
+import sk.ainet.lang.tensor.data.TensorData
 import sk.ainet.lang.nn.Module
 import sk.ainet.lang.nn.normalization.RMSNormalization
 import sk.ainet.lang.nn.topology.ModuleParameter
@@ -210,6 +216,31 @@ public class MultiHeadAttention<T : DType, V>(
         RMSNormalization(intArrayOf(qDim), eps = attnSubNormEps, name = "$name.sub_norm", dtype = dtype)
     } else null
 
+    /**
+     * How this layer's heads are split across the context schedule's tasks (SKEEP-005). A
+     * deployment knob, not a model property: every policy is bit-identical to [AttentionSchedulePolicy.Sequential].
+     */
+    public var schedulePolicy: AttentionSchedulePolicy = AttentionSchedulePolicy.Auto()
+
+    /** Explicit schedule for this layer; `null` (default) reads `ctx.schedule`. */
+    public var schedule: Schedule? = null
+
+    /** Test seam: `false` forces the general `ops.scaledDotProductAttention` path for parity checks. */
+    internal var useFusedPaths: Boolean = true
+
+    /** Coordinator-owned per-task `scores` scratch, one slot per schedule unit (grown on demand, never allocated through the context). */
+    private var scoresScratch: Array<FloatArray> = emptyArray()
+
+    private fun resolveSchedule(ctx: ExecutionContext): Schedule = schedule ?: ctx.schedule
+
+    private fun scratch(slots: Int, seqKV: Int): Array<FloatArray> {
+        val cap = maxOf(seqKV, kvCache?.maxSeqLen ?: 0)
+        if (scoresScratch.size < slots || scoresScratch.isEmpty() || scoresScratch[0].size < cap) {
+            scoresScratch = Array(maxOf(slots, scoresScratch.size)) { FloatArray(cap) }
+        }
+        return scoresScratch
+    }
+
     @Suppress("UNCHECKED_CAST")
     override val modules: List<Module<T, V>>
         get() = buildList {
@@ -239,7 +270,7 @@ public class MultiHeadAttention<T : DType, V>(
     ): AttentionKV<T, V> {
         val boundInput = input.bind(ctx)
         return if (encoderMemory == null) {
-            attentionImpl(qInput = boundInput, kvInput = boundInput, isCrossAttention = false, ctx = ctx)
+            attentionImpl(qInput = boundInput, kvInput = boundInput, isCrossAttention = false, ctx = ctx, wantKV = true)
         } else {
             require(kvCache == null && slidingWindow == null) {
                 "MultiHeadAttention.forwardWithKV: cross-attention supports neither kvCache nor slidingWindow."
@@ -286,6 +317,8 @@ public class MultiHeadAttention<T : DType, V>(
         isCrossAttention: Boolean,
         ctx: ExecutionContext,
         crossMask: Tensor<T, V>? = null,
+        /** The caller reads the returned K/V (export); the in-place cache path cannot serve that. */
+        wantKV: Boolean = false,
     ): AttentionKV<T, V> {
         val ops = ctx.ops
         val scale = attentionScale ?: (1.0f / sqrt(headDim.toFloat()))
@@ -390,8 +423,24 @@ public class MultiHeadAttention<T : DType, V>(
         // K/V cannot share a cache with self-attention (different shapes,
         // different ownership). Caching is the runtime's responsibility
         // for cross-attention and is rejected at the entry above.
-        val (fullK, fullV) = if (kvCache != null && !isCrossAttention) {
-            PhaseProfile.time("attn.kvcache") { kvCache!!.update(k, vReshaped, ctx) }
+        // SKEEP-005 fused eager paths: decode (one query row) and prefill (many rows) run the
+        // scalar per-head kernels over a heap view of K/V — no GQA concat, no permute chain, no
+        // intermediate tensors — with heads split across the context schedule's tasks. Kept off
+        // while recording (the kernels read concrete floats and would detach the tape), for
+        // cross-attention and for an explicit cross mask, which stay on the symbolic path below.
+        val cache = kvCache
+        val eagerFusable = useFusedPaths && !isCrossAttention && !ctx.isRecording && crossMask == null
+        if (eagerFusable && !wantKV && cache != null) {
+            // In place: the cache writes this step's K/V and hands back a view over its own buffers.
+            val view = PhaseProfile.time("attn.kvcache") { cache.updateInPlace(k, vReshaped, ctx) }
+            if (view != null) {
+                val merged = fusedAttention(q, qSeqLen, view, scale, ctx)
+                return finishFused(merged, wO, ctx, mhaDump, k, vReshaped)
+            }
+        }
+
+        val (fullK, fullV) = if (cache != null && !isCrossAttention) {
+            PhaseProfile.time("attn.kvcache") { cache.update(k, vReshaped, ctx) }
         } else {
             k to vReshaped
         }
@@ -399,31 +448,10 @@ public class MultiHeadAttention<T : DType, V>(
             mhaDumpStat("[blk.0.mha cached-K (full)  ]", fullK)
             mhaDumpStat("[blk.0.mha cached-V (full)  ]", fullV)
         }
-
-        // Fused decode-attention fast path — the hot autoregressive case.
-        // When seqQ == 1 (one token per forward), self-attention, and no
-        // sliding-window mask, compute scores → softmax → (GQA) weighted-V
-        // directly from the cached K/V buffers in a single buffer-direct pass,
-        // emitting the merged [1, qDim] output. This skips repeatKVHeads' concat
-        // (built every token/layer), the unsqueeze → SDPA → squeeze → permute
-        // chain, and every intermediate tensor those allocate — which the
-        // jstack profile (docs/upstream/A2-PROFILE.md) showed dominate decode.
-        // Numerically identical to the general path below for seqLen 1 (same
-        // max-stable softmax, same GQA head mapping head h → kv head h/nRep).
-        //
-        // Skipped while RECORDING a graph: fusedDecodeAttention reads concrete float
-        // buffers (`q.data.copyToFloatArray()`) and rewraps a fresh constant tensor, so
-        // it detaches from the trace tape (q/k/v would dangle, the result would be a
-        // disconnected constant). When `ctx.isRecording`, fall through to the symbolic
-        // `ops.*` SDPA path below, which exports cleanly. This is exactly the eager
-        // fast-path / traceable-path split `ExecutionContext.isRecording` documents.
-        if (qSeqLen == 1 && !isCrossAttention && slidingWindow == null && !ctx.isRecording) {
-            var merged = fusedDecodeAttention(q, fullK, fullV, scale, ctx)
-            subNorm?.let { merged = it.forward(merged, ctx) }
-            var output = PhaseProfile.time("attn.o_proj") { linearProject(ops, merged, wO) }
-            if (bias) output = ops.add(output, params[oWIdx + 1].value)
-            if (mhaDump) mhaDumpStat("[blk.0.mha post-fused-decode ]", output)
-            return AttentionKV(output, fullK, fullV)
+        if (eagerFusable) {
+            val view = PhaseProfile.time("attn.fused_copy") { copiedView(fullK, fullV) }
+            val merged = fusedAttention(q, qSeqLen, view, scale, ctx)
+            return finishFused(merged, wO, ctx, mhaDump, fullK, fullV)
         }
 
         // Expand KV heads for GQA if needed
@@ -488,71 +516,84 @@ public class MultiHeadAttention<T : DType, V>(
     }
 
     /**
-     * Fused single-token (decode) attention. [q] is `[nHeads, 1, headDim]`
-     * (heads-first, post-RoPE); [fullK]/[fullV] are `[nKVHeads, seqKV, headDim]`
-     * (post-cache, post-V-norm). Returns the merged `[1, qDim]` context where
-     * row 0 is the concatenation of each head's output — exactly what the
-     * general SDPA + squeeze + swapSeqHeadDims + reshape chain produces for
-     * seqLen 1, but with zero intermediate tensors. GQA query head `h` reads KV
-     * head `h / (nHeads / nKVHeads)`, matching [repeatKVHeads].
+     * Scheduled fused attention over a heap view of K/V (SKEEP-005). [q] is heads-first
+     * `[nHeads, seqQ, headDim]` (post-RoPE); the result is the merged `[seqQ, qDim]` context —
+     * what the general SDPA + squeeze + permute + reshape chain produces, with zero intermediate
+     * tensors. GQA query head `h` reads KV head `h / (nHeads / nKVHeads)`.
+     *
+     * Decode (`seqQ == 1`, no window) uses the fused-decode rounding order; everything else the
+     * engine SDPA's. Heads are the schedule's units: each task gets its own `scores` scratch and
+     * writes a disjoint slice of `out`; nothing inside the region touches the context.
      */
-    private fun fusedDecodeAttention(
-        q: Tensor<T, V>,
-        fullK: Tensor<T, V>,
-        fullV: Tensor<T, V>,
-        scale: Float,
-        ctx: ExecutionContext,
-    ): Tensor<T, V> {
-        // The three buffer copies grow with the KV length (K/V are the full
-        // cache) and repeat every token × layer — timed separately from the
-        // arithmetic so the profile can tell copy cost from compute cost.
-        val qBuf = PhaseProfile.time("attn.fused_copy") { q.data.copyToFloatArray() }        // [nHeads * headDim]
-        val kBuf = PhaseProfile.time("attn.fused_copy") { fullK.data.copyToFloatArray() }    // [nKVHeads * seqKV * headDim]
-        val vBuf = PhaseProfile.time("attn.fused_copy") { fullV.data.copyToFloatArray() }    // [nKVHeads * seqKV * headDim]
-        val seqKV = fullK.shape[1]
+    private fun fusedAttention(q: Tensor<T, V>, seqQ: Int, kv: KVBufferView, scale: Float, ctx: ExecutionContext): Tensor<T, V> {
+        val qBuf = PhaseProfile.time("attn.fused_copy") {
+            (q.data as? FloatArrayTensorData<*>)?.buffer ?: q.data.copyToFloatArray()
+        }
         val nRep = nHeads / nKVHeads
-        val out = FloatArray(nHeads * headDim)      // == qDim, row-major [h, d]
-        val scores = FloatArray(seqKV)
-        PhaseProfile.time("attn.fused_compute") {
-        for (h in 0 until nHeads) {
-            val g = h / nRep                        // GQA: which KV head this query head reads
-            val qOff = h * headDim
-            val kvHeadBase = g * seqKV * headDim
-            // scores[ki] = (q_h · k_{g,ki}) * scale, tracking the max for a stable softmax
-            var maxV = Float.NEGATIVE_INFINITY
-            for (ki in 0 until seqKV) {
-                val kOff = kvHeadBase + ki * headDim
-                var dot = 0f
-                for (d in 0 until headDim) dot += qBuf[qOff + d] * kBuf[kOff + d]
-                val s = dot * scale
-                scores[ki] = s
-                if (s > maxV) maxV = s
-            }
-            // softmax over keys
-            var sum = 0f
-            for (ki in 0 until seqKV) {
-                val e = kotlin.math.exp(scores[ki] - maxV)
-                scores[ki] = e
-                sum += e
-            }
-            val inv = if (sum > 0f) 1f / sum else 0f
-            // context_h = Σ_ki softmax_ki * v_{g,ki}
-            val oOff = h * headDim
-            for (d in 0 until headDim) {
-                var acc = 0f
-                for (ki in 0 until seqKV) {
-                    acc += scores[ki] * vBuf[kvHeadBase + ki * headDim + d]
-                }
-                out[oOff + d] = acc * inv
+        val out = FloatArray(seqQ * qDim)
+        val decode = seqQ == 1 && slidingWindow == null
+        val absOffset = kv.length - seqQ
+        val window = slidingWindow
+        val sched = resolveSchedule(ctx)
+        val plan = schedulePolicy.plan(nHeads, nKVHeads, kv.length, sched.parallelism)
+        val scratch = scratch(slots = plan?.units ?: 1, seqKV = kv.length)
+
+        fun head(h: Int, scores: FloatArray) {
+            val g = h / nRep
+            if (decode) {
+                ScalarHeadAttentionKernel.decodeHead(qBuf, h * headDim, kv, g, scale, scores, out, h * headDim)
+            } else {
+                ScalarHeadAttentionKernel.prefillRows(
+                    qBuf, qBase = h * seqQ * headDim, qRowStride = headDim, qi0 = 0, qi1 = seqQ,
+                    kv = kv, g = g, scale = scale, causal = causal, absOffset = absOffset,
+                    window = window, rightContext = rightContext,
+                    scores = scores, out = out, outOff = h * headDim, outRowStride = qDim,
+                )
             }
         }
+
+        PhaseProfile.time("attn.fused_compute") {
+            if (plan == null) {
+                val scores = scratch[0]
+                for (h in 0 until nHeads) head(h, scores)
+            } else {
+                sched.forRange(plan.units, plan.grain) { start, end ->
+                    // Slot = first unit of this range: distinct per task under any schedule.
+                    val scores = scratch[start]
+                    for (u in start until end) {
+                        val h0 = u * plan.headsPerUnit
+                        for (h in h0 until h0 + plan.headsPerUnit) head(h, scores)
+                    }
+                }
+            }
         }
         @Suppress("UNCHECKED_CAST")
-        return ctx.fromData(
-            sk.ainet.lang.tensor.data.DenseFloatArrayTensorData<T>(Shape(1, qDim), out)
-                as sk.ainet.lang.tensor.data.TensorData<T, V>,
-            q.dtype,
-        )
+        return ctx.fromData(DenseFloatArrayTensorData<T>(Shape(seqQ, qDim), out) as TensorData<T, V>, q.dtype)
+    }
+
+    /** Today's copies, for caches that cannot expose their buffers: `[nKVHeads, seqKV, headDim]` heads-first. */
+    private fun copiedView(fullK: Tensor<T, V>, fullV: Tensor<T, V>): KVBufferView {
+        val seqKV = fullK.shape[fullK.rank - 2]
+        val kBuf = (fullK.data as? FloatArrayTensorData<*>)?.buffer ?: fullK.data.copyToFloatArray()
+        val vBuf = (fullV.data as? FloatArrayTensorData<*>)?.buffer ?: fullV.data.copyToFloatArray()
+        return KVBufferView.contiguous(kBuf, vBuf, seqKV, headDim)
+    }
+
+    private fun finishFused(
+        merged0: Tensor<T, V>,
+        wO: Tensor<T, V>,
+        ctx: ExecutionContext,
+        mhaDump: Boolean,
+        k: Tensor<T, V>,
+        v: Tensor<T, V>,
+    ): AttentionKV<T, V> {
+        val ops = ctx.ops
+        var merged = merged0
+        subNorm?.let { merged = it.forward(merged, ctx) }
+        var output = PhaseProfile.time("attn.o_proj") { linearProject(ops, merged, wO) }
+        if (bias) output = ops.add(output, params[oWIdx + 1].value)
+        if (mhaDump) mhaDumpStat("[blk.0.mha post-fused        ]", output)
+        return AttentionKV(output, k, v)
     }
 
     /**

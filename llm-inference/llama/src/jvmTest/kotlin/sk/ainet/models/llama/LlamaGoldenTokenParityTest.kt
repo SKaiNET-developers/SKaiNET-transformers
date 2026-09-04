@@ -6,7 +6,6 @@ import kotlinx.coroutines.runBlocking
 import sk.ainet.apps.llm.OptimizedLLMMode
 import sk.ainet.apps.llm.OptimizedLLMRuntime
 import sk.ainet.apps.llm.tokenizer.TokenizerFactory
-import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
 import sk.ainet.io.gguf.StreamingGGUFReader
 import sk.ainet.lang.types.FP32
@@ -52,7 +51,8 @@ class LlamaGoldenTokenParityTest {
             return
         }
         val fixture = loadFixture()
-        val ctx = DirectCpuExecutionContext()
+        val ctx = ParityEnv.context()
+        println("PARITY llama ${ParityEnv.describe()}")
 
         // 1 — prompt tokenization parity (a failure here names the tokenizer, not the model).
         val fields = StreamingGGUFReader.open(JvmRandomAccessSource.open(modelPath)).use { it.fields }
@@ -72,7 +72,7 @@ class LlamaGoldenTokenParityTest {
             )
         }
         val runtime = OptimizedLLMRuntime(
-            LlamaNetworkLoader.fromWeights(weights), ctx,
+            LlamaNetworkLoader.fromWeights(weights, kvCacheKind = ParityEnv.kvCacheKind), ctx,
             OptimizedLLMMode.DIRECT, FP32::class, bos = weights.metadata.bosTokenId,
         )
         val text = StringBuilder()

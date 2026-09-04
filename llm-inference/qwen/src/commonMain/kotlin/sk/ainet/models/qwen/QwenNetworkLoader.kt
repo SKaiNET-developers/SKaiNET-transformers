@@ -49,6 +49,16 @@ public class QwenNetworkLoader @PublishedApi internal constructor(
     public var dtypePolicy: DTypePolicy = DTypePolicy.Any
         private set
 
+    /** Which KV cache the layers are built with; see [sk.ainet.lang.nn.dsl.decoder.DecoderKVCacheKind]. */
+    public var kvCacheKind: sk.ainet.lang.nn.dsl.decoder.DecoderKVCacheKind = sk.ainet.lang.nn.dsl.decoder.DecoderKVCacheKind.APPEND
+        private set
+
+    /** Build the network with [kind] KV caches (SKEEP-005: POSITIONAL lets attention read K/V in place). */
+    public fun withKVCacheKind(kind: sk.ainet.lang.nn.dsl.decoder.DecoderKVCacheKind): QwenNetworkLoader {
+        this.kvCacheKind = kind
+        return this
+    }
+
     /** See [LlamaNetworkLoader.withDtypePolicy]. */
     public fun withDtypePolicy(policy: DTypePolicy): QwenNetworkLoader {
         DTypePolicyValidation.validate(
@@ -112,10 +122,11 @@ public class QwenNetworkLoader @PublishedApi internal constructor(
         /** Build from already-loaded [DecoderGgufWeights] (GGUF-canonical tensor names). */
         public inline fun <reified T : DType, V> fromWeights(
             weights: DecoderGgufWeights<T, V>,
-            debug: Boolean = false
+            debug: Boolean = false,
+            kvCacheKind: sk.ainet.lang.nn.dsl.decoder.DecoderKVCacheKind = sk.ainet.lang.nn.dsl.decoder.DecoderKVCacheKind.APPEND
         ): Module<T, V> = QwenNetworkLoader(
             WeightsProvider.Preloaded(weights), debug
-        ).applyWeightsToNetwork(weights)
+        ).withKVCacheKind(kvCacheKind).applyWeightsToNetwork(weights)
     }
 
     /**
@@ -166,7 +177,7 @@ public class QwenNetworkLoader @PublishedApi internal constructor(
         // presence in the file decides, like qkNorm — without this the loaded bias
         // tensors never bind and qwen2 logits are silently garbage (#338 arc find).
         val hasAttnBias = weights.tensors.keys.any { it.endsWith(".attn_q.bias") }
-        val model = qwenNetwork<T, V>(weights.metadata, qkNorm = hasQkNorm, attnBias = hasAttnBias)
+        val model = qwenNetwork<T, V>(weights.metadata, qkNorm = hasQkNorm, attnBias = hasAttnBias, kvCacheKind = kvCacheKind)
 
         val weightTensors = weights.tensors.map { (name, tensor) ->
             WeightTensor(

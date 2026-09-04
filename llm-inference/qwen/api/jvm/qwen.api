@@ -20,8 +20,10 @@ public final class sk/ainet/models/qwen/QwenNetworkLoader {
 	public synthetic fun <init> (Lsk/ainet/models/qwen/QwenNetworkLoader$WeightsProvider;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun getDebug ()Z
 	public final fun getDtypePolicy ()Lsk/ainet/lang/types/DTypePolicy;
+	public final fun getKvCacheKind ()Lsk/ainet/lang/nn/dsl/decoder/DecoderKVCacheKind;
 	public final fun getWeightsProvider ()Lsk/ainet/models/qwen/QwenNetworkLoader$WeightsProvider;
 	public final fun withDtypePolicy (Lsk/ainet/lang/types/DTypePolicy;)Lsk/ainet/models/qwen/QwenNetworkLoader;
+	public final fun withKVCacheKind (Lsk/ainet/lang/nn/dsl/decoder/DecoderKVCacheKind;)Lsk/ainet/models/qwen/QwenNetworkLoader;
 }
 
 public final class sk/ainet/models/qwen/QwenNetworkLoader$Companion {

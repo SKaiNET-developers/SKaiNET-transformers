@@ -88,6 +88,16 @@ public class LlamaNetworkLoader @PublishedApi internal constructor(
      * Validates eagerly so impossible requirements fail at the boundary,
      * not deep inside the load loop.
      */
+    /** Which KV cache the layers are built with; see [sk.ainet.lang.nn.dsl.decoder.DecoderKVCacheKind]. */
+    public var kvCacheKind: sk.ainet.lang.nn.dsl.decoder.DecoderKVCacheKind = sk.ainet.lang.nn.dsl.decoder.DecoderKVCacheKind.APPEND
+        private set
+
+    /** Build the network with [kind] KV caches (SKEEP-005: POSITIONAL lets attention read K/V in place). */
+    public fun withKVCacheKind(kind: sk.ainet.lang.nn.dsl.decoder.DecoderKVCacheKind): LlamaNetworkLoader {
+        this.kvCacheKind = kind
+        return this
+    }
+
     public fun withDtypePolicy(policy: DTypePolicy): LlamaNetworkLoader {
         DTypePolicyValidation.validate(
             policy, "LlamaNetworkLoader.withDtypePolicy", keepNative = DECODER_NARROW_KEEP_NATIVE,
@@ -128,10 +138,11 @@ public class LlamaNetworkLoader @PublishedApi internal constructor(
         /** Build from already-loaded [DecoderGgufWeights] (GGUF-canonical tensor names). */
         public inline fun <reified T : DType, V> fromWeights(
             weights: DecoderGgufWeights<T, V>,
-            debug: Boolean = false
+            debug: Boolean = false,
+            kvCacheKind: sk.ainet.lang.nn.dsl.decoder.DecoderKVCacheKind = sk.ainet.lang.nn.dsl.decoder.DecoderKVCacheKind.APPEND
         ): Module<T, V> = LlamaNetworkLoader(
             WeightsProvider.Preloaded(weights), debug
-        ).applyWeightsToNetwork(weights)
+        ).withKVCacheKind(kvCacheKind).applyWeightsToNetwork(weights)
     }
 
     /**
@@ -177,7 +188,7 @@ public class LlamaNetworkLoader @PublishedApi internal constructor(
     internal inline fun <reified T : DType, V> applyWeightsToNetwork(
         weights: DecoderGgufWeights<T, V>
     ): Module<T, V> {
-        val model = llamaNetwork<T, V>(weights.metadata)
+        val model = llamaNetwork<T, V>(weights.metadata, kvCacheKind = kvCacheKind)
 
         val weightTensors = weights.tensors.map { (name, tensor) ->
             WeightTensor(

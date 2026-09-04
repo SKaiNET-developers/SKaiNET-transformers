@@ -6,6 +6,7 @@ import sk.ainet.lang.tensor.Slice
 import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.tensor.slice
 import sk.ainet.lang.tensor.data.DenseFloatArrayTensorData
+import sk.ainet.lang.tensor.data.FloatArrayTensorData
 import sk.ainet.lang.types.DType
 
 /**
@@ -58,6 +59,18 @@ public abstract class KVCache<T : DType, V>(
 
     /** Current number of cached positions. */
     public abstract val position: Int
+
+    /**
+     * Like [update], but hands back a zero-copy heap view over the cached prefix instead of
+     * tensors (SKEEP-005), or `null` when this variant cannot — the caller then falls back to
+     * [update]. Eager path only: returns `null` while `ctx.isRecording`, so exports keep the
+     * functional K/V history.
+     */
+    internal open fun updateInPlace(
+        newKey: Tensor<T, V>,
+        newValue: Tensor<T, V>,
+        ctx: ExecutionContext
+    ): KVBufferView? = null
 
     override fun onForward(input: Tensor<T, V>, ctx: ExecutionContext): Tensor<T, V> {
         // KVCache is not used via standard forward() — use update() instead.
@@ -119,6 +132,15 @@ public class AppendKVCache<T : DType, V>(
         cachePosition += newKey.shape[newKey.rank - 2]
 
         return fullK to fullV
+    }
+
+    /** Best effort: the detached history is heap-backed under a forward scope, so attention can read it in place. */
+    override fun updateInPlace(newKey: Tensor<T, V>, newValue: Tensor<T, V>, ctx: ExecutionContext): KVBufferView? {
+        if (ctx.isRecording) return null
+        update(newKey, newValue, ctx)
+        val kBuf = (cachedKeys?.data as? FloatArrayTensorData<*>)?.buffer ?: return null
+        val vBuf = (cachedValues?.data as? FloatArrayTensorData<*>)?.buffer ?: return null
+        return KVBufferView.contiguous(kBuf, vBuf, cachePosition, headDim)
     }
 
     override fun reset() {
@@ -274,6 +296,18 @@ public class PositionalKVCache<T : DType, V>(
         pos += newLen
         return currentView(ctx, newKey.dtype)
     }
+
+    override fun updateInPlace(newKey: Tensor<T, V>, newValue: Tensor<T, V>, ctx: ExecutionContext): KVBufferView? {
+        if (ctx.isRecording) return null
+        val newLen = newKey.shape[newKey.rank - 2]
+        writeAt(pos, newKey, newValue)
+        pos += newLen
+        return view(pos)
+    }
+
+    /** Zero-copy view over positions `0 until upToPos`; [rowHeadDim] narrows the row for padded sharers. */
+    internal fun view(upToPos: Int, rowHeadDim: Int = headDim): KVBufferView =
+        KVBufferView(keyBuf, valueBuf, upToPos, headStride = maxSeqLen * headDim, rowStride = headDim, headDim = rowHeadDim)
 
     /**
      * Write [newKey] / [newValue] into the buffer starting at absolute position
@@ -432,6 +466,14 @@ public class SharedPositionalKVCache<T : DType, V>(
         return delegate.currentView(ctx, newKey.dtype)
     }
 
+    override fun updateInPlace(newKey: Tensor<T, V>, newValue: Tensor<T, V>, ctx: ExecutionContext): KVBufferView? {
+        if (ctx.isRecording) return null
+        val newLen = newKey.shape[newKey.rank - 2]
+        delegate.writeAt(pos, newKey, newValue)
+        pos += newLen
+        return delegate.view(pos)
+    }
+
     override fun reset() {
         pos = 0
         tracedKeys = null
@@ -464,6 +506,9 @@ public class SharedKVCache<T : DType, V>(
         newValue: Tensor<T, V>,
         ctx: ExecutionContext
     ): Pair<Tensor<T, V>, Tensor<T, V>> = delegate.update(newKey, newValue, ctx)
+
+    override fun updateInPlace(newKey: Tensor<T, V>, newValue: Tensor<T, V>, ctx: ExecutionContext): KVBufferView? =
+        delegate.updateInPlace(newKey, newValue, ctx)
 
     override fun reset() {
         // Intentional no-op: the owner layer resets the delegate; followers
@@ -545,6 +590,16 @@ public class PaddedSharedPositionalKVCache<T : DType, V>(
         delegate.writeAt(pos, paddedK, paddedV)
         pos += newLen
         return delegate.sliceView(ctx, newKey.dtype, upToPos = pos, sliceHeadDim = layerHeadDim)
+    }
+
+    override fun updateInPlace(newKey: Tensor<T, V>, newValue: Tensor<T, V>, ctx: ExecutionContext): KVBufferView? {
+        if (ctx.isRecording) return null
+        val newLen = newKey.shape[newKey.rank - 2]
+        val paddedK = padHeadDim(newKey, delegate.headDim, ctx)
+        val paddedV = padHeadDim(newValue, delegate.headDim, ctx)
+        delegate.writeAt(pos, paddedK, paddedV)
+        pos += newLen
+        return delegate.view(pos, rowHeadDim = layerHeadDim)
     }
 
     override fun reset() {
@@ -656,6 +711,9 @@ public class OwnerReadOnlyKVCache<T : DType, V>(
             sliceHeadDim = delegate.headDim
         )
     }
+
+    override fun updateInPlace(newKey: Tensor<T, V>, newValue: Tensor<T, V>, ctx: ExecutionContext): KVBufferView? =
+        if (ctx.isRecording) null else delegate.view(delegate.position)
 
     override fun reset() {
         // No-op: the owner layer resets the delegate; clearing it from a
