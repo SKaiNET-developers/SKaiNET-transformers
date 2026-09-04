@@ -42,6 +42,15 @@ public object FunctionGemmaContract {
     public const val FN_PREFILL_AT: String = "gemma_prefill_at"
 
     /**
+     * Chunk prefill against the cache: `gemma_prefill_with_past(tokens C i32, per-base cos/sin [C×headDim],
+     * per-type additive masks [1×nHeads×C×?], select [1×C], per-layer K/V …) → per-layer K/V extended by C, token 1xi32`.
+     * One call per utterance instead of C `gemma_with_past` steps. Fixed chunk size [DEFAULT_CHUNK]; masks
+     * carry causal band, padding and the sliding window (0 = attend, -1e30 = masked).
+     */
+    public const val FN_PREFILL_WITH_PAST: String = "gemma_prefill_with_past"
+    public const val DEFAULT_CHUNK: Int = 64
+
+    /**
      * The IREE runtime addresses functions by their module-qualified name (`module.gemma`);
      * `iree-run-module --function=gemma` qualifies internally, `IreeRedecodeSession` does not.
      */
@@ -55,6 +64,31 @@ public object FunctionGemmaContract {
 
     /** `gemma_at` / `gemma_prefill_at` argument order: tokens, then the one-hot position row. */
     public fun selectArgs(): List<String> = listOf("tokens", "select")
+
+    /**
+     * `gemma_prefill_with_past` argument order (first-use order of the trace): tokens, then per layer
+     * the cos/sin of its RoPE base on first use, that layer's K then V, and the layer type's mask on
+     * first use (it is consumed after the K/V concat); the one-hot select comes LAST.
+     */
+    public fun prefillWithPastArgs(spec: FunctionGemmaSpec): List<String> {
+        val args = mutableListOf("tokens")
+        var introSliding = false
+        var introGlobal = false
+        for (l in 0 until spec.nLayers) {
+            val isGlobal = l % spec.globalLayerPeriod == spec.globalLayerPeriod - 1
+            if (isGlobal && !introGlobal) { args += "cosGlobal"; args += "sinGlobal" }
+            if (!isGlobal && !introSliding) { args += "cosSliding"; args += "sinSliding" }
+            args += "l$l.k"; args += "l$l.v"
+            if (isGlobal && !introGlobal) { args += "maskGlobal"; introGlobal = true }
+            if (!isGlobal && !introSliding) { args += "maskSliding"; introSliding = true }
+        }
+        args += "select"
+        return args
+    }
+
+    /** `gemma_prefill_with_past` result order: per-layer K,V (extended by the chunk) then the token LAST. */
+    public fun prefillWithPastOutputs(spec: FunctionGemmaSpec): List<String> =
+        perLayerKv(spec) + "token"
 
     /** `gemma_prefill_at` result order: per-layer K,V caches then the single selected token LAST. */
     public fun prefillAtOutputs(spec: FunctionGemmaSpec): List<String> =
@@ -100,7 +134,7 @@ public object FunctionGemmaContract {
         |{
         |  "contractVersion": $CONTRACT_VERSION,
         |  "model": "functiongemma-270m",
-        |  "functions": { "redecode": "$FN_REDECODE", "prefill": "$FN_PREFILL", "withPast": "$FN_WITH_PAST", "redecodeAt": "$FN_REDECODE_AT", "prefillAt": "$FN_PREFILL_AT" },
+        |  "functions": { "redecode": "$FN_REDECODE", "prefill": "$FN_PREFILL", "withPast": "$FN_WITH_PAST", "redecodeAt": "$FN_REDECODE_AT", "prefillAt": "$FN_PREFILL_AT", "prefillWithPast": "$FN_PREFILL_WITH_PAST" },
         |  "nLayers": ${spec.nLayers},
         |  "headDim": ${spec.headDim},
         |  "nKvHeads": ${spec.nKvHeads},
@@ -122,6 +156,9 @@ public object FunctionGemmaContract {
         |  "redecodeAtArgs": [${arr(selectArgs())}],
         |  "prefillAtArgs": [${arr(selectArgs())}],
         |  "prefillAtOutputs": [${arr(prefillAtOutputs(spec))}],
+        |  "chunk": $DEFAULT_CHUNK,
+        |  "prefillWithPastArgs": [${arr(prefillWithPastArgs(spec))}],
+        |  "prefillWithPastOutputs": [${arr(prefillWithPastOutputs(spec))}],
         |  "toolMap": { $tools }
         |}
         |""".trimMargin()
