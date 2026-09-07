@@ -108,32 +108,30 @@ Honest status — see the project-status note at the top of this README.
 
 ## Current release
 
-The current release is **0.53.0** (against **SKaiNET 0.53.0**) — version lock-step with the engine
-is restored, and the release ships everything accumulated since 0.40.2: BitNet b1.58, the
-engine-loader migration (every GGUF weight loader a thin engine wrapper, MAPPED residency by
-default), the Gemma 3n DSL path with its StableHLO/IREE export harness, and the Qwen / Apertus
-decode and tool-calling fixes.
+The current release is **0.54.0** (against **SKaiNET 0.54.0**) — version lock-step with the engine
+continues, plus two bugs fixed on real hardware and the FunctionGemma/IREE-Android chunked-KV work
+closed out.
 
-**The Gemma 3n export actually emits.** Engine 0.53.0 closes SKaiNET#1247 — allocation-free void
-tracing, aliased constant extraction, strict StableHLO conversion, and an array-free path for the
-≥2 GiB tied embedding — and the harness streams weights through the `BufferResolver` (#396). The
-full 30-layer E2B export produces a 15k-line module with zero failure comments and a 4.6 GB
-safetensors in under a minute, where it previously OOMed a 46 GB heap.
+**A stateful Android KV session for FunctionGemma.** `IreeKvSession` / `IreeKvDecoder`
+(`llm-runtime/iree-android`) prefill the tool catalog once per process, snapshot the KV state, and
+per-turn prefill only the new chunk — device-resident K/V, zero-copy tail views for the sliding
+layers, embedding rows read straight from the archive. Measured on a MagentaTV One (Mali via
+Vulkan): **p50 5.87 s / max 6.25 s per utterance**, down from minutes on the stateless redecode
+contract. Position-selected graphs (`gemma_at`/`gemma_prefill_at`) and a chunk prefill-with-past
+graph (`gemma_prefill_with_past`, #415, #417) get there without every step re-running the LM head
+over the whole sequence.
 
-**SafeTensors loading rides the engine.** The per-family hand-rolled SafeTensors materialization
-(Gemma, the shared decoder loader, Apertus, Gemma 3n) collapses onto the engine's sharded /
-single-file `ParametersLoader`s (#398, #400, #401): each family keeps only its slot table and
-allowlist, every dtype decision is the engine's, and `Require(BF16)`/`Require(FP16)` keep-native is
-accepted on the SafeTensors lane.
+**Two bugs found on real hardware, fixed.** `runtime-kgemma`'s published POM depended on an
+unpublished `:llm-runtime:kgemma3n` coordinate and failed to resolve for any external consumer —
+fixed by unpublishing Gemma 3n itself rather than papering over the dependency (it's maturity-gate
+0/5 and postponed per its own tracking issue). The official FunctionGemma tool-call parser crashed
+with `PatternSyntaxException` on every Android device (ICU rejects an unescaped `}` that the JVM's
+regex engine tolerates) — a one-character fix.
 
-**skainet-decode on Android.** `llm-apps:skainet-decode-core` (the shared `DecodeSession`) and
-`llm-apps:skainet-decode-android`, the repository's first Android application: load a pushed GGUF
-memory-mapped, refuse before allocating when it doesn't fit, decode on one thread, and report
-`GenerationMetrics` with the page-fault and RSS rows only a device can show (#395).
-
-**Tool calling re-verified against the new engine.** `Gemma4E2BToolCallSmokeTest` is re-enabled —
-the real E2B checkpoint now emits parseable `<|tool_call>` markup (#399) — and FunctionGemma and
-Qwen3 tool calling were re-run green in the same pass.
+It builds on **0.53.0**, which restored version lock-step with the engine (SKaiNET 0.53.0's
+billion-parameter export fixes and sharded SafeTensors loader), collapsed the per-family
+hand-rolled SafeTensors materialization onto the engine's loaders, shipped `skainet-decode` as the
+repository's first Android application, and re-verified tool calling against the new engine.
 
 It builds on **0.40.2**, which rounded out the **compiled on-device path** (standalone
 DSL → StableHLO → IREE export modules for FunctionGemma and SmolLM2, the generic Android JNI
@@ -210,7 +208,7 @@ The recommended way to consume is via the BOM. It pins every published `skainet-
 
 ```kotlin
 dependencies {
-    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.53.0"))
+    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.54.0"))
 
     // Versions resolved from the BOM:
     implementation("sk.ainet.transformers:skainet-transformers-core")
