@@ -1,0 +1,14 @@
+[cols="3,1,1,1,1,1", options="header"]
+|===
+| Schedule / KV cache | `attn.fused_compute` (528 calls) | `attn.kvcache` | Prefill 512 | Decode 32 | tok/s
+
+| `Sequential` / `APPEND` (0.53.0 behaviour) | 8,991 ms | 447 ms | 47.9 s | 4.17 s | 7.7
+| `Sequential` / `POSITIONAL` | 10,374 ms footnote:[Run-to-run noise on a laptop: the matmul buckets of this run were ≈40 % slower too.] | 27 ms | 65.6 s | 4.41 s | 7.3
+| `CoroutineSchedule.hardware()` (12) / `APPEND` | 2,773 ms | 369 ms | 46.9 s | 3.67 s | 8.7
+| `CoroutineSchedule.hardware()` (12) / `POSITIONAL` | 2,590 ms | 10 ms | 45.0 s | 3.31 s | 9.7
+|===
+
+The parallel region is 3.5× faster than the sequential loop; the positional cache removes the
+per-token copy (`attn.kvcache` 447 → 10 ms). Decode gains 26 % end to end. The prefill wall
+time barely moves because the row-major native gemv processes prefill row by row — that is the
+next lever, not attention.

@@ -35,10 +35,12 @@ public inline fun <reified T : DType, V> qwenNetwork(
     maxInferenceLen: Int = minOf(metadata.contextLength, 4096),
     qkNorm: Boolean = true,
     attnBias: Boolean = false,
+    kvCacheKind: sk.ainet.lang.nn.dsl.decoder.DecoderKVCacheKind = sk.ainet.lang.nn.dsl.decoder.DecoderKVCacheKind.APPEND,
 ): Module<T, V> = decoderTransformerNetwork<T, V>(
     metadata = metadata,
     qkNorm = qkNorm,
     attnBias = attnBias,
     ropeMode = RoPEMode.SPLIT_HALF,
     maxInferenceLen = maxInferenceLen,
+    kvCacheKind = kvCacheKind,
 )

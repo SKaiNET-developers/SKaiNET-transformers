@@ -635,6 +635,14 @@ public final class sk/ainet/lang/nn/dsl/decoder/DecoderGgufWeights {
 	public fun toString ()Ljava/lang/String;
 }
 
+public final class sk/ainet/lang/nn/dsl/decoder/DecoderKVCacheKind : java/lang/Enum {
+	public static final field APPEND Lsk/ainet/lang/nn/dsl/decoder/DecoderKVCacheKind;
+	public static final field POSITIONAL Lsk/ainet/lang/nn/dsl/decoder/DecoderKVCacheKind;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lsk/ainet/lang/nn/dsl/decoder/DecoderKVCacheKind;
+	public static fun values ()[Lsk/ainet/lang/nn/dsl/decoder/DecoderKVCacheKind;
+}
+
 public abstract interface class sk/ainet/lang/nn/dsl/decoder/DecoderModelMetadata {
 	public abstract fun getBlockCount ()I
 	public abstract fun getBosTokenId ()I

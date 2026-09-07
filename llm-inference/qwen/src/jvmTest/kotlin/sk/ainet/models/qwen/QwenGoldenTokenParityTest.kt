@@ -7,7 +7,6 @@ import sk.ainet.apps.llm.OptimizedLLMMode
 import sk.ainet.apps.llm.OptimizedLLMRuntime
 import sk.ainet.apps.llm.sampleFromTensor
 import sk.ainet.apps.llm.tokenizer.TokenizerFactory
-import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
 import sk.ainet.io.gguf.StreamingGGUFReader
 import sk.ainet.lang.types.FP32
@@ -54,7 +53,8 @@ class QwenGoldenTokenParityTest {
     }
 
     private fun assertParity(modelPath: String, fixture: Fixture) {
-        val ctx = DirectCpuExecutionContext()
+        val ctx = ParityEnv.context()
+        println("PARITY qwen ${ParityEnv.describe()}")
 
         // 1 — prompt tokenization parity (a failure here names the tokenizer, not the model).
         val fields = StreamingGGUFReader.open(JvmRandomAccessSource.open(modelPath)).use { it.fields }
@@ -72,7 +72,8 @@ class QwenGoldenTokenParityTest {
             )
         }
         val runtime = OptimizedLLMRuntime(
-            QwenNetworkLoader.fromWeights(weights), ctx, OptimizedLLMMode.DIRECT, FP32::class,
+            QwenNetworkLoader.fromWeights(weights, kvCacheKind = ParityEnv.kvCacheKind), ctx,
+            OptimizedLLMMode.DIRECT, FP32::class,
         )
         for (i in 0 until fixture.promptTokens.size - 1) runtime.forward(fixture.promptTokens[i])
         var token = fixture.promptTokens.last()

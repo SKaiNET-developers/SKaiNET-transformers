@@ -1,0 +1,112 @@
+= Parallel Attention — Getting Started
+:description: Run a Llama or Qwen model with attention heads spread over all cores and copy-free K/V caches, and read the attention profile.
+
+This tutorial takes the decode loop from xref:tutorials/getting-started.adoc[] and turns on the two SKEEP-005
+switches: a parallel `Schedule` on the execution context and the positional (copy-free) KV cache.
+The network definition does not change, and the generated text does not change either — a
+schedule only decides where the work runs.
+
+== Prerequisites
+
+* JDK 21+ (the JVM is the only target with a parallel schedule; others run `Schedule.Sequential`).
+* A Llama 3.2 or Qwen3 GGUF, for example `Llama-3.2-1B-Instruct-Q8_0.gguf`.
+* SKaiNET-transformers 0.54.0 or later, or — until that release — the `feature/attention-schedule`
+  branch built against the engine checkout with `-PuseLocalSkainet=true`.
+
+== Step 1: Dependencies
+
+[source,kotlin]
+----
+dependencies {
+    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:<version>"))
+    implementation("sk.ainet.transformers:skainet-transformers-inference-llama")
+    // CoroutineSchedule lives in the engine's CPU backend, a transitive dependency of the line above.
+}
+----
+
+== Step 2: Load with a positional KV cache
+
+[source,kotlin]
+----
+import sk.ainet.apps.llm.OptimizedLLMMode
+import sk.ainet.apps.llm.OptimizedLLMRuntime
+import sk.ainet.context.DirectCpuExecutionContext
+import sk.ainet.context.schedule.Schedule
+import sk.ainet.exec.schedule.CoroutineSchedule
+import sk.ainet.io.JvmRandomAccessSource
+import sk.ainet.lang.nn.dsl.decoder.DecoderKVCacheKind
+import sk.ainet.lang.types.FP32
+import sk.ainet.models.llama.LlamaNetworkLoader
+import sk.ainet.models.llama.LlamaWeightLoader
+
+val ctx = DirectCpuExecutionContext(schedule = CoroutineSchedule.hardware())   // <1>
+
+val weights = LlamaWeightLoader.loadToMapStreaming<FP32, Float>(ctx) {
+    JvmRandomAccessSource.open("Llama-3.2-1B-Instruct-Q8_0.gguf")
+}
+val model = LlamaNetworkLoader.fromWeights(weights, kvCacheKind = DecoderKVCacheKind.POSITIONAL) // <2>
+val runtime = OptimizedLLMRuntime(model, ctx, OptimizedLLMMode.DIRECT, FP32::class, bos = weights.metadata.bosTokenId)
+----
+<1> One coroutine task per available core. `DirectCpuExecutionContext()` already defaults to this
+    on the JVM; `Schedule.Sequential` pins everything to the caller thread. Any `Schedule` works
+    here — the transformer modules read `ctx.schedule`.
+<2> Pre-sized per-layer buffers that the attention kernel reads in place. The default `APPEND`
+    keeps 0.53.0 behaviour (one copy of the K/V prefix per token).
+
+== Step 3: Generate
+
+[source,kotlin]
+----
+import sk.ainet.lang.nn.transformer.PhaseProfile
+
+PhaseProfile.reset()
+runtime.generate(promptTokens, steps = 64, temperature = 0f) { print(tokenizer.decode(it)) }
+println(PhaseProfile.report())
+----
+
+== Expected output
+
+The `attn.*` buckets show what changed:
+
+[source]
+----
+[PhaseProfile] decode phase breakdown (buckets overlap matmul time; see KernelProfile):
+  attn.fused_compute : … ms over … calls      <- the parallel region; the coordinator's wall time
+  attn.kvcache       : … ms over … calls      <- in-place writes; no attn.fused_copy line any more
+  attn.qkv_proj      : …
+----
+
+With `Schedule.Sequential` the same run prints the same tokens; only `attn.fused_compute` grows.
+
+== Step 4: See which schedule ran
+
+Attach a `RecordingTraceSink` to the schedule to get one `ScheduleRegion` event per parallel
+region (op, elements, tasks, duration) and a `ScheduleDowngraded` event whenever a requested
+schedule could not be honoured:
+
+[source,kotlin]
+----
+import sk.ainet.lang.memory.trace.RecordingTraceSink
+import sk.ainet.lang.memory.trace.TraceEvent
+
+val sink = RecordingTraceSink()
+val ctx = DirectCpuExecutionContext(schedule = CoroutineSchedule.hardware(sink = sink))
+// … run …
+sink.events.filterIsInstance<TraceEvent.ScheduleRegion>().take(3).forEach(::println)
+----
+
+== Tuning
+
+* `mha.schedulePolicy = AttentionSchedulePolicy.PerHead(minSeqKV = 32)` on a specific layer
+  (find it through `model.configureAttention(policy = …)` for all layers) changes the plan without
+  touching the context.
+* `CoroutineSchedule.dedicated(parallelism = 4)` runs the regions on a private pool that does not
+  compete with your application's `Dispatchers.Default`; close it when done.
+* The `AttentionScheduleSpeedProfile` test in `llm-inference/llama` measures all four
+  schedule × cache combinations on your machine:
+
+[source,bash]
+----
+ATTN_SCHEDULE_SPEED=1 LLAMA32_1B_GGUF=/path/to/Llama-3.2-1B-Instruct-Q8_0.gguf \
+  ./gradlew :llm-inference:llama:jvmTest --tests '*AttentionScheduleSpeedProfile' -i
+----

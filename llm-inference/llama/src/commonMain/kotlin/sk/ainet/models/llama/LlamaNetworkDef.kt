@@ -22,8 +22,10 @@ import sk.ainet.lang.types.DType
 public inline fun <reified T : DType, V> llamaNetwork(
     metadata: GgufDecoderMetadata,
     maxInferenceLen: Int = minOf(metadata.contextLength, 4096),
+    kvCacheKind: sk.ainet.lang.nn.dsl.decoder.DecoderKVCacheKind = sk.ainet.lang.nn.dsl.decoder.DecoderKVCacheKind.APPEND,
 ): Module<T, V> = decoderTransformerNetwork<T, V>(
     metadata = metadata,
     qkNorm = false,
     maxInferenceLen = maxInferenceLen,
+    kvCacheKind = kvCacheKind,
 )

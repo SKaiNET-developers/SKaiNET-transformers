@@ -1,0 +1,97 @@
+= Parallel Attention Heads via Schedules
+:description: How MultiHeadAttention maps heads onto cores through the engine's Schedule, why the result is bit-identical, and where the K/V copies went.
+
+Multi-head attention is a loop over heads that never communicate. Until 0.53.0 that loop ran on
+one thread, and each token first copied the whole K/V prefix of every layer out of its cache.
+Since SKaiNET SKEEP-005 the engine separates *what* a network computes from *how* its
+independent work is mapped onto cores — a `Schedule` on the `ExecutionContext`, in the spirit of
+Halide's algorithm/schedule split. `MultiHeadAttention` is the first transformer module that
+consumes it.
+
+[NOTE]
+====
+The engine side — `Schedule`, `CoroutineSchedule`, `ctx.withSchedule`, trace events and the
+compile-lane metadata — is explained in the SKaiNET docs:
+https://skainet-developers.github.io/SKaiNET/skainet/explanation/schedules.html[Algorithm and schedule].
+This page covers only what the transformers layer adds.
+====
+
+== The problem
+
+The JFR profile of a Llama-3.2-3B Q4_K_M decode token at 622 tokens of context
+(https://github.com/SKaiNET-developers/SKaiNET-transformers/issues/413[#413]):
+
+[cols="3,1,1"]
+|===
+| Bucket | Share | Threads
+
+| native Q4_K gemv | ≈50 % | 4
+| `fusedDecodeAttention` + `scaledDotProductAttention` | ≈40 % | 1
+| allocation / GC | ≈10 % | —
+|===
+
+The attention share was pure scalar arithmetic on one core, preceded by a copy of every layer's
+K and V history into fresh arrays — 111 MB per token
+(https://github.com/SKaiNET-developers/SKaiNET-transformers/issues/412[#412]).
+
+== The solution
+
+[source,mermaid]
+----
+flowchart LR
+    C[coordinator thread<br/>q/k/v proj · RoPE · cache write] --> P{plan}
+    P -->|"seqKV < 64 or 1 core"| S[inline loop]
+    P -->|"heads / KV groups"| F[schedule.forRange]
+    F --> H0[head task 0<br/>scores slot 0]
+    F --> H1[head task 1<br/>scores slot 1]
+    F --> Hn[head task n<br/>scores slot n]
+    H0 --> J[join · out tensor · o_proj]
+    H1 --> J
+    Hn --> J
+    S --> J
+----
+
+. **Plan.** `AttentionSchedulePolicy.plan(nHeads, nKVHeads, seqKV, schedule.parallelism)` returns
+  a `HeadPlan` or `null`. `Auto` (the default) picks one task per KV group when the model uses GQA
+  and there are enough groups for the cores, otherwise one task per head; below 64 keys, or on a
+  single core, it returns `null` and the coordinator runs the loop inline.
+. **Fork.** `schedule.forRange(plan.units, plan.grain)` hands every worker a disjoint range of
+  units and a private scores scratch slot. Inside the lambda there is no `ctx`, no `ops`, no
+  allocation, no profiler — only arrays.
+. **Compute.** `ScalarHeadAttentionKernel` computes each head exactly as the 0.53.0 kernels did:
+  decode keeps the fused order (accumulate `e·v`, then multiply by `1/sum`), prefill uses the
+  engine SDPA order (divide, then accumulate), so both are bit-identical to what they replace.
+. **Join.** `forRange` returns only after every worker has finished (first failure cancels the
+  rest); the coordinator wraps the output array into a tensor and continues with `o_proj`.
+
+== Where the copies went
+
+`KVCache.updateInPlace` writes the new K/V rows and returns a `KVBufferView` — a description of
+where each head's rows live in the cache's own buffers. `PositionalKVCache` (and the shared,
+padded and read-only wrappers around it) always provide one. `AppendKVCache` can only do so when
+its concatenated data is a plain float array; on memory-segment-backed data it returns `null` and
+the module falls back to one copied view. Llama and Qwen keep the append cache by default; opt in
+with `withKVCacheKind(DecoderKVCacheKind.POSITIONAL)` and the per-token copy disappears
+(`attn.fused_copy` drops out of `PhaseProfile.report()`).
+
+== Key decisions
+
+* **No schedule words in the DSL.** `qwenNetwork { }` and `llamaNetwork { }` are unchanged; the
+  schedule comes from `ctx.schedule` (on the JVM: one coroutine task per core by default), or from
+  a per-layer `mha.schedule` / `mha.schedulePolicy` override for experiments.
+* **Bit-identity over speed.** Per-head rounding order is frozen; vectorising the inner dot
+  products (which changes summation order) is a separate, tolerance-tested follow-up.
+* **Visible downgrade.** Recording contexts, cross-attention and unsupported data types take the
+  tensor-op path; nothing is approximated silently. The engine emits
+  `TraceEvent.ScheduleDowngraded` when a requested schedule cannot be honoured.
+* **Opt-in positional cache.** It pre-allocates `maxInferenceLen` rows per layer (≈0.9 GB at
+  4096 on a 3B model), so it stays a deployment choice.
+
+== Numbers
+
+Measured by `AttentionScheduleSpeedProfile` on 2026-09-03 (Llama-3.2-1B-Instruct Q8_0, i7-9750H,
+6 cores / 12 threads, JDK 25, 512-token prefill + 32 greedy decode tokens, `PhaseProfile`
+buckets over 16 layers × 33 steps). Greedy tokens are identical in all four configurations, and
+the Llama golden gate passes under `sequential/append` and `parallel/positional`.
+
+include::partial$attention-schedule-numbers.adoc[]
