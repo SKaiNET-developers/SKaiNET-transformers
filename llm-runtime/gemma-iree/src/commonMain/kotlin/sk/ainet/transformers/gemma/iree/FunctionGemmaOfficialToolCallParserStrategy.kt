@@ -54,8 +54,13 @@ public class FunctionGemmaOfficialToolCallParserStrategy : ToolCallParserStrateg
         /** `<start_function_call>call:name{…}<end_function_call>` — end token optional on truncation. */
         // `[\s\S]` rather than `.` + DOT_MATCHES_ALL: that RegexOption is JVM-only, and this
         // file is commonMain. Call bodies span newlines whenever an argument does.
+        //
+        // The closing `}` MUST be escaped (#407): java.util.regex tolerates a lone `}` as a
+        // literal, but Android's ICU-backed regex engine does not and throws
+        // PatternSyntaxException at this companion object's <clinit> — every tool-call parse on
+        // ART failed before the first match. `\}` is a no-op on the JVM and required on Android.
         private val CALL_RE = Regex(
-            """<start_function_call>\s*call:([\w.-]+)\s*\{([\s\S]*?)}\s*(?:<end_function_call>|$)""",
+            """<start_function_call>\s*call:([\w.-]+)\s*\{([\s\S]*?)\}\s*(?:<end_function_call>|$)""",
         )
 
         /**
