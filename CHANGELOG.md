@@ -9,6 +9,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.54.0] — 2026-09-07
+
+Version lock-step with the engine continues: this release ships against **SKaiNET 0.54.0**
+(SKEEP-005's `Schedule` API, the `CoroutineSchedule` pool-deadlock fix, `SafeTensorsParametersLoader`
+`tensorFilter` parity, and the `ExperimentalMemoryApi` opt-in gate removed). It also closes out the
+FunctionGemma/IREE-Android chunked-KV work (#410) and fixes two bugs found on real hardware: a
+broken `runtime-kgemma` Maven Central POM (#408) and an Android crash in FunctionGemma tool-call
+parsing (#407).
+
+### Added — chunked prefill and a stateful Android KV session for FunctionGemma (#406, #410)
+
+- **Position-selected graphs `gemma_at` / `gemma_prefill_at`** (#415): the LM head runs on one
+  one-hot-selected position instead of every position in `SEQ`, cutting the redecode step's wasted
+  work (#406).
+- **Chunk prefill-with-past graph `gemma_prefill_with_past`** (#417): a fixed 64-token chunk against
+  the dynamic cache in one call, with per-head chunk masks (a broadcast over heads to a dynamic
+  shape isn't expressible in static StableHLO).
+- **`IreeKvSession` / `IreeKvDecoder`** (#416, #418): the Android-native stateful KV session —
+  three IREE sessions, device-resident K/V, zero-copy 512-position tail views for the sliding
+  layers, native RoPE tables + chunk masks, embedding rows read from the archive, snapshot/restore
+  without copies. Measured on a MagentaTV One (Mali via Vulkan, bf16 archives): a once-per-process
+  843-token catalog prefill, then **p50 5.87 s / max 6.25 s per utterance** (restore + one chunk +
+  16 decode tokens), down from minutes on the stateless redecode contract.
+- **`iree-android` failure reporting** (#404): native failures surface as reported errors instead
+  of a silent `null`; bare function names are qualified with `module.` automatically.
+
+### Fixed
+
+- **FunctionGemma export `ClassCastException` on `BufferHandle.Floats`** (#405, #420):
+  `FunctionGemmaExportHarness`, `SmolLm2ExportHarness`, and the bake-irpa tests hard-cast every
+  external constant to `BufferHandle.Owned`; since engine 0.53.0 (SKaiNET#1247) a constant can
+  arrive as the aliased `BufferHandle.Floats` instead. Both export harnesses now read every handle
+  through `DefaultBufferResolver`.
+- **`runtime-kgemma`'s Maven Central POM depended on an unpublished coordinate** (#408): pulling
+  in `:llm-runtime:kgemma3n` (never published) leaked
+  `SKaiNET-transformers.llm-runtime:kgemma3n-jvm:unspecified` into the POM, breaking resolution for
+  any external consumer. Rather than just changing the dependency's scope, Gemma 3n itself stops
+  being published (SKaiNET-transformers#377: maturity gate 0/5, hand-rolled runtime that
+  force-dequantizes the whole model, postponed by decision) — source-only until #377's maturity
+  gate is met. `runtime-kgemma`'s CLI loses its `--arch gemma3n` variant accordingly;
+  `skainet-cli` (never published) is unaffected.
+- **Android crash in the official FunctionGemma tool-call parser** (#407):
+  `FunctionGemmaOfficialToolCallParserStrategy.CALL_RE` had an unescaped closing `}` — tolerated by
+  `java.util.regex` on the JVM, rejected by Android's ICU-backed engine with a
+  `PatternSyntaxException` at class-init, so every tool-call parse crashed on ART before the first
+  match. One-character fix; no-op on the JVM.
+
 ## [0.53.0] — 2026-09-02
 
 Version lock-step with the engine is restored: this release ships against **SKaiNET 0.53.0**
