@@ -1,6 +1,5 @@
 package sk.ainet.models.bitnet
 
-import sk.ainet.lang.memory.ExperimentalMemoryApi
 import sk.ainet.lang.nn.Module
 import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.tensor.data.BitNetPlanesTensorData
@@ -48,7 +47,6 @@ public data class BitNetRuntimeWeights(
      * (`planesLmHead`, covering both the `output.weight` and tied-2B4T lanes) — the gate for
      * the two-stage decode ([BitNetTwoStageDecode], `generateTwoStage`).
      */
-    @OptIn(ExperimentalMemoryApi::class)
     public val planesHead: BitNetPlanesTensorData?
         get() = tensors[BitNetTensorNames.OUTPUT]?.data as? BitNetPlanesTensorData
 

@@ -5,7 +5,6 @@ import sk.ainet.io.RandomAccessSource
 import sk.ainet.io.gguf.I2sGgufLayout
 import sk.ainet.io.gguf.StreamingGGUFReader
 import sk.ainet.io.gguf.StreamingGgufParametersLoader
-import sk.ainet.lang.memory.ExperimentalMemoryApi
 import sk.ainet.lang.memory.plan.EncodingRequest
 import sk.ainet.lang.memory.plan.WeightForm
 import sk.ainet.lang.memory.plan.WeightResidency
@@ -152,7 +151,6 @@ public object BitNetWeightLoader {
      * cost matches the non-tied `output.weight` path: one dense-FP32 copy of the head, once,
      * at load.
      */
-    @OptIn(ExperimentalMemoryApi::class)
     private fun planesHeadFromEmbedding(
         ctx: ExecutionContext,
         embedding: Tensor<FP32, Float>,

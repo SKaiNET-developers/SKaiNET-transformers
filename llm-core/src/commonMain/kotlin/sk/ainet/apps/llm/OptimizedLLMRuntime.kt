@@ -106,10 +106,8 @@ public class OptimizedLLMRuntime<T : DType>(
 
     // ---- Forward scope (#343): per-step activation slab on the DIRECT path ----
 
-    @OptIn(sk.ainet.lang.memory.ExperimentalMemoryApi::class)
     private var stepScope: sk.ainet.lang.memory.ForwardScope? = null
 
-    @OptIn(sk.ainet.lang.memory.ExperimentalMemoryApi::class)
     private var stepScopeCtx: ExecutionContext? = null
 
     /**
@@ -117,7 +115,6 @@ public class OptimizedLLMRuntime<T : DType>(
      * plan-vs-actual checks and tests; `null` until the first DIRECT
      * forward, or when the scope is disabled / the mode never uses it.
      */
-    @sk.ainet.lang.memory.ExperimentalMemoryApi
     public val forwardScopeMetrics: sk.ainet.lang.memory.ForwardScope? get() = stepScope
 
     /**
@@ -130,7 +127,6 @@ public class OptimizedLLMRuntime<T : DType>(
      * never silently. KV-cache state is untouched: the cache copies into
      * its own model-lifetime rings, and only step-scoped views die here.
      */
-    @OptIn(sk.ainet.lang.memory.ExperimentalMemoryApi::class)
     private fun stepCtx(): ExecutionContext {
         if (mode != OptimizedLLMMode.DIRECT || forwardSlabFloats <= 0) return ctx
         val scope = stepScope
@@ -256,7 +252,6 @@ public class OptimizedLLMRuntime<T : DType>(
     }
 
     /** Reset to initial state (clear KV caches, rewind position to 0, recycle the step slab). */
-    @OptIn(sk.ainet.lang.memory.ExperimentalMemoryApi::class)
     override fun reset() {
         resetModuleState(model)
         position = 0

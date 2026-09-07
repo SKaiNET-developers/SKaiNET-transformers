@@ -1,7 +1,6 @@
 package sk.ainet.models.bitnet
 
 import sk.ainet.apps.llm.ScoredToken
-import sk.ainet.lang.memory.ExperimentalMemoryApi
 import sk.ainet.lang.memory.TernaryCodec
 import sk.ainet.lang.tensor.data.BitNetPlanesTensorData
 import sk.ainet.lang.tensor.storage.TensorEncoding
@@ -44,7 +43,6 @@ public fun interface BitNetStage1Kernel {
  * matmul == decoded matmul), and approximation is an application decision — made here, visibly,
  * and handed to [sk.ainet.apps.llm.sampleFromCandidates].
  */
-@OptIn(ExperimentalMemoryApi::class)
 public object BitNetTwoStageDecode {
 
     /** NeoGPU's Stage-2 candidate count (`LMH_CANDIDATES`). */

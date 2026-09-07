@@ -1,7 +1,6 @@
 package sk.ainet.lang.nn.quant
 
 import sk.ainet.lang.memory.BlockOrder
-import sk.ainet.lang.memory.ExperimentalMemoryApi
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.data.RowDequantSource
 import sk.ainet.lang.tensor.data.TensorData
@@ -30,7 +29,6 @@ import sk.ainet.lang.types.FP32
  * original tensor data for anything this wrapper cannot serve (dense
  * delivery, relayouted block order, rows not on block boundaries).
  */
-@OptIn(ExperimentalMemoryApi::class)
 public class PackedRowDequantTensorData private constructor(
     private val packed: TensorData<FP32, Float>,
     private val blocks: PackedBlockStorage,

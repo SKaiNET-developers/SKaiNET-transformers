@@ -1,7 +1,6 @@
 package sk.ainet.apps.kgemma
 
 import sk.ainet.backend.api.kernel.KernelDispatch
-import sk.ainet.lang.memory.ExperimentalMemoryApi
 
 /**
  * Kernel bootstrap facade for the kgemma entry points ([GemmaChatModel], the kgemma CLI,
@@ -20,7 +19,6 @@ import sk.ainet.lang.memory.ExperimentalMemoryApi
  */
 public object KgemmaKernels {
 
-    @OptIn(ExperimentalMemoryApi::class)
     public fun ensureInstalled() {
         KernelDispatch.ensureInstalled()
     }

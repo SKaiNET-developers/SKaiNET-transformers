@@ -10,10 +10,6 @@ plugins {
 }
 
 kotlin {
-    compilerOptions {
-        optIn.add("sk.ainet.lang.memory.ExperimentalMemoryApi")
-    }
-
     android {
         namespace = "sk.ainet.models.llama"
         compileSdk = libs.versions.android.compileSdk.get().toInt()

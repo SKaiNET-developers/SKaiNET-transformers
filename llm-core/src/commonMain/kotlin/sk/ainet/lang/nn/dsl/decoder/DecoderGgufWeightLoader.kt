@@ -13,7 +13,6 @@ import sk.ainet.io.gguf.StreamingGGUFReader
 import sk.ainet.io.gguf.StreamingTensorInfo
 import sk.ainet.io.gguf.StreamingGgufParametersLoader
 import sk.ainet.io.gguf.dequant.DequantOps
-import sk.ainet.lang.memory.ExperimentalMemoryApi
 import sk.ainet.lang.memory.plan.EncodingRequest
 import sk.ainet.lang.memory.plan.WeightForm
 import sk.ainet.lang.memory.plan.WeightResidency
@@ -59,7 +58,6 @@ public data class DecoderGgufWeights<T : DType, V>(
  * logical `[out, in]` shapes — the form the legacy eager runtime and
  * trace/export harnesses consume.
  */
-@ExperimentalMemoryApi
 public val DECODER_DEQUANTIZE_ALL: WeightForm = WeightForm(
     encoding = EncodingRequest.DequantizeTo(FP32),
     shape = WeightShapeOrientation.OUT_IN
@@ -95,7 +93,6 @@ public object DecoderTensorNames {
  * naming scheme. Validation covers metadata presence and basic shape consistency for the tensors
  * we materialize.
  */
-@OptIn(ExperimentalMemoryApi::class)
 public class DecoderGgufWeightLoader private constructor(
     private val sourceProvider: (() -> Source)?,
     private val randomAccessProvider: (() -> RandomAccessSource)?,

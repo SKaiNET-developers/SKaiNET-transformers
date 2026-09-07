@@ -3,7 +3,6 @@ package sk.ainet.models.gemma
 import kotlinx.io.Source
 import sk.ainet.context.ExecutionContext
 import sk.ainet.io.RandomAccessSource
-import sk.ainet.lang.memory.ExperimentalMemoryApi
 import sk.ainet.lang.memory.plan.WeightForm
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.Tensor
@@ -250,7 +249,6 @@ public suspend fun loadGemmaRuntimeWeights(
  * Load Gemma 4 runtime weights via the engine loader. Default form keeps
  * quantized tensors packed; pass [GEMMA_DEQUANTIZE_ALL] for dense FP32.
  */
-@ExperimentalMemoryApi
 public suspend fun <T : DType> loadGemmaRuntimeWeightsStreaming(
     ctx: ExecutionContext,
     randomAccessProvider: () -> RandomAccessSource,
@@ -266,7 +264,6 @@ public suspend fun <T : DType> loadGemmaRuntimeWeightsStreaming(
 }
 
 /** Backward-compatible overload defaulting to FP32. */
-@ExperimentalMemoryApi
 public suspend fun loadGemmaRuntimeWeightsStreaming(
     ctx: ExecutionContext,
     randomAccessProvider: () -> RandomAccessSource,
