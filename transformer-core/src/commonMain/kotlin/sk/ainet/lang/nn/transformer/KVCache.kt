@@ -77,7 +77,6 @@ public abstract class KVCache<T : DType, V>(
      * `ForwardScope.retain`. Without an active scope this is the identity:
      * no copy, exactly the pre-#343 behavior.
      */
-    @OptIn(sk.ainet.lang.memory.ExperimentalMemoryApi::class)
     protected fun detachFromStep(t: Tensor<T, V>, ctx: ExecutionContext): Tensor<T, V> {
         if (ctx.memoryScope == sk.ainet.lang.memory.Scope.Ambient) return t
         val data = DenseFloatArrayTensorData<T>(t.shape, t.data.copyToFloatArray())

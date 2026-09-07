@@ -7,7 +7,6 @@ import sk.ainet.io.RandomAccessSource
 import sk.ainet.io.weights.MappingConfig
 import sk.ainet.io.weights.WeightMapper
 import sk.ainet.io.weights.WeightTensor
-import sk.ainet.lang.memory.ExperimentalMemoryApi
 import sk.ainet.lang.memory.plan.WeightForm
 import sk.ainet.lang.nn.Module
 import sk.ainet.lang.types.DType
@@ -58,7 +57,6 @@ public class BitNetNetworkLoader @PublishedApi internal constructor(
             val sourceProvider: () -> Source,
         ) : WeightsProvider
 
-        @OptIn(ExperimentalMemoryApi::class)
         data class GgufRandomAccess(
             val randomAccessProvider: () -> RandomAccessSource,
             /** `null` = the decoder loader's keep-packed MAPPED default. */
@@ -84,7 +82,6 @@ public class BitNetNetworkLoader @PublishedApi internal constructor(
          * [weightForm] `null` = the decoder loader's keep-packed MAPPED default;
          * pass [sk.ainet.lang.nn.dsl.decoder.DECODER_DEQUANTIZE_ALL] for dense FP32.
          */
-        @OptIn(ExperimentalMemoryApi::class)
         @JvmName("fromGgufRandomAccess")
         public fun fromGguf(
             randomAccessProvider: () -> RandomAccessSource,
@@ -121,7 +118,6 @@ public class BitNetNetworkLoader @PublishedApi internal constructor(
                 loader.loadToMap<T, V>(ctx)
             }
             is WeightsProvider.GgufRandomAccess -> {
-                @OptIn(ExperimentalMemoryApi::class)
                 val loader = DecoderGgufWeightLoader(
                     randomAccessProvider = wp.randomAccessProvider,
                     acceptedArchitectures = BITNET_ARCHITECTURES,

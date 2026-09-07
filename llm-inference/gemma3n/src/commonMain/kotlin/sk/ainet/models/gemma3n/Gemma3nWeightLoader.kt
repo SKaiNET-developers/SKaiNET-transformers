@@ -16,7 +16,6 @@ import sk.ainet.io.gguf.StreamingGGUFReader
 import sk.ainet.io.gguf.StreamingTensorInfo
 import sk.ainet.io.gguf.StreamingGgufParametersLoader
 import sk.ainet.io.gguf.dequant.DequantOps
-import sk.ainet.lang.memory.ExperimentalMemoryApi
 import sk.ainet.lang.memory.plan.WeightForm
 import sk.ainet.lang.memory.plan.WeightResidency
 import sk.ainet.lang.memory.plan.WeightShapeOrientation
@@ -45,7 +44,6 @@ import kotlin.reflect.KClass
  * (see [GemmaWeightLoader]'s kdoc — same overrides). The sequential
  * [Source] path dequantizes everything to dense floats.
  */
-@OptIn(ExperimentalMemoryApi::class)
 public class Gemma3nWeightLoader private constructor(
     private val sourceProvider: (() -> Source)?,
     private val randomAccessProvider: (() -> RandomAccessSource)?,

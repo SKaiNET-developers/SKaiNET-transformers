@@ -12,7 +12,6 @@ import sk.ainet.lang.types.FP32
 import sk.ainet.context.ExecutionContext
 import kotlinx.io.Source
 import sk.ainet.io.RandomAccessSource
-import sk.ainet.lang.memory.ExperimentalMemoryApi
 import sk.ainet.lang.memory.plan.EncodingRequest
 import sk.ainet.lang.memory.plan.WeightForm
 import sk.ainet.lang.memory.plan.WeightShapeOrientation
@@ -184,7 +183,6 @@ public suspend fun loadLlamaRuntimeWeights(
  * tensor dequantized to dense FP32 — the eager runtime's shape checks and kernels
  * assume dense data.
  */
-@OptIn(ExperimentalMemoryApi::class)
 public suspend fun <T : DType> loadLlamaRuntimeWeightsStreaming(
     ctx: ExecutionContext,
     randomAccessProvider: () -> RandomAccessSource,

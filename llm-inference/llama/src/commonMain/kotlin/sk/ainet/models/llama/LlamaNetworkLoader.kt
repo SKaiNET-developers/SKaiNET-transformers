@@ -11,7 +11,6 @@ import sk.ainet.apps.llm.DTypePolicyValidation
 import sk.ainet.context.ExecutionContext
 import sk.ainet.io.RandomAccessSource
 import sk.ainet.io.weights.LlamaGGUFNameResolver
-import sk.ainet.lang.memory.ExperimentalMemoryApi
 import sk.ainet.lang.memory.plan.WeightForm
 import sk.ainet.io.weights.MappingConfig
 import sk.ainet.io.weights.WeightMapper
@@ -46,7 +45,6 @@ import kotlin.jvm.JvmName
  * val model = LlamaNetworkLoader.fromWeights(llamaWeights, debug = true)
  * ```
  */
-@OptIn(ExperimentalMemoryApi::class)
 public class LlamaNetworkLoader @PublishedApi internal constructor(
     @PublishedApi internal val weightsProvider: WeightsProvider,
     @PublishedApi internal val debug: Boolean = false

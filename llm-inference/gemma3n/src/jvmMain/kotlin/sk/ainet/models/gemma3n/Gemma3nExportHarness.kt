@@ -9,7 +9,6 @@ import sk.ainet.context.ExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
 import sk.ainet.lang.graph.DefaultExecutionTape
 import sk.ainet.lang.graph.DefaultGraphExecutionContext
-import sk.ainet.lang.memory.ExperimentalMemoryApi
 import sk.ainet.lang.memory.plan.EncodingRequest
 import sk.ainet.lang.memory.plan.WeightForm
 import sk.ainet.lang.memory.plan.WeightShapeOrientation
@@ -60,7 +59,6 @@ import java.nio.ByteOrder
  * vmfb compilation happens outside Kotlin (iree-compile; the repo pins a Torq fork for
  * `iree-run-module` — see `llm-runtime/gemma-iree`).
  */
-@OptIn(ExperimentalMemoryApi::class)
 public object Gemma3nExportHarness {
 
     public const val FN_REDECODE: String = "gemma3n"
