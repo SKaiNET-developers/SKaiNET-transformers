@@ -27,6 +27,22 @@
 #include "iree/io/parameter_index_provider.h"
 #include "iree/io/formats/irpa/irpa_parser.h"
 #include "iree/modules/io/parameters/module.h"
+#include <android/log.h>
+
+/* Every failure used to end in `iree_status_ignore(st); return NULL;` with nothing in logcat (#404).
+ * Format the status once, log it under the "skainet_iree" tag, then consume it. */
+static void log_and_ignore(const char* what, iree_status_t st) {
+  if (iree_status_is_ok(st)) return;
+  char* buf = NULL; iree_host_size_t len = 0;
+  iree_allocator_t alloc = iree_allocator_system();
+  if (iree_status_to_string(st, &alloc, &buf, &len) && buf) {
+    __android_log_print(ANDROID_LOG_ERROR, "skainet_iree", "%s: %.*s", what, (int)len, buf);
+    iree_allocator_free(alloc, buf);
+  } else {
+    __android_log_print(ANDROID_LOG_ERROR, "skainet_iree", "%s: status code %d", what, (int)iree_status_code(st));
+  }
+  iree_status_ignore(st);
+}
 
 #define PARAM_SCOPE "model"
 #define MAX_CONCURRENT_PARAM_OPS 16
@@ -117,7 +133,7 @@ JNIEXPORT jlong JNICALL JNIFN(nativeCreate)(JNIEnv* env, jobject thiz,
   (*env)->ReleaseStringUTFChars(env, jirpa, irpa);
   (*env)->ReleaseStringUTFChars(env, jfn, fn);
   if (!iree_status_is_ok(st)) {
-    iree_status_ignore(st);
+    log_and_ignore("nativeCreate (instance/device/session/parameters/module)", st);
     if (s) {
       if (s->param_provider) iree_io_parameter_provider_release(s->param_provider);
       if (s->sess) iree_runtime_session_release(s->sess);
@@ -151,20 +167,28 @@ JNIEXPORT jintArray JNICALL JNIFN(nativeStep)(JNIEnv* env, jobject thiz,
         .access = IREE_HAL_MEMORY_ACCESS_ALL, .usage = IREE_HAL_BUFFER_USAGE_DEFAULT },
       iree_make_const_byte_span(toks, (size_t)seq * 4), &in);
   free(toks);
-  if (!iree_status_is_ok(st)) { iree_status_ignore(st); return NULL; }
+  if (!iree_status_is_ok(st)) { log_and_ignore("nativeStep: input buffer_view", st); return NULL; }
 
   iree_runtime_call_t c;
-  if (!iree_status_is_ok(iree_runtime_call_initialize_by_name(
-          s->sess, iree_make_cstring_view(s->fn_name), &c))) {
+  st = iree_runtime_call_initialize_by_name(s->sess, iree_make_cstring_view(s->fn_name), &c);
+  if (!iree_status_is_ok(st)) {
+    /* Typical cause: an unqualified function name — the runtime wants `module.<fn>`. */
+    __android_log_print(ANDROID_LOG_ERROR, "skainet_iree", "nativeStep: function '%s' not found (names must be module-qualified, e.g. module.gemma)", s->fn_name);
+    log_and_ignore("nativeStep: call_initialize_by_name", st);
     iree_hal_buffer_view_release(in); return NULL;
   }
   iree_runtime_call_inputs_push_back_buffer_view(&c, in);
   iree_hal_buffer_view_t* out = NULL;
-  int ok = iree_status_is_ok(iree_runtime_call_invoke(&c, 0));
-  if (ok) iree_runtime_call_outputs_pop_front_buffer_view(&c, &out);
+  st = iree_runtime_call_invoke(&c, 0);
+  int ok = iree_status_is_ok(st);
+  if (ok) {
+    st = iree_runtime_call_outputs_pop_front_buffer_view(&c, &out);
+    ok = iree_status_is_ok(st);
+  }
   iree_runtime_call_deinitialize(&c);
   iree_hal_buffer_view_release(in);
-  if (!ok || !out) { if (out) iree_hal_buffer_view_release(out); return NULL; }
+  if (!ok) { log_and_ignore("nativeStep: invoke / output", st); if (out) iree_hal_buffer_view_release(out); return NULL; }
+  if (!out) { __android_log_print(ANDROID_LOG_ERROR, "skainet_iree", "nativeStep: '%s' returned no output", s->fn_name); return NULL; }
 
   /* The redecode graph contract: output is rank-1, length SEQ (argMax already applied
    * in-graph — see the file doc). A caller pointing this at a vmfb that doesn't follow
@@ -172,16 +196,17 @@ JNIEXPORT jintArray JNICALL JNIFN(nativeStep)(JNIEnv* env, jobject thiz,
   iree_host_size_t outRank = iree_hal_buffer_view_shape_rank(out);
   iree_hal_dim_t outLen = outRank > 0 ? iree_hal_buffer_view_shape_dim(out, 0) : 0;
   if (outRank != 1 || outLen != (iree_hal_dim_t)seq) {
+    __android_log_print(ANDROID_LOG_ERROR, "skainet_iree", "nativeStep: '%s' output is rank %u, dim0 %u; the redecode contract needs rank 1, length %d", s->fn_name, (unsigned)outRank, (unsigned)outLen, (int)seq);
     iree_hal_buffer_view_release(out);
     return NULL;
   }
 
   int32_t* result = malloc((size_t)seq * sizeof(int32_t));
-  ok = iree_status_is_ok(iree_hal_device_transfer_d2h(s->dev,
+  st = iree_hal_device_transfer_d2h(s->dev,
       iree_hal_buffer_view_buffer(out), 0, result, (size_t)seq * sizeof(int32_t),
-      IREE_HAL_TRANSFER_BUFFER_FLAG_DEFAULT, iree_infinite_timeout()));
+      IREE_HAL_TRANSFER_BUFFER_FLAG_DEFAULT, iree_infinite_timeout());
   iree_hal_buffer_view_release(out);
-  if (!ok) { free(result); return NULL; }
+  if (!iree_status_is_ok(st)) { log_and_ignore("nativeStep: transfer_d2h", st); free(result); return NULL; }
 
   jintArray outArr = (*env)->NewIntArray(env, seq);
   if (outArr) (*env)->SetIntArrayRegion(env, outArr, 0, seq, (jint*)result);

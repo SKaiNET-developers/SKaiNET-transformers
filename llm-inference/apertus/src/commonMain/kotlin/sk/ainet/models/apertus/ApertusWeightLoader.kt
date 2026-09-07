@@ -12,7 +12,6 @@ import sk.ainet.io.gguf.StreamingGGUFReader
 import sk.ainet.io.gguf.StreamingGgufParametersLoader
 import sk.ainet.io.gguf.StreamingTensorInfo
 import sk.ainet.io.gguf.dequant.DequantOps
-import sk.ainet.lang.memory.ExperimentalMemoryApi
 import sk.ainet.lang.memory.plan.EncodingRequest
 import sk.ainet.lang.memory.plan.WeightForm
 import sk.ainet.lang.memory.plan.WeightResidency
@@ -132,7 +131,6 @@ public class ApertusWeightLoader private constructor(
 
     // ============== Streaming loading (engine loader) ==============
 
-    @OptIn(ExperimentalMemoryApi::class)
     private suspend fun <T : DType, V> loadFromStreamingGguf(
         ctx: ExecutionContext,
         dtype: KClass<T>

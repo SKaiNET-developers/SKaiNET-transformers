@@ -10,10 +10,6 @@ plugins {
 }
 
 kotlin {
-    compilerOptions {
-        optIn.add("sk.ainet.lang.memory.ExperimentalMemoryApi")
-    }
-
     android {
         namespace = "sk.ainet.apps.kgemma"
         compileSdk = libs.versions.android.compileSdk.get().toInt()
@@ -114,8 +110,10 @@ kotlin {
 
         val jvmMain by getting {
             dependencies {
-                implementation(project(":llm-inference:gemma3n"))
-                implementation(project(":llm-runtime:kgemma3n"))
+                // Gemma 3n intentionally NOT wired in: it's unpublished
+                // (SKaiNET-transformers#377, maturity gate 0/5) and pulling it into this
+                // published runtime leaked an unpublished :llm-runtime:kgemma3n coordinate
+                // into the POM as `unspecified` (#408). Source-only until #377 lands.
                 // FunctionGemma compiled export: DSL -> StableHLO (external params).
                 // JVM-only (skainet-compile-hlo/-dag publish no JS).
                 implementation(libs.skainet.compile.hlo)

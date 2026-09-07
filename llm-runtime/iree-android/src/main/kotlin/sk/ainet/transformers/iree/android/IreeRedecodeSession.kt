@@ -17,7 +17,7 @@ package sk.ainet.transformers.iree.android
 public class IreeRedecodeSession(
     vmfbPath: String,
     irpaPath: String,
-    functionName: String,
+    private val functionName: String,
     device: String = DEFAULT_DEVICE,
 ) : AutoCloseable {
 
@@ -25,7 +25,10 @@ public class IreeRedecodeSession(
 
     init {
         loadNativeLibrary()
-        handle = nativeCreate(device, vmfbPath, irpaPath, functionName)
+        // The runtime resolves functions by module-qualified name (`module.gemma`); a bare name from the
+        // export contract (`FunctionGemmaContract.FN_REDECODE` = "gemma") creates fine and then fails every
+        // step inside the JNI without a message (#404). Qualify it here so both spellings work.
+        handle = nativeCreate(device, vmfbPath, irpaPath, if ('.' in functionName) functionName else "module.$functionName")
         require(handle != 0L) {
             "IREE redecode session native create failed (device='$device', function='$functionName'); " +
                 "check libskainet_iree_redecode.so, the vmfb, and the irpa."
@@ -33,8 +36,15 @@ public class IreeRedecodeSession(
     }
 
     /** One redecode step: [tokenIds] must be exactly the vmfb's fixed `seq` length. */
-    public fun step(tokenIds: IntArray): IntArray? =
-        if (handle == 0L) null else nativeStep(handle, tokenIds)
+    public fun step(tokenIds: IntArray): IntArray? {
+        if (handle == 0L) return null
+        val out = nativeStep(handle, tokenIds)
+        if (out == null) {
+            // The native side drops its iree_status_t (#404); make the failure visible at least.
+            android.util.Log.e("IreeRedecodeSession", "nativeStep returned null (function='$functionName', seq=${tokenIds.size}): input buffer, call, or output mapping failed in the IREE runtime")
+        }
+        return out
+    }
 
     override fun close() {
         if (handle != 0L) {

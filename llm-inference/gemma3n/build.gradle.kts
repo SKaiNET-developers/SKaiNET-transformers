@@ -1,19 +1,17 @@
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
+// Not published (SKaiNET-transformers#377: maturity gate 0/5, hand-rolled runtime that
+// force-dequantizes the whole model, postponed by decision). Source-only until it lands —
+// no vanniktech.mavenPublish / binary-compatibility-validator, same convention as
+// :llm-runtime:kgemma3n.
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
     alias(libs.plugins.androidMultiplatformLibrary)
-    alias(libs.plugins.vanniktech.mavenPublish)
     alias(libs.plugins.kover)
-    alias(libs.plugins.binary.compatibility.validator)
 }
 
 kotlin {
-    compilerOptions {
-        optIn.add("sk.ainet.lang.memory.ExperimentalMemoryApi")
-    }
-
     android {
         namespace = "sk.ainet.models.gemma3n"
         compileSdk = libs.versions.android.compileSdk.get().toInt()

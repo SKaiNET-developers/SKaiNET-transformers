@@ -174,7 +174,6 @@ fun main(args: Array<String>) {
         // (SKaiNET#1240) are ServiceLoader-discovered — one call replaces the per-pack
         // bootstrap this file used to carry. Explicit here (rather than lazy-on-first-matmul)
         // so the packs are in before the loaders' mapped-staging decisions.
-        @OptIn(sk.ainet.lang.memory.ExperimentalMemoryApi::class)
         run {
             KernelDispatch.ensureInstalled()
         }
@@ -186,7 +185,6 @@ fun main(args: Array<String>) {
         // to dense FP32) — against the JVM heap cap. Mapped weights page
         // against device RAM, not this budget (#1189) — the whole point of
         // the MAPPED default.
-        @OptIn(sk.ainet.lang.memory.ExperimentalMemoryApi::class)
         run {
             val mappedDefault = WeightForm(
                 shape = WeightShapeOrientation.OUT_IN,

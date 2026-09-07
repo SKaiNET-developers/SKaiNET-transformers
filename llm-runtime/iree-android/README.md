@@ -103,3 +103,34 @@ investigation.
 - [ ] Wired into `kllama`'s `registerPlatformBackends` facade for
       zero-config app consumption (matches how NEON kernels are
       auto-discovered on the eager path) — natural follow-up, not done here
+
+## KV session (`IreeKvSession` / `IreeKvDecoder`, `libskainet_iree_kv.so`)
+
+The stateful counterpart of the redecode session, for the FunctionGemma contract addendum
+(`gemma_prefill_at`, `gemma_prefill_with_past`, `gemma_with_past`; host-gather variants with an
+`emb` input right after the tokens — the embedding rows are read from the with-past archive by the
+native side, so callers pass token ids only):
+
+```kotlin
+val spec = IreeKvSpec.functionGemma270m(chunk = 32)           // or IreeKvSpec.fromManifest(json)
+val session = IreeKvSession(spec, IreeKvSession.VULKAN_DEVICE,
+    "$dir/gemma-with-past-hostgather-valhall4.vmfb", "$dir/gemma-with-past.irpa",
+    "$dir/gemma-prefill-with-past-hostgather-valhall4.vmfb", "$dir/gemma-prefill-with-past.irpa",
+    "$dir/gemma-prefill-at-hostgather-valhall4.vmfb", "$dir/gemma-prefill-at.irpa")
+val decoder = IreeKvDecoder(session, prefillSeq = 1024)
+val catalog = decoder.prefillPrefix(catalogPromptIds)          // once per process (25 s on a MagentaTV One, 843 tokens)
+session.releasePrefill()                                       // drops the prefill archive mapping
+val ids = decoder.generate(catalog, utteranceIds, eosTokenId = 106, maxNewTokens = 32)   // per turn
+```
+
+What the native side does per call: sliding layers (`l % globalLayerPeriod != period-1`) only ever
+see their last `slidingWindow` cache positions through zero-copy tail views; RoPE cos/sin tables
+(split-half, sign folded into the first half) and the chunk graph's per-head additive masks
+(causal band, padding, window) are built for the absolute positions; K/V outputs replace the
+retained views; `snapshot()`/`restore()` retain/release views without copying. Every failure is
+thrown as `IllegalStateException` with the formatted IREE status (also logged under `skainet_iree_kv`).
+
+Measured (MagentaTV One, Mali via Vulkan, bf16 archives, chunk 32, 843-token catalog prefix,
+16 decode tokens): open 12.4 s, prefix 25.2 s once, then **p50 5.9 s per utterance** (one chunk call
+≈ 2.0 s + 16 × 0.245 s), restore 0 ms, RSS ≈ 1.5 GB in the 32-bit process. Rebuild the library
+with `native/build-iree-kv.sh <abi> --vulkan` (same image and links as the redecode `.so`).

@@ -15,6 +15,7 @@ import sk.ainet.lang.tensor.VoidOpsTensor
 import sk.ainet.lang.tensor.data.TensorData
 import sk.ainet.lang.tensor.ops.VoidTensorOps
 import sk.ainet.lang.tensor.storage.BufferHandle
+import sk.ainet.lang.tensor.storage.DefaultBufferResolver
 import sk.ainet.lang.types.FP32
 import sk.ainet.lang.types.Int32
 import sk.ainet.tape.Execution
@@ -225,10 +226,11 @@ object WhisperExportHarness {
         return byKey.values.toList()
     }
 
+    /** Little-endian bytes of an external parameter, whatever `BufferHandle` the engine handed over (#420). */
     private fun bytesOf(h: BufferHandle): ByteArray = when (h) {
         is BufferHandle.Owned -> h.data.copyOfRange(h.offset, h.offset + h.sizeInBytes.toInt())
         is BufferHandle.Borrowed -> h.data.copyOfRange(h.offset, h.offset + h.sizeInBytes.toInt())
-        else -> error("unexpected BufferHandle ${h::class.simpleName}")
+        else -> DefaultBufferResolver().resolve(h).use { it.readAllBytes() }
     }
 
     /**
@@ -312,7 +314,7 @@ object WhisperExportHarness {
                 when (val h = e.source) {
                     is BufferHandle.Owned -> os.write(h.data, h.offset, h.sizeInBytes.toInt())
                     is BufferHandle.Borrowed -> os.write(h.data, h.offset, h.sizeInBytes.toInt())
-                    else -> error("unexpected BufferHandle ${h::class.simpleName}")
+                    else -> os.write(bytesOf(h))
                 }
                 written += e.source.sizeInBytes
             }

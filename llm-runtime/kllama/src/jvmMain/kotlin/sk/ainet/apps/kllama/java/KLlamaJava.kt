@@ -11,7 +11,6 @@ import sk.ainet.backend.api.kernel.KernelPacks
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.exec.kernel.FfmRowMajorKernelPack
 import sk.ainet.io.JvmRandomAccessSource
-import sk.ainet.lang.memory.ExperimentalMemoryApi
 import sk.ainet.lang.tensor.data.MemorySegmentTensorDataFactory
 import sk.ainet.lang.types.FP32
 import sk.ainet.lang.nn.dsl.decoder.DecoderGgufWeightLoader
@@ -58,7 +57,6 @@ public object KLlamaJava {
      * reference kernel: correct, but dramatically slower per matmul (mirrors skainet-cli's
      * `Main.kt` install, which this facade previously lacked).
      */
-    @OptIn(ExperimentalMemoryApi::class)
     private fun ensureKernelPacksInstalled() {
         if (!kernelsInstalled.compareAndSet(false, true)) return
         KernelPacks.install()
