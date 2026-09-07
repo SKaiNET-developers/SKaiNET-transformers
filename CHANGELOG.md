@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.54.1] — 2026-09-07
+
+A transformers-only release, same pattern as 0.40.2: no new engine version, still against
+**SKaiNET engine 0.54.0**. `MultiHeadAttention` becomes the first consumer of the engine's
+SKEEP-005 `Schedule`, and positional KV caches stop copying the whole prefix per layer per token.
+
 ### Added — schedule-driven attention: parallel heads, copy-free K/V (SKaiNET SKEEP-005)
 
 - **Attention heads run in parallel** (#413): `MultiHeadAttention` maps heads (or GQA groups) onto
@@ -32,7 +38,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `SKAINET_KV_CACHE=append|positional` (verified on Llama-3.2-1B, Qwen2.5-0.5B and Qwen3-1.7B
   Q8_0); `AttentionScheduleSpeedProfile` (opt-in) measures all four combinations. Docs: `docs/specs/attention-schedule.md`, the *Parallel Attention Heads via
   Schedules* explanation and the *Parallel Attention — Getting Started* tutorial.
-- Requires engine **0.54.0** (published; see below).
 
 ## [0.54.0] — 2026-09-07
 
