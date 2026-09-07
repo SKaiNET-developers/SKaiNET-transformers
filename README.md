@@ -109,9 +109,18 @@ Honest status — see the project-status note at the top of this README.
 
 ## Current release
 
-The current release is **0.54.0** (against **SKaiNET 0.54.0**) — version lock-step with the engine
-continues, plus two bugs fixed on real hardware and the FunctionGemma/IREE-Android chunked-KV work
-closed out.
+The current release is **0.54.1** (against **SKaiNET 0.54.0** — a transformers-only release, same
+pattern as 0.40.2: no new engine version needed).
+
+**Attention heads run in parallel.** `MultiHeadAttention` is the first consumer of the engine's
+SKEEP-005 `Schedule`: heads (or GQA groups) map onto cores via `AttentionSchedulePolicy`
+(`Sequential` / `PerHead` / `PerKVGroup` / `Auto`), bit-identical to the sequential path.
+`KVCache.updateInPlace` returns copy-free `KVBufferView`s for positional caches instead of copying
+the whole prefix per layer per token, and `DecoderKVCacheKind.POSITIONAL` brings that to Llama and
+Qwen. Verified on Llama-3.2-1B, Qwen2.5-0.5B and Qwen3-1.7B against mainline llama.cpp.
+
+It builds on **0.54.0**, which restored version lock-step with the engine, plus two bugs fixed on
+real hardware and the FunctionGemma/IREE-Android chunked-KV work closed out.
 
 **A stateful Android KV session for FunctionGemma.** `IreeKvSession` / `IreeKvDecoder`
 (`llm-runtime/iree-android`) prefill the tool catalog once per process, snapshot the KV state, and
@@ -209,7 +218,7 @@ The recommended way to consume is via the BOM. It pins every published `skainet-
 
 ```kotlin
 dependencies {
-    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.54.0"))
+    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.54.1"))
 
     // Versions resolved from the BOM:
     implementation("sk.ainet.transformers:skainet-transformers-core")

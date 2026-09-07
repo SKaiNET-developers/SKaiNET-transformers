@@ -4,7 +4,7 @@
 **Depends on:** SKaiNET engine `Schedule` API — [SKEEP-005](https://skainet-developers.github.io/SKaiNET/skainet/skeep/005-schedules-structured-concurrency.html) (`sk.ainet.context.schedule`, `DirectCpuExecutionContext(schedule = …)`, `CoroutineSchedule`)
 **Issues:** transformers #412 (per-head fused attention copies the K/V prefix per layer per token), #413 (attention is single-threaded)
 **Labels:** enhancement, performance
-**Milestone:** 0.54.0 (lock-step with engine 0.54.0)
+**Milestone:** 0.54.1 (transformers-only release; engine 0.54.0)
 
 ---
 
@@ -132,9 +132,8 @@ returns `null` (→ copied path) on segment-backed data. Every override returns 
 | AS-8 | vectorised inner dots, growable positional cache | follow-up |
 
 Checkpoints: CP-1 engine `Schedule` API available (SKaiNET `feature/skeep-005-schedules`);
-CP-2 transformer-core parity green; CP-3 golden gates green under every switch; CP-4 both
-repositories released as 0.54.0 in lock-step (until then: build transformers with
-`-PuseLocalSkainet=true`).
+CP-2 transformer-core parity green; CP-3 golden gates green under every switch; CP-4 engine
+0.54.0 published, transformers released as 0.54.1 on top of it.
 
 [transformers#412]: https://github.com/SKaiNET-developers/SKaiNET-transformers/issues/412
 [transformers#413]: https://github.com/SKaiNET-developers/SKaiNET-transformers/issues/413
