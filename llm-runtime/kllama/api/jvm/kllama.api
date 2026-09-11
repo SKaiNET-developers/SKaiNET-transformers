@@ -8,7 +8,8 @@ public final class sk/ainet/apps/kllama/CpuAttentionBackend : sk/ainet/models/ll
 
 public final class sk/ainet/apps/kllama/CpuBackendProvider : sk/ainet/apps/llm/backend/BackendProvider {
 	public fun <init> ()V
-	public fun createContext ()Lsk/ainet/context/ExecutionContext;
+	public fun createContext (Lsk/ainet/apps/llm/backend/BackendOptions;)Lsk/ainet/context/ExecutionContext;
+	public fun getCapabilities ()Lsk/ainet/apps/llm/backend/BackendCapabilities;
 	public fun getDisplayName ()Ljava/lang/String;
 	public fun getName ()Ljava/lang/String;
 	public fun getPriority ()I
