@@ -30,6 +30,10 @@ if (providers.gradleProperty("useLocalSkainet").orNull == "true") {
 rootProject.name = "SKaiNET-transformers"
 
 include("llm-api")
+// Generic ASR task types (Transcription, DecodingOptions, FeatureFrames) -- moved up from the
+// downstream ASR cartridge ecosystem (asr-whisper-iree-cartridge/asr-moonshine-iree-cartridge)
+// so neither cartridge family depends on the other for shared plumbing.
+include("asr-domain")
 include("transformer-core")
 include("llm-core")
 include("llm-agent")
