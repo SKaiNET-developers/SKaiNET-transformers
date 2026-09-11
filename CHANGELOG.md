@@ -9,6 +9,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.55.0] — 2026-09-11
+
+A transformers-only release, same pattern as 0.54.1: no new engine version, still against
+**SKaiNET engine 0.54.0**. Adds a new `asr-domain` module and extends `BackendProvider`,
+generalizing plumbing that used to live downstream in one ASR cartridge family's repo.
+
+### Added — `asr-domain` module + `BackendProvider` capabilities/options (#432)
+
+- **New `asr-domain` module** (`sk.ainet.asr.domain`, publishes as
+  `skainet-transformers-asr-domain`): generic ASR task types — `Transcription`,
+  `TranscriptionTimings`, `StopReason`, `AsrEvent`, `DecodingOptions`, `FeatureFrames`. Moved up
+  from the downstream ASR cartridge ecosystem, where they lived only because that's where the
+  original `whisper-cli` extraction happened to put them, not because they're Whisper-specific —
+  both the Whisper and Moonshine cartridge families depend on these, and keeping them downstream
+  in one family's repo made the other structurally dependent on it for generic plumbing.
+  Framework-free (empty `commonMain` deps), full KMP target spread matching `llm-api`'s
+  convention for consumer-facing SPI modules (ios/linux/macos/jvm/js/wasm/android).
+- **`BackendProvider` gains `capabilities: BackendCapabilities`** (supported dtypes, compile
+  support, NPU usage, max sequence length — defaulted, so existing implementers don't need to
+  change) **and `createContext(options: BackendOptions = BackendOptions())`** (was
+  parameterless). `kllama`'s `CpuBackendProvider` updated to match.
+- **No second backend-registry module.** Downstream's own `backend-spi`
+  `ExecutionContextFactory`/`BackendRegistry` seam is *not* duplicated here — unified into this
+  existing `BackendProvider`/`BackendRegistry` instead, since both did the same job (select a
+  strategy producing a SKaiNET `ExecutionContext`). `BackendRegistry` itself is unchanged.
+- Verified: `:asr-domain:build`, `:llm-core:build`, `:llm-runtime:kllama:build` and the
+  corresponding `allTests` all green; `apiDump` regenerated for both `llm-core` and `kllama`'s
+  binary-compatibility-validator baselines. Downstream (`asr-whisper-iree-cartridge`, `asr-cli`)
+  verified against this branch via the `useLocalSkainet`-style opt-in composite substitution
+  pattern before this release — full `check` green in both, including a Docker smoke test of the
+  shipped `asr-cli` image.
+
 ## [0.54.1] — 2026-09-07
 
 A transformers-only release, same pattern as 0.40.2: no new engine version, still against

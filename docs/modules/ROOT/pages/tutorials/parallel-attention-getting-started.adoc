@@ -10,7 +10,7 @@ schedule only decides where the work runs.
 
 * JDK 21+ (the JVM is the only target with a parallel schedule; others run `Schedule.Sequential`).
 * A Llama 3.2 or Qwen3 GGUF, for example `Llama-3.2-1B-Instruct-Q8_0.gguf`.
-* SKaiNET-transformers 0.54.1 or later.
+* SKaiNET-transformers 0.55.0 or later.
 
 == Step 1: Dependencies
 

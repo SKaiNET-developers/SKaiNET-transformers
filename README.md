@@ -109,8 +109,22 @@ Honest status — see the project-status note at the top of this README.
 
 ## Current release
 
-The current release is **0.54.1** (against **SKaiNET 0.54.0** — a transformers-only release, same
-pattern as 0.40.2: no new engine version needed).
+The current release is **0.55.0** (against **SKaiNET 0.54.0** — a transformers-only release, same
+pattern as 0.54.1: no new engine version needed).
+
+**A new `asr-domain` module, and `BackendProvider` learns capabilities/options.** Generic ASR
+task types (`Transcription`, `DecodingOptions`, `FeatureFrames`, ...) move up from the downstream
+ASR cartridge ecosystem, where they lived only because that's where the original `whisper-cli`
+extraction happened to put them — both the Whisper and Moonshine cartridge families depend on
+these, so keeping them in one family's repo made the other structurally dependent on it for
+generic plumbing. `BackendProvider` gains a `capabilities: BackendCapabilities` property and a
+defaulted `createContext(options: BackendOptions = BackendOptions())` (was parameterless) —
+source-compatible with every existing implementer. Downstream's own execution-backend registry
+seam is *not* duplicated as a second module here; it's unified into this existing
+`BackendProvider`/`BackendRegistry` instead, since both already did the same job. (#432)
+
+It builds on **0.54.1**, which made attention heads run in parallel and stopped positional K/V
+caches from copying the whole prefix per layer per token.
 
 **Attention heads run in parallel.** `MultiHeadAttention` is the first consumer of the engine's
 SKEEP-005 `Schedule`: heads (or GQA groups) map onto cores via `AttentionSchedulePolicy`
@@ -218,7 +232,7 @@ The recommended way to consume is via the BOM. It pins every published `skainet-
 
 ```kotlin
 dependencies {
-    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.54.1"))
+    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.55.0"))
 
     // Versions resolved from the BOM:
     implementation("sk.ainet.transformers:skainet-transformers-core")
@@ -250,6 +264,7 @@ dependencies {
 | `llm-agent`          | Chat templates, tool-call parsers, agent loops; Java surface.           |
 | `llm-apps`           | CLIs: `skainet-cli` (unified), `kllama-cli`, `kbert-cli`, plus `kllama-java-sample`. |
 | `llm-test/llm-test-java` | JUnit 5 end-to-end tests for the Java surface (gated on `TINYLLAMA_MODEL_PATH`). |
+| `asr-domain`         | Generic ASR task types (`Transcription`, `DecodingOptions`, `FeatureFrames`) — framework-free, no dependency on the rest of this repo. Consumed by downstream ASR cartridges (Whisper, Moonshine). |
 
 ## Supported targets
 
@@ -273,6 +288,7 @@ Which Maven artifact publishes which Kotlin target (derived from each module's
 | `llm-runtime/kapertus` | ✓ | — | — | — | — | — | — | — |
 | `llm-performance` | ✓ | ✓ | — | ✓ | — | ✓ | ✓ | ✓ |
 | `llm-providers`, `llm-apps/*`, `llm-test/*` | ✓ | — | — | — | — | — | — | — |
+| `asr-domain` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 ¹ `transformer-core` additionally publishes `androidNativeArm32`/`androidNativeArm64`.
 ² `moonshine` publishes `iosArm64` and `androidNativeArm64` but no simulator or Android (AGP) variant.
