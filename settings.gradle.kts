@@ -4,6 +4,19 @@ pluginManagement {
         mavenCentral()
         gradlePluginPortal()
     }
+    // Resolved once, here, for the whole build -- sk.ainet.multiplatform (applied per-module),
+    // sk.ainet.npm-pins (applied once at root), and sk.ainet.transformers.bom-coverage (applied
+    // to llm-bom, replacing this repo's own buildSrc/BomCoveragePlugin) all come from the same
+    // sk.ainet.buildlogic:convention:1.0.0 implementation jar (github.com/SKaiNET-developers/
+    // SKaiNET-build-logic). Declaring an explicit version at each individual application site
+    // instead fails with "plugin is already on the classpath with an unknown version" once more
+    // than one plugin ID from that jar is resolved in the same build (same fix already applied
+    // in SKaiNET-audio).
+    plugins {
+        id("sk.ainet.multiplatform") version "1.0.0"
+        id("sk.ainet.npm-pins") version "1.0.0"
+        id("sk.ainet.transformers.bom-coverage") version "1.0.0"
+    }
 }
 
 dependencyResolutionManagement {
