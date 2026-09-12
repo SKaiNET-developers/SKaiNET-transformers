@@ -123,5 +123,10 @@ asciidoctorPdf = { id = "org.asciidoctor.jvm.pdf", version = "4.0.5" }
 dokka = { id = "org.jetbrains.dokka", version.ref = "dokka" }
 
 skainet-docs = { id = "sk.ainet.documentation" }
+# github.com/SKaiNET-developers/SKaiNET-build-logic -- no version here, both pre-resolved once
+# via pluginManagement.plugins{} above (see that block's comment for why).
+skainet-multiplatform = { id = "sk.ainet.multiplatform" }
+skainet-npmPins = { id = "sk.ainet.npm-pins" }
+skainet-bomCoverage = { id = "sk.ainet.transformers.bom-coverage" }
 kotlinx-benchmark = { id = "org.jetbrains.kotlinx.benchmark", version.ref = "kotlinxBenchmark" }
 shadow = { id = "com.gradleup.shadow", version = "9.6.1" }

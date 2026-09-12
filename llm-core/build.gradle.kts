@@ -1,46 +1,28 @@
-import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
-import org.jetbrains.kotlin.gradle.dsl.JvmTarget
-
 plugins {
-    alias(libs.plugins.kotlinMultiplatform)
+    alias(libs.plugins.skainet.multiplatform)
     alias(libs.plugins.androidMultiplatformLibrary)
     alias(libs.plugins.vanniktech.mavenPublish)
     alias(libs.plugins.kover)
     alias(libs.plugins.binary.compatibility.validator)
 }
 
+// Targets: gradle.properties has skainet.targets=jvm,js,wasmJs,wasmWasi,apple,linux (the
+// default, NOT androidNative) because this module wants androidNativeArm32 only, not the
+// androidNativeArm64 the plugin's androidNative group would also add -- androidNativeArm32() is
+// declared manually below instead, alongside this module's own already-manual source-set
+// hierarchy (kotlin.mpp.applyDefaultHierarchyTemplate=false, also in gradle.properties).
+skainet {
+    namespace = "sk.ainet.apps.llm"
+    // sk.ainet.multiplatform defaults explicitApi to true; this module has a handful of
+    // declarations (DecoderGgufWeightLoader.kt's GGUF key-naming helpers) missing visibility
+    // modifiers -- pre-existing, harmless, but never checked before since explicit API mode was
+    // never on here. Opting out rather than editing unrelated source as a side effect of this
+    // build-tooling migration; worth turning back on as its own small follow-up.
+    explicitApi = false
+}
+
 kotlin {
-    android {
-        namespace = "sk.ainet.apps.llm"
-        compileSdk = libs.versions.android.compileSdk.get().toInt()
-        minSdk = libs.versions.android.minSdk.get().toInt()
-        compilerOptions {
-            jvmTarget.set(JvmTarget.JVM_11)
-        }
-    }
-
-    iosArm64()
-    iosSimulatorArm64()
-    linuxX64()
-    linuxArm64()
-    macosArm64()
     androidNativeArm32()
-
-    jvm()
-
-    js {
-        browser()
-    }
-
-    @OptIn(ExperimentalWasmDsl::class)
-    wasmJs {
-        browser()
-    }
-
-    @OptIn(ExperimentalWasmDsl::class)
-    wasmWasi {
-        nodejs()
-    }
 
     sourceSets {
         commonMain.dependencies {
@@ -64,16 +46,11 @@ kotlin {
             implementation(libs.kotlinx.serialization.json)
         }
 
-        commonTest.dependencies {
-            implementation(libs.kotlin.test)
-        }
-
         val jvmMain by getting
 
         val jvmTest by getting {
             dependencies {
                 implementation(project.dependencies.platform(project(":llm-bom")))
-                implementation(libs.kotlin.test)
                 implementation(libs.kotlinx.coroutines)
                 implementation(libs.junit)
                 implementation(libs.skainet.io.gguf)

@@ -15,6 +15,12 @@ plugins {
     alias(libs.plugins.ksp) apply false
     alias(libs.plugins.kotlinSerialization) apply false
     alias(libs.plugins.shadow) apply false
+    // Applied for real (not apply false) -- sk.ainet.npm-pins is root-project-scoped by design
+    // (Yarn root extensions assert they belong to rootProject). Several modules here build js
+    // and/or wasmJs targets, and sk.ainet.multiplatform refuses to configure a web target unless
+    // this is applied at the root -- see SkainetMultiplatformPlugin.requireNpmPins(). No pins
+    // declared yet (nothing to pin currently); this just puts the mechanism in force.
+    alias(libs.plugins.skainet.npmPins)
 }
 
 // Require JDK 21+ for bytecode target; JDK 25 recommended (set via jenv local 25.0).
