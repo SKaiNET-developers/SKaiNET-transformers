@@ -15,7 +15,7 @@ pluginManagement {
     plugins {
         id("sk.ainet.multiplatform") version "1.0.0"
         id("sk.ainet.npm-pins") version "1.0.0"
-        id("sk.ainet.transformers.bom-coverage") version "1.0.0"
+        id("sk.ainet.transformers.bom-coverage") version "1.1.0"
     }
 }
 
