@@ -15,6 +15,9 @@ plugins {
 // Targets: gradle.properties (skainet.targets=jvm,js,wasmJs,wasmWasi,apple,linux,androidNative --
 // the full default plus androidNative, since this module needs both androidNativeArm32/64).
 skainet {
+    // sk.ainet.multiplatform 1.1.0 defaults the JVM target to 17; the engine artifacts and the rest of
+    // this build are JVM 21, and inlining across the two fails to compile.
+    jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21
     namespace = "sk.ainet.lang.nn"
 }
 
