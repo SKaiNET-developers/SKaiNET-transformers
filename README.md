@@ -109,8 +109,19 @@ Honest status — see the project-status note at the top of this README.
 
 ## Current release
 
-The current release is **0.55.0** (against **SKaiNET 0.54.0** — a transformers-only release, same
-pattern as 0.54.1: no new engine version needed).
+The current release is **0.56.0**, back in lock-step with **SKaiNET 0.56.0** (the engine skipped
+0.55.0 to realign the two version lines).
+
+**Grouped-query attention without head expansion, and the compiled leg of SKEEP-005.** The engine's
+`scaledDotProductAttention` is grouped-query native, so `MultiHeadAttention` and
+`HybridTransformerBlock` hand it K/V with their own head count: `repeatKVHeads` is gone from tapes,
+traced graphs and StableHLO exports, which now batch attention over the head groups. The SmolLM2
+and FunctionGemma export harnesses stamp the structural schedule (`parallel_dims = [batch, heads]`,
+never a core count) into the module; OPTIMIZED mode runs the compiled JVM graph under the caller's
+schedule, bit-identical sequential vs. parallel; and on Android the IREE runtime takes its core
+count at run time (`IreeRedecodeSession(taskTopologyGroupCount)`, `SKAINET_TASK_GROUPS`).
+
+It builds on **0.55.0**, a transformers-only release against SKaiNET 0.54.0.
 
 **A new `asr-domain` module, and `BackendProvider` learns capabilities/options.** Generic ASR
 task types (`Transcription`, `DecodingOptions`, `FeatureFrames`, ...) move up from the downstream
@@ -232,7 +243,7 @@ The recommended way to consume is via the BOM. It pins every published `skainet-
 
 ```kotlin
 dependencies {
-    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.55.0"))
+    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.56.0"))
 
     // Versions resolved from the BOM:
     implementation("sk.ainet.transformers:skainet-transformers-core")
