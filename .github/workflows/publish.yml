@@ -1,9 +1,16 @@
 name: release
 
+# A tag push publishes to Maven Central. "Run workflow" (workflow_dispatch) on any branch is a
+# DRY RUN: the same job — JDK, signing validation, full release build and signing — but it ends in
+# `publishToMavenLocal` on the runner and is never given the Maven Central credentials, so it
+# cannot upload. Run it on the release branch before tagging; this workflow is otherwise only ever
+# exercised by the tag push itself.
+
 on:
   push:
     tags:
       - '**'
+  workflow_dispatch:
 
 jobs:
   publish:
@@ -26,9 +33,43 @@ jobs:
             exit 1
           fi
       - name: Publish to MavenCentral
+        # Only a tag push publishes. A manual run takes the dry-run steps below instead.
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
         run: ./gradlew publish --no-configuration-cache --stacktrace
         env:
           ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
           ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
           ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.GPG_PRIVATE_KEY }}
           ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_PASSWORD }}
+
+      # Dry run (workflow_dispatch): same Gradle build and signing, into the runner's ~/.m2 —
+      # deliberately WITHOUT mavenCentralUsername/Password in the environment.
+      - name: Dry run — publish to Maven Local (no upload)
+        if: github.event_name == 'workflow_dispatch'
+        run: ./gradlew publishToMavenLocal --no-configuration-cache --stacktrace
+        env:
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.GPG_PRIVATE_KEY }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_PASSWORD }}
+
+      - name: Dry run — summarize what would have been published
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          set -euo pipefail
+          VERSION="$(grep -E '^VERSION_NAME=' gradle.properties | cut -d= -f2)"
+          REPO="$HOME/.m2/repository/sk/ainet"
+          MODULES="$(find "$REPO" -type d -name "$VERSION" | wc -l | tr -d ' ')"
+          POMS="$(find "$REPO" -path "*/$VERSION/*.pom" | wc -l | tr -d ' ')"
+          SIGS="$(find "$REPO" -path "*/$VERSION/*.asc" | wc -l | tr -d ' ')"
+          {
+            echo "## Publish dry run — nothing was uploaded"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Ref | \`${GITHUB_REF_NAME}\` @ \`${GITHUB_SHA::8}\` |"
+            echo "| Version | \`${VERSION}\` |"
+            echo "| Modules | ${MODULES} |"
+            echo "| POMs | ${POMS} |"
+            echo "| Signatures (.asc) | ${SIGS} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          test "$MODULES" -gt 0 || { echo "No modules were published to Maven Local" >&2; exit 1; }
+          test "$SIGS" -gt 0 || { echo "No .asc signatures produced — signing did not run" >&2; exit 1; }
