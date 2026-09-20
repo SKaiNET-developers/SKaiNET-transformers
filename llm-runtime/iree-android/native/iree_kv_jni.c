@@ -18,7 +18,7 @@
  * lower the in-graph gather (iree-org/iree#24035 and its successor). This keeps the Kotlin API
  * token-ids only.
  *
- * Contract facts encoded here (all measured on a MagentaTV One, see SKaiNET-transformers#410):
+ * Contract facts encoded here (all measured on an arm32 Android device with a Mali GPU, see SKaiNET-transformers#410):
  *  - the with-past graphs carry NO sliding-window mask: the 15 sliding layers must only ever see
  *    the last `slidingWindow` (512) cache positions -> tail views, zero-copy;
  *  - position enters only through host-built split-half RoPE tables (sign folded into the first

@@ -118,7 +118,7 @@ val session = IreeKvSession(spec, IreeKvSession.VULKAN_DEVICE,
     "$dir/gemma-prefill-with-past-hostgather-valhall4.vmfb", "$dir/gemma-prefill-with-past.irpa",
     "$dir/gemma-prefill-at-hostgather-valhall4.vmfb", "$dir/gemma-prefill-at.irpa")
 val decoder = IreeKvDecoder(session, prefillSeq = 1024)
-val catalog = decoder.prefillPrefix(catalogPromptIds)          // once per process (25 s on a MagentaTV One, 843 tokens)
+val catalog = decoder.prefillPrefix(catalogPromptIds)          // once per process (25 s on an arm32 Mali device, 843 tokens)
 session.releasePrefill()                                       // drops the prefill archive mapping
 val ids = decoder.generate(catalog, utteranceIds, eosTokenId = 106, maxNewTokens = 32)   // per turn
 ```
@@ -130,7 +130,7 @@ see their last `slidingWindow` cache positions through zero-copy tail views; RoP
 retained views; `snapshot()`/`restore()` retain/release views without copying. Every failure is
 thrown as `IllegalStateException` with the formatted IREE status (also logged under `skainet_iree_kv`).
 
-Measured (MagentaTV One, Mali via Vulkan, bf16 archives, chunk 32, 843-token catalog prefix,
+Measured (arm32 Android device, Mali via Vulkan, bf16 archives, chunk 32, 843-token catalog prefix,
 16 decode tokens): open 12.4 s, prefix 25.2 s once, then **p50 5.9 s per utterance** (one chunk call
 ≈ 2.0 s + 16 × 0.245 s), restore 0 ms, RSS ≈ 1.5 GB in the 32-bit process. Rebuild the library
 with `native/build-iree-kv.sh <abi> --vulkan` (same image and links as the redecode `.so`).
