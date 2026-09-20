@@ -12,6 +12,9 @@ plugins {
 // declared manually below instead, alongside this module's own already-manual source-set
 // hierarchy (kotlin.mpp.applyDefaultHierarchyTemplate=false, also in gradle.properties).
 skainet {
+    // sk.ainet.multiplatform 1.1.0 defaults the JVM target to 17; the engine artifacts and the rest of
+    // this build are JVM 21, and inlining across the two fails to compile.
+    jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21
     namespace = "sk.ainet.apps.llm"
     // sk.ainet.multiplatform defaults explicitApi to true; this module has a handful of
     // declarations (DecoderGgufWeightLoader.kt's GGUF key-naming helpers) missing visibility

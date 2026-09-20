@@ -17,5 +17,8 @@ plugins {
 // kotlin-test in commonTest is added automatically (SkainetMultiplatformExtension's
 // kotlinTestInCommonTest default).
 skainet {
+    // sk.ainet.multiplatform 1.1.0 defaults the JVM target to 17; the engine artifacts and the rest of
+    // this build are JVM 21, and inlining across the two fails to compile.
+    jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21
     namespace = "sk.ainet.asr.domain"
 }
