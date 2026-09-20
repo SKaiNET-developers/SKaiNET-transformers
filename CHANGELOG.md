@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.56.0] — 2026-09-20
+
+Back in lock-step with the engine: ships against **SKaiNET engine 0.56.0** (the engine skipped
+0.55.0 to realign the two version lines). The engine's `scaledDotProductAttention` is now
+grouped-query native, so GQA models stop tiling K/V up to the query heads — eagerly, on the tape and
+in the exported StableHLO — and the compiled leg of SKEEP-005 lands here: structure at compile time,
+cores at run time.
+
 ### Added — SKEEP-005 phase 2: the compiled leg, structure at compile time, cores at run time
 
 - **GQA without head expansion on the tape**: the engine's SDPA is grouped-query native, so
@@ -28,6 +36,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   device is created); both ABIs' `libskainet_iree_redecode.so` rebuilt. `gemma-iree` reads
   `SKAINET_TASK_GROUPS` too (`GEMMA_TASK_GROUPS` deprecated alias). Docs: spec "Phase 2", explanation
   "The compiled leg", IREE Android runtime reference "Task topology", eager-vs-compiled row.
+
+### Changed
+
+- **Engine 0.56.0** (`skainet = "0.56.0"`): grouped-query-native SDPA, its StableHLO lowering with the
+  head groups as a batching dimension, structural schedule defaults, schedule-aware graph contexts.
+- **`IreeRedecodeSession` qualifies bare function names in both create paths**: the module-qualified
+  name (`module.<fn>`) now feeds `nativeCreate` and `nativeCreateWithTopology` alike.
+- **Convention plugins 1.1.0** (`sk.ainet.multiplatform`, `sk.ainet.npm-pins`,
+  `sk.ainet.transformers.bom-coverage`); `asr-domain`, `llm-core` and `transformer-core` pin
+  `jvmTarget = JVM_21` — 1.1.0 defaults to 17, which cannot inline the engine's JVM 21 bytecode.
+- Benchmark notes describe the measurement hardware by device class; the MiniLM export harness uses
+  domain-neutral probe sentences.
+- Dependency bumps: AGP 9.4.1, kotest 6.2.5, kotlinpoet 2.4.0, binary-compatibility-validator 0.18.2.
 
 ## [0.55.0] — 2026-09-11
 
