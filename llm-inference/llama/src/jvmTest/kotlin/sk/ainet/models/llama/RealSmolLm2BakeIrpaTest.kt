@@ -20,6 +20,7 @@ import sk.ainet.lang.tensor.VoidOpsTensor
 import sk.ainet.lang.tensor.data.TensorData
 import sk.ainet.lang.tensor.ops.VoidTensorOps
 import sk.ainet.lang.tensor.storage.BufferHandle
+import sk.ainet.lang.tensor.storage.DefaultBufferResolver
 import sk.ainet.lang.types.FP32
 import sk.ainet.tape.Execution
 import java.io.File
@@ -54,6 +55,9 @@ import kotlin.test.Test
  */
 @Tag("integration")
 class RealSmolLm2BakeIrpaTest {
+
+    /** Little-endian bytes of an external parameter, whatever `BufferHandle` the engine handed over (#420). */
+    private fun bytesOf(h: BufferHandle): ByteArray = DefaultBufferResolver().resolve(h).use { it.readAllBytes() }
     @Test
     fun bakeRealSmolLm2ToIrpa() = runBlocking {
         val path = System.getenv("SMOLLM2_MODEL")?.trim().orEmpty()
@@ -133,10 +137,7 @@ class RealSmolLm2BakeIrpaTest {
                 .putLong(headerBytes.size.toLong())
             os.write(lenBuf.array())
             os.write(headerBytes)
-            for (e in ext) {
-                val src = e.source as BufferHandle.Owned
-                os.write(src.data, src.offset, src.sizeInBytes.toInt())
-            }
+            for (e in ext) os.write(bytesOf(e.source))
         }
         println("WROTE_SAFETENSORS ${st.absolutePath} sizeMiB=${st.length() / (1024 * 1024)}")
     }

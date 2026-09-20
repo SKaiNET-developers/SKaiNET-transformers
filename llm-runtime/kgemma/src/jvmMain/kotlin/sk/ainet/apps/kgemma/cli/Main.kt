@@ -1,7 +1,5 @@
 package sk.ainet.apps.kgemma.cli
 
-import sk.ainet.apps.kgemma3n.Gemma3nIngestion
-import sk.ainet.apps.kgemma3n.Gemma3nLoadConfig
 import sk.ainet.apps.kgemma.GemmaIngestion
 import sk.ainet.apps.kgemma.Gemma4LoadConfig
 import sk.ainet.apps.kgemma.GemmaStopTokens
@@ -30,14 +28,15 @@ import kotlin.time.measureTime
 
 private enum class ModelFormat { GGUF, SAFETENSORS }
 
-private enum class GemmaVariant { GEMMA3, GEMMA3N, GEMMA4 }
+private enum class GemmaVariant { GEMMA3, GEMMA4 }
 
 /**
  * Detect Gemma model variant from config.json or GGUF metadata.
  * For SafeTensors directories: reads model_type from config.json.
  * For GGUF files: peeks at general.architecture metadata field.
- * Falls back to GEMMA3 (the DSL lane) if detection fails — the old GEMMA3N fallback sent
- * plain gemma3 checkpoints (FunctionGemma-270M) through the hand-rolled 3n runtime (#376).
+ * Falls back to GEMMA3 (the DSL lane) if detection fails. Gemma 3n is not published from this
+ * runtime (SKaiNET-transformers#377: maturity gate 0/5, hand-rolled, force-dequantizes) — a
+ * gemma3n checkpoint falls through to GEMMA3 like any other unrecognized model_type/arch.
  */
 private fun detectGemmaVariant(modelPath: Path, format: ModelFormat): GemmaVariant {
     // Try config.json in model directory
@@ -50,7 +49,6 @@ private fun detectGemmaVariant(modelPath: Path, format: ModelFormat): GemmaVaria
         if (match != null) {
             val modelType = match.groupValues[1]
             if (modelType == "gemma4") return GemmaVariant.GEMMA4
-            if (modelType == "gemma3n") return GemmaVariant.GEMMA3N
             if (modelType.startsWith("gemma3") || modelType.startsWith("gemma")) return GemmaVariant.GEMMA3
         }
     }
@@ -63,7 +61,6 @@ private fun detectGemmaVariant(modelPath: Path, format: ModelFormat): GemmaVaria
                 val arch = reader.fields["general.architecture"]
                 if (arch is String) {
                     if (arch.contains("gemma4", ignoreCase = true)) return GemmaVariant.GEMMA4
-                    if (arch.equals("gemma3n", ignoreCase = true)) return GemmaVariant.GEMMA3N
                     if (arch.startsWith("gemma", ignoreCase = true)) return GemmaVariant.GEMMA3
                 }
                 // Also check filename as last resort
@@ -71,7 +68,6 @@ private fun detectGemmaVariant(modelPath: Path, format: ModelFormat): GemmaVaria
                 if (filename.contains("gemma-4") || filename.contains("gemma4")) {
                     return GemmaVariant.GEMMA4
                 }
-                if (filename.contains("3n")) return GemmaVariant.GEMMA3N
             }
         } catch (_: Exception) {
             // Fall through to default
@@ -84,7 +80,6 @@ private fun detectGemmaVariant(modelPath: Path, format: ModelFormat): GemmaVaria
         return GemmaVariant.GEMMA4
     }
 
-    if (filename.contains("3n")) return GemmaVariant.GEMMA3N
     return GemmaVariant.GEMMA3
 }
 
@@ -233,42 +228,6 @@ fun main(args: Array<String>) {
                     }
                 }
             }
-            GemmaVariant.GEMMA3N -> {
-                when (format) {
-                    ModelFormat.GGUF -> {
-                        // The DSL lane (#377): engine loading (packed/MAPPED),
-                        // gemma3nNetwork() with AltUp/Laurel/sparsity/PLE, verified
-                        // token-for-token vs mainline llama.cpp by
-                        // Gemma3nGoldenTokenParityTest. The hand-rolled
-                        // Gemma3nRuntime never applied PLE and predates the gate.
-                        println("Loading Gemma 3n GGUF model from $modelPath via gemma3nNetwork() + OptimizedLLMRuntime (engine loader, keep-packed, mapped)...")
-                        val model = kotlinx.coroutines.runBlocking {
-                            sk.ainet.models.gemma3n.Gemma3nNetworkLoader.fromGguf<FP32, Float>(
-                                ctx,
-                                { JvmRandomAccessSource.open(modelPath.toString()) },
-                            )
-                        }
-                        sk.ainet.apps.llm.OptimizedLLMRuntime(
-                            model, ctx, sk.ainet.apps.llm.OptimizedLLMMode.DIRECT, FP32::class,
-                        )
-                    }
-                    ModelFormat.SAFETENSORS -> {
-                        // SafeTensors stays on the legacy hand-rolled runtime until the DSL
-                        // lane grows a SafeTensors leg (tracked with the #377 remainder).
-                        val ingestion = Gemma3nIngestion<FP32>(
-                            ctx = ctx,
-                            dtype = FP32::class,
-                            config = Gemma3nLoadConfig()
-                        )
-                        val modelDir = if (modelPath.isDirectory()) modelPath else modelPath.parent ?: modelPath
-                        val indexPath = modelDir.resolve("model.safetensors.index.json")
-                        val safetensorsPath = if (indexPath.exists()) indexPath.toString()
-                            else modelDir.resolve("model.safetensors").toString()
-                        println("Loading Gemma 3n SafeTensors model from $safetensorsPath...")
-                        ingestion.loadRuntimeFromSafeTensors(safetensorsPath)
-                    }
-                }
-            }
         }
 
         // Load tokenizer from GGUF or from tokenizer.json in model directory
@@ -299,7 +258,6 @@ fun main(args: Array<String>) {
                 family = "gemma",
                 architecture = when (variant) {
                     GemmaVariant.GEMMA4 -> "gemma4"
-                    GemmaVariant.GEMMA3N -> "gemma3n"
                     GemmaVariant.GEMMA3 -> "gemma3"
                 },
                 sourceFormat = when (format) {
@@ -347,8 +305,8 @@ fun main(args: Array<String>) {
             val renderedPrompt = if (cliArgs.chat) {
                 val template = when (variant) {
                     GemmaVariant.GEMMA4 -> Gemma4ChatTemplate()
-                    // gemma3 and 3n use the gemma2/3 <start_of_turn> template.
-                    GemmaVariant.GEMMA3, GemmaVariant.GEMMA3N -> GemmaChatTemplate()
+                    // gemma3 uses the gemma2/3 <start_of_turn> template.
+                    GemmaVariant.GEMMA3 -> GemmaChatTemplate()
                 }
                 template.apply(
                     messages = listOf(ChatMessage(ChatRole.USER, cliArgs.prompt)),

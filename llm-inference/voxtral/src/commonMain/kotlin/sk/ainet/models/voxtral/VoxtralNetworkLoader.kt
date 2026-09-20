@@ -5,7 +5,6 @@ import sk.ainet.apps.llm.DTypePolicyValidation
 import sk.ainet.context.ExecutionContext
 import sk.ainet.io.RandomAccessSource
 import sk.ainet.io.weights.MappingConfig
-import sk.ainet.lang.memory.ExperimentalMemoryApi
 import sk.ainet.lang.memory.plan.WeightForm
 import sk.ainet.io.weights.WeightMapper
 import sk.ainet.io.weights.WeightTensor
@@ -49,7 +48,6 @@ import kotlin.reflect.KClass
  * val backbone = VoxtralNetworkLoader.backboneFromWeights(llamaWeights)
  * ```
  */
-@OptIn(ExperimentalMemoryApi::class)
 public class VoxtralNetworkLoader @PublishedApi internal constructor(
     @PublishedApi internal val weightsProvider: WeightsProvider,
     @PublishedApi internal val debug: Boolean = false

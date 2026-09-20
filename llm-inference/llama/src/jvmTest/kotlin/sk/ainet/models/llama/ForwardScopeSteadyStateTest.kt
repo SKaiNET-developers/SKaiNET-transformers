@@ -11,7 +11,6 @@ import kotlin.test.assertTrue
 import sk.ainet.apps.llm.OptimizedLLMMode
 import sk.ainet.apps.llm.OptimizedLLMRuntime
 import sk.ainet.context.DirectCpuExecutionContext
-import sk.ainet.lang.memory.ExperimentalMemoryApi
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.types.FP32
@@ -33,7 +32,6 @@ import sk.ainet.lang.types.FP32
  *
  * Tiny deterministic model, same scaffolding as [LlamaDslPipelineTest].
  */
-@OptIn(ExperimentalMemoryApi::class)
 class ForwardScopeSteadyStateTest {
 
     private val dim = 8

@@ -7,7 +7,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import sk.ainet.apps.llm.ScoredToken
 import sk.ainet.apps.llm.sampleFromCandidates
-import sk.ainet.lang.memory.ExperimentalMemoryApi
 import sk.ainet.lang.memory.TernaryCodec
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.data.BitNetPlanesTensorData
@@ -17,7 +16,6 @@ import sk.ainet.lang.tensor.data.BitNetPlanesTensorData
  * candidate selection makes stage-1 truncation invisible to the sampler. Oracle: brute-force
  * exact scores over all rows.
  */
-@OptIn(ExperimentalMemoryApi::class)
 class BitNetTwoStageDecodeTest {
 
     private fun weight(n: Int, k: Int, seed: Int): BitNetPlanesTensorData {

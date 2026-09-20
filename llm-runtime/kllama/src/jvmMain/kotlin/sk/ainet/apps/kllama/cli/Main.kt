@@ -22,7 +22,6 @@ import sk.ainet.backend.api.kernel.KernelPacks
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.exec.kernel.FfmRowMajorKernelPack
 import sk.ainet.io.JvmRandomAccessSource
-import sk.ainet.lang.memory.ExperimentalMemoryApi
 import sk.ainet.lang.tensor.data.MemorySegmentTensorDataFactory
 import sk.ainet.lang.types.FP32
 import kotlinx.io.buffered
@@ -350,7 +349,6 @@ fun main(args: Array<String>) {
         // 0.51 view-keyed kernel tiers (#338 arc): without this, DecoderGgufWeightLoader's
         // default MAPPED/keep-packed weights fall to KernelDispatch's decoding reference
         // kernel — correct, but dramatically slower per matmul than the FFM row-major pack.
-        @OptIn(ExperimentalMemoryApi::class)
         run {
             KernelPacks.install()
             FfmRowMajorKernelPack.install()

@@ -304,12 +304,52 @@ public final class sk/ainet/apps/llm/UnifiedModelLoader {
 	public final fun peek (Lkotlin/jvm/functions/Function0;)Lsk/ainet/apps/llm/GGUFModelInfo;
 }
 
+public final class sk/ainet/apps/llm/backend/BackendCapabilities {
+	public fun <init> (Ljava/util/Set;ZZI)V
+	public synthetic fun <init> (Ljava/util/Set;ZZIILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/util/Set;
+	public final fun component2 ()Z
+	public final fun component3 ()Z
+	public final fun component4 ()I
+	public final fun copy (Ljava/util/Set;ZZI)Lsk/ainet/apps/llm/backend/BackendCapabilities;
+	public static synthetic fun copy$default (Lsk/ainet/apps/llm/backend/BackendCapabilities;Ljava/util/Set;ZZIILjava/lang/Object;)Lsk/ainet/apps/llm/backend/BackendCapabilities;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getMaxSeqLen ()I
+	public final fun getSupportedDTypes ()Ljava/util/Set;
+	public final fun getSupportsCompile ()Z
+	public final fun getUsesNpu ()Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/apps/llm/backend/BackendOptions {
+	public fun <init> ()V
+	public fun <init> (ILjava/util/Map;)V
+	public synthetic fun <init> (ILjava/util/Map;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()I
+	public final fun component2 ()Ljava/util/Map;
+	public final fun copy (ILjava/util/Map;)Lsk/ainet/apps/llm/backend/BackendOptions;
+	public static synthetic fun copy$default (Lsk/ainet/apps/llm/backend/BackendOptions;ILjava/util/Map;ILjava/lang/Object;)Lsk/ainet/apps/llm/backend/BackendOptions;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getExtras ()Ljava/util/Map;
+	public final fun getThreads ()I
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
 public abstract interface class sk/ainet/apps/llm/backend/BackendProvider {
-	public abstract fun createContext ()Lsk/ainet/context/ExecutionContext;
+	public abstract fun createContext (Lsk/ainet/apps/llm/backend/BackendOptions;)Lsk/ainet/context/ExecutionContext;
+	public static synthetic fun createContext$default (Lsk/ainet/apps/llm/backend/BackendProvider;Lsk/ainet/apps/llm/backend/BackendOptions;ILjava/lang/Object;)Lsk/ainet/context/ExecutionContext;
+	public fun getCapabilities ()Lsk/ainet/apps/llm/backend/BackendCapabilities;
 	public abstract fun getDisplayName ()Ljava/lang/String;
 	public abstract fun getName ()Ljava/lang/String;
 	public abstract fun getPriority ()I
 	public abstract fun isAvailable ()Z
+}
+
+public final class sk/ainet/apps/llm/backend/BackendProvider$DefaultImpls {
+	public static synthetic fun createContext$default (Lsk/ainet/apps/llm/backend/BackendProvider;Lsk/ainet/apps/llm/backend/BackendOptions;ILjava/lang/Object;)Lsk/ainet/context/ExecutionContext;
+	public static fun getCapabilities (Lsk/ainet/apps/llm/backend/BackendProvider;)Lsk/ainet/apps/llm/backend/BackendCapabilities;
 }
 
 public final class sk/ainet/apps/llm/backend/BackendRegistry {

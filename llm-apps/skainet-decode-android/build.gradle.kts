@@ -47,7 +47,6 @@ android {
     kotlin {
         compilerOptions {
             jvmTarget.set(JvmTarget.JVM_11)
-            optIn.add("sk.ainet.lang.memory.ExperimentalMemoryApi")
         }
     }
 }

@@ -7,7 +7,6 @@ import sk.ainet.io.RandomAccessSource
 import sk.ainet.io.weights.MappingConfig
 import sk.ainet.io.weights.WeightMapper
 import sk.ainet.io.weights.WeightTensor
-import sk.ainet.lang.memory.ExperimentalMemoryApi
 import sk.ainet.lang.memory.plan.WeightForm
 import sk.ainet.lang.nn.Module
 import sk.ainet.lang.types.DType
@@ -31,7 +30,6 @@ import sk.ainet.lang.types.DTypePolicy
  *     .load<FP32, Float>(ctx)
  * ```
  */
-@OptIn(ExperimentalMemoryApi::class)
 public class GemmaNetworkLoader @PublishedApi internal constructor(
     @PublishedApi internal val weightsProvider: WeightsProvider,
     @PublishedApi internal val debug: Boolean = false

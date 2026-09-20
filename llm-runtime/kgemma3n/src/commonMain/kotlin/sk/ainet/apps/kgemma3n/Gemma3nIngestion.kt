@@ -8,7 +8,6 @@ import sk.ainet.models.gemma3n.Gemma3nConfig
 import sk.ainet.models.gemma3n.Gemma3nRuntime
 import sk.ainet.models.gemma3n.Gemma3nRuntimeWeights
 import sk.ainet.models.gemma3n.createOptimalGemma3nKvCache
-import sk.ainet.lang.memory.ExperimentalMemoryApi
 import sk.ainet.lang.memory.plan.WeightForm
 import sk.ainet.models.gemma.GEMMA_DEQUANTIZE_ALL
 import sk.ainet.models.gemma3n.loadGemma3nRuntimeWeights
@@ -25,7 +24,6 @@ import kotlin.reflect.KClass
  *   [Gemma3nRuntime] consumes dense tensors; pass `null` to keep quantized
  *   tensors packed for DSL-path consumers.
  */
-@OptIn(ExperimentalMemoryApi::class)
 public data class Gemma3nLoadConfig(
     val weightForm: WeightForm? = GEMMA_DEQUANTIZE_ALL
 )
@@ -40,7 +38,6 @@ public data class Gemma3nLoadConfig(
  * @param dtype Target data type for tensors (FP32 or FP16)
  * @param config Load configuration
  */
-@OptIn(ExperimentalMemoryApi::class)
 public class Gemma3nIngestion<T : DType>(
     private val ctx: ExecutionContext,
     private val dtype: KClass<T>,

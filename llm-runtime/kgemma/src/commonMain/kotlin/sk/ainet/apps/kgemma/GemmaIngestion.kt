@@ -8,7 +8,6 @@ import sk.ainet.apps.llm.OptimizedLLMMode
 import sk.ainet.apps.llm.OptimizedLLMRuntime
 import sk.ainet.context.ExecutionContext
 import sk.ainet.io.RandomAccessSource
-import sk.ainet.lang.memory.ExperimentalMemoryApi
 import sk.ainet.lang.memory.plan.WeightForm
 import sk.ainet.lang.types.DType
 import sk.ainet.models.gemma.GemmaRuntimeWeights
@@ -30,7 +29,6 @@ import sk.ainet.models.gemma.loadGemmaRuntimeWeightsStreaming
  *   (the export/tracing path). The sequential [Source] lane always
  *   dequantizes.
  */
-@OptIn(ExperimentalMemoryApi::class)
 public data class Gemma4LoadConfig(
     val weightForm: WeightForm? = null
 )
@@ -47,7 +45,6 @@ public data class Gemma4LoadConfig(
  * packed in their stored block encoding by default and dispatch to the
  * packed matmul kernels via `linearProject` / `matmulWeightTransposed`.
  */
-@OptIn(ExperimentalMemoryApi::class)
 public class GemmaIngestion<T : DType>(
     private val ctx: ExecutionContext,
     private val dtype: KClass<T>,

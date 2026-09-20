@@ -29,6 +29,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `SKAINET_TASK_GROUPS` too (`GEMMA_TASK_GROUPS` deprecated alias). Docs: spec "Phase 2", explanation
   "The compiled leg", IREE Android runtime reference "Task topology", eager-vs-compiled row.
 
+## [0.55.0] — 2026-09-11
+
+A transformers-only release, same pattern as 0.54.1: no new engine version, still against
+**SKaiNET engine 0.54.0**. Adds a new `asr-domain` module and extends `BackendProvider`,
+generalizing plumbing that used to live downstream in one ASR cartridge family's repo.
+
+### Added — `asr-domain` module + `BackendProvider` capabilities/options (#432)
+
+- **New `asr-domain` module** (`sk.ainet.asr.domain`, publishes as
+  `skainet-transformers-asr-domain`): generic ASR task types — `Transcription`,
+  `TranscriptionTimings`, `StopReason`, `AsrEvent`, `DecodingOptions`, `FeatureFrames`. Moved up
+  from the downstream ASR cartridge ecosystem, where they lived only because that's where the
+  original `whisper-cli` extraction happened to put them, not because they're Whisper-specific —
+  both the Whisper and Moonshine cartridge families depend on these, and keeping them downstream
+  in one family's repo made the other structurally dependent on it for generic plumbing.
+  Framework-free (empty `commonMain` deps), full KMP target spread matching `llm-api`'s
+  convention for consumer-facing SPI modules (ios/linux/macos/jvm/js/wasm/android).
+- **`BackendProvider` gains `capabilities: BackendCapabilities`** (supported dtypes, compile
+  support, NPU usage, max sequence length — defaulted, so existing implementers don't need to
+  change) **and `createContext(options: BackendOptions = BackendOptions())`** (was
+  parameterless). `kllama`'s `CpuBackendProvider` updated to match.
+- **No second backend-registry module.** Downstream's own `backend-spi`
+  `ExecutionContextFactory`/`BackendRegistry` seam is *not* duplicated here — unified into this
+  existing `BackendProvider`/`BackendRegistry` instead, since both did the same job (select a
+  strategy producing a SKaiNET `ExecutionContext`). `BackendRegistry` itself is unchanged.
+- Verified: `:asr-domain:build`, `:llm-core:build`, `:llm-runtime:kllama:build` and the
+  corresponding `allTests` all green; `apiDump` regenerated for both `llm-core` and `kllama`'s
+  binary-compatibility-validator baselines. Downstream (`asr-whisper-iree-cartridge`, `asr-cli`)
+  verified against this branch via the `useLocalSkainet`-style opt-in composite substitution
+  pattern before this release — full `check` green in both, including a Docker smoke test of the
+  shipped `asr-cli` image.
+
+## [0.54.1] — 2026-09-07
+
+A transformers-only release, same pattern as 0.40.2: no new engine version, still against
+**SKaiNET engine 0.54.0**. `MultiHeadAttention` becomes the first consumer of the engine's
+SKEEP-005 `Schedule`, and positional KV caches stop copying the whole prefix per layer per token.
+
 ### Added — schedule-driven attention: parallel heads, copy-free K/V (SKaiNET SKEEP-005)
 
 - **Attention heads run in parallel** (#413): `MultiHeadAttention` maps heads (or GQA groups) onto
@@ -52,8 +90,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `SKAINET_KV_CACHE=append|positional` (verified on Llama-3.2-1B, Qwen2.5-0.5B and Qwen3-1.7B
   Q8_0); `AttentionScheduleSpeedProfile` (opt-in) measures all four combinations. Docs: `docs/specs/attention-schedule.md`, the *Parallel Attention Heads via
   Schedules* explanation and the *Parallel Attention — Getting Started* tutorial.
-- Requires engine **0.54.0** (until released: `-PuseLocalSkainet=true` against the
-  `feature/skeep-005-schedules` checkout).
+
+## [0.54.0] — 2026-09-07
+
+Version lock-step with the engine continues: this release ships against **SKaiNET 0.54.0**
+(SKEEP-005's `Schedule` API, the `CoroutineSchedule` pool-deadlock fix, `SafeTensorsParametersLoader`
+`tensorFilter` parity, and the `ExperimentalMemoryApi` opt-in gate removed). It also closes out the
+FunctionGemma/IREE-Android chunked-KV work (#410) and fixes two bugs found on real hardware: a
+broken `runtime-kgemma` Maven Central POM (#408) and an Android crash in FunctionGemma tool-call
+parsing (#407).
+
+### Added — chunked prefill and a stateful Android KV session for FunctionGemma (#406, #410)
+
+- **Position-selected graphs `gemma_at` / `gemma_prefill_at`** (#415): the LM head runs on one
+  one-hot-selected position instead of every position in `SEQ`, cutting the redecode step's wasted
+  work (#406).
+- **Chunk prefill-with-past graph `gemma_prefill_with_past`** (#417): a fixed 64-token chunk against
+  the dynamic cache in one call, with per-head chunk masks (a broadcast over heads to a dynamic
+  shape isn't expressible in static StableHLO).
+- **`IreeKvSession` / `IreeKvDecoder`** (#416, #418): the Android-native stateful KV session —
+  three IREE sessions, device-resident K/V, zero-copy 512-position tail views for the sliding
+  layers, native RoPE tables + chunk masks, embedding rows read from the archive, snapshot/restore
+  without copies. Measured on an arm32 Android device (Mali via Vulkan, bf16 archives): a once-per-process
+  843-token catalog prefill, then **p50 5.87 s / max 6.25 s per utterance** (restore + one chunk +
+  16 decode tokens), down from minutes on the stateless redecode contract.
+- **`iree-android` failure reporting** (#404): native failures surface as reported errors instead
+  of a silent `null`; bare function names are qualified with `module.` automatically.
+
+### Fixed
+
+- **FunctionGemma export `ClassCastException` on `BufferHandle.Floats`** (#405, #420):
+  `FunctionGemmaExportHarness`, `SmolLm2ExportHarness`, and the bake-irpa tests hard-cast every
+  external constant to `BufferHandle.Owned`; since engine 0.53.0 (SKaiNET#1247) a constant can
+  arrive as the aliased `BufferHandle.Floats` instead. Both export harnesses now read every handle
+  through `DefaultBufferResolver`.
+- **`runtime-kgemma`'s Maven Central POM depended on an unpublished coordinate** (#408): pulling
+  in `:llm-runtime:kgemma3n` (never published) leaked
+  `SKaiNET-transformers.llm-runtime:kgemma3n-jvm:unspecified` into the POM, breaking resolution for
+  any external consumer. Rather than just changing the dependency's scope, Gemma 3n itself stops
+  being published (SKaiNET-transformers#377: maturity gate 0/5, hand-rolled runtime that
+  force-dequantizes the whole model, postponed by decision) — source-only until #377's maturity
+  gate is met. `runtime-kgemma`'s CLI loses its `--arch gemma3n` variant accordingly;
+  `skainet-cli` (never published) is unaffected.
+- **Android crash in the official FunctionGemma tool-call parser** (#407):
+  `FunctionGemmaOfficialToolCallParserStrategy.CALL_RE` had an unescaped closing `}` — tolerated by
+  `java.util.regex` on the JVM, rejected by Android's ICU-backed engine with a
+  `PatternSyntaxException` at class-init, so every tool-call parse crashed on ART before the first
+  match. One-character fix; no-op on the JVM.
 
 ## [0.53.0] — 2026-09-02
 

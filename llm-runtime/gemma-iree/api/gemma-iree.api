@@ -25,7 +25,38 @@ public final class sk/ainet/transformers/gemma/iree/FunctionGemmaChatTemplate : 
 	public fun containsToolCall (Ljava/lang/String;)Z
 	public fun parseThinkingBlocks (Ljava/lang/String;)Ljava/util/List;
 	public fun parseToolCalls (Ljava/lang/String;)Ljava/util/List;
+	public fun stopTokenStrings ()Ljava/util/List;
 	public fun stripThinking (Ljava/lang/String;)Ljava/lang/String;
+}
+
+public final class sk/ainet/transformers/gemma/iree/FunctionGemmaOfficialChatTemplate : sk/ainet/apps/kllama/chat/ChatTemplate {
+	public static final field Companion Lsk/ainet/transformers/gemma/iree/FunctionGemmaOfficialChatTemplate$Companion;
+	public static final field DEVELOPER_PREAMBLE Ljava/lang/String;
+	public fun <init> ()V
+	public fun <init> (Lsk/ainet/transformers/gemma/iree/FunctionGemmaOfficialToolCallParserStrategy;)V
+	public synthetic fun <init> (Lsk/ainet/transformers/gemma/iree/FunctionGemmaOfficialToolCallParserStrategy;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun apply (Ljava/util/List;Ljava/util/List;Z)Ljava/lang/String;
+	public fun containsToolCall (Ljava/lang/String;)Z
+	public fun parseThinkingBlocks (Ljava/lang/String;)Ljava/util/List;
+	public fun parseToolCalls (Ljava/lang/String;)Ljava/util/List;
+	public fun stopTokenStrings ()Ljava/util/List;
+	public fun stripThinking (Ljava/lang/String;)Ljava/lang/String;
+}
+
+public final class sk/ainet/transformers/gemma/iree/FunctionGemmaOfficialChatTemplate$Companion {
+	public final fun renderDeclaration (Lsk/ainet/apps/kllama/chat/ToolDefinition;)Ljava/lang/String;
+}
+
+public final class sk/ainet/transformers/gemma/iree/FunctionGemmaOfficialToolCallParserStrategy : sk/ainet/apps/kllama/chat/ToolCallParserStrategy {
+	public static final field Companion Lsk/ainet/transformers/gemma/iree/FunctionGemmaOfficialToolCallParserStrategy$Companion;
+	public fun <init> ()V
+	public fun containsToolCall (Ljava/lang/String;)Z
+	public fun getFormatName ()Ljava/lang/String;
+	public fun parse (Ljava/lang/String;)Ljava/util/List;
+	public final fun parseCompact (Ljava/lang/String;)Ljava/util/List;
+}
+
+public final class sk/ainet/transformers/gemma/iree/FunctionGemmaOfficialToolCallParserStrategy$Companion {
 }
 
 public final class sk/ainet/transformers/gemma/iree/FunctionGemmaToolCallParserStrategy : sk/ainet/apps/kllama/chat/ToolCallParserStrategy {

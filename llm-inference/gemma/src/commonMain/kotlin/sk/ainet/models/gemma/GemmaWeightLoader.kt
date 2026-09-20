@@ -13,7 +13,6 @@ import sk.ainet.io.gguf.StreamingGGUFReader
 import sk.ainet.io.gguf.StreamingGgufParametersLoader
 import sk.ainet.io.gguf.StreamingTensorInfo
 import sk.ainet.io.gguf.dequant.DequantOps
-import sk.ainet.lang.memory.ExperimentalMemoryApi
 import sk.ainet.lang.memory.plan.EncodingRequest
 import sk.ainet.lang.memory.plan.WeightForm
 import sk.ainet.lang.memory.plan.WeightResidency
@@ -35,7 +34,6 @@ import kotlin.reflect.KClass
  * logical `[out, in]` shapes — the form the trace/export harnesses
  * (FunctionGemma StableHLO export) and FP32-parity tests consume.
  */
-@ExperimentalMemoryApi
 public val GEMMA_DEQUANTIZE_ALL: WeightForm = WeightForm(
     encoding = EncodingRequest.DequantizeTo(FP32),
     shape = WeightShapeOrientation.OUT_IN
@@ -65,7 +63,6 @@ public val GEMMA_DEQUANTIZE_ALL: WeightForm = WeightForm(
  * The sequential [Source] path (non-seekable inputs) dequantizes everything
  * to dense floats.
  */
-@OptIn(ExperimentalMemoryApi::class)
 public class GemmaWeightLoader private constructor(
     private val sourceProvider: (() -> Source)?,
     private val randomAccessProvider: (() -> RandomAccessSource)?,

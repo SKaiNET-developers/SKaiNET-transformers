@@ -21,7 +21,6 @@ import sk.ainet.exec.kernel.NativeTernaryLmheadKernel
 import sk.ainet.io.JvmRandomAccessSource
 import sk.ainet.io.gguf.I2sGgufLayout
 import sk.ainet.io.gguf.StreamingGgufParametersLoader
-import sk.ainet.lang.memory.ExperimentalMemoryApi
 import sk.ainet.lang.memory.plan.EncodingRequest
 import sk.ainet.lang.memory.plan.WeightForm
 import sk.ainet.lang.memory.plan.WeightShapeOrientation
@@ -39,7 +38,6 @@ import sk.ainet.lang.nn.dsl.decoder.DecoderGgufWeights
  * as the FP32-widened load of the same file, with and without the vendored NEON kernel packs
  * installed. Correctness never depends on the packs; speed does.
  */
-@OptIn(ExperimentalMemoryApi::class)
 class BitNetWeightLoaderTest {
 
     private val ctx = DirectCpuExecutionContext()

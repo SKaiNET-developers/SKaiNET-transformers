@@ -23,7 +23,7 @@ package sk.ainet.transformers.iree.android
 public class IreeRedecodeSession(
     vmfbPath: String,
     irpaPath: String,
-    functionName: String,
+    private val functionName: String,
     device: String = DEFAULT_DEVICE,
     taskTopologyGroupCount: Int? = null,
 ) : AutoCloseable {
@@ -32,12 +32,16 @@ public class IreeRedecodeSession(
 
     init {
         loadNativeLibrary()
+        // The runtime resolves functions by module-qualified name (`module.gemma`); a bare name from the
+        // export contract (`FunctionGemmaContract.FN_REDECODE` = "gemma") creates fine and then fails every
+        // step inside the JNI without a message (#404). Qualify it here so both spellings work.
+        val qualifiedName = if ('.' in functionName) functionName else "module.$functionName"
         handle = if (taskTopologyGroupCount == null) {
-            nativeCreate(device, vmfbPath, irpaPath, functionName)
+            nativeCreate(device, vmfbPath, irpaPath, qualifiedName)
         } else {
             require(taskTopologyGroupCount > 0) { "taskTopologyGroupCount must be >= 1, got $taskTopologyGroupCount" }
             try {
-                nativeCreateWithTopology(device, vmfbPath, irpaPath, functionName, taskTopologyGroupCount)
+                nativeCreateWithTopology(device, vmfbPath, irpaPath, qualifiedName, taskTopologyGroupCount)
             } catch (e: UnsatisfiedLinkError) {
                 // A `.so` built before the knob existed: refuse rather than silently run on IREE's default topology.
                 throw IllegalStateException(
@@ -53,8 +57,15 @@ public class IreeRedecodeSession(
     }
 
     /** One redecode step: [tokenIds] must be exactly the vmfb's fixed `seq` length. */
-    public fun step(tokenIds: IntArray): IntArray? =
-        if (handle == 0L) null else nativeStep(handle, tokenIds)
+    public fun step(tokenIds: IntArray): IntArray? {
+        if (handle == 0L) return null
+        val out = nativeStep(handle, tokenIds)
+        if (out == null) {
+            // The native side drops its iree_status_t (#404); make the failure visible at least.
+            android.util.Log.e("IreeRedecodeSession", "nativeStep returned null (function='$functionName', seq=${tokenIds.size}): input buffer, call, or output mapping failed in the IREE runtime")
+        }
+        return out
+    }
 
     override fun close() {
         if (handle != 0L) {

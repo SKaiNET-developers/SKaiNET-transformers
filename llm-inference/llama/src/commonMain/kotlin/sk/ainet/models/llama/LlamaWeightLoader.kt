@@ -3,7 +3,6 @@ package sk.ainet.models.llama
 import kotlinx.io.Source
 import sk.ainet.context.ExecutionContext
 import sk.ainet.io.RandomAccessSource
-import sk.ainet.lang.memory.ExperimentalMemoryApi
 import sk.ainet.lang.memory.plan.WeightForm
 import sk.ainet.lang.nn.dsl.decoder.DecoderGgufWeightLoader
 import sk.ainet.lang.nn.dsl.decoder.DecoderGgufWeights
@@ -36,7 +35,6 @@ public object LlamaWeightLoader {
      * Streaming random-access load — any size; `weightForm` `null` keeps the decoder loader's
      * keep-packed MAPPED default.
      */
-    @OptIn(ExperimentalMemoryApi::class)
     public suspend inline fun <reified T : DType, V> loadToMapStreaming(
         ctx: ExecutionContext,
         noinline randomAccessProvider: () -> RandomAccessSource,

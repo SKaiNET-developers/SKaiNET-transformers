@@ -3,7 +3,6 @@ package sk.ainet.models.bitnet
 import kotlin.random.Random
 import sk.ainet.apps.llm.OptimizedLLMRuntime
 import sk.ainet.apps.llm.sampleFromCandidates
-import sk.ainet.lang.memory.ExperimentalMemoryApi
 import sk.ainet.lang.nn.Module
 import sk.ainet.lang.nn.topology.ModuleParameters
 import sk.ainet.lang.tensor.data.BitNetPlanesTensorData
@@ -18,7 +17,6 @@ import sk.ainet.lang.types.FP32
  * [BitNetWeightLoader] with `planesLmHead` on (both the `output.weight` and the tied-2B4T
  * lanes, transformers#337/#357).
  */
-@OptIn(ExperimentalMemoryApi::class)
 public fun bitnetPlanesHead(model: Module<FP32, Float>): BitNetPlanesTensorData? {
     val head = model.modules.lastOrNull() ?: return null
     @Suppress("UNCHECKED_CAST")
@@ -52,7 +50,6 @@ public fun bitnetPlanesHead(model: Module<FP32, Float>): BitNetPlanesTensorData?
  * when the prompt does not already start with it, prompt tokens are ingested one per forward,
  * and [onToken] fires only for generated tokens.
  */
-@OptIn(ExperimentalMemoryApi::class)
 public fun OptimizedLLMRuntime<FP32>.generateTwoStage(
     prompt: IntArray,
     steps: Int,
