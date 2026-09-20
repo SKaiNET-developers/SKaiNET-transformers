@@ -91,7 +91,7 @@ parsing (#407).
 - **`IreeKvSession` / `IreeKvDecoder`** (#416, #418): the Android-native stateful KV session —
   three IREE sessions, device-resident K/V, zero-copy 512-position tail views for the sliding
   layers, native RoPE tables + chunk masks, embedding rows read from the archive, snapshot/restore
-  without copies. Measured on a MagentaTV One (Mali via Vulkan, bf16 archives): a once-per-process
+  without copies. Measured on an arm32 Android device (Mali via Vulkan, bf16 archives): a once-per-process
   843-token catalog prefill, then **p50 5.87 s / max 6.25 s per utterance** (restore + one chunk +
   16 decode tokens), down from minutes on the stateless redecode contract.
 - **`iree-android` failure reporting** (#404): native failures surface as reported errors instead

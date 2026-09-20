@@ -62,10 +62,10 @@ class MiniLmExportHarness {
         // Reference probes: eager encode (unpadded, mask-free) — the quality baseline the
         // padded fixed-bucket vmfbs are compared against (cosine).
         val probes = listOf(
-            "switch to the next channel",
-            "make the tv silent",
+            "turn on the kitchen lights",
+            "mute the speaker",
             "i need some quiet time",
-            "show me whats playing tonight",
+            "what is the weather like tomorrow",
         )
         File(out, "probes.txt").writeText(probes.joinToString("\n"))
         for ((i, p) in probes.withIndex()) {

@@ -139,7 +139,7 @@ real hardware and the FunctionGemma/IREE-Android chunked-KV work closed out.
 **A stateful Android KV session for FunctionGemma.** `IreeKvSession` / `IreeKvDecoder`
 (`llm-runtime/iree-android`) prefill the tool catalog once per process, snapshot the KV state, and
 per-turn prefill only the new chunk — device-resident K/V, zero-copy tail views for the sliding
-layers, embedding rows read straight from the archive. Measured on a MagentaTV One (Mali via
+layers, embedding rows read straight from the archive. Measured on an arm32 Android device (Mali via
 Vulkan): **p50 5.87 s / max 6.25 s per utterance**, down from minutes on the stateless redecode
 contract. Position-selected graphs (`gemma_at`/`gemma_prefill_at`) and a chunk prefill-with-past
 graph (`gemma_prefill_with_past`, #415, #417) get there without every step re-running the LM head
