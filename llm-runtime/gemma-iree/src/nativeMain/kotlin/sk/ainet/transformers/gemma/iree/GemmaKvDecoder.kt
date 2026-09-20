@@ -117,8 +117,11 @@ public class GemmaKvDecoder(
         }
     }
 
-    private val taskGroups: Int? =
-        (getenv("GEMMA_TASK_GROUPS")?.toKString()?.trim()?.toIntOrNull() ?: 2).takeIf { it > 0 }
+    // Number of local-task worker groups (= cores). The SL2610 has 2 A55 cores, so default
+    // to 2; override/disable via SKAINET_TASK_GROUPS — the one run-time core knob shared with
+    // the Android runtime (SKEEP-005 phase 2); GEMMA_TASK_GROUPS is the deprecated alias.
+    // 0 or empty = let IREE auto-pick, i.e. drop the flag.
+    private val taskGroups: Int? = TaskGroupsEnv.read()
     private val profile: Boolean =
         getenv("VOICECC_PROFILE")?.toKString()?.let { it == "1" || it.equals("true", true) } ?: false
     private val rt = IreeRuntime(ireeBin = ireeBin, taskTopologyGroupCount = taskGroups)

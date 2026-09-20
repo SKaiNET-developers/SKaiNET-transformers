@@ -89,6 +89,11 @@ iree-run compiler compile-cpu <model>-gen.mlir --target arm64 --out <model>-gen-
 iree-run compiler compile-cpu <model>-gen.mlir --target arm32 --out <model>-gen-arm32.vmfb
 ----
 
+Architecture, yes — core count, no. The `.vmfb` never encodes how many cores it will run on:
+`iree-compile` decides tiling and workgroups from shapes and the target ISA, and the device maps
+those workgroups onto cores at run time (Step 5). The `skainet.schedule` attribute the export
+harnesses put into the module header states which axes are independent and is advisory.
+
 `--target arm64` compiles for `aarch64-linux-android29`, `cortex-a76`,
 with dotprod; `--target arm32` compiles for
 `armv7a-linux-androideabi29`, `cortex-a55`, NEON only. Both are defined
@@ -148,6 +153,10 @@ beyond the runtime default — `iree_modules_io_parameters_parameters`,
 `.irpa` at session-create time, not baked into the vmfb).
 
 == Step 5: Bundle and run
+
+Cores are chosen here, not in Step 3: `IreeRedecodeDecoder.fromAssets(..., taskTopologyGroupCount
+= n)` — or the `SKAINET_TASK_GROUPS` environment variable it defaults to — sets the local-task
+worker group count when the device is created; leave it `null` for IREE's own topology detection.
 
 Copy the `.vmfb`(s) and `.irpa` into your app's assets:
 

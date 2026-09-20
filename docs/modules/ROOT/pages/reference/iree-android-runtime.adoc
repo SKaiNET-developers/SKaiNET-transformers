@@ -49,6 +49,7 @@ class IreeRedecodeSession(
     irpaPath: String,
     functionName: String,
     device: String = DEFAULT_DEVICE,
+    taskTopologyGroupCount: Int? = null,   // run-time core knob; null = IREE auto topology
 ) : AutoCloseable {
     fun step(tokenIds: IntArray): IntArray?   // null on failure or contract mismatch
     override fun close()
@@ -81,6 +82,24 @@ so either string works *if the .vmfb you point it at was compiled for
 that backend* — a CPU-compiled vmfb will not run on the `vulkan` device
 string or vice versa. `local-task` is the only device this runtime has
 been numerically verified against so far (see "Verification" below).
+
+=== Task topology — the run-time core knob
+
+The `.vmfb` carries no core count (SKaiNET SKEEP-005 phase 2: structure at compile time, cores
+at run time). `taskTopologyGroupCount` sets how many local-task worker groups the device this
+session creates will use — the same `--task_topology_group_count` that `iree-run-module` takes.
+The JNI routes it through IREE's flag parser right before the driver builds its executors
+(`nativeCreateWithTopology`); flags are process-global, so the last session created wins for any
+device created afterwards. `null` leaves IREE's own topology detection in charge.
+
+`IreeTaskTopology` is the helper: `fromEnv()` reads `SKAINET_TASK_GROUPS` (unset, blank or `0` →
+`null`), `groupCountFor(parallelism)` maps an engine schedule's `parallelism`
+(`Schedule.Sequential` → one group). `IreeRedecodeDecoder.fromAssets` defaults its
+`taskTopologyGroupCount` to `IreeTaskTopology.fromEnv()`.
+
+A `.so` built before this knob existed lacks the symbol; the constructor turns the
+`UnsatisfiedLinkError` into an `IllegalStateException` that names the rebuild script rather than
+silently running on the default topology.
 
 == `IreeRedecodeDecoder`
 
@@ -151,7 +170,8 @@ changes. `--link` targets required beyond the runtime default
 (`iree_runtime_unified`), because weights are external (see the graph
 contract above): `iree_modules_io_parameters_parameters`,
 `iree_io_parameter_index`, `iree_io_parameter_index_provider`,
-`iree_io_formats_irpa_irpa`.
+`iree_io_formats_irpa_irpa`; plus `iree_base_tooling_flags` and `iree_task_api`
+for the task-topology knob (`nativeCreateWithTopology`).
 
 == Verification
 

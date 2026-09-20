@@ -267,18 +267,10 @@ public class HybridTransformerBlock<T : DType, V>(
             k to vReshaped
         }
 
-        // Expand KV heads for GQA
-        val expandedK = if (mha.nKVHeads < mha.nHeads) {
-            repeatKVHeads(fullK, mha.nHeads / mha.nKVHeads, ops)
-        } else fullK
-        val expandedV = if (mha.nKVHeads < mha.nHeads) {
-            repeatKVHeads(fullV, mha.nHeads / mha.nKVHeads, ops)
-        } else fullV
-
-        // SDPA
+        // SDPA — grouped-query attention is native (SKEEP-005 phase 2): K/V keep nKVHeads.
         val qBatched = ops.unsqueeze(q, 0)
-        val kBatched = ops.unsqueeze(expandedK, 0)
-        val vBatched = ops.unsqueeze(expandedV, 0)
+        val kBatched = ops.unsqueeze(fullK, 0)
+        val vBatched = ops.unsqueeze(fullV, 0)
 
         val attnOut = ops.scaledDotProductAttention(
             query = qBatched,
@@ -304,22 +296,6 @@ public class HybridTransformerBlock<T : DType, V>(
         return output
     }
 
-    private fun repeatKVHeads(
-        t: Tensor<T, V>,
-        repeats: Int,
-        ops: sk.ainet.lang.tensor.ops.TensorOps
-    ): Tensor<T, V> {
-        if (repeats == 1) return t
-        // Repeat each KV head individually so head mapping matches GQA:
-        // head h uses KV head h/repeats → [kv0]*repeats ++ [kv1]*repeats ++ ...
-        val nKVHeads = t.shape[0]
-        val expanded = mutableListOf<Tensor<T, V>>()
-        for (h in 0 until nKVHeads) {
-            val headSlice = ops.narrow(t, 0, h, 1) // [1, seqLen, headDim]
-            repeat(repeats) { expanded.add(headSlice) }
-        }
-        return ops.concat(expanded, dim = 0)
-    }
 
     // --- Subgraph tracing and compilation ---
 

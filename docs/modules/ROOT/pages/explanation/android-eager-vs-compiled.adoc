@@ -68,6 +68,10 @@ compile time, not per call.
 | True KV-cache — each step is O(1) new-token work over a growing cache, the normal fast decode loop.
 | Depends on which graph shape was exported. The `iree-android` runtime today only knows the *redecode* pattern (`gemma-iree`'s `GemmaDecoder`, not its `GemmaKvDecoder`) — one fixed-`seq` vmfb re-invoked with a growing, padded buffer, so each step recomputes the full prefix. O(seq) per step, not O(1). The two-graph KV-cache decode (prefill + with_past, real O(1) steps) is a real pattern — `gemma-iree` implements it for a Linux board — but hasn't been ported to the Android JNI runtime yet.
 
+| Cores / parallelism
+| The context's `Schedule` (`DirectCpuExecutionContext(schedule = …)`; `CoroutineSchedule.hardware()` on the JVM, `Sequential` on Android today) — attention heads, SDPA rows and matmul chunks follow it.
+| The `.vmfb` carries no core count; `iree-compile` decides tiling and workgroups, the local-task device maps them onto cores. Set the worker group count when the device is created: `IreeRedecodeSession(taskTopologyGroupCount = …)` / `SKAINET_TASK_GROUPS`. One knob, one meaning, both legs (SKaiNET SKEEP-005).
+
 | Weight distribution
 | Ship the GGUF (or stream it), same as any other target.
 | Ship a `.vmfb` (small, ABI-specific machine code) + a `.irpa` (the weights, portable across ABIs, sizeable — 300+ MiB for a 135M model at bf16).

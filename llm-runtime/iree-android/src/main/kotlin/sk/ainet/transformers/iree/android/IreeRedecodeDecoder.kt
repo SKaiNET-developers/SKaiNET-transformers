@@ -63,6 +63,8 @@ public class IreeRedecodeDecoder(
          * @param cacheDirName subdirectory of `filesDir` to copy the assets into
          * @param device IREE HAL driver — [IreeRedecodeSession.DEFAULT_DEVICE] (CPU) or
          *   [IreeRedecodeSession.VULKAN_DEVICE] (GPU, needs a Vulkan-built `.so` + vmfb)
+         * @param taskTopologyGroupCount local-task worker groups (run-time core knob, SKEEP-005);
+         *   defaults to the `SKAINET_TASK_GROUPS` environment value, `null` = IREE auto topology
          */
         public fun fromAssets(
             context: Context,
@@ -72,6 +74,7 @@ public class IreeRedecodeDecoder(
             seq: Int,
             cacheDirName: String,
             device: String = IreeRedecodeSession.DEFAULT_DEVICE,
+            taskTopologyGroupCount: Int? = IreeTaskTopology.fromEnv(),
         ): IreeRedecodeDecoder {
             val app = context.applicationContext
             val dir = File(app.filesDir, cacheDirName).apply { mkdirs() }
@@ -79,7 +82,7 @@ public class IreeRedecodeDecoder(
             val irpa = File(dir, File(irpaAsset).name)
             copyAssetIfMissing(app, vmfbAsset, vmfb)
             copyAssetIfMissing(app, irpaAsset, irpa)
-            val session = IreeRedecodeSession(vmfb.absolutePath, irpa.absolutePath, functionName, device)
+            val session = IreeRedecodeSession(vmfb.absolutePath, irpa.absolutePath, functionName, device, taskTopologyGroupCount)
             return IreeRedecodeDecoder(session, seq)
         }
 

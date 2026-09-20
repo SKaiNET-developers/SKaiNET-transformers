@@ -64,6 +64,12 @@ import java.nio.ByteOrder
  */
 public object FunctionGemmaExportHarness {
 
+    /** SKEEP-005 phase 2: stamp the structural schedule (attention → parallel_dims [batch, heads]); advisory header only. */
+    private fun withStructuralSchedule(graph: sk.ainet.lang.graph.ComputeGraph): sk.ainet.lang.graph.ComputeGraph =
+        sk.ainet.compile.opt.dagPipelineFor(
+            "llvm-cpu", corePasses = listOf(sk.ainet.compile.opt.passes.ScheduleAnnotationPass("llvm-cpu")),
+        ).optimize(graph).graph
+
     /** Little-endian bytes of an external parameter, whatever `BufferHandle` the engine handed over (#420). */
     public data class RedecodeResult(
         val mlirPath: String,
@@ -239,9 +245,10 @@ public object FunctionGemmaExportHarness {
             }
         }.first
 
-        val graph = (tape as DefaultExecutionTape).toComputeGraph(
+        val rawGraph = (tape as DefaultExecutionTape).toComputeGraph(
             synthesizeExternalInputs = true, embedConstants = true,
         )
+        val graph = withStructuralSchedule(rawGraph)
         val module = StableHloConverterFactory
             .createBasic(ConstantMaterializationPolicy.ExternalAlways(scope = "model"))
             .convert(graph, "gemma")
@@ -365,9 +372,10 @@ public object FunctionGemmaExportHarness {
             }
         }.first
 
-        val graph = (tape as DefaultExecutionTape).toComputeGraph(
+        val rawGraph = (tape as DefaultExecutionTape).toComputeGraph(
             synthesizeExternalInputs = true, embedConstants = true,
         )
+        val graph = withStructuralSchedule(rawGraph)
         val module = StableHloConverterFactory
             .createBasic(ConstantMaterializationPolicy.ExternalAlways(scope = "model"))
             .convert(graph, "gemma_with_past")
@@ -448,9 +456,10 @@ public object FunctionGemmaExportHarness {
             }
         }.first
 
-        val graph = (tape as DefaultExecutionTape).toComputeGraph(
+        val rawGraph = (tape as DefaultExecutionTape).toComputeGraph(
             synthesizeExternalInputs = true, embedConstants = true,
         )
+        val graph = withStructuralSchedule(rawGraph)
         val module = StableHloConverterFactory
             .createBasic(ConstantMaterializationPolicy.ExternalAlways(scope = "model"))
             .convert(graph, "gemma_prefill")

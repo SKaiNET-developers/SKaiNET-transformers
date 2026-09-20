@@ -454,14 +454,13 @@ public class MultiHeadAttention<T : DType, V>(
             return finishFused(merged, wO, ctx, mhaDump, fullK, fullV)
         }
 
-        // Expand KV heads for GQA if needed
-        val expandedK = if (nKVHeads < nHeads) repeatKVHeads(fullK, nHeads / nKVHeads, ops) else fullK
-        val expandedV = if (nKVHeads < nHeads) repeatKVHeads(fullV, nHeads / nKVHeads, ops) else fullV
-
-        // Unsqueeze batch dim for SDPA: [1, nHeads, seqLen, headDim]
+        // Grouped-query attention is native to SDPA (SKEEP-005 phase 2): K/V stay
+        // [nKVHeads, seq, headDim]; head h reads KV head h / (nHeads / nKVHeads) inside the op.
+        // Nothing is narrowed or concatenated, on the tape or in the export.
+        // Unsqueeze batch dim for SDPA: [1, nHeads, seqLen, headDim] / [1, nKVHeads, seqKV, headDim]
         val qBatched = ops.unsqueeze(q, 0)
-        val kBatched = ops.unsqueeze(expandedK, 0)
-        val vBatched = ops.unsqueeze(expandedV, 0)
+        val kBatched = ops.unsqueeze(fullK, 0)
+        val vBatched = ops.unsqueeze(fullV, 0)
 
         // When sliding-window attention is active, we build a combined
         // causal+window mask ourselves and disable SDPA's built-in causal
@@ -664,17 +663,6 @@ public class MultiHeadAttention<T : DType, V>(
         return ctx.ops.permute(t, intArrayOf(1, 0, 2))
     }
 
-    private fun repeatKVHeads(t: Tensor<T, V>, repeats: Int, ops: sk.ainet.lang.tensor.ops.TensorOps): Tensor<T, V> {
-        if (repeats == 1) return t
-        // Repeat each KV head individually so head mapping matches GQA:
-        // head h uses KV head h/repeats → [kv0]*repeats ++ [kv1]*repeats ++ ...
-        val expanded = mutableListOf<Tensor<T, V>>()
-        for (h in 0 until nKVHeads) {
-            val headSlice = ops.narrow(t, 0, h, 1) // [1, seqLen, headDim]
-            repeat(repeats) { expanded.add(headSlice) }
-        }
-        return ops.concat(expanded, dim = 0)
-    }
 
     /** Diagnostic stat dump for MHA substeps. Gated by [MultiHeadAttentionDiag.shouldDumpThisCall];
      *  delegates to the platform diagnostic helper so the multiplatform
