@@ -13,9 +13,9 @@ pluginManagement {
     // than one plugin ID from that jar is resolved in the same build (same fix already applied
     // in SKaiNET-audio).
     plugins {
-        id("sk.ainet.multiplatform") version "1.0.0"
+        id("sk.ainet.multiplatform") version "1.1.0"
         id("sk.ainet.npm-pins") version "1.1.0"
-        id("sk.ainet.transformers.bom-coverage") version "1.0.0"
+        id("sk.ainet.transformers.bom-coverage") version "1.1.0"
     }
 }
 
