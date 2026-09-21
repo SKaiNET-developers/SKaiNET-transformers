@@ -53,7 +53,17 @@ public class MoonshineV2Adapter<T : DType, V>(
         ),
     )
 
-    override val modules: List<Module<T, V>> = listOf(posEmbed)
+    // Split-width checkpoints (small: enc 620 / dec 512) bridge the position-aware memory into decoder
+    // space with a bias-free linear `proj` [decoderDim, dim] (HF `model.decoder.proj.weight`). Absent
+    // when the widths match (tiny) — the checkpoint then has no such tensor either.
+    private val proj: sk.ainet.lang.nn.transformer.VoidDense<T, V>? =
+        if (cfg.decoderDim != cfg.dim)
+            sk.ainet.lang.nn.transformer.VoidDense(
+                "v2_adapter.proj", cfg.decoderDim, cfg.dim, dtype, addBias = false,
+            )
+        else null
+
+    override val modules: List<Module<T, V>> = listOfNotNull(posEmbed, proj)
 
     /**
      * [encoderMemory] = position-free encoder output `[·, frames, dim]`;
@@ -68,7 +78,8 @@ public class MoonshineV2Adapter<T : DType, V>(
         val mem = encoderMemory.bind(ctx)
         return withForwardHooks(ctx, this, mem) {
             val pos = posEmbed.forward(positions, ctx)             // [·, frames, dim]
-            ctx.ops.add(mem, pos)                                 // no LayerNorm (matches the real adapter)
+            val added = ctx.ops.add(mem, pos)                     // no LayerNorm (matches the real adapter)
+            proj?.forward(added, ctx) ?: added                    // split widths: -> [·, frames, decoderDim]
         }
     }
 

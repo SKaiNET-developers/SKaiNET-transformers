@@ -42,6 +42,14 @@ public data class MoonshineV2Config(
     val headDim: Int = 40,          // 8 * 40 = 320 (tiny-streaming head_dim)
     val ffnDim: Int = 1280,         // 4 * dim — confirmed from the encoder ONNX (blocks.N.ff.project_in = 1280)
     val vocabSize: Int = 32768,     // confirmed: real v2 vocab_size
+    /**
+     * Decoder stream width. tiny keeps `dim` (320 = 320); the **small** checkpoints split widths
+     * (enc 620 / dec 512, HF `hidden_size` vs `encoder_config.hidden_size`) — the adapter then carries a
+     * `proj` [decoderDim, dim] bridging the memory into decoder space (see [MoonshineV2Adapter]).
+     */
+    val decoderDim: Int = dim,
+    /** Decoder MLP hidden width (HF decoder `intermediate_size`); tiny = encoder ffn, small = 2048. */
+    val decoderFfnDim: Int = ffnDim,
     val layerNormEps: Float = 1e-5f,
     /**
      * Left context window. CORRECTED to 17 (2026-07-26) after a direct DSL-vmfb-vs-onnxruntime comparison:
@@ -59,6 +67,15 @@ public data class MoonshineV2Config(
      * are (16,4). (Was previously a wrong "trailing layers" guess.)
      */
     val lookaheadEdgeLayers: Int = 2,
+    /**
+     * Explicit per-layer attention bands in the HF `encoder_config.sliding_windows` convention:
+     * `(leftContext, rightContext)` per layer — e.g. tiny-de `[[17,5],[17,5],[17,1],[17,1],[17,5],[17,5]]`
+     * (the DE middles are (17,1), NOT causal, so the edge-layer rule cannot express them). When set,
+     * overrides [slidingWindow]/[lookahead]/[lookaheadEdgeLayers]. The DSL window is `left + 1`
+     * (band `j ∈ [i−left, i+right]` needs `w = left+1` — the same off-by-one documented on
+     * [slidingWindow]). Null → the EN-tiny edge-layer rule below.
+     */
+    val slidingWindows: List<Pair<Int, Int>>? = null,
     // --- decoder (see [moonshineV2Decoder]) — confirmed against tiny-streaming decoder_kv.onnx ---
     /** Decoder depth (`decoder_kv` has 6 layers; = encoder depth here). */
     val decoderLayers: Int = 6,
@@ -77,7 +94,12 @@ public data class MoonshineV2Config(
      * matching the v2 paper ((16,4) on the first + last two encoder layers; (16,0) intermediate).
      */
     public fun rightContextForLayer(layer: Int): Int =
-        if (layer < lookaheadEdgeLayers || layer >= encoderLayers - lookaheadEdgeLayers) lookahead else 0
+        slidingWindows?.get(layer)?.second
+            ?: if (layer < lookaheadEdgeLayers || layer >= encoderLayers - lookaheadEdgeLayers) lookahead else 0
+
+    /** DSL sliding window for [layer]: HF left context + 1 when [slidingWindows] is set. */
+    public fun slidingWindowForLayer(layer: Int): Int =
+        slidingWindows?.get(layer)?.first?.plus(1) ?: slidingWindow
 }
 
 /**
@@ -107,16 +129,21 @@ public fun <T : DType, V> moonshineV2Encoder(
         val rc = cfg.rightContextForLayer(layer)
 
         // x + Attn(LN(x)) — position-free (NO rope block) sliding-window local attention.
+        // Constructed directly (not via the DSL sugar) to pass explicitHeadDim: the small
+        // checkpoints have attention inner dim nHeads*headDim (8*64=512) != stream dim (620),
+        // the same non-square shape the Voxtral path exercises. Null when square (tiny).
         stage.layerNorm(intArrayOf(dim), eps.toDouble(), id = "enc.$layer.attn_norm")
-        stage.multiHeadAttention(
+        stage.modules += sk.ainet.lang.nn.transformer.MultiHeadAttention<T, V>(
             dim = dim,
             nHeads = cfg.nHeads,
             nKVHeads = cfg.nHeads,
             causal = rc == 0,               // (16,0) layers are causal-left; (16,w) layers are non-causal
             bias = false,
-            id = "enc.$layer.attn",
-            slidingWindow = cfg.slidingWindow,
+            name = "enc.$layer.attn",
+            explicitHeadDim = if (cfg.nHeads * cfg.headDim != dim) cfg.headDim else null,
+            slidingWindow = cfg.slidingWindowForLayer(layer),
             rightContext = rc,
+            dtype = dtype,
         )
         stage.residual()
 

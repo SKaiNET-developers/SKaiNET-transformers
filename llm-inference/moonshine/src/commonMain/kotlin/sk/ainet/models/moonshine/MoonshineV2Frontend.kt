@@ -35,7 +35,11 @@ import kotlin.reflect.KClass
  */
 public class MoonshineV2Frontend<T : DType, V>(
     private val dtype: KClass<T>,
+    /** Encoder stream width; the conv mid width is `2 * dim` (tiny 320/640, small 620/1240). */
+    private val dim: Int = DIM,
 ) : Module<T, V>(), ModuleParameters<T, V> {
+
+    private val mid: Int = dim * 2
 
     override val name: String = "moonshine_v2_frontend"
 
@@ -51,17 +55,17 @@ public class MoonshineV2Frontend<T : DType, V>(
 
     // Own params (filterbank + log_k); the two convs are sub-modules (their params bake by name).
     // Read via `.value` in forward — baking replaces the parameter's value, not the initial void tensor.
-    private val fbParam = ModuleParameter.WeightParameter<T, V>("fe_filterbank.weight", void(Shape(FRAME, DIM)), false)
+    private val fbParam = ModuleParameter.WeightParameter<T, V>("fe_filterbank.weight", void(Shape(FRAME, dim)), false)
     private val logKParam = ModuleParameter.WeightParameter<T, V>("fe_log_k", void(Shape(1)), false)
     override val params: List<ModuleParameter<T, V>> = listOf(fbParam, logKParam)
 
     private val conv1 = Conv1d<T, V>(
-        inChannels = DIM, outChannels = MID, kernelSize = KERNEL, stride = STRIDE, bias = true, name = "fe_conv1",
-        initWeights = void(Shape(MID, DIM, KERNEL)), initBias = void(Shape(MID)),
+        inChannels = dim, outChannels = mid, kernelSize = KERNEL, stride = STRIDE, bias = true, name = "fe_conv1",
+        initWeights = void(Shape(mid, dim, KERNEL)), initBias = void(Shape(mid)),
     )
     private val conv2 = Conv1d<T, V>(
-        inChannels = MID, outChannels = DIM, kernelSize = KERNEL, stride = STRIDE, bias = true, name = "fe_conv2",
-        initWeights = void(Shape(DIM, MID, KERNEL)), initBias = void(Shape(DIM)),
+        inChannels = mid, outChannels = dim, kernelSize = KERNEL, stride = STRIDE, bias = true, name = "fe_conv2",
+        initWeights = void(Shape(dim, mid, KERNEL)), initBias = void(Shape(dim)),
     )
     override val modules: List<Module<T, V>> = listOf(conv1, conv2)
 
@@ -88,8 +92,8 @@ public class MoonshineV2Frontend<T : DType, V>(
         x = ops.unsqueeze(ops.transpose(x), 0)                                       // [n,DIM]→[DIM,n]→[1,DIM,n]
 
         // causal conv1 (left-pad 4) → SiLU; causal conv2 (left-pad 4).
-        x = ops.silu(conv1.forward(ops.concat(listOf(zeros(ctx, DIM), x), dim = 2), ctx))
-        x = conv2.forward(ops.concat(listOf(zeros(ctx, MID), x), dim = 2), ctx)      // [1, DIM, frames]
+        x = ops.silu(conv1.forward(ops.concat(listOf(zeros(ctx, dim), x), dim = 2), ctx))
+        x = conv2.forward(ops.concat(listOf(zeros(ctx, mid), x), dim = 2), ctx)      // [1, dim, frames]
 
         // [1, DIM, frames] → [1, frames, DIM] (rank-3 transpose reverses all dims → squeeze/2D-swap/unsqueeze).
         return ops.unsqueeze(ops.transpose(ops.squeeze(x, 0)), 0)
@@ -99,7 +103,7 @@ public class MoonshineV2Frontend<T : DType, V>(
     private fun zeros(ctx: ExecutionContext, channels: Int): Tensor<T, V> =
         ctx.fromFloatArray(Shape(1, channels, PAD), dtype, FloatArray(channels * PAD))
 
-    private companion object {
+    public companion object {
         const val FRAME = 80
         const val DIM = 320
         const val MID = 640
@@ -111,5 +115,5 @@ public class MoonshineV2Frontend<T : DType, V>(
 }
 
 /** Build the Moonshine v2 audio frontend in the NN DSL. Input `[1, samples]` (multiple of 80) → `[1, frames, 320]`. */
-public fun <T : DType, V> moonshineV2Frontend(dtype: KClass<T>): MoonshineV2Frontend<T, V> =
-    MoonshineV2Frontend(dtype)
+public fun <T : DType, V> moonshineV2Frontend(dtype: KClass<T>, dim: Int = MoonshineV2Frontend.DIM): MoonshineV2Frontend<T, V> =
+    MoonshineV2Frontend(dtype, dim)
