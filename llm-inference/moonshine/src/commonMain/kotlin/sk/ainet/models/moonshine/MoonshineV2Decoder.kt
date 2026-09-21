@@ -40,11 +40,11 @@ public fun <T : DType, V> moonshineV2Decoder(
  * (conv frontend, `maxFrames`) keep their defaults — the decoder never reads them.
  */
 internal fun MoonshineV2Config.toDecoderConfig(): MoonshineConfig = MoonshineConfig(
-    dim = dim,
+    dim = decoderDim,               // small splits widths: decoder runs at 512 while the encoder is 620
     decoderLayers = decoderLayers,
     nHeads = nHeads,
     headDim = headDim,
-    ffnDim = ffnDim,
+    ffnDim = decoderFfnDim,
     vocabSize = vocabSize,
     maxDecodeTokens = maxDecodeTokens,
     ropeBase = ropeBase,

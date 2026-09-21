@@ -27,6 +27,9 @@ kotlin {
             implementation(libs.skainet.lang.core)
             implementation(project(":transformer-core"))
         }
+        commonTest.dependencies {
+            implementation(libs.kotlin.test)
+        }
         val jvmTest by getting {
             dependencies {
                 implementation(libs.kotlin.test)
