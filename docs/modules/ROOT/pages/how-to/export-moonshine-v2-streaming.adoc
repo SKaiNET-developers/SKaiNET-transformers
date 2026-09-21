@@ -1,0 +1,100 @@
+= Export Moonshine v2 Streaming to StableHLO
+:description: Turn a Hugging Face moonshine_streaming checkpoint into the five StableHLO graphs of the streaming speech-to-text contract — from the published module, without Python.
+
+`skainet-transformers-inference-moonshine` carries the Moonshine **v2 streaming** model in the SKaiNET NN DSL
+and, since **0.56.1**, a JVM command that exports it: a Hugging Face snapshot in, five StableHLO graphs and two
+host-side tables out. Any StableHLO compiler can take it from there (see
+xref:how-to/compile-model-for-android.adoc[Compile a Model for Android (IREE)]).
+
+== What you need
+
+* JDK 21+.
+* A `moonshine_streaming` snapshot directory with `config.json`, `model.safetensors` and `tokenizer.json` —
+  for example https://huggingface.co/moonshine-ai/moonshine-streaming-tiny[`moonshine-ai/moonshine-streaming-tiny`]
+  (English) or https://huggingface.co/moonshine-ai/moonshine-streaming-tiny-de[`moonshine-ai/moonshine-streaming-tiny-de`]
+  (German), both published under the MIT licence at the time of writing. Check the model card of the exact
+  checkpoint and revision you download.
+
+== Run it
+
+From a checkout of this repository:
+
+[source,bash]
+----
+MOONSHINE_MODEL_DIR=/path/to/snapshot \
+MOONSHINE_OUT_DIR=build/mlir/moonshine-v2 \
+  ./gradlew :llm-inference:moonshine:exportMoonshineV2
+----
+
+From your own build, resolve the published module and run its main class:
+
+[source,kotlin]
+----
+val exportTool by configurations.creating
+dependencies {
+    exportTool(platform("sk.ainet.transformers:skainet-transformers-bom:0.56.1"))
+    exportTool("sk.ainet.transformers:skainet-transformers-inference-moonshine")
+}
+tasks.register<JavaExec>("exportMoonshine") {
+    classpath = exportTool
+    mainClass.set("sk.ainet.models.moonshine.MoonshineV2ExportCliKt")
+    maxHeapSize = "12g"                       // the graphs carry the weights as constants
+    environment("MOONSHINE_MODEL_DIR", "/path/to/snapshot")
+    environment("MOONSHINE_OUT_DIR", layout.buildDirectory.dir("moonshine").get().asFile.path)
+}
+----
+
+A tiny checkpoint exports in well under a minute.
+
+== What you get
+
+[cols="2,3,5"]
+|===
+| File | Entry point | Inputs → outputs
+
+| `frontend.mlir` | `@moonshine_v2_frontend` | audio `[1, samples]` (16 kHz mono f32) → features `[1, frames, dim]`
+| `encoder.mlir` | `@moonshine_v2_encoder` | features `[1, frames, dim]` → memory (sliding-window attention with bounded lookahead)
+| `adapter.mlir` | `@moonshine_v2_adapter` | memory, positions `[1, frames]` → position-aware memory at decoder width
+| `prefill.mlir` | `@moonshine_v2_decoder_prefill` | token embedding `[1,1,D]`, padded memory `[1,N,D]`, additive mask `[1,1,1,N]` → logits + per-layer self and cross K/V
+| `with_past.mlir` | `@moonshine_v2_decoder_with_past` | token embedding, RoPE cos/sin `[1, headDim]`, self K/V (dynamic length), cross K/V, mask → logits + new self K/V
+| `dec_embed.bin` | — | token embedding table `[vocab, D]`, little-endian f32 — the decode loop looks rows up on the host
+| `vocab.bin` | — | `u32` piece count, then per token id a `u16` byte length and the UTF-8 piece
+| `manifest.json` | — | geometry read from the checkpoint, the shapes used, the files written
+|===
+
+Weights are folded into the graphs as `stablehlo.constant`. A compiler can move them back out into a shared
+archive — with IREE, compile the two decoder graphs with `--iree-opt-export-parameters=model=params.irpa`; the
+archives are identical, keep one.
+
+== Options
+
+[cols="2,1,5"]
+|===
+| Variable | Default | Meaning
+
+| `MOONSHINE_MODEL_DIR` | — | snapshot directory (required)
+| `MOONSHINE_OUT_DIR` | `build/mlir/moonshine-v2` | output directory
+| `MOONSHINE_GRAPH` | `all` | or a comma-separated subset of `frontend`, `encoder`, `adapter`, `prefill`, `with_past`, `embeddings`, `vocab`
+| `MOONSHINE_FE_SAMPLES` | `21760` | frontend input length (multiple of 80; 320 samples = one feature frame)
+| `MOONSHINE_ENC_FRAMES` | `64` | encoder and adapter window in frames (1.28 s)
+| `MOONSHINE_MAX_MEM` | `256` | encoder-memory length the decoder graphs are padded to (5.12 s); shorter utterances are masked
+| `MOONSHINE_STATIC_PAST` | dynamic | fix the step graph's self-attention cache length, for targets without dynamic shapes
+|===
+
+There is nothing to set per language or model size: widths, layer counts, per-layer attention bands
+(`encoder_config.sliding_windows`), vocabulary size and the length of the positional table come from the
+snapshot. With `all`, the export stops with an error if a tensor of the checkpoint was not used — a new
+checkpoint layout fails loudly instead of silently dropping weights.
+
+== From code
+
+[source,kotlin]
+----
+MoonshineV2Checkpoint(File("/path/to/snapshot")).use { checkpoint ->
+    val harness = MoonshineV2ExportHarness(checkpoint, MoonshineV2ExportOptions(maxMemoryFrames = 512))
+    harness.export(outDir, setOf(MoonshineV2ExportHarness.Graph.PREFILL, MoonshineV2ExportHarness.Graph.WITH_PAST))
+}
+----
+
+`MoonshineV2HfWeightMap` (common code) is the DSL-parameter → checkpoint-tensor map the export uses; a runtime
+that loads the weights eagerly can use the same map.

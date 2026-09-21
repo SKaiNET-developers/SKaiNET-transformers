@@ -18,6 +18,7 @@
 * xref:how-to/run-unified-cli.adoc[Use the Unified CLI]
 * xref:how-to/benchmarking.adoc[Run Benchmarks]
 * xref:how-to/compile-model-for-android.adoc[Compile a Model for Android (IREE)]
+* xref:how-to/export-moonshine-v2-streaming.adoc[Export Moonshine v2 Streaming to StableHLO]
 
 .Reference
 * xref:reference/architecture.adoc[Architecture Overview]
