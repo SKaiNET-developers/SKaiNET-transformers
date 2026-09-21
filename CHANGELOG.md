@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Moonshine v2 streaming: every checkpoint of the family, exported from the published artifact
+
+- **`MoonshineV2ExportCli`** (`:llm-inference:moonshine:exportMoonshineV2`, JVM): a Hugging Face
+  `moonshine_streaming` snapshot in (`config.json`, `model.safetensors`, `tokenizer.json`), the five
+  StableHLO graphs of the streaming contract out — `frontend`, `encoder`, `adapter`, masked fixed-pad
+  `prefill`, dynamic-cache `with_past` — plus `dec_embed.bin`, `vocab.bin` and a `manifest.json`.
+  Geometry, per-layer attention bands, vocabulary size and the positional-table length are read from
+  the snapshot; the export fails if a checkpoint tensor was not used. The export used to live in
+  `jvmTest` behind per-tensor `.bin` dumps made by Python scripts, so it could not be run from the
+  published module; it now can, and needs no Python. Output is byte-identical to the previous flow for
+  the German tiny checkpoint (all five graphs and both tables); for the English one the encoder,
+  adapter and both decoder graphs are byte-identical and the frontend differs only in conv-weight
+  constants by ≤ 7.2e-7 (the old flow took them from a weight-norm-folded ONNX).
+- **`MoonshineV2HfWeightMap`** (common): DSL parameter → checkpoint tensor for frontend, encoder,
+  adapter and decoder, including the three things that are not a plain copy (transposed filterbank,
+  zero-centred encoder norm scales, absent biases).
+- **`MoonshineV2Config.slidingWindows`**: explicit `(left, right)` context per encoder layer, in the
+  checkpoint's own convention. The German checkpoints need it (their middle layers look one frame
+  ahead); `null` keeps the English edge-layer rule.
+- **Split encoder/decoder widths** (`decoderDim`, `decoderFfnDim`, the adapter's `proj`, explicit
+  encoder head dim, frontend width) for the small checkpoints. Defaults are unchanged.
+
 ## [0.56.0] — 2026-09-20
 
 Back in lock-step with the engine: ships against **SKaiNET engine 0.56.0** (the engine skipped
