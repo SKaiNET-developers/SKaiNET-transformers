@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.56.2] — 2026-09-22
+
+A transformers-only release against **SKaiNET engine 0.56.0** (unchanged).
+
+### Added
+
+- **`IreeMoonshineStream`** (`llm-runtime:iree-android`, `libskainet_moonshine_stream.so`, arm64-v8a +
+  armeabi-v7a, Vulkan + local-task): the streaming Moonshine v2 speech-to-text runtime over the five
+  graphs of `MoonshineV2ExportCli` — PCM in, cumulative partial transcripts out, exact final on
+  `finish()`. The counterpart of `IreeKvSession` for ASR: the last piece a Moonshine cartridge needed
+  from a released artifact. `native/build-moonshine-stream.sh` builds it with the same image and
+  cache as the other two libraries.
+
 ### Added
 
 - **`IreeMoonshineStream`** (`llm-runtime:iree-android`, `libskainet_moonshine_stream.so`, arm64-v8a +
