@@ -134,3 +134,24 @@ Measured (arm32 Android device, Mali via Vulkan, bf16 archives, chunk 32, 843-to
 16 decode tokens): open 12.4 s, prefix 25.2 s once, then **p50 5.9 s per utterance** (one chunk call
 ≈ 2.0 s + 16 × 0.245 s), restore 0 ms, RSS ≈ 1.5 GB in the 32-bit process. Rebuild the library
 with `native/build-iree-kv.sh <abi> --vulkan` (same image and links as the redecode `.so`).
+
+## Moonshine streaming (`IreeMoonshineStream`, `libskainet_moonshine_stream.so`)
+
+Streaming Moonshine v2 speech-to-text over the five graphs of `MoonshineV2ExportCli`
+(`:llm-inference:moonshine:exportMoonshineV2`) — frontend, encoder, adapter, masked prefill, dynamic
+with-past step — plus the shared decoder parameter archive (`iree-compile --iree-opt-export-parameters`
+on the decoder graphs) and the two host-side tables the exporter writes. The native side windows the audio
+(64 frames, hop 0.88 s), runs the encode stages on the device, decodes incrementally and hands out
+cumulative partials; `finish()` runs one exact full re-decode. Geometry (tiny: 320 / 6 / 8) is compiled in;
+attention bands and vocabulary size come from the files.
+
+```kotlin
+val stream = IreeMoonshineStream(IreeMoonshineStream.VULKAN_DEVICE, IreeMoonshineStream.filesIn(modelDir))
+stream.feedPcm(pcm16k)?.let { partial -> show(partial) }       // as audio arrives; null = unchanged
+val text = stream.finish()                                      // end of utterance; the stream resets
+stream.close()
+```
+
+`native/build-moonshine-stream.sh <abi> --vulkan` builds it like the other two (`GEOMETRY="-DL=10 -DHD=64
+-DDIM=512 -DENC_DIM=620"` for the split-width `small` checkpoints).
+
