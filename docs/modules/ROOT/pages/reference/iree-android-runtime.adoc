@@ -173,6 +173,19 @@ contract above): `iree_modules_io_parameters_parameters`,
 `iree_io_formats_irpa_irpa`; plus `iree_base_tooling_flags` and `iree_task_api`
 for the task-topology knob (`nativeCreateWithTopology`).
 
+== `IreeMoonshineStream` — streaming speech-to-text
+
+`libskainet_moonshine_stream.so` drives the five graphs of the Moonshine v2 streaming export (see
+xref:how-to/export-moonshine-v2-streaming.adoc[Export Moonshine v2 Streaming to StableHLO]) as a real streaming
+loop on the device: `feedPcm(FloatArray)` with mono 16 kHz PCM returns the updated cumulative partial transcript
+(or `null`), `finish()` returns the exact final transcript and resets, `reset()` aborts. Files are passed by
+absolute path (`IreeMoonshineStream.Files`, or `filesIn(dir)` for a directory holding the eight standard names:
+`frontend.vmfb`, `encoder.vmfb`, `adapter.vmfb`, `prefill.vmfb`, `step.vmfb`, `params.irpa`, `vocab.bin`,
+`dec_embed.bin`). `params.irpa` is the parameter archive `iree-compile --iree-opt-export-parameters=model=…`
+writes for the decoder graphs (identical for prefill and step — keep one). The library's geometry is the `tiny`
+class; `native/build-moonshine-stream.sh` builds it, with `GEOMETRY="-DL=10 -DHD=64 -DDIM=512 -DENC_DIM=620"`
+for the `small` checkpoints.
+
 == Verification
 
 Host-side, numerically, against the real SmolLM2-135M-Instruct Q8_0
