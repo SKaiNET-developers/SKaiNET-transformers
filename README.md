@@ -109,19 +109,21 @@ Honest status — see the project-status note at the top of this README.
 
 ## Current release
 
-The current release is **0.56.1** (against **SKaiNET 0.56.0** — a transformers-only release, same
+The current release is **0.56.2** (against **SKaiNET 0.56.0** — a transformers-only release, same
 pattern as 0.54.1: no new engine version needed).
 
-**Moonshine v2 streaming, every checkpoint of the family, exported from the published module.**
-`MoonshineV2ExportCli` turns a Hugging Face `moonshine_streaming` snapshot into the five StableHLO
-graphs of the streaming contract (frontend, encoder, adapter, masked prefill, dynamic-cache step)
-plus the host-side embedding and vocabulary tables — no Python, nothing to configure per language
-or size, and it fails if a checkpoint tensor goes unused. The model gains per-layer attention bands
-(the German checkpoints need them) and split encoder/decoder widths (the small ones). See
-*Export Moonshine v2 Streaming to StableHLO* in the docs.
+**`IreeMoonshineStream`: the streaming Moonshine v2 speech-to-text runtime.** `libskainet_moonshine_stream.so`
+(`llm-runtime:iree-android`, arm64-v8a + armeabi-v7a, Vulkan or CPU) drives the five graphs of
+`MoonshineV2ExportCli` — frontend, encoder, adapter, masked prefill, dynamic with-past step — plus the
+shared decoder parameter archive as a real streaming loop on the device: PCM in, cumulative partial
+transcripts out, one exact full re-decode on `finish()`. The Kotlin binding is shaped like `IreeKvSession`:
+files by absolute path, no `Context`. With the exporter (0.56.1) this is the last piece a Moonshine
+cartridge needed from a released artifact rather than from C source of its own.
 
-It builds on **0.56.0**, which put the two version lines back in lock-step with **SKaiNET 0.56.0**
-(the engine skipped 0.55.0 to realign them).
+It builds on **0.56.1**, which released `MoonshineV2ExportCli` (a Hugging Face snapshot in, the five
+StableHLO graphs and two host-side tables out, no Python, nothing to configure per language or size), and
+**0.56.0**, which put the two version lines back in lock-step with **SKaiNET 0.56.0** (the engine skipped
+0.55.0 to realign them).
 
 **Grouped-query attention without head expansion, and the compiled leg of SKEEP-005.** The engine's
 `scaledDotProductAttention` is grouped-query native, so `MultiHeadAttention` and
@@ -254,7 +256,7 @@ The recommended way to consume is via the BOM. It pins every published `skainet-
 
 ```kotlin
 dependencies {
-    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.56.1"))
+    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.56.2"))
 
     // Versions resolved from the BOM:
     implementation("sk.ainet.transformers:skainet-transformers-core")
