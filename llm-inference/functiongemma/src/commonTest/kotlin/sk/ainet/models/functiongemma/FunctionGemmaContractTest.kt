@@ -75,4 +75,22 @@ class FunctionGemmaContractTest {
         assertTrue(json.contains("\"6\": \"open_gripper\""))
         assertTrue(!json.contains("set_lights"))
     }
+
+    @Test
+    fun manifestJson_carriesTheEmbeddingGeometryTheBoardRuntimeSizesBy() {
+        val stock = FunctionGemmaContract.manifestJson(spec)
+        assertTrue(stock.contains("\"vocabSize\": ${FunctionGemmaSpec.DEFAULT_VOCAB_SIZE}"), stock)
+        assertTrue(stock.contains("\"hiddenSize\": 640") && stock.contains("\"nHeads\": 4") && stock.contains("\"slidingWindow\": 512"), stock)
+        // a fine-tune that added 26 special tokens
+        val grown = FunctionGemmaContract.manifestJson(spec.copy(vocabSize = FunctionGemmaSpec.DEFAULT_VOCAB_SIZE + 26))
+        assertTrue(grown.contains("\"vocabSize\": 262170"), grown)
+        val parsed = Regex("\"vocabSize\"\\s*:\\s*(\\d+)").find(grown)?.groupValues?.get(1)?.toInt()
+        assertEquals(262170, parsed, "the runtime's regex parser (IreeKvSpec.fromManifest) must find the value")
+    }
+
+    @Test
+    fun vocabSize_belowTheGemmaVocabularyIsRejected() {
+        val r = runCatching { spec.copy(vocabSize = 1000) }
+        assertTrue(r.isFailure, "a vocabSize smaller than the tokenizer cannot describe a Gemma checkpoint")
+    }
 }

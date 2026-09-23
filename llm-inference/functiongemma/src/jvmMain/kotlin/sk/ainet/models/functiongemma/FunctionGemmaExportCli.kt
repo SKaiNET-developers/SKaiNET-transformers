@@ -12,6 +12,7 @@ package sk.ainet.models.functiongemma
  *
  * Env: GEMMA_GGUF (required), GEMMA_OUT_DIR (default build/mlir), GEN_SEQ (24),
  * PARTIAL_ROTARY (1.0), GEMMA_DTYPE (bf16 default; set FP32 for numeric bring-up),
+ * GEMMA_VOCAB (default: the checkpoint's embedding rows — 262144 stock, more for a fine-tune with added tokens),
  * GEMMA_GRAPH selects the graph(s):
  *   redecode (default) — the fixed seq=[GEN_SEQ] re-decode graph (gemma-gen.mlir + gemma.safetensors)
  *   prefill            — the KV-cache PREFILL graph (gemma-prefill.mlir)
@@ -36,7 +37,9 @@ public fun main(args: Array<String>) {
         error("GEMMA_GRAPH must be redecode|prefill|with_past|redecode_at|prefill_at|prefill_with_past|all, got '$graph'")
     }
 
-    val spec = FunctionGemmaSpec(gguf = gguf, seq = seq, partialRotary = partial, quant = quant)
+    val vocab = System.getenv("GEMMA_VOCAB")?.toInt() ?: FunctionGemmaExportHarness.vocabSizeOf(gguf)
+    val spec = FunctionGemmaSpec(gguf = gguf, seq = seq, partialRotary = partial, quant = quant, vocabSize = vocab)
+    println("[functiongemma-export] vocabSize=$vocab")
 
     if (graph == "redecode" || graph == "all") {
         val r = FunctionGemmaExportHarness.exportRedecode(spec, outDir)

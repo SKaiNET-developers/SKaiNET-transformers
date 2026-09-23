@@ -44,6 +44,16 @@ public data class FunctionGemmaSpec(
     val nLayers: Int = 18,
     val headDim: Int = 256,
     val nKvHeads: Int = 1,
+    val nHeads: Int = 4,
+    val hiddenSize: Int = 640,
+    val slidingWindow: Int = 512,
+    /**
+     * Rows of the token-embedding table. The stock checkpoint has [DEFAULT_VOCAB_SIZE]; a fine-tune that added
+     * special tokens has more (e.g. 262144 + 26). The board runtime locates the embedding entry in the parameter
+     * archive by `vocabSize x hiddenSize` bytes and clamps ids ≥ vocabSize, so the manifest must carry the real
+     * value — [vocabSizeOf] reads it from the checkpoint.
+     */
+    val vocabSize: Int = DEFAULT_VOCAB_SIZE,
     val slidingRopeBase: Float = 10_000f,
     val globalRopeBase: Float = 1_000_000f,
     /** Every [globalLayerPeriod]-th layer (i % period == period-1) is a global-RoPE layer. */
@@ -51,7 +61,8 @@ public data class FunctionGemmaSpec(
 ) {
     init {
         require(seq > 0) { "seq must be positive, got $seq" }
-        require(nLayers > 0 && headDim > 0 && nKvHeads > 0) { "bad architecture constants" }
+        require(nLayers > 0 && headDim > 0 && nKvHeads > 0 && nHeads > 0 && hiddenSize > 0 && slidingWindow > 0) { "bad architecture constants" }
+        require(vocabSize >= DEFAULT_VOCAB_SIZE) { "vocabSize must be at least the Gemma vocabulary ($DEFAULT_VOCAB_SIZE), got $vocabSize" }
         require(globalLayerPeriod > 0) { "globalLayerPeriod must be positive" }
     }
 
@@ -65,5 +76,7 @@ public data class FunctionGemmaSpec(
 
         /** gemma3 `<end_of_turn>` token id. */
         public const val DEFAULT_EOT: Int = 106
+        /** Gemma 3 tokenizer vocabulary = embedding rows of the stock checkpoint. */
+        public const val DEFAULT_VOCAB_SIZE: Int = 262_144
     }
 }
