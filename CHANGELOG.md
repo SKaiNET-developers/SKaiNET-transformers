@@ -45,12 +45,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   FunctionGemma's existing three-archive memory cost; the merge is tracked as a follow-up.
   **Also found by compiling the traced Qwen3-0.6B `qwen_with_past` graph for real**:
   `iree-compile 3.11.0` compiles it cleanly for `llvm-cpu` (both `host` and `arm32`, the box's
-  CPU flavour target) but **crashes** (an internal compiler stack dump, no diagnostic) compiling
-  the same graph for `vulkan-spirv valhall4` — the GQA-native attention lowering this repo's
-  `AttentionOperationsConverter` produces is untested territory for IREE's SPIR-V backend at
-  headDim 128 / 8 KV-groups. CPU compiles today; Vulkan — the box's primary, faster target —
-  does not, until either an IREE fix lands or `DecoderKvModel` grows an `expandKV` fallback path
-  for the Vulkan target (FunctionGemma's proven approach, at the cost of `nRep`× cache traffic).
+  CPU flavour target) but **crashes** compiling the same graph for `vulkan-spirv valhall4`
+  (`SPIRVInitialVectorLoweringPass` fails to legalize an `arith.constant dense<0.0> :
+  vector<512xf32>` — 512 is the target's `max_workgroup_sizes` value, which looks like it is
+  leaking into a per-thread vector width; an IREE codegen bug, not a StableHLO authoring issue
+  on our side as far as we can tell). Two follow-up hypotheses (the final argmax over the
+  151936-token vocab; the GQA-native attention lowering) were each tested with a targeted repro
+  and **both refuted** — stripping the in-graph argmax and recompiling still crashes, on an
+  ordinary FFN matmul instead; an isolated matmul of that exact shape, and 28 of them chained,
+  both compile fine standalone. The crash needs the full graph's context and is not yet isolated
+  to one construct. CPU compiles and is deployable today; Vulkan — the box's primary, faster
+  target — is not, pending either an upstream IREE fix (a real crash reproducer was captured
+  this session via `--mlir-pass-pipeline-crash-reproducer`, exactly what an
+  https://github.com/iree-org/iree/issues report needs) or further isolation of the trigger.
 - **`Qwen25ChatTemplate`** (`llm-agent`): faithful to Qwen2.5-Instruct's official `chat_template`
   (verified against a real Jinja2 render of `Qwen/Qwen2.5-0.5B-Instruct`'s `tokenizer_config.json`
   fetched from huggingface.co) — a default "You are Qwen, created by Alibaba Cloud…" persona when
