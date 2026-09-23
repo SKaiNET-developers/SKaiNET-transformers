@@ -2,7 +2,18 @@ package sk.ainet.transformers.iree.android
 
 /**
  * Architecture constants the native KV session needs (mirrors the `manifest.json` written by
- * `FunctionGemmaContract.manifestJson`). Field names and types are read by JNI — keep them.
+ * `FunctionGemmaContract.manifestJson` / `QwenKvContract.manifestJson`). Field names and types are
+ * read by JNI via reflection (`GetFieldID`) — keep them.
+ *
+ * [nKvHeads] may now be less than [nHeads] (grouped-query attention: Qwen2.5 nKvHeads=2,
+ * Qwen3 nKvHeads=8 vs FunctionGemma's plain multi-head nKvHeads=1) as long as `nHeads % nKvHeads
+ * == 0` — the native session gathers per-KV-head cache row ranges with device-to-device copies
+ * when `nKvHeads > 1` (SKaiNET-transformers#411); the attention mask stays the same rank-4
+ * `[1, nHeads, C, past+C]` shape for every model, GQA included (verified against
+ * `AttentionOperationsConverter`'s `[0, 1, 3, 4]` broadcast). [globalLayerPeriod] `== 1` means
+ * every layer is "global" — the qwen-kv-v1 contract, no sliding-window/global split at all, in
+ * which case [slidingWindow] and [slidingRopeBase] are unused ([globalRopeBase] doubles as the
+ * model's one RoPE base) and the traced graph carries no sliding-side inputs at all.
  */
 public class IreeKvSpec(
     @JvmField public val nLayers: Int,
@@ -25,6 +36,20 @@ public class IreeKvSpec(
             slidingRopeBase = 10_000f, globalRopeBase = 1_000_000f,
         )
 
+        /** Qwen2.5-0.5B-Instruct (arch `qwen2`): 24 layers, GQA 14/2 heads, headDim 64, RoPE base 1e6. */
+        public fun qwen25_05bInstruct(chunk: Int = 32): IreeKvSpec = IreeKvSpec(
+            nLayers = 24, headDim = 64, nKvHeads = 2, nHeads = 14, hiddenSize = 896, vocabSize = 151936,
+            slidingWindow = 0, globalLayerPeriod = 1, chunk = chunk,
+            slidingRopeBase = 1_000_000f, globalRopeBase = 1_000_000f,
+        )
+
+        /** Qwen3-0.6B (arch `qwen3`): 28 layers, GQA 16/8 heads, headDim 128, RoPE base 1e6, QK-norm. */
+        public fun qwen3_06b(chunk: Int = 32): IreeKvSpec = IreeKvSpec(
+            nLayers = 28, headDim = 128, nKvHeads = 8, nHeads = 16, hiddenSize = 1024, vocabSize = 151936,
+            slidingWindow = 0, globalLayerPeriod = 1, chunk = chunk,
+            slidingRopeBase = 1_000_000f, globalRopeBase = 1_000_000f,
+        )
+
         /** Minimal parser for the fields above from a `manifest.json` string (no JSON dependency). */
         public fun fromManifest(json: String, chunkOverride: Int? = null): IreeKvSpec {
             fun int(key: String, def: Int): Int = Regex("\"$key\"\\s*:\\s*(-?\\d+)").find(json)?.groupValues?.get(1)?.toInt() ?: def
@@ -42,13 +67,26 @@ public class IreeKvSpec(
 }
 
 /**
- * Stateful KV-cache session over three compiled FunctionGemma graphs (host-gather variants — the
- * embedding rows are read from the with-past archive natively, so callers pass token ids only):
- * `prefill(ids, n)` runs the catalog prefix once (`gemma_prefill_at`), `chunk(ids, n)` runs an
- * utterance in one call (`gemma_prefill_with_past`), `step(token)` generates one token
- * (`gemma_with_past`). The cache stays on the device; the 15 sliding layers only ever see their
- * last `slidingWindow` positions (zero-copy tail views). `snapshot()`/`restore()` retain the
- * current cache so the catalog prefix is prefilled once per process and restored per turn.
+ * Stateful KV-cache session over three compiled graphs of a host-gather KV-cache contract (the
+ * token embedding rows are read from the parameter archive natively, so callers pass token ids
+ * only): `prefill(ids, n)` runs the catalog prefix once (`*_prefill_at`), `chunk(ids, n)` runs an
+ * utterance in one call (`*_prefill_with_past`), `step(token)` generates one token (`*_with_past`).
+ * The cache stays on the device; sliding layers (if any — [IreeKvSpec.globalLayerPeriod] `> 1`,
+ * FunctionGemma's contract) only ever see their last `slidingWindow` positions (zero-copy tail
+ * views). `snapshot()`/`restore()` retain the current cache so the catalog prefix is prefilled
+ * once per process and restored per turn.
+ *
+ * Two contracts share this class:
+ *  - **functiongemma-kv-v1**: three distinct archives (`vmfbWithPast`/`vmfbChunk`/`vmfbPrefill`
+ *    each with their own `.irpa`), [IreeKvSpec.functionGemma270m], `nKvHeads == 1`, sliding +
+ *    global layer split.
+ *  - **qwen-kv-v1** (SKaiNET-transformers#411): the SAME vmfb+irpa path passed for all three
+ *    graphs (three exported functions of one merged module sharing one parameter archive — three
+ *    independent sessions would triple the resident bf16 parameter bytes, ~1-1.2 GB, in a 32-bit
+ *    process), [IreeKvSpec.qwen25_05bInstruct] / [IreeKvSpec.qwen3_06b], GQA (`nKvHeads` up to 8),
+ *    every layer "global" (`globalLayerPeriod == 1`, no sliding-side graph inputs at all). Pass
+ *    `fnWithPast = "module.qwen_with_past"`, `fnChunk = "module.qwen_prefill_with_past"`,
+ *    `fnPrefill = "module.qwen_prefill_at"` for this contract's function names.
  *
  * Every native failure throws an [IllegalStateException] with the formatted IREE status.
  * The package/class name is the JNI symbol contract with `libskainet_iree_kv.so` — do not move/rename.
