@@ -25,20 +25,20 @@ import kotlinx.serialization.json.putJsonObject
  */
 class Qwen25ChatTemplateTest {
 
-    private val userMsg = ChatMessage(ChatRole.USER, "schalte auf ard")
+    private val userMsg = ChatMessage(ChatRole.USER, "wie wird das wetter in berlin")
 
     private val switchChannelTool = ToolDefinition(
-        name = "TV__SWITCH_CHANNEL",
-        description = "Switch the TV to a channel.",
+        name = "WEATHER__GET_FORECAST",
+        description = "Get the weather forecast for a city.",
         parameters = buildJsonObject {
             put("type", "object")
             putJsonObject("properties") {
-                putJsonObject("channel") {
+                putJsonObject("city") {
                     put("type", "string")
-                    put("description", "channel name")
+                    put("description", "city name")
                 }
             }
-            putJsonArray("required") { add(JsonPrimitive("channel")) }
+            putJsonArray("required") { add(JsonPrimitive("city")) }
         },
     )
 
@@ -52,13 +52,13 @@ class Qwen25ChatTemplateTest {
                 "You may call one or more functions to assist with the user query.\n\n" +
                 "You are provided with function signatures within <tools></tools> XML tags:\n" +
                 "<tools>\n" +
-                "{\"type\":\"function\",\"function\":{\"name\":\"TV__SWITCH_CHANNEL\",\"description\":\"Switch the TV to a channel.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"channel\":{\"type\":\"string\",\"description\":\"channel name\"}},\"required\":[\"channel\"]}}}\n" +
+                "{\"type\":\"function\",\"function\":{\"name\":\"WEATHER__GET_FORECAST\",\"description\":\"Get the weather forecast for a city.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"city\":{\"type\":\"string\",\"description\":\"city name\"}},\"required\":[\"city\"]}}}\n" +
                 "</tools>\n\n" +
                 "For each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:\n" +
                 "<tool_call>\n" +
                 "{\"name\": <function-name>, \"arguments\": <args-json-object>}\n" +
                 "</tool_call><|im_end|>\n" +
-                "<|im_start|>user\nschalte auf ard<|im_end|>\n" +
+                "<|im_start|>user\nwie wird das wetter in berlin<|im_end|>\n" +
                 "<|im_start|>assistant\n",
             result,
         )
@@ -66,22 +66,22 @@ class Qwen25ChatTemplateTest {
 
     @Test
     fun callerSystemMessage_replacesTheDefaultPersona_toolsPresent() {
-        val messages = listOf(ChatMessage(ChatRole.SYSTEM, "You control a TV."), ChatMessage(ChatRole.USER, "mach lauter"))
+        val messages = listOf(ChatMessage(ChatRole.SYSTEM, "You are a weather assistant."), ChatMessage(ChatRole.USER, "regnet es morgen"))
         val result = Qwen25ChatTemplate().apply(messages, tools = listOf(switchChannelTool))
         assertEquals(
             "<|im_start|>system\n" +
-                "You control a TV.\n\n" +
+                "You are a weather assistant.\n\n" +
                 "# Tools\n\n" +
                 "You may call one or more functions to assist with the user query.\n\n" +
                 "You are provided with function signatures within <tools></tools> XML tags:\n" +
                 "<tools>\n" +
-                "{\"type\":\"function\",\"function\":{\"name\":\"TV__SWITCH_CHANNEL\",\"description\":\"Switch the TV to a channel.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"channel\":{\"type\":\"string\",\"description\":\"channel name\"}},\"required\":[\"channel\"]}}}\n" +
+                "{\"type\":\"function\",\"function\":{\"name\":\"WEATHER__GET_FORECAST\",\"description\":\"Get the weather forecast for a city.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"city\":{\"type\":\"string\",\"description\":\"city name\"}},\"required\":[\"city\"]}}}\n" +
                 "</tools>\n\n" +
                 "For each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:\n" +
                 "<tool_call>\n" +
                 "{\"name\": <function-name>, \"arguments\": <args-json-object>}\n" +
                 "</tool_call><|im_end|>\n" +
-                "<|im_start|>user\nmach lauter<|im_end|>\n" +
+                "<|im_start|>user\nregnet es morgen<|im_end|>\n" +
                 "<|im_start|>assistant\n",
             result,
         )
@@ -102,10 +102,10 @@ class Qwen25ChatTemplateTest {
     @Test
     fun multiTurn_toolCallReplayAndToolResponse() {
         val messages = listOf(
-            ChatMessage(ChatRole.USER, "schalte auf ard"),
+            ChatMessage(ChatRole.USER, "wie wird das wetter in berlin"),
             ChatMessage(
                 ChatRole.ASSISTANT, "",
-                toolCalls = listOf(ToolCall(id = "1", name = "TV__SWITCH_CHANNEL", arguments = buildJsonObject { put("channel", "ARD") })),
+                toolCalls = listOf(ToolCall(id = "1", name = "WEATHER__GET_FORECAST", arguments = buildJsonObject { put("city", "Berlin") })),
             ),
             ChatMessage(ChatRole.TOOL, "ok"),
             ChatMessage(ChatRole.USER, "danke"),
@@ -118,15 +118,15 @@ class Qwen25ChatTemplateTest {
                 "You may call one or more functions to assist with the user query.\n\n" +
                 "You are provided with function signatures within <tools></tools> XML tags:\n" +
                 "<tools>\n" +
-                "{\"type\":\"function\",\"function\":{\"name\":\"TV__SWITCH_CHANNEL\",\"description\":\"Switch the TV to a channel.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"channel\":{\"type\":\"string\",\"description\":\"channel name\"}},\"required\":[\"channel\"]}}}\n" +
+                "{\"type\":\"function\",\"function\":{\"name\":\"WEATHER__GET_FORECAST\",\"description\":\"Get the weather forecast for a city.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"city\":{\"type\":\"string\",\"description\":\"city name\"}},\"required\":[\"city\"]}}}\n" +
                 "</tools>\n\n" +
                 "For each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:\n" +
                 "<tool_call>\n" +
                 "{\"name\": <function-name>, \"arguments\": <args-json-object>}\n" +
                 "</tool_call><|im_end|>\n" +
-                "<|im_start|>user\nschalte auf ard<|im_end|>\n" +
+                "<|im_start|>user\nwie wird das wetter in berlin<|im_end|>\n" +
                 "<|im_start|>assistant\n" +
-                "<tool_call>\n{\"name\": \"TV__SWITCH_CHANNEL\", \"arguments\": {\"channel\":\"ARD\"}}\n</tool_call><|im_end|>\n" +
+                "<tool_call>\n{\"name\": \"WEATHER__GET_FORECAST\", \"arguments\": {\"city\":\"Berlin\"}}\n</tool_call><|im_end|>\n" +
                 "<|im_start|>user\n<tool_response>\nok\n</tool_response><|im_end|>\n" +
                 "<|im_start|>user\ndanke<|im_end|>\n" +
                 "<|im_start|>assistant\n",
@@ -139,7 +139,7 @@ class Qwen25ChatTemplateTest {
         val result = Qwen25ChatTemplate().apply(listOf(userMsg), addGenerationPrompt = false)
         assertEquals(
             "<|im_start|>system\nYou are Qwen, created by Alibaba Cloud. You are a helpful assistant.<|im_end|>\n" +
-                "<|im_start|>user\nschalte auf ard<|im_end|>\n",
+                "<|im_start|>user\nwie wird das wetter in berlin<|im_end|>\n",
             result,
         )
     }

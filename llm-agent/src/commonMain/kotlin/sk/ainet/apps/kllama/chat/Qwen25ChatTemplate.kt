@@ -14,10 +14,10 @@ import kotlinx.serialization.json.put
  * 1. **A default persona.** When the caller supplies no system message, Qwen2.5's official
  *    template still opens the system turn with `"You are Qwen, created by Alibaba Cloud. You are
  *    a helpful assistant."` — Qwen3's official template dropped this (see [QwenChatTemplate]'s
- *    "No injected persona" point). Qwen2.5-0.5B was measured 0/8 and 1/8 golden-8 (host,
- *    zero-shot) under generic ChatML / [QwenChatTemplate], vs 4-5/8 with this exact template
- *    (`tvv/nlu-llm-harness`, P0.3/Q0.2) — the persona line and the exact section wording both
- *    matter on a checkpoint this small.
+ *    "No injected persona" point). On an 8-utterance zero-shot tool-calling set, Qwen2.5-0.5B
+ *    scored 0/8 and 1/8 under generic ChatML / [QwenChatTemplate], vs 4-5/8 with this exact
+ *    template — the persona line and the exact section wording both matter on a checkpoint this
+ *    small.
  * 2. **No thinking mode at all.** Qwen2.5 predates the `<think>…</think>` convention entirely —
  *    it never saw a `<think>` token in training, not even an empty one. [QwenChatTemplate]'s
  *    `enableThinking = false` mode still pre-fills an empty `<think>\n\n</think>\n\n` block to
@@ -30,9 +30,8 @@ import kotlinx.serialization.json.put
  * results as merged `user` turns of stacked `<tool_response>` blocks, and assistant tool-call
  * replay from the structured [ChatMessage.toolCalls] rather than raw text — is the same Hermes
  * convention [QwenChatTemplate] already implements correctly; this class reuses that logic
- * unchanged rather than the narrower, single-turn version `tvv/nlu-llm-harness`'s
- * `Qwen25ToolTemplate.kt` got away with (that harness only ever scores one utterance -> one call,
- * so it never needed multi-turn tool-response merging or assistant-side replay to be correct).
+ * unchanged rather than a narrower single-turn port (one utterance -> one call), which would
+ * never need multi-turn tool-response merging or assistant-side replay to be correct.
  *
  * Tool call output format (model response) is identical to [QwenChatTemplate]'s:
  * ```

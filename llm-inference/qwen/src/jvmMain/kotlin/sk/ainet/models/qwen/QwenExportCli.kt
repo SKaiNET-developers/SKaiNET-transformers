@@ -9,10 +9,10 @@ package sk.ainet.models.qwen
  *
  * Env vars: `QWEN_GGUF` (required), `QWEN_OUT_DIR` (default `build/mlir`), `QWEN_GRAPH`
  * (`prefill_at` | `prefill_with_past` | `with_past` | `all`, default `all`), `QWEN_SEQ`
- * (prefill-at fixed length, default 1024 — the box's catalog prefix is 844 tokens, see
- * NLU-QWEN-TRACKING.md Q0.2), `QWEN_CHUNK` (default [QwenKvContract.DEFAULT_CHUNK]), `QWEN_DTYPE`
+ * (prefill-at fixed length, default 1024, room for a tool-catalog prefix of up to ~1000 tokens),
+ * `QWEN_CHUNK` (default [QwenKvContract.DEFAULT_CHUNK]), `QWEN_DTYPE`
  * (`bf16` default | `fp32`), `QWEN_HOST_GATHER` (`1` applies the host-gather rewrite to every
- * function — the contract's real `emb`-argument signature, what the box runtime calls; default
+ * function — the contract's real `emb`-argument signature, what the native runtime calls; default
  * `0` = raw in-graph gather, the blueprint plugin's `HostGatherTask` input).
  */
 public fun main() {

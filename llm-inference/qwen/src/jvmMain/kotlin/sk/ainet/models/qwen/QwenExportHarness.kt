@@ -64,7 +64,7 @@ import java.nio.ByteOrder
  *    IREE 3.11's SPIR-V backend cannot lower the in-graph gather (see [rewriteHostGather]). The
  *    blueprint plugin applies that rewrite as its own step (`HostGatherTask`, one function per
  *    module); this harness applies the same rewrite to every function in the module when asked,
- *    so the box hand-off and the vmfb parity test get the contract's real signature without the
+ *    so device deployment and the vmfb parity test get the contract's real signature without the
  *    plugin. Verified raw (`hostGather = false`): `qwen_with_past` for Qwen3-0.6B traces to exactly
  *    `3 + 2*nLayers` args (token, cos, sin, then K/V per layer — no `emb`); `qwen_prefill_at` to
  *    `tokens, select` (2 args); `qwen_prefill_with_past` to `3 + 2*nLayers + mask + select`.
@@ -92,7 +92,7 @@ import java.nio.ByteOrder
  * latter is recognized as an externalizable constant today), not a bug in this harness or in
  * [DecoderKvModel]'s bias-add code — no existing export harness in this codebase (FunctionGemma,
  * SmolLM2, Gemma3n) has ever traced a bias-bearing attention layer before this one. Tracked as a
- * follow-up in `NLU-QWEN-TRACKING.md`; Qwen2.5-0.5B export is blocked on it, Qwen3-0.6B is not.
+ * follow-up; Qwen2.5-0.5B export is blocked on it, Qwen3-0.6B is not.
  *
  * Downstream: `iree-convert-parameters` turns each safetensors into an `.irpa`, `iree-compile`
  * (llvm-cpu / vulkan-spirv) turns each MLIR into a vmfb — see `SKaiNET-iree-toolchain`'s

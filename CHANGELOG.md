@@ -65,8 +65,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fetched from huggingface.co) — a default "You are Qwen, created by Alibaba Cloud…" persona when
   the caller supplies no system message, and no `<think>` handling anywhere (Qwen2.5 predates
   thinking mode entirely; `QwenChatTemplate(enableThinking = false)`'s empty `<think></think>`
-  prefill is itself out-of-distribution for it). Host-measured impact: 0/8 and 1/8 golden-8 under
-  generic ChatML / `QwenChatTemplate` vs 4-5/8 with this template.
+  prefill is itself out-of-distribution for it). Measured on an 8-utterance zero-shot tool-calling set: 0/8 and 1/8
+  under generic ChatML / `QwenChatTemplate` vs 4-5/8 with this template.
 
 ## [0.56.2] — 2026-09-22
 
