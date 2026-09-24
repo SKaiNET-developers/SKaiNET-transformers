@@ -8,14 +8,16 @@ package sk.ainet.transformers.iree.android
  * [nKvHeads] may now be less than [nHeads] (grouped-query attention: Qwen2.5 nKvHeads=2,
  * Qwen3 nKvHeads=8 vs FunctionGemma's plain multi-head nKvHeads=1) as long as `nHeads % nKvHeads
  * == 0` — the native session gathers per-KV-head cache row ranges with device-to-device copies
- * when `nKvHeads > 1` (SKaiNET-transformers#411); the attention mask stays the same rank-4
- * `[1, nHeads, C, past+C]` shape for every model, GQA included (verified against
- * `AttentionOperationsConverter`'s `[0, 1, 3, 4]` broadcast). [globalLayerPeriod] `== 1` means
+ * when `nKvHeads > 1` (SKaiNET-transformers#411). The chunk graph's additive mask is rank-4
+ * `[1, maskHeads, C, past+C]`; its rows never depend on the head, so [maskHeads] is either
+ * [nHeads] (`0`, the default: FunctionGemma's per-head mask) or `1` (qwen-kv-v1: one head-shared
+ * mask the graph broadcasts, because IREE 3.11 cannot lower a per-head mask onto grouped-query
+ * scores with a dynamic key length). [globalLayerPeriod] `== 1` means
  * every layer is "global" — the qwen-kv-v1 contract, no sliding-window/global split at all, in
  * which case [slidingWindow] and [slidingRopeBase] are unused ([globalRopeBase] doubles as the
  * model's one RoPE base) and the traced graph carries no sliding-side inputs at all.
  */
-public class IreeKvSpec(
+public class IreeKvSpec @JvmOverloads constructor(
     @JvmField public val nLayers: Int,
     @JvmField public val headDim: Int,
     @JvmField public val nKvHeads: Int,
@@ -27,6 +29,8 @@ public class IreeKvSpec(
     @JvmField public val chunk: Int,
     @JvmField public val slidingRopeBase: Float,
     @JvmField public val globalRopeBase: Float,
+    /** Head count of the chunk mask the native session builds: `0` = [nHeads], or `1`. */
+    @JvmField public val maskHeads: Int = 0,
 ) {
     public companion object {
         /** FunctionGemma-270M with the contract's default chunk. */
@@ -40,14 +44,14 @@ public class IreeKvSpec(
         public fun qwen25_05bInstruct(chunk: Int = 32): IreeKvSpec = IreeKvSpec(
             nLayers = 24, headDim = 64, nKvHeads = 2, nHeads = 14, hiddenSize = 896, vocabSize = 151936,
             slidingWindow = 0, globalLayerPeriod = 1, chunk = chunk,
-            slidingRopeBase = 1_000_000f, globalRopeBase = 1_000_000f,
+            slidingRopeBase = 1_000_000f, globalRopeBase = 1_000_000f, maskHeads = 1,
         )
 
         /** Qwen3-0.6B (arch `qwen3`): 28 layers, GQA 16/8 heads, headDim 128, RoPE base 1e6, QK-norm. */
         public fun qwen3_06b(chunk: Int = 32): IreeKvSpec = IreeKvSpec(
             nLayers = 28, headDim = 128, nKvHeads = 8, nHeads = 16, hiddenSize = 1024, vocabSize = 151936,
             slidingWindow = 0, globalLayerPeriod = 1, chunk = chunk,
-            slidingRopeBase = 1_000_000f, globalRopeBase = 1_000_000f,
+            slidingRopeBase = 1_000_000f, globalRopeBase = 1_000_000f, maskHeads = 1,
         )
 
         /** Minimal parser for the fields above from a `manifest.json` string (no JSON dependency). */
@@ -61,6 +65,7 @@ public class IreeKvSpec(
                 slidingWindow = int("slidingWindow", d.slidingWindow), globalLayerPeriod = int("globalLayerPeriod", d.globalLayerPeriod),
                 chunk = chunkOverride ?: int("chunk", d.chunk),
                 slidingRopeBase = flt("slidingRopeBase", d.slidingRopeBase), globalRopeBase = flt("globalRopeBase", d.globalRopeBase),
+                maskHeads = int("maskHeads", d.maskHeads),
             )
         }
     }

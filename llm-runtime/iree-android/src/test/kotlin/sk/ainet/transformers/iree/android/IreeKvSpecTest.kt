@@ -81,4 +81,17 @@ class IreeKvSpecTest {
         assertEquals(d.nKvHeads, s.nKvHeads)
         assertEquals(d.globalLayerPeriod, s.globalLayerPeriod)
     }
+
+    @Test fun maskHeads_defaultsToPerHeadForFunctionGemmaAndOneForQwen() {
+        assertEquals(0, IreeKvSpec.functionGemma270m().maskHeads)
+        assertEquals(1, IreeKvSpec.qwen25_05bInstruct().maskHeads)
+        assertEquals(1, IreeKvSpec.qwen3_06b().maskHeads)
+        assertEquals(1, IreeKvSpec.fromManifest("""{"nHeads": 16, "nKvHeads": 8, "maskHeads": 1}""").maskHeads)
+        assertEquals(0, IreeKvSpec.fromManifest("""{"nHeads": 4, "nKvHeads": 1}""").maskHeads)
+        // the pre-existing 11-arg constructor still exists (binary compatibility via @JvmOverloads)
+        val publicArities = IreeKvSpec::class.java.constructors
+            .filter { c -> c.parameterTypes.none { it.name.endsWith("DefaultConstructorMarker") } }
+            .map { it.parameterCount }.toSet()
+        assertEquals(setOf(11, 12), publicArities)
+    }
 }

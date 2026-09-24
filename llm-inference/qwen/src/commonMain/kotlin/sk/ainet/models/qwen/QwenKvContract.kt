@@ -37,6 +37,30 @@ public object QwenKvContract {
      *  `FunctionGemmaContract.DEFAULT_CHUNK`. */
     public const val DEFAULT_CHUNK: Int = 32
 
+    /**
+     * The argMax tail's reduction extent must be a multiple of this: IREE 3.11's SPIR-V backend
+     * (Vulkan, valhall4) cannot lower the fused argMax reduction otherwise — bisected with real
+     * exports, see `QwenExportHarness.rewriteArgMaxPadded`. Qwen's 151936-entry vocab is not
+     * (74.19 × 2048), FunctionGemma's 262144 is (128 × 2048), which is why only Qwen needs the pad.
+     */
+    public const val ARGMAX_REDUCTION_MULTIPLE: Int = 2048
+
+    /**
+     * Head count of `qwen_prefill_with_past`'s additive mask, `[1, MASK_HEADS, C, past+C]`. One
+     * head-shared mask (its rows never depend on the head) that the graph broadcasts onto the
+     * grouped-query scores: IREE 3.11 cannot lower a per-head mask there once the key length is
+     * dynamic (see `QwenExportHarness.rewriteGqaMaskBroadcast`). Written to the manifest as
+     * `maskHeads`, which `IreeKvSpec.fromManifest` passes to the native session.
+     */
+    public const val MASK_HEADS: Int = 1
+
+    /** `vocab` rounded up to the next multiple of [ARGMAX_REDUCTION_MULTIPLE] (153600 for Qwen). */
+    public fun paddedArgMaxExtent(vocab: Int): Int {
+        require(vocab > 0) { "vocab must be positive, got $vocab" }
+        val m = ARGMAX_REDUCTION_MULTIPLE
+        return (vocab + m - 1) / m * m
+    }
+
     /** The IREE runtime addresses functions by their module-qualified name (`module.qwen_with_past`). */
     public fun qualified(fn: String): String = if ('.' in fn) fn else "module.$fn"
 
@@ -111,6 +135,7 @@ public object QwenKvContract {
         |  "slidingWindow": 0,
         |  "globalLayerPeriod": 1,
         |  "chunk": $chunk,
+        |  "maskHeads": $MASK_HEADS,
         |  "slidingRopeBase": ${arch.ropeBase},
         |  "globalRopeBase": ${arch.ropeBase},
         |  "ropeBase": ${arch.ropeBase},

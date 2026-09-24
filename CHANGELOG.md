@@ -16,8 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (grouped-query attention — Qwen2.5-0.5B nKvHeads=2, Qwen3-0.6B nKvHeads=8), not just
   FunctionGemma's plain multi-head `nKvHeads == 1`. `globalLayerPeriod == 1` (every layer
   "global") skips building the sliding-side RoPE/mask tensors entirely for models with no
-  sliding-window/global split — the qwen-kv-v1 shape. The attention mask itself is unchanged
-  (rank-4 `[1, nHeads, C, past+C]` for every model). `nativeCreate` opens one shared IREE session
+  sliding-window/global split — the qwen-kv-v1 shape. New optional `IreeKvSpec.maskHeads`
+  (`0` = `nHeads`, the default and FunctionGemma's per-head mask; `1` = one head-shared chunk mask
+  `[1, 1, C, past+C]`, what the Qwen factories and `manifest.json` set, read by `fromManifest`);
+  the mask rows never depended on the head, so this only shrinks the buffer. The 11-argument
+  constructor stays (`@JvmOverloads`). `nativeCreate` opens one shared IREE session
   when the same vmfb+irpa path is passed for all three graphs — the merged-module design a
   three-archive-per-model contract can't fit in a 32-bit process. `IreeKvSpec.qwen25_05bInstruct()`
   / `qwen3_06b()` factories. FunctionGemma's behaviour and binary compatibility are unchanged.
@@ -43,21 +46,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fix; Qwen3-0.6B is not. Per-graph archives for now, not the merged single-archive design
   qwen-kv-v1 calls for — `IreeKvSession`'s non-shared path already supports this at
   FunctionGemma's existing three-archive memory cost; the merge is tracked as a follow-up.
-  **Also found by compiling the traced Qwen3-0.6B `qwen_with_past` graph for real**:
-  `iree-compile 3.11.0` compiles it cleanly for `llvm-cpu` (both `host` and `arm32`, the box's
-  CPU flavour target) but **crashes** compiling the same graph for `vulkan-spirv valhall4`
-  (`SPIRVInitialVectorLoweringPass` fails to legalize an `arith.constant dense<0.0> :
-  vector<512xf32>` — 512 is the target's `max_workgroup_sizes` value, which looks like it is
-  leaking into a per-thread vector width; an IREE codegen bug, not a StableHLO authoring issue
-  on our side as far as we can tell). Two follow-up hypotheses (the final argmax over the
-  151936-token vocab; the GQA-native attention lowering) were each tested with a targeted repro
-  and **both refuted** — stripping the in-graph argmax and recompiling still crashes, on an
-  ordinary FFN matmul instead; an isolated matmul of that exact shape, and 28 of them chained,
-  both compile fine standalone. The crash needs the full graph's context and is not yet isolated
-  to one construct. CPU compiles and is deployable today; Vulkan — the box's primary, faster
-  target — is not, pending either an upstream IREE fix (a real crash reproducer was captured
-  this session via `--mlir-pass-pipeline-crash-reproducer`, exactly what an
-  https://github.com/iree-org/iree/issues report needs) or further isolation of the trigger.
+  **Vulkan (valhall4) compiles.** The first real compile crashed in
+  `SPIRVInitialVectorLoweringPass`; bisecting on real Qwen3-0.6B exports found three independent
+  causes, none of them bf16, all fixed by post-emit rewrites in the harness (unit-tested in
+  `QwenExportRewriteTest`): (1) IREE 3.11's SPIR-V backend cannot lower the fused argMax
+  reduction unless its extent is a multiple of 2048 (the 151936 vocab fails, FunctionGemma's
+  262144 does not), so the logits row is padded with a finite minimum to 153600 before the
+  argMax, leaving real logits and the returned id unchanged; (2) the in-graph token-embedding
+  gather does not lower either, so `QWEN_HOST_GATHER=1` applies the host-gather rewrite to every
+  function (the contract's `emb` argument, what the native runtime already passes); (3) SKaiNET
+  0.56.0's SDPA converter emits a static `broadcast_in_dim` of the chunk mask onto the dynamic
+  grouped-query scores shape, invalid on every backend, so the chunk mask is exported head-shared
+  and broadcast with an explicit `dynamic_broadcast_in_dim` (the only form IREE 3.11 legalizes).
+  With all three, the Qwen3-0.6B `qwen_prefill_at` (seq 1024), `qwen_prefill_with_past` and
+  `qwen_with_past` graphs compile for both `vulkan-spirv valhall4` and `llvm-cpu arm32`.
 - **`Qwen25ChatTemplate`** (`llm-agent`): faithful to Qwen2.5-Instruct's official `chat_template`
   (verified against a real Jinja2 render of `Qwen/Qwen2.5-0.5B-Instruct`'s `tokenizer_config.json`
   fetched from huggingface.co) — a default "You are Qwen, created by Alibaba Cloud…" persona when

@@ -14,7 +14,7 @@
  *   prefill  : *_prefill_at(tokens SEQ i32, emb SEQx{hidden} f32, select 1xSEQ f32)
  *              -> per-layer K,V [1,nKV,SEQ,headDim] ..., token 1xi32          (released after use)
  *   chunk    : *_prefill_with_past(tokens C, emb Cx{hidden}, per-base cos/sin [C,headDim],
- *              per-layer K,V (dynamic), per-type masks [1,nHeads,C,past+C], select 1xC)
+ *              per-layer K,V (dynamic), per-type masks [1,maskH,C,past+C], select 1xC)
  *              -> per-layer K,V extended by C ..., token
  *   withPast : *_with_past(token 1, emb 1x{hidden}, per-base cos/sin [1,headDim], per-layer K,V)
  *              -> per-layer K,V extended by 1 ..., token
@@ -84,7 +84,7 @@ typedef struct {
   Graph withPast, chunk, prefill;
   int hasPrefill;
   /* architecture (from the manifest) */
-  int nLayers, headDim, nKV, nHeads, hidden, vocab, window, period, chunkC;
+  int nLayers, headDim, nKV, nHeads, hidden, vocab, window, period, chunkC, maskH;
   float baseS, baseG;
   /* device-resident cache: per layer [1, nKV, len[l], headDim] f32 */
   iree_hal_buffer_view_t** kv;   /* 2*nLayers, K then V */
@@ -302,10 +302,11 @@ static void rope_rows(const Kv* k, int pos0, int rows, float base, float* cos_ou
     }
   }
 }
-/* Additive mask [1, nHeads, C, past+C]: key j < past is absolute (pos - past + j); key j >= past is chunk row j-past. */
+/* Additive mask [1, maskH, C, past+C]: key j < past is absolute (pos - past + j); key j >= past is chunk row j-past.
+ * Rows never depend on the head: maskH is nHeads (functiongemma-kv-v1) or 1 (qwen-kv-v1, broadcast in-graph). */
 static void chunk_mask(const Kv* k, int past, int nReal, int window, float* out) {
   int C = k->chunkC, K = past + C;
-  for (int h = 0; h < k->nHeads; ++h) {
+  for (int h = 0; h < k->maskH; ++h) {
     for (int i = 0; i < C; ++i) {
       float* row = out + ((size_t)h * C + i) * K;
       int a = k->pos + i;
@@ -392,10 +393,15 @@ JNIEXPORT jlong JNICALL JNIFN(nativeCreate)(JNIEnv* env, jobject thiz, jstring j
   k->hidden = jint_field(env, spec, "hiddenSize"); k->vocab = jint_field(env, spec, "vocabSize");
   k->window = jint_field(env, spec, "slidingWindow"); k->period = jint_field(env, spec, "globalLayerPeriod");
   k->chunkC = jint_field(env, spec, "chunk");
+  k->maskH = jint_field(env, spec, "maskHeads");  /* 0 / missing field = nHeads */
   k->baseS = jfloat_field(env, spec, "slidingRopeBase"); k->baseG = jfloat_field(env, spec, "globalRopeBase");
   if (k->nLayers <= 0 || k->headDim <= 0 || k->nKV <= 0 || k->nHeads <= 0 || k->nHeads % k->nKV != 0 ||
       k->hidden <= 0 || k->vocab <= 0 || k->period <= 0 || k->chunkC <= 0) {
     throw_msg(env, "IreeKvSession: bad spec (nHeads must be a positive multiple of nKvHeads; all sizes > 0)"); free(k); return 0;
+  }
+  if (k->maskH <= 0) k->maskH = k->nHeads;
+  if (k->maskH != 1 && k->maskH != k->nHeads) {
+    throw_msg(env, "IreeKvSession: bad spec (maskHeads must be 0, 1 or nHeads)"); free(k); return 0;
   }
   k->kv = calloc((size_t)2 * k->nLayers, sizeof(void*)); k->len = calloc((size_t)k->nLayers, sizeof(int));
 
@@ -527,10 +533,10 @@ JNIEXPORT jint JNICALL JNIFN(nativeChunk)(JNIEnv* env, jobject thiz, jlong h, ji
   iree_hal_dim_t dT[1] = {(iree_hal_dim_t)C}, dE[2] = {(iree_hal_dim_t)C, (iree_hal_dim_t)k->hidden}, dR[2] = {(iree_hal_dim_t)C, (iree_hal_dim_t)hd}, dSel[2] = {1, (iree_hal_dim_t)C};
   iree_hal_buffer_view_t *vCosS = NULL, *vSinS = NULL, *vCosG = NULL, *vSinG = NULL, *vMaskS = NULL, *vMaskG = NULL;
   if (iree_status_is_ok(st)) {
-    if (hasSliding) { maskS = malloc((size_t)k->nHeads * C * (pastS + C) * 4); chunk_mask(k, pastS, n, k->window, maskS); }
-    maskG = malloc((size_t)k->nHeads * C * (pastG + C) * 4); chunk_mask(k, pastG, n, 0, maskG);
-    iree_hal_dim_t dMS[4] = {1, (iree_hal_dim_t)k->nHeads, (iree_hal_dim_t)C, (iree_hal_dim_t)(pastS + C)};
-    iree_hal_dim_t dMG[4] = {1, (iree_hal_dim_t)k->nHeads, (iree_hal_dim_t)C, (iree_hal_dim_t)(pastG + C)};
+    if (hasSliding) { maskS = malloc((size_t)k->maskH * C * (pastS + C) * 4); chunk_mask(k, pastS, n, k->window, maskS); }
+    maskG = malloc((size_t)k->maskH * C * (pastG + C) * 4); chunk_mask(k, pastG, n, 0, maskG);
+    iree_hal_dim_t dMS[4] = {1, (iree_hal_dim_t)k->maskH, (iree_hal_dim_t)C, (iree_hal_dim_t)(pastS + C)};
+    iree_hal_dim_t dMG[4] = {1, (iree_hal_dim_t)k->maskH, (iree_hal_dim_t)C, (iree_hal_dim_t)(pastG + C)};
     int i = 0;
     st = view_i32(k, toks, 1, dT, &ins[i++]);
     if (iree_status_is_ok(st)) st = view_f32(k, emb, 2, dE, &ins[i++]);

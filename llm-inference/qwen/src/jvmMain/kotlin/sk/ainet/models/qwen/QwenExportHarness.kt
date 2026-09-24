@@ -55,18 +55,30 @@ import java.nio.ByteOrder
  *    non-shared path (three independent sessions, Q1.1) is what a Qwen cartridge actually uses,
  *    at the three-archive memory cost FunctionGemma already pays.
  *
- * 2. **This harness's raw MLIR is pre-host-gather.** The traced graphs still contain the token
- *    embedding lookup as an in-graph `stablehlo.gather` against the embedding table (externalized
- *    as one `util.global`, exactly as [GemmaModel]'s harness produces) — NOT a separate `emb`
- *    function argument. [QwenKvContract]'s arg lists (which DO list `emb`, matching what
- *    `iree_kv_jni.c`'s native runtime actually consumes) describe the contract AFTER the
- *    blueprint plugin's host-gather MLIR rewrite (`HostGatherTask`, replacing the in-graph gather
- *    with an `%emb` argument because IREE 3.11's SPIR-V backend cannot lower it — see that
- *    plugin's rewrite and `iree_kv_jni.c`'s header comment) — a later pipeline stage, not this
- *    harness's job, same as FunctionGemma's own harness. Verified: `qwen_with_past` for
- *    Qwen3-0.6B traces to exactly `3 + 2*nLayers` args (token, cos, sin, then K/V per layer — no
- *    `emb`); `qwen_prefill_at` to `tokens, select` (2 args); `qwen_prefill_with_past` to
- *    `3 + 2*nLayers + mask + select`.
+ * 2. **Host-gather is opt-in (`hostGather`, CLI `QWEN_HOST_GATHER=1`).** The raw traced graphs
+ *    contain the token embedding lookup as an in-graph `stablehlo.gather` against the embedding
+ *    table (externalized as one `util.global`, exactly as [GemmaModel]'s harness produces) — NOT
+ *    a separate `emb` function argument. [QwenKvContract]'s arg lists (which DO list `emb`,
+ *    matching what `iree_kv_jni.c`'s native runtime actually consumes) describe the contract
+ *    AFTER the host-gather rewrite that replaces the gather with an `%emb` argument, because
+ *    IREE 3.11's SPIR-V backend cannot lower the in-graph gather (see [rewriteHostGather]). The
+ *    blueprint plugin applies that rewrite as its own step (`HostGatherTask`, one function per
+ *    module); this harness applies the same rewrite to every function in the module when asked,
+ *    so the box hand-off and the vmfb parity test get the contract's real signature without the
+ *    plugin. Verified raw (`hostGather = false`): `qwen_with_past` for Qwen3-0.6B traces to exactly
+ *    `3 + 2*nLayers` args (token, cos, sin, then K/V per layer — no `emb`); `qwen_prefill_at` to
+ *    `tokens, select` (2 args); `qwen_prefill_with_past` to `3 + 2*nLayers + mask + select`.
+ *    With `hostGather = true` each gains the `emb` arg in [QwenKvContract]'s position.
+ *
+ * 4. **The chunk mask is head-shared and broadcast explicitly (always, see
+ *    [rewriteGqaMaskBroadcast]).** Works around SKaiNET 0.56.0's SDPA converter emitting a static
+ *    `broadcast_in_dim` to a dynamic grouped-query scores shape; without it
+ *    `qwen_prefill_with_past` compiles on no backend.
+ *
+ * 3. **The argMax tail is padded for Vulkan (always, see [rewriteArgMaxPadded]).** IREE 3.11's
+ *    SPIR-V reduction lowering rejects the fused argMax over Qwen's 151936-entry vocab (not a
+ *    multiple of 2048); the logits row is padded with a finite minimum to the next multiple
+ *    before the reduce, which leaves the returned index and the real logits untouched.
  *
  * **Known gap, found by tracing Qwen2.5-0.5B-Instruct (attnBias=true) for real, not guessed:**
  * the Q/K/V/O projection BIAS tensors do not externalize as `util.global` parameters the way
@@ -140,31 +152,31 @@ public object QwenExportHarness {
     )
 
     /** All three graphs + `manifest.json` — the one-call module export. */
-    public fun exportAll(gguf: String, outDir: String, seq: Int, chunk: Int = QwenKvContract.DEFAULT_CHUNK, bf16: Boolean = true): ExportResult {
+    public fun exportAll(gguf: String, outDir: String, seq: Int, chunk: Int = QwenKvContract.DEFAULT_CHUNK, bf16: Boolean = true, hostGather: Boolean = false): ExportResult {
         val (kv, arch) = load(gguf)
-        val prefillAt = exportPrefillAtTraced(kv, arch, outDir, seq, bf16)
-        val prefillWithPast = exportPrefillWithPastTraced(kv, arch, outDir, chunk, bf16)
-        val withPast = exportWithPastTraced(kv, arch, outDir, bf16)
+        val prefillAt = exportPrefillAtTraced(kv, arch, outDir, seq, bf16, hostGather)
+        val prefillWithPast = exportPrefillWithPastTraced(kv, arch, outDir, chunk, bf16, hostGather)
+        val withPast = exportWithPastTraced(kv, arch, outDir, bf16, hostGather)
         val manifest = File(outDir).apply { mkdirs() }.let { File(it, "manifest.json").apply { writeText(QwenKvContract.manifestJson(arch, chunk)) } }
         return ExportResult(File(outDir), prefillAt, prefillWithPast, withPast, manifest, arch)
     }
 
     /** The position-selected catalog-prefix prefill graph (`qwen_prefill_at`) from a GGUF path. */
-    public fun exportPrefillAt(gguf: String, outDir: String, seq: Int, bf16: Boolean = true): File {
+    public fun exportPrefillAt(gguf: String, outDir: String, seq: Int, bf16: Boolean = true, hostGather: Boolean = false): File {
         val (kv, arch) = load(gguf)
-        return exportPrefillAtTraced(kv, arch, outDir, seq, bf16)
+        return exportPrefillAtTraced(kv, arch, outDir, seq, bf16, hostGather)
     }
 
     /** The chunk prefill-with-past graph (`qwen_prefill_with_past`) from a GGUF path. */
-    public fun exportPrefillWithPast(gguf: String, outDir: String, chunk: Int = QwenKvContract.DEFAULT_CHUNK, bf16: Boolean = true): File {
+    public fun exportPrefillWithPast(gguf: String, outDir: String, chunk: Int = QwenKvContract.DEFAULT_CHUNK, bf16: Boolean = true, hostGather: Boolean = false): File {
         val (kv, arch) = load(gguf)
-        return exportPrefillWithPastTraced(kv, arch, outDir, chunk, bf16)
+        return exportPrefillWithPastTraced(kv, arch, outDir, chunk, bf16, hostGather)
     }
 
     /** The true-dynamic decode-step graph (`qwen_with_past`) from a GGUF path. */
-    public fun exportWithPast(gguf: String, outDir: String, bf16: Boolean = true): File {
+    public fun exportWithPast(gguf: String, outDir: String, bf16: Boolean = true, hostGather: Boolean = false): File {
         val (kv, arch) = load(gguf)
-        return exportWithPastTraced(kv, arch, outDir, bf16)
+        return exportWithPastTraced(kv, arch, outDir, bf16, hostGather)
     }
 
     // -------------------------------------------------------------- traced graphs
@@ -178,7 +190,7 @@ public object QwenExportHarness {
      * turned into a real argument later by the blueprint's host-gather MLIR rewrite — see
      * [QwenKvContract]'s class doc on why the manifest lists `emb` explicitly for this contract.
      */
-    private fun exportPrefillAtTraced(kv: DecoderKvModel<FP32, Float>, arch: QwenKvArch, outDir: String, seq: Int, bf16: Boolean): File {
+    private fun exportPrefillAtTraced(kv: DecoderKvModel<FP32, Float>, arch: QwenKvArch, outDir: String, seq: Int, bf16: Boolean, hostGather: Boolean): File {
         val tokens = voidF32(Shape(seq))
         val select = voidF32(Shape(1, seq))
         val tapeCtx = DefaultGraphExecutionContext.tape(baseOps = VoidTensorOps())
@@ -198,7 +210,7 @@ public object QwenExportHarness {
         val module = StableHloConverterFactory
             .createBasic(ConstantMaterializationPolicy.ExternalAlways(scope = QwenKvContract.PARAMETER_SCOPE))
             .convert(withStructuralSchedule(graph), QwenKvContract.FN_PREFILL_AT)
-        val mlir = if (bf16) rewriteGlobalsToBf16(module.content) else module.content
+        val mlir = finishMlir(module.content, arch, bf16, hostGather)
         File(outDir).mkdirs()
         val file = File(outDir, "qwen-prefill-at.mlir").apply { writeText(mlir) }
         writeSafetensors(module.externalParameters, File(outDir, "qwen-prefill-at.safetensors"), bf16)
@@ -207,26 +219,24 @@ public object QwenExportHarness {
 
     /**
      * `qwen_prefill_with_past(tokens C i32, emb Cx{hidden}f32, cos/sin [C,headDim], per-layer
-     * K/V (dynamic past), mask [1,nHeads,C,past+C] (additive, introduced once after the first
+     * K/V (dynamic past), mask [1,1,C,past+C] (additive, head-shared, introduced once after the first
      * layer's K/V -- see [QwenKvContract.prefillWithPastArgs]), select 1xC) -> per-layer K,V
      * extended by C THEN token 1xi32`. One call per utterance instead of C [exportWithPastTraced]
      * steps. [QwenKvArch] has one RoPE base and no sliding window (every layer "global"), so
      * [DecoderKvModel.ChunkContext] carries exactly one cos/sin/mask triple -- half the arguments
      * FunctionGemma's per-layer-type version needs.
      */
-    private fun exportPrefillWithPastTraced(kv: DecoderKvModel<FP32, Float>, arch: QwenKvArch, outDir: String, chunk: Int, bf16: Boolean): File {
+    private fun exportPrefillWithPastTraced(kv: DecoderKvModel<FP32, Float>, arch: QwenKvArch, outDir: String, chunk: Int, bf16: Boolean, hostGather: Boolean): File {
         val nLayers = arch.nLayers
         val headDim = arch.headDim
         val nKv = arch.nKvHeads
-        val nHeads = arch.nHeads
 
         val tokens = voidF32(Shape(chunk))
         val cos = voidF32(Shape(chunk, headDim)); val sin = voidF32(Shape(chunk, headDim))
-        // Per-head [1, nHeads, C, past+C] (not per-KV-group): a broadcast to nHeads happens inside
-        // the StableHLO attention converter under GQA (dims=[0,1,3,4]) -- see QwenKvContract / the
-        // iree_kv_jni.c commit this mirrors. A dynamic past dim in the mask shape is fine: it is a
-        // graph INPUT, not something the converter needs to broadcast a static shape onto.
-        val mask = voidF32(Shape(1, nHeads, chunk, Dim.DYNAMIC))
+        // Head-shared [1, 1, C, past+C] (QwenKvContract.MASK_HEADS): the mask rows never depend on
+        // the head, and IREE 3.11 only lowers the grouped-query broadcast from one head when the key
+        // length is dynamic -- see rewriteGqaMaskBroadcast. iree_kv_jni.c builds it with maskHeads=1.
+        val mask = voidF32(Shape(1, QwenKvContract.MASK_HEADS, chunk, Dim.DYNAMIC))
         val select = voidF32(Shape(1, chunk))
         val selfKIn = List(nLayers) { voidF32(Shape(1, nKv, Dim.DYNAMIC, headDim)) }
         val selfVIn = List(nLayers) { voidF32(Shape(1, nKv, Dim.DYNAMIC, headDim)) }
@@ -249,7 +259,7 @@ public object QwenExportHarness {
         val module = StableHloConverterFactory
             .createBasic(ConstantMaterializationPolicy.ExternalAlways(scope = QwenKvContract.PARAMETER_SCOPE))
             .convert(withStructuralSchedule(graph), QwenKvContract.FN_PREFILL_WITH_PAST)
-        val mlir = if (bf16) rewriteGlobalsToBf16(module.content) else module.content
+        val mlir = finishMlir(module.content, arch, bf16, hostGather)
         File(outDir).mkdirs()
         val file = File(outDir, "qwen-prefill-with-past.mlir").apply { writeText(mlir) }
         writeSafetensors(module.externalParameters, File(outDir, "qwen-prefill-with-past.safetensors"), bf16)
@@ -263,7 +273,7 @@ public object QwenExportHarness {
      * matches FunctionGemma's current default since #248) so one vmfb serves every decode
      * position.
      */
-    private fun exportWithPastTraced(kv: DecoderKvModel<FP32, Float>, arch: QwenKvArch, outDir: String, bf16: Boolean): File {
+    private fun exportWithPastTraced(kv: DecoderKvModel<FP32, Float>, arch: QwenKvArch, outDir: String, bf16: Boolean, hostGather: Boolean): File {
         val nLayers = arch.nLayers
         val headDim = arch.headDim
         val nKv = arch.nKvHeads
@@ -289,7 +299,7 @@ public object QwenExportHarness {
         val module = StableHloConverterFactory
             .createBasic(ConstantMaterializationPolicy.ExternalAlways(scope = QwenKvContract.PARAMETER_SCOPE))
             .convert(withStructuralSchedule(graph), QwenKvContract.FN_WITH_PAST)
-        val mlir = if (bf16) rewriteGlobalsToBf16(module.content) else module.content
+        val mlir = finishMlir(module.content, arch, bf16, hostGather)
         File(outDir).mkdirs()
         val file = File(outDir, "qwen-with-past.mlir").apply { writeText(mlir) }
         writeSafetensors(module.externalParameters, File(outDir, "qwen-with-past.safetensors"), bf16)
@@ -305,6 +315,136 @@ public object QwenExportHarness {
             },
             FP32::class,
         )
+
+    // ------------------------------------------------------ post-emit rewrites (Vulkan portability)
+
+    /** Post-emit pipeline: argMax padding + GQA mask broadcast (always) -> optional host-gather -> optional bf16 globals. */
+    private fun finishMlir(content: String, arch: QwenKvArch, bf16: Boolean, hostGather: Boolean): String {
+        var mlir = rewriteArgMaxPadded(content, arch.vocabSize)
+        mlir = rewriteGqaMaskBroadcast(mlir)
+        if (hostGather) mlir = rewriteHostGather(mlir)
+        if (bf16) mlir = rewriteGlobalsToBf16(mlir)
+        return mlir
+    }
+
+    /**
+     * Pads the LM-head logits row so the argMax reduction extent is a multiple of
+     * [QwenKvContract.ARGMAX_REDUCTION_MULTIPLE]. IREE 3.11's SPIR-V backend fails in
+     * `SPIRVInitialVectorLoweringPass` (`arith.constant … vector<512xf32>` cannot be legalized) on
+     * the fused max/compare/iota/select/min argMax reduction when the reduced extent is not a
+     * multiple of 2048 — bisected on valhall4 with real Qwen3-0.6B exports: extents 151936 (the
+     * vocab) and 152064 fail; 153600, 155648, 163840, 196608 and 262144 all compile. FunctionGemma
+     * never hit this because its vocab is 262144 = 128 * 2048. The pad value is finite (-3.0e38,
+     * not -inf) so no NaN can arise from the `EQ` compare; a padded column can never be the row
+     * maximum, so the returned index is always `< vocab`; the real logits are untouched. No-op
+     * when the vocab is already aligned. Text-level like [rewriteGlobalsToBf16] because the
+     * padding is a codegen workaround of the emitted tail, not part of the model.
+     */
+    internal fun rewriteArgMaxPadded(mlir: String, vocab: Int): String {
+        val padded = QwenKvContract.paddedArgMaxExtent(vocab)
+        if (padded == vocab) return mlir
+        val head = Regex(
+            """( *)(%\w+) = stablehlo\.reduce\((%\w+) init: %\w+\) applies stablehlo\.maximum across dimensions = \[1\] : \(tensor<1x${vocab}xf32>, tensor<f32>\) -> tensor<1xf32>\n""",
+        )
+        var out = mlir
+        for (m in head.findAll(mlir).toList().asReversed()) {
+            val indent = m.groupValues[1]
+            val logits = m.groupValues[3]
+            val start = m.range.first
+            val tailEnd = out.indexOf("\n${indent}return ", start).takeIf { it >= 0 }
+                ?: error("argMax padding: no return after the argMax tail at offset $start")
+            val padSsa = "${logits}_pad"
+            val tail = out.substring(start, tailEnd + 1)
+                .replace(Regex("""${Regex.escape(logits)}(?!\w)"""), padSsa)
+                .replace("1x${vocab}x", "1x${padded}x")
+                .replace("dense<$vocab>", "dense<$padded>")
+            val pad = "$indent${padSsa}_fill = stablehlo.constant dense<-3.000000e+38> : tensor<f32>\n" +
+                "$indent$padSsa = stablehlo.pad $logits, ${padSsa}_fill, low = [0, 0], high = [0, ${padded - vocab}], " +
+                "interior = [0, 0] : (tensor<1x${vocab}xf32>, tensor<f32>) -> tensor<1x${padded}xf32>\n"
+            out = out.substring(0, start) + pad + tail + out.substring(tailEnd + 1)
+        }
+        return out
+    }
+
+    /**
+     * Fixes the explicit additive mask under grouped-query attention. SKaiNET 0.56.0's SDPA
+     * converter works on Q as `[b, nKV, nRep, Sq, hd]` and, for a rank-4 mask, always emits
+     * `broadcast_in_dim %mask, dims = [0, 1, 3, 4]` to the grouped scores shape. With the chunk
+     * graph's dynamic key length (`past + C`) that op is invalid on every backend: a static
+     * broadcast cannot produce a `?` result. Bisected on valhall4 and arm32 with real Qwen3-0.6B
+     * exports, the only form IREE 3.11 lowers is a head-shared mask `[b, 1, Sq, ?]` expanded by
+     * `dynamic_broadcast_in_dim` that states which operand dims expand
+     * (`known_expanding_dimensions = [1]`, the rest non-expanding); without those attributes, and
+     * for `dynamic_reshape` of a per-head `[b, nHeads, Sq, ?]` mask, IREE fails to legalize the op.
+     * Hence [QwenKvContract.MASK_HEADS] = 1. A per-head mask with a static key length becomes a
+     * plain reshape that splits the head dim into `[nKV, nRep]` in the converter's own
+     * `h = kv * nRep + r` order; a per-head mask with a dynamic key length is rejected loudly.
+     * Belongs in the core converter; this text rewrite stands in until a SKaiNET release has it.
+     */
+    internal fun rewriteGqaMaskBroadcast(mlir: String): String {
+        val bc = Regex(
+            """( *)(%\w+) = stablehlo\.broadcast_in_dim (%\w+), dims = \[0, 1, 3, 4\] : \(tensor<(\d+)x(\d+)x(\d+)x(\?|\d+)x(\w+)>\) -> tensor<(\d+)x(\d+)x(\d+)x(\d+)x(\?|\d+)x(\w+)>\n""",
+        )
+        return bc.replace(mlir) { m ->
+            val g = m.groupValues
+            val (indent, res, src) = Triple(g[1], g[2], g[3])
+            val (b, h, sq, sk, elem) = listOf(g[4], g[5], g[6], g[7], g[8])
+            val (nKv, nRep) = g[10].toInt() to g[11].toInt()
+            val srcT = "tensor<${b}x${h}x${sq}x${sk}x$elem>"
+            val dstT = "tensor<${g[9]}x${nKv}x${nRep}x${g[12]}x${g[13]}x${g[14]}>"
+            when {
+                sk != "?" && h.toInt() == nKv * nRep && h.toInt() != 1 ->
+                    "$indent$res = stablehlo.reshape $src : ($srcT) -> $dstT\n"
+                sk != "?" -> m.value
+                h.toInt() != 1 -> error(
+                    "GQA mask: a per-head mask $srcT with a dynamic key length cannot be lowered by IREE 3.11 " +
+                        "(dynamic_reshape is not legalized); export the mask head-shared, [b, 1, Sq, ?]",
+                )
+                else -> {
+                    val expanding = if (nKv == 1) "" else "1"
+                    val nonExpanding = listOfNotNull(if (b.toInt() == g[9].toInt()) "0" else null, if (nKv == 1) "1" else null, "2", "3")
+                    "$indent${res}_sk = stablehlo.get_dimension_size $src, dim = 3 : ($srcT) -> tensor<i32>\n" +
+                        "$indent${res}_skr = stablehlo.reshape ${res}_sk : (tensor<i32>) -> tensor<1xi32>\n" +
+                        "$indent${res}_lead = stablehlo.constant dense<[${g[9]}, $nKv, $nRep, ${g[12]}]> : tensor<4xi32>\n" +
+                        "$indent${res}_shape = stablehlo.concatenate ${res}_lead, ${res}_skr, dim = 0 : (tensor<4xi32>, tensor<1xi32>) -> tensor<5xi32>\n" +
+                        "$indent$res = \"stablehlo.dynamic_broadcast_in_dim\"($src, ${res}_shape) <{broadcast_dimensions = array<i64: 0, 1, 3, 4>, " +
+                        "known_expanding_dimensions = array<i64${if (expanding.isEmpty()) "" else ": $expanding"}>, " +
+                        "known_nonexpanding_dimensions = array<i64: ${nonExpanding.joinToString(", ")}>}> : ($srcT, tensor<5xi32>) -> $dstT\n"
+                }
+            }
+        }
+    }
+
+    /**
+     * Moves the token-embedding lookup out of the graph: each function's in-graph
+     * `"stablehlo.gather"(<table>, %arg0)` becomes a new `%emb` argument (inserted right after
+     * `%arg0`, where [QwenKvContract]'s arg lists put `emb`) that the runtime fills with the
+     * gathered rows read straight from the parameter archive — the same three-line, text-level
+     * rewrite as the blueprint plugin's `HostGatherRewrite`, applied to EVERY function in the
+     * module rather than the first only. Numerics are unchanged: the graph receives exactly the
+     * rows the gather would have produced. Needed because IREE 3.11's SPIR-V backend cannot
+     * lower the in-graph gather: on the decode step the row extraction fuses into the first
+     * residual add's consumer (a `vecmat` dispatch) and `SPIRVInitialVectorLoweringPass` fails
+     * there; on the fixed-length prefill the gather itself fails on a `vector.step`
+     * `vector<1024xindex>`. Both verified on valhall4 with real Qwen3-0.6B exports.
+     */
+    internal fun rewriteHostGather(mlir: String): String {
+        val gather = Regex("""(?m)^( *)(%v\d+) = "stablehlo\.gather"\((%v\d+), %arg0\)[^\n]*-> (tensor<[^>]+>)\n""")
+        val signature = Regex("""func\.func @(\w+)\(%arg0: (tensor<[^>]+>),""")
+        val matches = gather.findAll(mlir).toList().asReversed()
+        require(matches.isNotEmpty()) { "host-gather: no `\"stablehlo.gather\"(<table>, %arg0)` found in the module" }
+        var out = mlir
+        for (g in matches) {
+            val indent = g.groupValues[1]
+            val result = g.groupValues[2]
+            val shape = g.groupValues[4]
+            val sig = signature.findAll(out.substring(0, g.range.first)).lastOrNull()
+                ?: error("host-gather: no `func.func @<name>(%arg0: tensor<…>,` signature before the gather")
+            out = out.replaceRange(g.range, "$indent%ez = stablehlo.constant dense<0.0> : $shape\n$indent$result = stablehlo.add %emb, %ez : $shape\n")
+            out = out.replaceRange(sig.range, "func.func @${sig.groupValues[1]}(%arg0: ${sig.groupValues[2]}, %emb: $shape,")
+        }
+        return out
+    }
 
     // ------------------------------------------------------ safetensors + bf16 rewrite
     // Verbatim from FunctionGemmaExportHarness (also duplicated in SmolLm2ExportHarness): each
