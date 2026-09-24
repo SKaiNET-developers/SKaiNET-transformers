@@ -683,6 +683,43 @@ public final class sk/ainet/lang/nn/dsl/decoder/DecoderKVCacheKind : java/lang/E
 	public static fun values ()[Lsk/ainet/lang/nn/dsl/decoder/DecoderKVCacheKind;
 }
 
+public final class sk/ainet/lang/nn/dsl/decoder/DecoderKvModel {
+	public fun <init> (Lsk/ainet/lang/nn/Module;Lkotlin/reflect/KClass;)V
+	public final fun buildRopeCosSin (ILsk/ainet/context/ExecutionContext;)Lsk/ainet/lang/nn/dsl/decoder/DecoderKvModel$RopeCosSin;
+	public final fun forwardPrefillAt (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/context/ExecutionContext;)Lsk/ainet/lang/nn/dsl/decoder/DecoderKvModel$PrefillOutput;
+	public final fun forwardPrefillWithPast (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/nn/dsl/decoder/DecoderKvModel$ChunkContext;Lsk/ainet/lang/tensor/Tensor;Ljava/util/List;Ljava/util/List;Lsk/ainet/context/ExecutionContext;)Lsk/ainet/lang/nn/dsl/decoder/DecoderKvModel$WithPastOutput;
+	public final fun forwardWithPast (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/nn/dsl/decoder/DecoderKvModel$RopeCosSin;Ljava/util/List;Ljava/util/List;Lsk/ainet/context/ExecutionContext;)Lsk/ainet/lang/nn/dsl/decoder/DecoderKvModel$WithPastOutput;
+	public final fun getDtype ()Lkotlin/reflect/KClass;
+	public final fun getModule ()Lsk/ainet/lang/nn/Module;
+}
+
+public final class sk/ainet/lang/nn/dsl/decoder/DecoderKvModel$ChunkContext {
+	public fun <init> (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;)V
+	public final fun getCos ()Lsk/ainet/lang/tensor/Tensor;
+	public final fun getMask ()Lsk/ainet/lang/tensor/Tensor;
+	public final fun getSin ()Lsk/ainet/lang/tensor/Tensor;
+}
+
+public final class sk/ainet/lang/nn/dsl/decoder/DecoderKvModel$PrefillOutput {
+	public fun <init> (Lsk/ainet/lang/tensor/Tensor;Ljava/util/List;Ljava/util/List;)V
+	public final fun getLogits ()Lsk/ainet/lang/tensor/Tensor;
+	public final fun getSelfK ()Ljava/util/List;
+	public final fun getSelfV ()Ljava/util/List;
+}
+
+public final class sk/ainet/lang/nn/dsl/decoder/DecoderKvModel$RopeCosSin {
+	public fun <init> (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;)V
+	public final fun getCos ()Lsk/ainet/lang/tensor/Tensor;
+	public final fun getSin ()Lsk/ainet/lang/tensor/Tensor;
+}
+
+public final class sk/ainet/lang/nn/dsl/decoder/DecoderKvModel$WithPastOutput {
+	public fun <init> (Lsk/ainet/lang/tensor/Tensor;Ljava/util/List;Ljava/util/List;)V
+	public final fun getLogits ()Lsk/ainet/lang/tensor/Tensor;
+	public final fun getSelfK ()Ljava/util/List;
+	public final fun getSelfV ()Ljava/util/List;
+}
+
 public abstract interface class sk/ainet/lang/nn/dsl/decoder/DecoderModelMetadata {
 	public abstract fun getBlockCount ()I
 	public abstract fun getBosTokenId ()I
