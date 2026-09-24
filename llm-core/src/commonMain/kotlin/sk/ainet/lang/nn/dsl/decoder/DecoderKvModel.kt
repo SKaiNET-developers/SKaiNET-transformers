@@ -34,9 +34,10 @@ import kotlin.reflect.KClass
  *  - K/V stay at their native `nKVHeads` (no `expandKV` up to `nHeads`): SDPA is GQA-native
  *    (SKEEP-005 phase 2 — see `MultiHeadAttention.attentionImpl`'s own "Grouped-query attention
  *    is native to SDPA" comment, the exact same call shape this class uses), and the StableHLO
- *    exporter's `AttentionOperationsConverter` reshapes Q into the GQA group form and broadcasts
- *    a rank-4 `[b, H, Sq, Sk]` mask onto it internally — expanding K/V first would only add dead
- *    `narrow` + `concat` nodes to the trace;
+ *    exporter's `AttentionOperationsConverter` reshapes Q into the GQA group form
+ *    `[b, nKV, nRep, Sq, hd]` — expanding K/V first would only add dead `narrow` + `concat` nodes
+ *    to the trace. With a dynamic key length the mask must be head-shared `[b, 1, Sq, ?]` (see
+ *    [ChunkContext]);
  *  - adds the Q/K/V/O projection bias when [MultiHeadAttention.bias] is set (Qwen2.5's `qwen2`
  *    architecture GGUFs carry real biases; Qwen3/Llama do not) — GemmaModel never needed this,
  *    Gemma has no attention bias;
@@ -91,9 +92,12 @@ public class DecoderKvModel<T : DType, V>(
     /**
      * [forwardPrefillWithPast]'s per-chunk inputs: RoPE cos/sin tables `[C, headDim]` for absolute
      * positions `past .. past+C-1` (split-half or interleaved layout per the model's [RoPEMode]),
-     * and the additive causal+padding mask `[1, nHeads, C, past+C]` (0 = attend, -1e30 = masked) —
-     * the same rank-4 shape [forwardWithPast] never needs a mask for (a single query attends the
-     * whole, already-causal cache) and GQA never changes (see class doc).
+     * and the additive causal+padding mask `[1, M, C, past+C]` (0 = attend, -1e30 = masked), where
+     * `M` is 1 (head-shared) or nHeads; [forwardWithPast] never needs a mask (a single query attends
+     * the whole, already-causal cache). Under GQA with a dynamic `past` use `M = 1`: SKaiNET 0.56.0
+     * emits an invalid static broadcast for any mask that differs from the scores shape, and IREE
+     * 3.11 lowers only the head-shared form once that is fixed (SKaiNET#1302); `QwenExportHarness`
+     * works around the former until a core release carries the fix.
      */
     public class ChunkContext<T : DType, V>(
         public val cos: Tensor<T, V>,
@@ -238,7 +242,7 @@ public class DecoderKvModel<T : DType, V>(
     }
 
     /** [attnWithPast] for a C-row chunk: heads-first `[heads, C, headDim]` projections, RoPE from
-     *  `[C, headDim]` tables, and the caller's additive mask `[1, nHeads, C, past+C]`. */
+     *  `[C, headDim]` tables, and the caller's additive mask `[1, M, C, past+C]` (see [ChunkContext]). */
     private fun attnWithPastChunk(
         mha: MultiHeadAttention<T, V>,
         sn: Tensor<T, V>,

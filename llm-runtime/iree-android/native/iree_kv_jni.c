@@ -28,13 +28,13 @@
  *    ever see the last `slidingWindow` cache positions -> tail views, zero-copy. `globalLayerPeriod
  *    == 1` (every layer "global") is the qwen-kv-v1 case: no model has a sliding/global split, so
  *    the sliding-side RoPE/mask tensors are neither built nor present in the graph's argument list
- *    at all (see `hasSliding` below) -- this is an arg-COUNT difference, not a mask-shape one: the
- *    mask itself always stays rank-4 `[1, nHeads, C, past+C]` for every model, GQA included. GQA
- *    only changes the K/V cache tensors' second dim (nKV instead of nHeads, nHeads % nKV == 0);
- *    the attention converter reshapes Q into the [b, nKV, nRep, Sq, hd] group form and broadcasts
- *    a rank-4 `[b, H, Sq, Sk]` mask onto it via `dims=[0,1,3,4]` internally (verified against
- *    SKaiNET/skainet-compile-hlo/.../AttentionOperationsConverter.kt), so the native side never
- *    needs to know about attention head grouping;
+ *    at all (see `hasSliding` below) -- an arg-COUNT difference. The chunk mask is rank-4
+ *    `[1, maskH, C, past+C]`: maskH = nHeads (functiongemma-kv-v1, which expands K/V to the query
+ *    heads so the mask equals the scores shape and needs no broadcast) or 1 (qwen-kv-v1: GQA-native,
+ *    the graph broadcasts one head-shared mask onto its grouped [b, nKV, nRep, C, ?] scores -- the
+ *    only form IREE 3.11 lowers with a dynamic key length, see SKaiNET#1302). The rows never depend
+ *    on the head. GQA otherwise only changes the K/V cache tensors' second dim (nKV instead of
+ *    nHeads, nHeads % nKV == 0), so the native side never needs to know about head grouping;
  *  - position enters only through host-built split-half RoPE tables (sign folded into the first
  *    half, as GemmaKvDecoder.splitHalfCosSin / RoPE.buildSplitHalfCosSin) and, for the chunk
  *    graph, through additive masks;
