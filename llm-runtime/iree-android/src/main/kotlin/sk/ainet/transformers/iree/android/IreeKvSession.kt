@@ -33,9 +33,16 @@ public class IreeKvSpec @JvmOverloads constructor(
     @JvmField public val maskHeads: Int = 0,
 ) {
     public companion object {
-        /** FunctionGemma-270M with the contract's default chunk. */
-        public fun functionGemma270m(chunk: Int = 32): IreeKvSpec = IreeKvSpec(
-            nLayers = 18, headDim = 256, nKvHeads = 1, nHeads = 4, hiddenSize = 640, vocabSize = 262144,
+        /** Gemma 3 tokenizer vocabulary = embedding rows of the stock checkpoint. */
+        public const val DEFAULT_VOCAB_SIZE: Int = 262_144
+
+        /**
+         * FunctionGemma-270M with the contract's default chunk. [vocabSize] must match the exported archives'
+         * embedding table: pass the fine-tune's size when the checkpoint added tokens (the native session finds the
+         * table by `vocabSize x hiddenSize` bytes and clamps ids ≥ vocabSize to 0) — or use [fromManifest].
+         */
+        public fun functionGemma270m(chunk: Int = 32, vocabSize: Int = DEFAULT_VOCAB_SIZE): IreeKvSpec = IreeKvSpec(
+            nLayers = 18, headDim = 256, nKvHeads = 1, nHeads = 4, hiddenSize = 640, vocabSize = vocabSize,
             slidingWindow = 512, globalLayerPeriod = 6, chunk = chunk,
             slidingRopeBase = 10_000f, globalRopeBase = 1_000_000f,
         )

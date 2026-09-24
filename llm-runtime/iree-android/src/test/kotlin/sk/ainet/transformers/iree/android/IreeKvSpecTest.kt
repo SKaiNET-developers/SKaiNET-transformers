@@ -7,7 +7,8 @@ import org.junit.jupiter.api.Test
  * The GQA / qwen-kv-v1 spec facts this class's JNI counterpart (`iree_kv_jni.c`) relies on:
  * `nHeads % nKvHeads == 0` (any nKvHeads, not just 1), `globalLayerPeriod == 1` meaning every
  * layer is "global" (no sliding-side graph inputs), and [IreeKvSpec.fromManifest] parsing those
- * fields correctly out of a `QwenKvContract.manifestJson`-shaped string.
+ * fields correctly out of a `QwenKvContract.manifestJson`-shaped string; and `manifest.json` →
+ * [IreeKvSpec] for the fields the native session sizes buffers by, with the historical defaults.
  */
 class IreeKvSpecTest {
     @Test fun functionGemma270mIsPlainMultiHead() {
@@ -93,5 +94,25 @@ class IreeKvSpecTest {
             .filter { c -> c.parameterTypes.none { it.name.endsWith("DefaultConstructorMarker") } }
             .map { it.parameterCount }.toSet()
         assertEquals(setOf(11, 12), publicArities)
+    }
+
+    @Test fun stockDefaults() {
+        val s = IreeKvSpec.functionGemma270m()
+        assertEquals(IreeKvSpec.DEFAULT_VOCAB_SIZE, s.vocabSize)
+        assertEquals(640, s.hiddenSize); assertEquals(4, s.nHeads); assertEquals(512, s.slidingWindow); assertEquals(32, s.chunk)
+    }
+
+    @Test fun manifestWithAddedTokensOverridesTheVocabulary() {
+        val json = """{ "contractVersion": 1, "nLayers": 18, "headDim": 256, "nKvHeads": 1, "nHeads": 4, "hiddenSize": 640, "vocabSize": 262170, "slidingWindow": 512, "chunk": 32, "slidingRopeBase": 10000.0, "globalRopeBase": 1000000.0, "globalLayerPeriod": 6 }"""
+        val s = IreeKvSpec.fromManifest(json)
+        assertEquals(262170, s.vocabSize)
+        assertEquals(32, s.chunk)
+        assertEquals(64, IreeKvSpec.fromManifest(json, chunkOverride = 64).chunk)
+    }
+
+    @Test fun manifestWithoutTheGeometryKeepsTheStockValues() {
+        val s = IreeKvSpec.fromManifest("""{ "contractVersion": 1, "nLayers": 18 }""")
+        assertEquals(IreeKvSpec.DEFAULT_VOCAB_SIZE, s.vocabSize)
+        assertEquals(IreeKvSpec.functionGemma270m(vocabSize = 262170).vocabSize, 262170)
     }
 }

@@ -18,6 +18,7 @@ import sk.ainet.lang.tensor.ops.VoidTensorOps
 import sk.ainet.lang.tensor.storage.BufferHandle
 import sk.ainet.lang.types.FP32
 import sk.ainet.models.gemma.GEMMA_DEQUANTIZE_ALL
+import sk.ainet.io.gguf.StreamingGGUFReader
 import sk.ainet.models.gemma.GemmaWeightLoader
 import sk.ainet.models.gemma.GemmaModel
 import sk.ainet.models.gemma.GemmaNetworkLoader
@@ -158,6 +159,17 @@ public object FunctionGemmaExportHarness {
         partialRotary = spec.partialRotary,
         bf16 = spec.quant != FunctionGemmaQuant.FP32,
     )
+
+    /**
+     * Rows of the checkpoint's token-embedding table (`token_embd.weight`, the larger dim) — the value a
+     * [FunctionGemmaSpec.vocabSize] must carry so the manifest matches the exported archives (a fine-tune with
+     * added tokens is larger than [FunctionGemmaSpec.DEFAULT_VOCAB_SIZE]). Header read only, no weights loaded.
+     */
+    public fun vocabSizeOf(gguf: String): Int =
+        StreamingGGUFReader.open(JvmRandomAccessSource.open(gguf)).use { r ->
+            val t = r.tensors.firstOrNull { it.name == "token_embd.weight" } ?: error("no token_embd.weight in $gguf")
+            t.shape.maxOf { it.toInt() }
+        }
 
     /** Write `manifest.json` (see [FunctionGemmaContract.manifestJson]). */
     public fun writeManifest(spec: FunctionGemmaSpec, outDir: String): File {
