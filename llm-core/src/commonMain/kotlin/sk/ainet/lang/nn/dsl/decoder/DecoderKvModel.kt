@@ -94,10 +94,9 @@ public class DecoderKvModel<T : DType, V>(
      * positions `past .. past+C-1` (split-half or interleaved layout per the model's [RoPEMode]),
      * and the additive causal+padding mask `[1, M, C, past+C]` (0 = attend, -1e30 = masked), where
      * `M` is 1 (head-shared) or nHeads; [forwardWithPast] never needs a mask (a single query attends
-     * the whole, already-causal cache). Under GQA with a dynamic `past` use `M = 1`: SKaiNET 0.56.0
-     * emits an invalid static broadcast for any mask that differs from the scores shape, and IREE
-     * 3.11 lowers only the head-shared form once that is fixed (SKaiNET#1302); `QwenExportHarness`
-     * works around the former until a core release carries the fix.
+     * the whole, already-causal cache). Under GQA with a dynamic `past` use `M = 1`: SKaiNET 0.57.0
+     * broadcasts a head-shared mask with the `dynamic_broadcast_in_dim` form IREE 3.11 lowers, while
+     * a per-head one needs `dynamic_reshape`, which IREE 3.11 does not lower (SKaiNET#1302).
      */
     public class ChunkContext<T : DType, V>(
         public val cos: Tensor<T, V>,

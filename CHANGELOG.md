@@ -48,16 +48,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   FunctionGemma's existing three-archive memory cost; the merge is tracked as a follow-up.
   **Vulkan (valhall4) compiles.** The first real compile crashed in
   `SPIRVInitialVectorLoweringPass`; bisecting on real Qwen3-0.6B exports found three independent
-  causes, none of them bf16, all fixed by post-emit rewrites in the harness (unit-tested in
-  `QwenExportRewriteTest`): (1) IREE 3.11's SPIR-V backend cannot lower the fused argMax
+  causes, none of them bf16: (1) IREE 3.11's SPIR-V backend cannot lower the fused argMax
   reduction unless its extent is a multiple of 2048 (the 151936 vocab fails, FunctionGemma's
-  262144 does not), so the logits row is padded with a finite minimum to 153600 before the
+  262144 does not), so the harness pads the logits row with a finite minimum to 153600 before the
   argMax, leaving real logits and the returned id unchanged; (2) the in-graph token-embedding
   gather does not lower either, so `QWEN_HOST_GATHER=1` applies the host-gather rewrite to every
-  function (the contract's `emb` argument, what the native runtime already passes); (3) SKaiNET
-  0.56.0's SDPA converter emits a static `broadcast_in_dim` of the chunk mask onto the dynamic
-  grouped-query scores shape, invalid on every backend, so the chunk mask is exported head-shared
-  and broadcast with an explicit `dynamic_broadcast_in_dim` (the only form IREE 3.11 legalizes).
+  function (the contract's `emb` argument, what the native runtime already passes) — both are
+  post-emit rewrites, unit-tested in `QwenExportRewriteTest`; (3) SKaiNET 0.56.0's SDPA converter
+  emitted a static `broadcast_in_dim` of the chunk mask onto the dynamic grouped-query scores
+  shape, invalid on every backend — fixed in the engine (SKaiNET#1302, 0.57.0), which now emits
+  the hinted `dynamic_broadcast_in_dim` IREE 3.11 lowers for the head-shared chunk mask.
   With all three, the Qwen3-0.6B `qwen_prefill_at` (seq 1024), `qwen_prefill_with_past` and
   `qwen_with_past` graphs compile for both `vulkan-spirv valhall4` and `llvm-cpu arm32`.
 - **`Qwen25ChatTemplate`** (`llm-agent`): faithful to Qwen2.5-Instruct's official `chat_template`

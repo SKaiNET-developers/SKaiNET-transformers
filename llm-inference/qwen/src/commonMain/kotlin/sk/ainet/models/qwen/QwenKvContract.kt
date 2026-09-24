@@ -49,7 +49,8 @@ public object QwenKvContract {
      * Head count of `qwen_prefill_with_past`'s additive mask, `[1, MASK_HEADS, C, past+C]`. One
      * head-shared mask (its rows never depend on the head) that the graph broadcasts onto the
      * grouped-query scores: IREE 3.11 cannot lower a per-head mask there once the key length is
-     * dynamic (see `QwenExportHarness.rewriteGqaMaskBroadcast`). Written to the manifest as
+     * dynamic (SKaiNET#1302: the engine converter emits the hinted `dynamic_broadcast_in_dim` for it
+     * since 0.57.0, while a per-head mask would need `dynamic_reshape`, which IREE 3.11 does not lower). Written to the manifest as
      * `maskHeads`, which `IreeKvSpec.fromManifest` passes to the native session.
      */
     public const val MASK_HEADS: Int = 1

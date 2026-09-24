@@ -70,11 +70,12 @@ import java.nio.ByteOrder
  *    `tokens, select` (2 args); `qwen_prefill_with_past` to `3 + 2*nLayers + mask + select`.
  *    With `hostGather = true` each gains the `emb` arg in [QwenKvContract]'s position.
  *
- * 4. **The chunk mask is head-shared and broadcast explicitly (always, see
- *    [rewriteGqaMaskBroadcast]).** Works around SKaiNET 0.56.0's SDPA converter emitting a static
- *    `broadcast_in_dim` to a dynamic grouped-query scores shape; without it
- *    `qwen_prefill_with_past` compiles on no backend.
+ * 4. **The chunk mask is head-shared** (`[1, 1, C, past+C]`, [QwenKvContract.MASK_HEADS]).
+ *    SKaiNET 0.57.0 broadcasts it onto the grouped-query scores with `dynamic_broadcast_in_dim`
+ *    and the expansion hints IREE 3.11 needs (SKaiNET#1302); a per-head mask with a dynamic key
+ *    length would need `dynamic_reshape`, which IREE 3.11 does not lower.
  *
+
  * 3. **The argMax tail is padded for Vulkan (always, see [rewriteArgMaxPadded]).** IREE 3.11's
  *    SPIR-V reduction lowering rejects the fused argMax over Qwen's 151936-entry vocab (not a
  *    multiple of 2048); the logits row is padded with a finite minimum to the next multiple
@@ -235,7 +236,8 @@ public object QwenExportHarness {
         val cos = voidF32(Shape(chunk, headDim)); val sin = voidF32(Shape(chunk, headDim))
         // Head-shared [1, 1, C, past+C] (QwenKvContract.MASK_HEADS): the mask rows never depend on
         // the head, and IREE 3.11 only lowers the grouped-query broadcast from one head when the key
-        // length is dynamic -- see rewriteGqaMaskBroadcast. iree_kv_jni.c builds it with maskHeads=1.
+        // length is dynamic (SKaiNET#1302, fixed in the engine converter in 0.57.0). iree_kv_jni.c
+        // builds it with maskHeads=1.
         val mask = voidF32(Shape(1, QwenKvContract.MASK_HEADS, chunk, Dim.DYNAMIC))
         val select = voidF32(Shape(1, chunk))
         val selfKIn = List(nLayers) { voidF32(Shape(1, nKv, Dim.DYNAMIC, headDim)) }
@@ -318,10 +320,9 @@ public object QwenExportHarness {
 
     // ------------------------------------------------------ post-emit rewrites (Vulkan portability)
 
-    /** Post-emit pipeline: argMax padding + GQA mask broadcast (always) -> optional host-gather -> optional bf16 globals. */
+    /** Post-emit pipeline: argMax padding (always) -> optional host-gather -> optional bf16 globals. */
     private fun finishMlir(content: String, arch: QwenKvArch, bf16: Boolean, hostGather: Boolean): String {
         var mlir = rewriteArgMaxPadded(content, arch.vocabSize)
-        mlir = rewriteGqaMaskBroadcast(mlir)
         if (hostGather) mlir = rewriteHostGather(mlir)
         if (bf16) mlir = rewriteGlobalsToBf16(mlir)
         return mlir
@@ -364,55 +365,6 @@ public object QwenExportHarness {
             out = out.substring(0, start) + pad + tail + out.substring(tailEnd + 1)
         }
         return out
-    }
-
-    /**
-     * Fixes the explicit additive mask under grouped-query attention. SKaiNET 0.56.0's SDPA
-     * converter works on Q as `[b, nKV, nRep, Sq, hd]` and, for a rank-4 mask, always emits
-     * `broadcast_in_dim %mask, dims = [0, 1, 3, 4]` to the grouped scores shape. With the chunk
-     * graph's dynamic key length (`past + C`) that op is invalid on every backend: a static
-     * broadcast cannot produce a `?` result. Bisected on valhall4 and arm32 with real Qwen3-0.6B
-     * exports, the only form IREE 3.11 lowers is a head-shared mask `[b, 1, Sq, ?]` expanded by
-     * `dynamic_broadcast_in_dim` that states which operand dims expand
-     * (`known_expanding_dimensions = [1]`, the rest non-expanding); without those attributes, and
-     * for `dynamic_reshape` of a per-head `[b, nHeads, Sq, ?]` mask, IREE fails to legalize the op.
-     * Hence [QwenKvContract.MASK_HEADS] = 1. A per-head mask with a static key length becomes a
-     * plain reshape that splits the head dim into `[nKV, nRep]` in the converter's own
-     * `h = kv * nRep + r` order; a per-head mask with a dynamic key length is rejected loudly.
-     * Belongs in the core converter; this text rewrite stands in until a SKaiNET release has it.
-     */
-    internal fun rewriteGqaMaskBroadcast(mlir: String): String {
-        val bc = Regex(
-            """( *)(%\w+) = stablehlo\.broadcast_in_dim (%\w+), dims = \[0, 1, 3, 4\] : \(tensor<(\d+)x(\d+)x(\d+)x(\?|\d+)x(\w+)>\) -> tensor<(\d+)x(\d+)x(\d+)x(\d+)x(\?|\d+)x(\w+)>\n""",
-        )
-        return bc.replace(mlir) { m ->
-            val g = m.groupValues
-            val (indent, res, src) = Triple(g[1], g[2], g[3])
-            val (b, h, sq, sk, elem) = listOf(g[4], g[5], g[6], g[7], g[8])
-            val (nKv, nRep) = g[10].toInt() to g[11].toInt()
-            val srcT = "tensor<${b}x${h}x${sq}x${sk}x$elem>"
-            val dstT = "tensor<${g[9]}x${nKv}x${nRep}x${g[12]}x${g[13]}x${g[14]}>"
-            when {
-                sk != "?" && h.toInt() == nKv * nRep && h.toInt() != 1 ->
-                    "$indent$res = stablehlo.reshape $src : ($srcT) -> $dstT\n"
-                sk != "?" -> m.value
-                h.toInt() != 1 -> error(
-                    "GQA mask: a per-head mask $srcT with a dynamic key length cannot be lowered by IREE 3.11 " +
-                        "(dynamic_reshape is not legalized); export the mask head-shared, [b, 1, Sq, ?]",
-                )
-                else -> {
-                    val expanding = if (nKv == 1) "" else "1"
-                    val nonExpanding = listOfNotNull(if (b.toInt() == g[9].toInt()) "0" else null, if (nKv == 1) "1" else null, "2", "3")
-                    "$indent${res}_sk = stablehlo.get_dimension_size $src, dim = 3 : ($srcT) -> tensor<i32>\n" +
-                        "$indent${res}_skr = stablehlo.reshape ${res}_sk : (tensor<i32>) -> tensor<1xi32>\n" +
-                        "$indent${res}_lead = stablehlo.constant dense<[${g[9]}, $nKv, $nRep, ${g[12]}]> : tensor<4xi32>\n" +
-                        "$indent${res}_shape = stablehlo.concatenate ${res}_lead, ${res}_skr, dim = 0 : (tensor<4xi32>, tensor<1xi32>) -> tensor<5xi32>\n" +
-                        "$indent$res = \"stablehlo.dynamic_broadcast_in_dim\"($src, ${res}_shape) <{broadcast_dimensions = array<i64: 0, 1, 3, 4>, " +
-                        "known_expanding_dimensions = array<i64${if (expanding.isEmpty()) "" else ": $expanding"}>, " +
-                        "known_nonexpanding_dimensions = array<i64: ${nonExpanding.joinToString(", ")}>}> : ($srcT, tensor<5xi32>) -> $dstT\n"
-                }
-            }
-        }
     }
 
     /**

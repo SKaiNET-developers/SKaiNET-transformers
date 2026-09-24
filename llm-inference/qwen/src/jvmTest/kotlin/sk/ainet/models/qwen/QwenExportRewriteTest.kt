@@ -109,43 +109,4 @@ class QwenExportRewriteTest {
         val e = runCatching { QwenExportHarness.rewriteHostGather("module {}") }.exceptionOrNull()
         assertTrue(e is IllegalArgumentException && e.message!!.contains("no `\"stablehlo.gather\""), "$e")
     }
-
-    @Test
-    fun gqaMask_headSharedDynamicMaskBecomesAnAttributedDynamicBroadcast() {
-        val line = "    %v648 = stablehlo.broadcast_in_dim %arg5, dims = [0, 1, 3, 4] : (tensor<1x1x32x?xf32>) -> tensor<1x8x2x32x?xf32>\n"
-        val out = QwenExportHarness.rewriteGqaMaskBroadcast("  x\n" + line + "    %v649 = stablehlo.add %v636, %v648 : tensor<1x8x2x32x?xf32>\n")
-        assertFalse(out.contains("stablehlo.broadcast_in_dim"))
-        assertTrue(out.contains("%v648_sk = stablehlo.get_dimension_size %arg5, dim = 3 : (tensor<1x1x32x?xf32>) -> tensor<i32>"))
-        assertTrue(out.contains("%v648_lead = stablehlo.constant dense<[1, 8, 2, 32]> : tensor<4xi32>"))
-        assertTrue(
-            out.contains(
-                "%v648 = \"stablehlo.dynamic_broadcast_in_dim\"(%arg5, %v648_shape) <{broadcast_dimensions = array<i64: 0, 1, 3, 4>, " +
-                    "known_expanding_dimensions = array<i64: 1>, known_nonexpanding_dimensions = array<i64: 0, 2, 3>}> : " +
-                    "(tensor<1x1x32x?xf32>, tensor<5xi32>) -> tensor<1x8x2x32x?xf32>",
-            ),
-        )
-        assertTrue(out.contains("%v649 = stablehlo.add %v636, %v648"))
-    }
-
-    @Test
-    fun gqaMask_perHeadDynamicMaskIsRejectedLoudly() {
-        val line = "    %v648 = stablehlo.broadcast_in_dim %arg5, dims = [0, 1, 3, 4] : (tensor<1x16x32x?xf32>) -> tensor<1x8x2x32x?xf32>\n"
-        val e = runCatching { QwenExportHarness.rewriteGqaMaskBroadcast(line) }.exceptionOrNull()
-        assertTrue(e is IllegalStateException && e.message!!.contains("head-shared"), "$e")
-    }
-
-    @Test
-    fun gqaMask_staticPerHeadMaskBecomesAPlainReshape() {
-        val line = "    %m = stablehlo.broadcast_in_dim %a, dims = [0, 1, 3, 4] : (tensor<1x16x32x64xf32>) -> tensor<1x8x2x32x64xf32>\n"
-        assertEquals(
-            "    %m = stablehlo.reshape %a : (tensor<1x16x32x64xf32>) -> tensor<1x8x2x32x64xf32>\n",
-            QwenExportHarness.rewriteGqaMaskBroadcast(line),
-        )
-    }
-
-    @Test
-    fun gqaMask_staticHeadSharedMaskIsLeftAlone() {
-        val line = "    %m = stablehlo.broadcast_in_dim %a, dims = [0, 1, 3, 4] : (tensor<1x1x32x64xf32>) -> tensor<1x8x2x32x64xf32>\n"
-        assertEquals(line, QwenExportHarness.rewriteGqaMaskBroadcast(line))
-    }
 }
