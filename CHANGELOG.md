@@ -9,18 +9,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.56.2] — 2026-09-22
+## [0.57.0] — 2026-09-25
 
-A transformers-only release against **SKaiNET engine 0.56.0** (unchanged).
+Lock-step with **SKaiNET engine 0.57.0**.
+
+### Changed
+
+- **Engine 0.57.0, Kotlin 2.4.20** (#453). The engine fixes the StableHLO export of an explicit
+  attention mask under grouped-query attention and onto a dynamic key length (SKaiNET#1302), and
+  makes kotlinx-io part of `skainet-data-source`'s API. This repo moves to Kotlin 2.4.20 with it.
 
 ### Added
 
-- **`IreeMoonshineStream`** (`llm-runtime:iree-android`, `libskainet_moonshine_stream.so`, arm64-v8a +
-  armeabi-v7a, Vulkan + local-task): the streaming Moonshine v2 speech-to-text runtime over the five
-  graphs of `MoonshineV2ExportCli` — PCM in, cumulative partial transcripts out, exact final on
-  `finish()`. The counterpart of `IreeKvSession` for ASR: the last piece a Moonshine cartridge needed
-  from a released artifact. `native/build-moonshine-stream.sh` builds it with the same image and
-  cache as the other two libraries.
+- **FunctionGemma export contract carries the embedding geometry** (#452). `FunctionGemmaSpec` gains
+  `vocabSize` (default 262144), `nHeads`, `hiddenSize` and `slidingWindow`, and `manifest.json` emits
+  them, so `IreeKvSpec.fromManifest` no longer falls back to the stock constants. The export CLI reads
+  the vocabulary size from the checkpoint's `token_embd.weight` (`GEMMA_VOCAB` overrides): a fine-tune
+  that added special tokens has more rows, and the native KV session locates the embedding table by
+  `vocabSize × hiddenSize` bytes and clamps ids ≥ `vocabSize` to 0, so with the stock constant those
+  tokens would silently have become token 0. `IreeKvSpec.functionGemma270m` takes `vocabSize`.
+
+### Fixed
+
+- **Stale `functiongemma` API dump.** #452 changed the public API without re-dumping it, so
+  `apiCheck` failed on `develop`; refreshed in #453.
+
+## [0.56.2] — 2026-09-22
+
+A transformers-only release against **SKaiNET engine 0.56.0** (unchanged).
 
 ### Added
 
