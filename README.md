@@ -111,6 +111,14 @@ Honest status — see the project-status note at the top of this README.
 
 The current release is **0.57.0**, in lock-step with **SKaiNET 0.57.0**.
 
+**Qwen on the compiled IREE KV path.** `QwenExportHarness` / `QwenExportCli` trace Qwen2 and Qwen3
+checkpoints to the three graphs of the `qwen-kv-v1` contract (catalog-prefix prefill, one-call chunk,
+dynamic-cache decode step), `IreeKvSession` runs grouped-query models, and `Qwen25ChatTemplate` renders
+Qwen2.5's official tool-calling template. Qwen3-0.6B compiles for Vulkan and arm32 and reproduces
+llama.cpp's greedy tokens exactly on host IREE; it has not been run on a device yet, and Qwen2.5 export
+waits on an engine fix for attention bias. **The Moonshine v2 stream** caps its final re-decode at the
+model card's length budget, so short commands finish sooner.
+
 **Engine 0.57.0 and Kotlin 2.4.20.** The engine fixes the StableHLO export of an explicit attention mask
 under grouped-query attention and onto a dynamic key length, the shape of a chunked-prefill graph over a
 KV cache. **The FunctionGemma export contract now carries the embedding geometry** (`vocabSize`,

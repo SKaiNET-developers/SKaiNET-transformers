@@ -83,8 +83,8 @@
 #define FE_OUT (CHUNK + FE_LC)             /* 68 frames out */
 #define MAXMEM 256        /* compiled cross-memory pad (5.12 s of finalized speech) */
 #define MAXTOK 48
-#define FINISH_TOKENS 24  /* C&C final budget: 5.12 s of speech never needs more; halves the
-                             worst-case finalize when the decode loops instead of stopping */
+#define FINISH_TOKENS 24  /* hard ceiling for the final budget (see finish_budget) */
+#define TOKENS_PER_SAMPLE (6.5f / 16000.0f)  /* the model card's cap: max_new_tokens = samples * 6.5/16000 + 2 */
 #define HOP_TOKENS 6      /* max new tokens decoded per hop (budget guard) */
 #define RESTART_HOPS 2    /* first hops re-decode exactly instead of incrementally */
 #define PEEK_FRAMES 36    /* early-peek window: first partial at ~0.72 s instead of 1.28 s */
@@ -271,6 +271,22 @@ static iree_hal_buffer_view_t* run1(Engine* e, iree_runtime_session_t* s, const 
     iree_runtime_call_outputs_pop_front_buffer_view(&c, &out);
   iree_runtime_call_deinitialize(&c);
   return out;
+}
+
+/* The model card's output-length cap, in tokens, for `npcm` samples of audio:
+ *   max_new_tokens = samples * 6.5 / 16000 + 2
+ * A fixed budget lets a short clip keep decoding long after the audio is spent, and the greedy
+ * decode spends that budget restarting the utterance rather than stopping. Floored at 4 so a
+ * one-word command still has room, ceilinged at the previous fixed budget so nothing decodes
+ * longer than before — above ~3.4 s of audio the formula exceeds the ceiling and this is a no-op.
+ * Measured on 183 German command-and-control recordings on a Mali device: clips below that
+ * threshold finish 0.58 s sooner (paired median, faster in 135 of 172), clips above it are
+ * unchanged (+0.09 s, 11 recordings), and the median word error rate does not move. */
+static int finish_budget(int npcm) {
+  int b = (int)(npcm * TOKENS_PER_SAMPLE) + 2;
+  if (b < 4) b = 4;
+  if (b > FINISH_TOKENS) b = FINISH_TOKENS;
+  return b;
 }
 
 /* Process one encoder window starting at feature frame `start`; finalize rows into e->mem. */
@@ -706,7 +722,7 @@ JNIEXPORT jstring JNICALL JNIFN(nativeFinish)(JNIEnv* env, jobject thiz, jlong h
   if (e->nmem > 0) {
     /* exact: fresh decode over the final memory */
     release_self(e); e->ntoks = 0; e->pos = 0; e->text[0] = 0;
-    if (run_prefill(e, 1) == 0) run_steps(e, FINISH_TOKENS, 1);
+    if (run_prefill(e, 1) == 0) run_steps(e, finish_budget(e->npcm), 1);
     if (!e->ended_eos) drop_restart_suffix(e);
     /* C&C utterances are single sentences; on a silent tail the greedy decode restarts the
      * utterance instead of emitting EOS ("Go to the next. Go to next") — same failure and
@@ -716,8 +732,8 @@ JNIEXPORT jstring JNICALL JNIFN(nativeFinish)(JNIEnv* env, jobject thiz, jlong h
     }
     const char* p = e->text; while (*p == ' ') ++p;
     out = (*env)->NewStringUTF(env, p);
-    TLOG("finish %.0fms nmem %d toks %d \"%s\"\n",
-            now_ms() - t0, e->nmem, e->ntoks, p);
+    TLOG("finish %.0fms nmem %d toks %d/%d \"%s\"\n",
+            now_ms() - t0, e->nmem, e->ntoks, finish_budget(e->npcm), p);
   }
   reset_utterance(e);
   return out;

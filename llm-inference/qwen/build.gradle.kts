@@ -61,6 +61,24 @@ kotlin {
             implementation(libs.skainet.backend.cpu)
         }
 
+        // QwenExportHarness / QwenExportCli (SKaiNET-transformers#411): DSL -> ComputeGraph ->
+        // StableHLO export, JVM-only publications (compile.hlo/compile.dag), matching
+        // :llm-inference:functiongemma's jvmMain shape.
+        val jvmMain by getting {
+            dependencies {
+                implementation(project.dependencies.platform(project(":llm-bom")))
+                implementation(project(":llm-core"))
+                implementation(project(":transformer-core"))
+                implementation(libs.skainet.lang.core)
+                implementation(libs.skainet.compile.hlo)
+                implementation(libs.skainet.compile.dag)
+                implementation(libs.skainet.backend.cpu)
+                implementation(libs.skainet.io.core)
+                implementation(libs.skainet.io.gguf)
+                implementation(libs.kotlinx.coroutines)
+            }
+        }
+
         val jvmTest by getting {
             dependencies {
                 implementation(project.dependencies.platform(project(":llm-bom")))
@@ -80,6 +98,32 @@ kotlin {
 }
 
 tasks.withType<Test>().configureEach {
-    jvmArgs("--enable-preview", "--add-modules", "jdk.incubator.vector", "-XX:MaxDirectMemorySize=12g")
-    maxHeapSize = "6g"
+    // Export tests (QwenExportDumpTest) dequantize a Q8_0 checkpoint and trace the whole model --
+    // same rationale as :llm-inference:functiongemma's 12g (FunctionGemma-270M's own tests need
+    // that much; Qwen2.5-0.5B/Qwen3-0.6B are 2-2.2x the params). Absent-checkpoint runs abort in
+    // microseconds, so this costs CI nothing.
+    val maxDirect = (findProperty("qwenTestMaxDirect") as? String) ?: "24g"
+    jvmArgs("--enable-preview", "--add-modules", "jdk.incubator.vector", "-XX:MaxDirectMemorySize=$maxDirect")
+    maxHeapSize = (findProperty("qwenTestMaxHeap") as? String) ?: "12g"
+}
+
+tasks.withType<JavaExec>().configureEach {
+    jvmArgs("--enable-preview", "--add-modules", "jdk.incubator.vector", "-XX:MaxDirectMemorySize=36g")
+    minHeapSize = "4g"
+    maxHeapSize = "24g"
+}
+
+// Qwen compiled-export entry point (SKaiNET-transformers#411):
+//   QWEN_GGUF=…/qwen3-0.6b-q8_0.gguf QWEN_OUT_DIR=build/mlir QWEN_GRAPH=all \
+//     ./gradlew :llm-inference:qwen:exportQwen
+tasks.register<JavaExec>("exportQwen") {
+    group = "bridge"
+    description = "Export Qwen2.5/Qwen3 -> StableHLO MLIR + per-graph safetensors + manifest.json from a GGUF."
+    val jvmMainComp = kotlin.jvm().compilations.getByName("main")
+    dependsOn(jvmMainComp.compileTaskProvider)
+    classpath = jvmMainComp.output.allOutputs + jvmMainComp.runtimeDependencyFiles
+    mainClass.set("sk.ainet.models.qwen.QwenExportCliKt")
+    listOf("QWEN_GGUF", "QWEN_OUT_DIR", "QWEN_GRAPH", "QWEN_SEQ", "QWEN_CHUNK", "QWEN_DTYPE").forEach { k ->
+        System.getenv(k)?.let { environment(k, it) }
+    }
 }

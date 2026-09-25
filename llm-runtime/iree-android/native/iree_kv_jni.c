@@ -1,17 +1,22 @@
 /*
  * Stateful KV-cache session for the FunctionGemma contract v1 + addendum (see
- * FunctionGemmaContract.kt): the tool catalog is prefilled once, its per-layer K/V stays on the
+ * FunctionGemmaContract.kt) AND the qwen-kv-v1 contract (see QwenKvContract.kt,
+ * SKaiNET-transformers#411): the tool catalog is prefilled once, its per-layer K/V stays on the
  * device, a snapshot of that prefix is restored per turn, the utterance goes in as ONE chunk call
- * (`gemma_prefill_with_past`), and each generated token is one `gemma_with_past` step.
+ * (`*_prefill_with_past`), and each generated token is one `*_with_past` step.
  *
  * Three graphs, three IREE sessions on one device (each graph has its own parameter archive with
- * its own key numbering, so they cannot share a parameter scope):
- *   prefill  : gemma_prefill_at(tokens SEQ i32, emb SEQx{hidden} f32, select 1xSEQ f32)
+ * its own key numbering, so they cannot share a parameter scope) -- UNLESS the caller passes the
+ * same vmfb+irpa path for all three (the qwen-kv-v1 merged-module contract: one archive shared by
+ * all three functions), in which case nativeCreate opens exactly one session and looks up all
+ * three exported functions from it (see graph_open_shared below) -- required because three copies
+ * of a ~1-1.2 GB bf16 parameter archive do not fit a 32-bit process (SKaiNET-transformers#411):
+ *   prefill  : *_prefill_at(tokens SEQ i32, emb SEQx{hidden} f32, select 1xSEQ f32)
  *              -> per-layer K,V [1,nKV,SEQ,headDim] ..., token 1xi32          (released after use)
- *   chunk    : gemma_prefill_with_past(tokens C, emb Cx{hidden}, per-base cos/sin [C,headDim],
- *              per-layer K,V (dynamic), per-type masks [1,nHeads,C,past+C], select 1xC)
+ *   chunk    : *_prefill_with_past(tokens C, emb Cx{hidden}, per-base cos/sin [C,headDim],
+ *              per-layer K,V (dynamic), per-type masks [1,maskH,C,past+C], select 1xC)
  *              -> per-layer K,V extended by C ..., token
- *   withPast : gemma_with_past(token 1, emb 1x{hidden}, per-base cos/sin [1,headDim], per-layer K,V)
+ *   withPast : *_with_past(token 1, emb 1x{hidden}, per-base cos/sin [1,headDim], per-layer K,V)
  *              -> per-layer K,V extended by 1 ..., token
  * All three are the host-gather variants: the token embedding rows are read from the parameter
  * archive here (bf16 -> f32) and passed as an input, because IREE 3.11's SPIR-V backend cannot
@@ -19,12 +24,29 @@
  * token-ids only.
  *
  * Contract facts encoded here (all measured on an arm32 Android device with a Mali GPU, see SKaiNET-transformers#410):
- *  - the with-past graphs carry NO sliding-window mask: the 15 sliding layers must only ever see
- *    the last `slidingWindow` (512) cache positions -> tail views, zero-copy;
+ *  - the with-past graphs carry NO sliding-window mask: the sliding layers (if any) must only
+ *    ever see the last `slidingWindow` cache positions -> tail views, zero-copy. `globalLayerPeriod
+ *    == 1` (every layer "global") is the qwen-kv-v1 case: no model has a sliding/global split, so
+ *    the sliding-side RoPE/mask tensors are neither built nor present in the graph's argument list
+ *    at all (see `hasSliding` below) -- an arg-COUNT difference. The chunk mask is rank-4
+ *    `[1, maskH, C, past+C]`: maskH = nHeads (functiongemma-kv-v1, which expands K/V to the query
+ *    heads so the mask equals the scores shape and needs no broadcast) or 1 (qwen-kv-v1: GQA-native,
+ *    the graph broadcasts one head-shared mask onto its grouped [b, nKV, nRep, C, ?] scores -- the
+ *    only form IREE 3.11 lowers with a dynamic key length, see SKaiNET#1302). The rows never depend
+ *    on the head. GQA otherwise only changes the K/V cache tensors' second dim (nKV instead of
+ *    nHeads, nHeads % nKV == 0), so the native side never needs to know about head grouping;
  *  - position enters only through host-built split-half RoPE tables (sign folded into the first
- *    half, as GemmaKvDecoder.splitHalfCosSin) and, for the chunk graph, through additive masks;
+ *    half, as GemmaKvDecoder.splitHalfCosSin / RoPE.buildSplitHalfCosSin) and, for the chunk
+ *    graph, through additive masks;
  *  - argument order is the tracer's first-use order (FunctionGemmaContract.withPastArgs /
- *    prefillWithPastArgs), with `emb` right after the tokens.
+ *    prefillWithPastArgs, or QwenKvContract's equivalent), with `emb` right after the tokens.
+ *  - cache row-range views (sliding-window tails, and the "drop the padding" slice after a padded
+ *    prefill/chunk call) are a single zero-copy buffer subspan when nKV == 1 (FunctionGemma: rows
+ *    of one KV head are contiguous). For nKV > 1 (GQA: Qwen2.5 nKvHeads=2, Qwen3 nKvHeads=8) the
+ *    [1, nKV, rows, headDim] layout is nKV-major, so a row range is NOT one contiguous byte span
+ *    across the nKV planes -- `sub_rows` allocates a fresh buffer and gathers it with nKV
+ *    device-to-device copies. This only runs after a prefill/chunk call, never per decode step
+ *    (nativeStep's realRows always equals addedRows == 1, so its adopt_outputs never slices).
  * Every failure is thrown as an IllegalStateException carrying the formatted iree_status_t.
  */
 #include <jni.h>
@@ -52,7 +74,7 @@
 
 typedef struct {
   iree_runtime_session_t* sess;
-  iree_io_parameter_provider_t* provider;
+  iree_io_parameter_provider_t* provider;  /* NULL when sess is a retained alias of another Graph's (owns nothing) */
   char* fn;
 } Graph;
 
@@ -62,7 +84,7 @@ typedef struct {
   Graph withPast, chunk, prefill;
   int hasPrefill;
   /* architecture (from the manifest) */
-  int nLayers, headDim, nKV, nHeads, hidden, vocab, window, period, chunkC;
+  int nLayers, headDim, nKV, nHeads, hidden, vocab, window, period, chunkC, maskH;
   float baseS, baseG;
   /* device-resident cache: per layer [1, nKV, len[l], headDim] f32 */
   iree_hal_buffer_view_t** kv;   /* 2*nLayers, K then V */
@@ -138,8 +160,27 @@ static void graph_close(Graph* g) {
   free(g->fn);
   memset(g, 0, sizeof *g);
 }
+/* Alias `dst` onto `src`'s already-open session (retained) under a different exported function
+ * name -- the qwen-kv-v1 merged-module case, where prefill/chunk/withPast are three functions of
+ * one vmfb sharing one parameter archive: opening three independent sessions would triple the
+ * resident parameter bytes (~1-1.2 GB bf16 archive) in a 32-bit process. `dst->provider` stays
+ * NULL: it owns nothing, `graph_close(dst)` only drops the retain. */
+static void graph_alias(Graph* dst, const Graph* src, const char* fn) {
+  dst->sess = src->sess;
+  iree_runtime_session_retain(dst->sess);
+  dst->provider = NULL;
+  dst->fn = strdup(fn);
+}
 
-/* Find the token-embedding entry (vocab x hidden bf16) in the archive index and mmap the file. */
+/*
+ * Find the token-embedding entry (vocab x hidden bf16) in the archive index and mmap just the
+ * page-aligned range that covers it, rather than the whole archive file. FunctionGemma's archive
+ * is per-graph (~0.5 GB, only one of which needs an embedding lookup at all), so mapping the whole
+ * file barely mattered; the qwen-kv-v1 shared archive is one ~1-1.2 GB file for all three graphs,
+ * and only ~vocab*hidden*2 bytes of it (a few hundred KB-few MB) are ever read through embMap --
+ * mapping the rest would reserve address space and page cache for nothing in a 32-bit process.
+ * `k->embOff` is stored relative to the mapping's own start, not the file's.
+ */
 static int locate_embedding(Kv* k, const char* irpa, iree_io_parameter_index_t* index) {
   uint64_t want = (uint64_t)k->vocab * (uint64_t)k->hidden * 2u;
   iree_host_size_t n = iree_io_parameter_index_count(index);
@@ -147,15 +188,17 @@ static int locate_embedding(Kv* k, const char* irpa, iree_io_parameter_index_t* 
     const iree_io_parameter_index_entry_t* e = NULL;
     if (!iree_status_is_ok(iree_io_parameter_index_get(index, i, &e)) || !e) continue;
     if (e->length == want && e->type == IREE_IO_PARAMETER_INDEX_ENTRY_STORAGE_TYPE_FILE) {
-      k->embOff = (size_t)e->storage.file.offset;
+      size_t off = (size_t)e->storage.file.offset;
       int fd = open(irpa, O_RDONLY);
       if (fd < 0) return 0;
-      struct stat stt; if (fstat(fd, &stt) != 0) { close(fd); return 0; }
-      k->embMapLen = (size_t)stt.st_size;
-      k->embMap = mmap(NULL, k->embMapLen, PROT_READ, MAP_PRIVATE, fd, 0);
+      long pageSizeL = sysconf(_SC_PAGESIZE); size_t pageSize = pageSizeL > 0 ? (size_t)pageSizeL : 4096;
+      size_t alignedStart = (off / pageSize) * pageSize;
+      size_t alignedLen = (off - alignedStart) + (size_t)want;
+      alignedLen = ((alignedLen + pageSize - 1) / pageSize) * pageSize;
+      void* map = mmap(NULL, alignedLen, PROT_READ, MAP_PRIVATE, fd, (off_t)alignedStart);
       close(fd);
-      if (k->embMap == MAP_FAILED) { k->embMap = NULL; return 0; }
-      k->embFound = 1;
+      if (map == MAP_FAILED) return 0;
+      k->embMap = map; k->embMapLen = alignedLen; k->embOff = off - alignedStart; k->embFound = 1;
       return 1;
     }
   }
@@ -188,16 +231,56 @@ static iree_status_t view_i32(Kv* k, const int32_t* data, int rank, const iree_h
       (iree_hal_buffer_params_t){ .type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL, .access = IREE_HAL_MEMORY_ACCESS_ALL, .usage = IREE_HAL_BUFFER_USAGE_DEFAULT },
       iree_make_const_byte_span(data, count * 4), out);
 }
-/* Zero-copy [1, nKV, rows, headDim] view over rows [rowStart, rowStart+rows) of a cache view (nKV == 1: rows are contiguous). */
+/*
+ * [1, nKV, rows, headDim] view over rows [rowStart, rowStart+rows) of a cache view.
+ *
+ * nKV == 1 (FunctionGemma): rows of the one KV head are laid out contiguously, so the range is a
+ * single zero-copy buffer subspan -- unchanged fast path.
+ *
+ * nKV > 1 (GQA: Qwen2.5 nKvHeads=2, Qwen3 nKvHeads=8): the [1, nKV, totalRows, headDim] row-major
+ * layout is nKV-major -- each KV head occupies its own contiguous [totalRows, headDim] plane,
+ * `totalRows*headDim*4` bytes apart, so a row range is NOT one contiguous byte span across planes.
+ * `totalRows` (the source view's own row count) is read back from the view itself via
+ * iree_hal_buffer_view_shape_dim rather than threaded through as a parameter, since the two
+ * call sites (cache_inputs: the live cache, len[l] rows; adopt_outputs: a graph output, past+added
+ * rows) have different totals. Allocates a fresh [1, nKV, rows, headDim] buffer and gathers it
+ * with nKV device-to-device copies, one per plane. Only reached after a prefill/chunk call (never
+ * per decode step: nativeStep's realRows always equals addedRows == 1, so adopt_outputs there
+ * always takes the "keep = full, retained" branch and never calls sub_rows).
+ */
 static iree_status_t sub_rows(Kv* k, iree_hal_buffer_view_t* v, int rowStart, int rows, iree_hal_buffer_view_t** out) {
-  iree_device_size_t rowBytes = (iree_device_size_t)k->nKV * (iree_device_size_t)k->headDim * 4;
-  iree_hal_buffer_t* sub = NULL;
-  IREE_RETURN_IF_ERROR(iree_hal_buffer_subspan(iree_hal_buffer_view_buffer(v), (iree_device_size_t)rowStart * rowBytes,
-                                               (iree_device_size_t)rows * rowBytes, iree_allocator_system(), &sub));
+  if (k->nKV == 1) {
+    iree_device_size_t rowBytes = (iree_device_size_t)k->headDim * 4;
+    iree_hal_buffer_t* sub = NULL;
+    IREE_RETURN_IF_ERROR(iree_hal_buffer_subspan(iree_hal_buffer_view_buffer(v), (iree_device_size_t)rowStart * rowBytes,
+                                                 (iree_device_size_t)rows * rowBytes, iree_allocator_system(), &sub));
+    iree_hal_dim_t dims[4] = {1, 1, (iree_hal_dim_t)rows, (iree_hal_dim_t)k->headDim};
+    iree_status_t st = iree_hal_buffer_view_create(sub, 4, dims, IREE_HAL_ELEMENT_TYPE_FLOAT_32,
+                                                   IREE_HAL_ENCODING_TYPE_DENSE_ROW_MAJOR, iree_allocator_system(), out);
+    iree_hal_buffer_release(sub);
+    return st;
+  }
+  iree_hal_dim_t srcRows = iree_hal_buffer_view_shape_dim(v, 2);
+  iree_device_size_t planeBytes = (iree_device_size_t)k->headDim * 4;
+  iree_device_size_t rowBytesOut = (iree_device_size_t)rows * planeBytes;
+  iree_device_size_t total = (iree_device_size_t)k->nKV * rowBytesOut;
+  iree_hal_allocator_t* alloc = iree_hal_device_allocator(k->dev);
+  iree_hal_buffer_params_t params = { .type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL, .access = IREE_HAL_MEMORY_ACCESS_ALL, .usage = IREE_HAL_BUFFER_USAGE_DEFAULT };
+  iree_hal_buffer_t* dst = NULL;
+  IREE_RETURN_IF_ERROR(iree_hal_allocator_allocate_buffer(alloc, params, total, &dst));
+  iree_hal_buffer_t* src = iree_hal_buffer_view_buffer(v);
+  iree_status_t st = iree_ok_status();
+  for (int h = 0; h < k->nKV && iree_status_is_ok(st); ++h) {
+    iree_device_size_t srcOff = ((iree_device_size_t)h * (iree_device_size_t)srcRows + (iree_device_size_t)rowStart) * planeBytes;
+    iree_device_size_t dstOff = (iree_device_size_t)h * rowBytesOut;
+    st = iree_hal_device_transfer_d2d(k->dev, src, srcOff, dst, dstOff, rowBytesOut,
+                                       IREE_HAL_TRANSFER_BUFFER_FLAG_DEFAULT, iree_infinite_timeout());
+  }
+  if (!iree_status_is_ok(st)) { iree_hal_buffer_release(dst); return st; }
   iree_hal_dim_t dims[4] = {1, (iree_hal_dim_t)k->nKV, (iree_hal_dim_t)rows, (iree_hal_dim_t)k->headDim};
-  iree_status_t st = iree_hal_buffer_view_create(sub, 4, dims, IREE_HAL_ELEMENT_TYPE_FLOAT_32,
-                                                 IREE_HAL_ENCODING_TYPE_DENSE_ROW_MAJOR, iree_allocator_system(), out);
-  iree_hal_buffer_release(sub);
+  st = iree_hal_buffer_view_create(dst, 4, dims, IREE_HAL_ELEMENT_TYPE_FLOAT_32,
+                                    IREE_HAL_ENCODING_TYPE_DENSE_ROW_MAJOR, iree_allocator_system(), out);
+  iree_hal_buffer_release(dst);
   return st;
 }
 static iree_status_t read_i32(Kv* k, iree_hal_buffer_view_t* v, int32_t* out) {
@@ -219,10 +302,11 @@ static void rope_rows(const Kv* k, int pos0, int rows, float base, float* cos_ou
     }
   }
 }
-/* Additive mask [1, nHeads, C, past+C]: key j < past is absolute (pos - past + j); key j >= past is chunk row j-past. */
+/* Additive mask [1, maskH, C, past+C]: key j < past is absolute (pos - past + j); key j >= past is chunk row j-past.
+ * Rows never depend on the head: maskH is nHeads (functiongemma-kv-v1) or 1 (qwen-kv-v1, broadcast in-graph). */
 static void chunk_mask(const Kv* k, int past, int nReal, int window, float* out) {
   int C = k->chunkC, K = past + C;
-  for (int h = 0; h < k->nHeads; ++h) {
+  for (int h = 0; h < k->maskH; ++h) {
     for (int i = 0; i < C; ++i) {
       float* row = out + ((size_t)h * C + i) * K;
       int a = k->pos + i;
@@ -283,15 +367,20 @@ static iree_status_t adopt_outputs(Kv* k, iree_hal_buffer_view_t** outs, int add
 }
 
 /* ---------- JNI: create / destroy ---------- */
+/* GetFieldID throws NoSuchFieldError and leaves it PENDING on a miss; clear it so a spec built
+ * against an older/newer IreeKvSpec (missing an optional field) reads that field as its default
+ * instead of corrupting the next JNI call made on this env. */
 static int jint_field(JNIEnv* env, jobject spec, const char* name) {
   jclass c = (*env)->GetObjectClass(env, spec);
   jfieldID f = (*env)->GetFieldID(env, c, name, "I");
-  return f ? (*env)->GetIntField(env, spec, f) : 0;
+  if (!f) { (*env)->ExceptionClear(env); return 0; }
+  return (*env)->GetIntField(env, spec, f);
 }
 static float jfloat_field(JNIEnv* env, jobject spec, const char* name) {
   jclass c = (*env)->GetObjectClass(env, spec);
   jfieldID f = (*env)->GetFieldID(env, c, name, "F");
-  return f ? (*env)->GetFloatField(env, spec, f) : 0.f;
+  if (!f) { (*env)->ExceptionClear(env); return 0.f; }
+  return (*env)->GetFloatField(env, spec, f);
 }
 
 JNIEXPORT jlong JNICALL JNIFN(nativeCreate)(JNIEnv* env, jobject thiz, jstring jdev, jobject spec,
@@ -304,9 +393,15 @@ JNIEXPORT jlong JNICALL JNIFN(nativeCreate)(JNIEnv* env, jobject thiz, jstring j
   k->hidden = jint_field(env, spec, "hiddenSize"); k->vocab = jint_field(env, spec, "vocabSize");
   k->window = jint_field(env, spec, "slidingWindow"); k->period = jint_field(env, spec, "globalLayerPeriod");
   k->chunkC = jint_field(env, spec, "chunk");
+  k->maskH = jint_field(env, spec, "maskHeads");  /* 0 / missing field = nHeads */
   k->baseS = jfloat_field(env, spec, "slidingRopeBase"); k->baseG = jfloat_field(env, spec, "globalRopeBase");
-  if (k->nLayers <= 0 || k->headDim <= 0 || k->nKV != 1 || k->nHeads <= 0 || k->hidden <= 0 || k->vocab <= 0 || k->period <= 0 || k->chunkC <= 0) {
-    throw_msg(env, "IreeKvSession: bad spec (nKvHeads must be 1 for zero-copy cache views; all sizes > 0)"); free(k); return 0;
+  if (k->nLayers <= 0 || k->headDim <= 0 || k->nKV <= 0 || k->nHeads <= 0 || k->nHeads % k->nKV != 0 ||
+      k->hidden <= 0 || k->vocab <= 0 || k->period <= 0 || k->chunkC <= 0) {
+    throw_msg(env, "IreeKvSession: bad spec (nHeads must be a positive multiple of nKvHeads; all sizes > 0)"); free(k); return 0;
+  }
+  if (k->maskH <= 0) k->maskH = k->nHeads;
+  if (k->maskH != 1 && k->maskH != k->nHeads) {
+    throw_msg(env, "IreeKvSession: bad spec (maskHeads must be 0, 1 or nHeads)"); free(k); return 0;
   }
   k->kv = calloc((size_t)2 * k->nLayers, sizeof(void*)); k->len = calloc((size_t)k->nLayers, sizeof(int));
 
@@ -321,12 +416,25 @@ JNIEXPORT jlong JNICALL JNIFN(nativeCreate)(JNIEnv* env, jobject thiz, jstring j
   iree_runtime_instance_options_use_all_available_drivers(&io);
   iree_status_t st = iree_runtime_instance_create(&io, iree_allocator_system(), &k->inst);
   if (iree_status_is_ok(st)) st = iree_runtime_instance_try_create_default_device(k->inst, iree_make_cstring_view(dev), &k->dev);
+  /* qwen-kv-v1 merged-module contract: prefill/chunk/withPast are three functions of one vmfb
+   * sharing one parameter archive. Opening three independent sessions against the same file would
+   * triple the resident bf16 parameter bytes (~1-1.2 GB) in a 32-bit process -- detect the shared
+   * case by comparing paths and open exactly one session, aliasing the other two Graphs onto it
+   * (graph_alias). Distinct paths (the FunctionGemma three-archive contract) keep the original
+   * one-session-per-graph behaviour unchanged. */
+  int shared = vPF && iPF && fPF && strcmp(vWP, vCH) == 0 && strcmp(iWP, iCH) == 0 &&
+               strcmp(vWP, vPF) == 0 && strcmp(iWP, iPF) == 0;
   iree_io_parameter_index_t* wpIndex = NULL;
   if (iree_status_is_ok(st)) st = graph_open(k, &k->withPast, vWP, iWP, fWP, &wpIndex);
   if (iree_status_is_ok(st) && !locate_embedding(k, iWP, wpIndex)) st = iree_make_status(IREE_STATUS_NOT_FOUND, "no vocab x hidden bf16 embedding entry in the with-past archive");
   if (wpIndex) iree_io_parameter_index_release(wpIndex);
-  if (iree_status_is_ok(st)) st = graph_open(k, &k->chunk, vCH, iCH, fCH, NULL);
-  if (iree_status_is_ok(st) && vPF && iPF && fPF) { st = graph_open(k, &k->prefill, vPF, iPF, fPF, NULL); k->hasPrefill = iree_status_is_ok(st); }
+  if (shared) {
+    if (iree_status_is_ok(st)) graph_alias(&k->chunk, &k->withPast, fCH);
+    if (iree_status_is_ok(st)) { graph_alias(&k->prefill, &k->withPast, fPF); k->hasPrefill = 1; }
+  } else {
+    if (iree_status_is_ok(st)) st = graph_open(k, &k->chunk, vCH, iCH, fCH, NULL);
+    if (iree_status_is_ok(st) && vPF && iPF && fPF) { st = graph_open(k, &k->prefill, vPF, iPF, fPF, NULL); k->hasPrefill = iree_status_is_ok(st); }
+  }
 
   (*env)->ReleaseStringUTFChars(env, jdev, dev);
   (*env)->ReleaseStringUTFChars(env, jvmfbWithPast, vWP); (*env)->ReleaseStringUTFChars(env, jirpaWithPast, iWP); (*env)->ReleaseStringUTFChars(env, jfnWithPast, fWP);
@@ -340,7 +448,7 @@ JNIEXPORT jlong JNICALL JNIFN(nativeCreate)(JNIEnv* env, jobject thiz, jstring j
     if (k->dev) iree_hal_device_release(k->dev); if (k->inst) iree_runtime_instance_release(k->inst);
     free(k->kv); free(k->len); free(k); return 0;
   }
-  __android_log_print(ANDROID_LOG_INFO, TAG, "session open: device=%s layers=%d headDim=%d heads=%d window=%d chunk=%d prefill=%d", dev, k->nLayers, k->headDim, k->nHeads, k->window, k->chunkC, k->hasPrefill);
+  __android_log_print(ANDROID_LOG_INFO, TAG, "session open: device=%s layers=%d headDim=%d heads=%d nKV=%d window=%d period=%d chunk=%d prefill=%d shared=%d", dev, k->nLayers, k->headDim, k->nHeads, k->nKV, k->window, k->period, k->chunkC, k->hasPrefill, shared);
   return (jlong)(intptr_t)k;
 }
 
@@ -400,16 +508,22 @@ JNIEXPORT jint JNICALL JNIFN(nativeChunk)(JNIEnv* env, jobject thiz, jlong h, ji
   jsize got = (*env)->GetArrayLength(env, jtoks);
   if (n <= 0 || n > C || got < n) { throw_msg(env, "chunk: n must be in 1..chunk and <= tokens.length"); return -1; }
   if (k->len[0] == 0) { throw_msg(env, "chunk: empty cache — prefill first"); return -1; }
+  /* period == 1 (qwen-kv-v1: every layer "global") means the traced graph has no sliding-side
+   * RoPE/mask inputs at all -- is_global() is then true for every layer, so the S-side branches
+   * below are never taken either way, but skip building the S-side host arrays and buffer views
+   * entirely rather than compute-and-discard them, and drop them from the input count. */
+  int hasSliding = k->period > 1;
   int32_t* toks = calloc((size_t)C, 4); jint* src = (*env)->GetIntArrayElements(env, jtoks, 0);
   for (int i = 0; i < n; ++i) toks[i] = (int32_t)src[i]; (*env)->ReleaseIntArrayElements(env, jtoks, src, JNI_ABORT);
   int hd = k->headDim;
   float* emb = malloc((size_t)C * k->hidden * 4); embed_rows(k, toks, n, C, emb);
-  float* cosS = malloc((size_t)C * hd * 4); float* sinS = malloc((size_t)C * hd * 4);
+  float* cosS = NULL; float* sinS = NULL;
   float* cosG = malloc((size_t)C * hd * 4); float* sinG = malloc((size_t)C * hd * 4);
-  rope_rows(k, k->pos, C, k->baseS, cosS, sinS); rope_rows(k, k->pos, C, k->baseG, cosG, sinG);
+  if (hasSliding) { cosS = malloc((size_t)C * hd * 4); sinS = malloc((size_t)C * hd * 4); rope_rows(k, k->pos, C, k->baseS, cosS, sinS); }
+  rope_rows(k, k->pos, C, k->baseG, cosG, sinG);
   float* sel = calloc((size_t)C, 4); sel[n - 1] = 1.0f;
 
-  int nIn = 2 + 4 + 2 * k->nLayers + 2 + 1, nOut = 2 * k->nLayers + 1;
+  int nIn = 2 + (hasSliding ? 4 : 2) + 2 * k->nLayers + (hasSliding ? 2 : 1) + 1, nOut = 2 * k->nLayers + 1;
   iree_hal_buffer_view_t** ins = calloc((size_t)nIn, sizeof(void*));
   iree_hal_buffer_view_t** outs = calloc((size_t)nOut, sizeof(void*));
   iree_hal_buffer_view_t** cK = calloc((size_t)k->nLayers, sizeof(void*)); iree_hal_buffer_view_t** cV = calloc((size_t)k->nLayers, sizeof(void*));
@@ -419,28 +533,28 @@ JNIEXPORT jint JNICALL JNIFN(nativeChunk)(JNIEnv* env, jobject thiz, jlong h, ji
   iree_hal_dim_t dT[1] = {(iree_hal_dim_t)C}, dE[2] = {(iree_hal_dim_t)C, (iree_hal_dim_t)k->hidden}, dR[2] = {(iree_hal_dim_t)C, (iree_hal_dim_t)hd}, dSel[2] = {1, (iree_hal_dim_t)C};
   iree_hal_buffer_view_t *vCosS = NULL, *vSinS = NULL, *vCosG = NULL, *vSinG = NULL, *vMaskS = NULL, *vMaskG = NULL;
   if (iree_status_is_ok(st)) {
-    maskS = malloc((size_t)k->nHeads * C * (pastS + C) * 4); chunk_mask(k, pastS, n, k->window, maskS);
-    maskG = malloc((size_t)k->nHeads * C * (pastG + C) * 4); chunk_mask(k, pastG, n, 0, maskG);
-    iree_hal_dim_t dMS[4] = {1, (iree_hal_dim_t)k->nHeads, (iree_hal_dim_t)C, (iree_hal_dim_t)(pastS + C)};
-    iree_hal_dim_t dMG[4] = {1, (iree_hal_dim_t)k->nHeads, (iree_hal_dim_t)C, (iree_hal_dim_t)(pastG + C)};
+    if (hasSliding) { maskS = malloc((size_t)k->maskH * C * (pastS + C) * 4); chunk_mask(k, pastS, n, k->window, maskS); }
+    maskG = malloc((size_t)k->maskH * C * (pastG + C) * 4); chunk_mask(k, pastG, n, 0, maskG);
+    iree_hal_dim_t dMS[4] = {1, (iree_hal_dim_t)k->maskH, (iree_hal_dim_t)C, (iree_hal_dim_t)(pastS + C)};
+    iree_hal_dim_t dMG[4] = {1, (iree_hal_dim_t)k->maskH, (iree_hal_dim_t)C, (iree_hal_dim_t)(pastG + C)};
     int i = 0;
     st = view_i32(k, toks, 1, dT, &ins[i++]);
     if (iree_status_is_ok(st)) st = view_f32(k, emb, 2, dE, &ins[i++]);
-    if (iree_status_is_ok(st)) st = view_f32(k, cosS, 2, dR, &vCosS);
-    if (iree_status_is_ok(st)) st = view_f32(k, sinS, 2, dR, &vSinS);
+    if (iree_status_is_ok(st) && hasSliding) st = view_f32(k, cosS, 2, dR, &vCosS);
+    if (iree_status_is_ok(st) && hasSliding) st = view_f32(k, sinS, 2, dR, &vSinS);
     if (iree_status_is_ok(st)) st = view_f32(k, cosG, 2, dR, &vCosG);
     if (iree_status_is_ok(st)) st = view_f32(k, sinG, 2, dR, &vSinG);
-    if (iree_status_is_ok(st)) st = view_f32(k, maskS, 4, dMS, &vMaskS);
+    if (iree_status_is_ok(st) && hasSliding) st = view_f32(k, maskS, 4, dMS, &vMaskS);
     if (iree_status_is_ok(st)) st = view_f32(k, maskG, 4, dMG, &vMaskG);
     if (iree_status_is_ok(st)) {
       int introS = 0, introG = 0;
       for (int l = 0; l < k->nLayers; ++l) {
         int g = is_global(k, l);
         if (g && !introG) { ins[i++] = vCosG; ins[i++] = vSinG; }
-        if (!g && !introS) { ins[i++] = vCosS; ins[i++] = vSinS; }
+        if (hasSliding && !g && !introS) { ins[i++] = vCosS; ins[i++] = vSinS; }
         ins[i++] = cK[l]; ins[i++] = cV[l];
         if (g && !introG) { ins[i++] = vMaskG; introG = 1; }
-        if (!g && !introS) { ins[i++] = vMaskS; introS = 1; }
+        if (hasSliding && !g && !introS) { ins[i++] = vMaskS; introS = 1; }
       }
       st = view_f32(k, sel, 2, dSel, &ins[i++]);
       if (iree_status_is_ok(st) && i != nIn) st = iree_make_status(IREE_STATUS_INTERNAL, "chunk: assembled %d inputs, expected %d", i, nIn);
@@ -474,9 +588,12 @@ JNIEXPORT jint JNICALL JNIFN(nativeStep)(JNIEnv* env, jobject thiz, jlong h, jin
   float* emb = malloc((size_t)k->hidden * 4); embed_rows(k, &t, 1, 1, emb);
   float cosS[1024], sinS[1024], cosG[1024], sinG[1024];
   if (hd > 1024) { throw_msg(env, "step: headDim > 1024 unsupported"); free(emb); return -1; }
-  rope_rows(k, k->pos, 1, k->baseS, cosS, sinS); rope_rows(k, k->pos, 1, k->baseG, cosG, sinG);
+  /* see nativeChunk: period == 1 (qwen-kv-v1) means no sliding-side inputs in the traced graph. */
+  int hasSliding = k->period > 1;
+  if (hasSliding) rope_rows(k, k->pos, 1, k->baseS, cosS, sinS);
+  rope_rows(k, k->pos, 1, k->baseG, cosG, sinG);
 
-  int nIn = 2 + 4 + 2 * k->nLayers, nOut = 2 * k->nLayers + 1;
+  int nIn = 2 + (hasSliding ? 4 : 2) + 2 * k->nLayers, nOut = 2 * k->nLayers + 1;
   iree_hal_buffer_view_t** ins = calloc((size_t)nIn, sizeof(void*));
   iree_hal_buffer_view_t** outs = calloc((size_t)nOut, sizeof(void*));
   iree_hal_buffer_view_t** cK = calloc((size_t)k->nLayers, sizeof(void*)); iree_hal_buffer_view_t** cV = calloc((size_t)k->nLayers, sizeof(void*));
@@ -488,8 +605,8 @@ JNIEXPORT jint JNICALL JNIFN(nativeStep)(JNIEnv* env, jobject thiz, jlong h, jin
     int i = 0;
     st = view_i32(k, &t, 1, dT, &ins[i++]);
     if (iree_status_is_ok(st)) st = view_f32(k, emb, 2, dE, &ins[i++]);
-    if (iree_status_is_ok(st)) st = view_f32(k, cosS, 2, dR, &vCosS);
-    if (iree_status_is_ok(st)) st = view_f32(k, sinS, 2, dR, &vSinS);
+    if (iree_status_is_ok(st) && hasSliding) st = view_f32(k, cosS, 2, dR, &vCosS);
+    if (iree_status_is_ok(st) && hasSliding) st = view_f32(k, sinS, 2, dR, &vSinS);
     if (iree_status_is_ok(st)) st = view_f32(k, cosG, 2, dR, &vCosG);
     if (iree_status_is_ok(st)) st = view_f32(k, sinG, 2, dR, &vSinG);
     if (iree_status_is_ok(st)) {
@@ -497,7 +614,7 @@ JNIEXPORT jint JNICALL JNIFN(nativeStep)(JNIEnv* env, jobject thiz, jlong h, jin
       for (int l = 0; l < k->nLayers; ++l) {
         int g = is_global(k, l);
         if (g && !introG) { ins[i++] = vCosG; ins[i++] = vSinG; introG = 1; }
-        if (!g && !introS) { ins[i++] = vCosS; ins[i++] = vSinS; introS = 1; }
+        if (hasSliding && !g && !introS) { ins[i++] = vCosS; ins[i++] = vSinS; introS = 1; }
         ins[i++] = cK[l]; ins[i++] = cV[l];
       }
       if (i != nIn) st = iree_make_status(IREE_STATUS_INTERNAL, "step: assembled %d inputs, expected %d", i, nIn);
