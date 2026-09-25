@@ -83,8 +83,8 @@
 #define FE_OUT (CHUNK + FE_LC)             /* 68 frames out */
 #define MAXMEM 256        /* compiled cross-memory pad (5.12 s of finalized speech) */
 #define MAXTOK 48
-#define FINISH_TOKENS 24  /* C&C final budget: 5.12 s of speech never needs more; halves the
-                             worst-case finalize when the decode loops instead of stopping */
+#define FINISH_TOKENS 24  /* hard ceiling for the final budget (see finish_budget) */
+#define TOKENS_PER_SAMPLE (6.5f / 16000.0f)  /* the model card's cap: max_new_tokens = samples * 6.5/16000 + 2 */
 #define HOP_TOKENS 6      /* max new tokens decoded per hop (budget guard) */
 #define RESTART_HOPS 2    /* first hops re-decode exactly instead of incrementally */
 #define PEEK_FRAMES 36    /* early-peek window: first partial at ~0.72 s instead of 1.28 s */
@@ -271,6 +271,19 @@ static iree_hal_buffer_view_t* run1(Engine* e, iree_runtime_session_t* s, const 
     iree_runtime_call_outputs_pop_front_buffer_view(&c, &out);
   iree_runtime_call_deinitialize(&c);
   return out;
+}
+
+/* The model card's output-length cap, in tokens, for `npcm` samples of audio:
+ *   max_new_tokens = samples * 6.5 / 16000 + 2
+ * A fixed budget lets a short clip keep decoding long after the audio is spent, which is exactly
+ * when this model loops ("Lauter, lauter", "Kanal, vorheriges Kanal, vorher") — the card names
+ * short clips as its weak point and capping the length as the cure. Floored at 4 so a one-word
+ * command still has room, ceilinged at the previous fixed budget so nothing decodes longer than before. */
+static int finish_budget(int npcm) {
+  int b = (int)(npcm * TOKENS_PER_SAMPLE) + 2;
+  if (b < 4) b = 4;
+  if (b > FINISH_TOKENS) b = FINISH_TOKENS;
+  return b;
 }
 
 /* Process one encoder window starting at feature frame `start`; finalize rows into e->mem. */
@@ -697,16 +710,27 @@ JNIEXPORT jstring JNICALL JNIFN(nativeFinish)(JNIEnv* env, jobject thiz, jlong h
   Engine* e = (Engine*)(intptr_t)handle; if (!e) return NULL;
   double t0 = now_ms();
   int produced = e->npcm / SPF;
-  /* flush remaining windows (zero-padded), lookahead released */
+  /* Flush the remaining windows, lookahead released. The encoder graph takes features only — it has
+   * no attention mask — so a window running past the end of the audio has its tail zero-padded and
+   * the encoder attends to that silence as if it were speech. For the last window we therefore pull
+   * `start` back so the window ENDS on the final frame: every one of its CHUNK frames is then real
+   * audio, and the rows still missing from memory are computed with a full right context. Only
+   * possible when the utterance is at least one window long and the pulled-back start does not run
+   * ahead of what is already finalized; a clip shorter than CHUNK still needs a real mask. */
   while (e->nmem < produced && e->nmem < MAXMEM) {
-    if (process_window(e, e->win * HOP, produced, 1, 0)) break;
+    int start = e->win * HOP;
+    if (start + CHUNK > produced && produced >= CHUNK) {
+      int aligned = produced - CHUNK;
+      if (aligned < start && aligned <= e->nmem) start = aligned;
+    }
+    if (process_window(e, start, produced, 1, 0)) break;
     e->win++;
   }
   jstring out = NULL;
   if (e->nmem > 0) {
     /* exact: fresh decode over the final memory */
     release_self(e); e->ntoks = 0; e->pos = 0; e->text[0] = 0;
-    if (run_prefill(e, 1) == 0) run_steps(e, FINISH_TOKENS, 1);
+    if (run_prefill(e, 1) == 0) run_steps(e, finish_budget(e->npcm), 1);
     if (!e->ended_eos) drop_restart_suffix(e);
     /* C&C utterances are single sentences; on a silent tail the greedy decode restarts the
      * utterance instead of emitting EOS ("Go to the next. Go to next") — same failure and
@@ -716,8 +740,8 @@ JNIEXPORT jstring JNICALL JNIFN(nativeFinish)(JNIEnv* env, jobject thiz, jlong h
     }
     const char* p = e->text; while (*p == ' ') ++p;
     out = (*env)->NewStringUTF(env, p);
-    TLOG("finish %.0fms nmem %d toks %d \"%s\"\n",
-            now_ms() - t0, e->nmem, e->ntoks, p);
+    TLOG("finish %.0fms nmem %d toks %d/%d \"%s\"\n",
+            now_ms() - t0, e->nmem, e->ntoks, finish_budget(e->npcm), p);
   }
   reset_utterance(e);
   return out;
