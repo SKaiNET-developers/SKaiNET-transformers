@@ -74,6 +74,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   prefill is itself out-of-distribution for it). Measured on an 8-utterance zero-shot tool-calling set: 0/8 and 1/8
   under generic ChatML / `QwenChatTemplate` vs 4-5/8 with this template.
 
+### Changed — Moonshine v2 streaming: the final decode budget follows the model card (#455)
+
+- **`nativeFinish` caps the exact re-decode at `max_new_tokens = samples * 6.5/16000 + 2`**
+  (`llm-runtime:iree-android`, `moonshine_stream_jni.c`), the output-length cap the Moonshine v2
+  model card specifies, instead of a fixed 24 tokens regardless of how much audio the utterance
+  held. Without it a short clip keeps decoding long after the audio is spent, and the greedy decode
+  spends the remaining budget restarting the utterance rather than stopping. The budget is floored
+  at 4 so a one-word command still has room and ceilinged at the previous fixed 24, so nothing
+  decodes longer than before — above roughly 3.4 s of audio the formula exceeds the ceiling and the
+  change is a no-op. The `finish` trace line now reports tokens used against the budget.
+- **Measured** on 183 German command-and-control recordings on a Mali device, using clips above the
+  threshold as a control group: below it the turn finishes **0.58 s sooner** (paired median, faster
+  in 135 of 172); above it unchanged (+0.09 s, 11 recordings). Median word error rate does not move.
+  The saving appears exactly where the cap can act and nowhere else.
+- The zero-padded final encoder window is a separate, still-open gap (#458): the encoder graph takes
+  features only and carries no attention mask, and moving the window is not the fix — a variant that
+  end-aligned it measured no effect on those same 11 control recordings and was dropped from #455.
+
 ## [0.56.2] — 2026-09-22
 
 A transformers-only release against **SKaiNET engine 0.56.0** (unchanged).
