@@ -60,6 +60,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the hinted `dynamic_broadcast_in_dim` IREE 3.11 lowers for the head-shared chunk mask.
   With all three, the Qwen3-0.6B `qwen_prefill_at` (seq 1024), `qwen_prefill_with_past` and
   `qwen_with_past` graphs compile for both `vulkan-spirv valhall4` and `llvm-cpu arm32`.
+- **`QwenVmfbParityTest`** (`llm-inference:qwen`, gated on `QWEN3_06B_GGUF` and docker): the compiled
+  Qwen3-0.6B graphs, exported as they ship (bf16, host-gather, padded argMax, head-shared mask), run on
+  host IREE through `iree-run-module` exactly as the native session drives them (prefill-at over 3
+  prompt tokens, one 32-token chunk call, 31 decode steps) and reproduce mainline llama.cpp's 32 greedy
+  tokens exactly (fixture `qwen3-06b/golden-greedy-06b.txt`, smallest top-1/top-2 gap 2.35 nats). The
+  run's evidence record is `llm-inference/qwen/validation/L3-qwen3-06b-host-vmfb.json`.
 - **`Qwen25ChatTemplate`** (`llm-agent`): faithful to Qwen2.5-Instruct's official `chat_template`
   (verified against a real Jinja2 render of `Qwen/Qwen2.5-0.5B-Instruct`'s `tokenizer_config.json`
   fetched from huggingface.co) — a default "You are Qwen, created by Alibaba Cloud…" persona when
