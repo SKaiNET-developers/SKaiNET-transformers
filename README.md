@@ -109,18 +109,16 @@ Honest status — see the project-status note at the top of this README.
 
 ## Current release
 
-The current release is **0.56.2** (against **SKaiNET 0.56.0** — a transformers-only release, same
-pattern as 0.54.1: no new engine version needed).
+The current release is **0.57.0**, in lock-step with **SKaiNET 0.57.0**.
 
-**`IreeMoonshineStream`: the streaming Moonshine v2 speech-to-text runtime.** `libskainet_moonshine_stream.so`
-(`llm-runtime:iree-android`, arm64-v8a + armeabi-v7a, Vulkan or CPU) drives the five graphs of
-`MoonshineV2ExportCli` — frontend, encoder, adapter, masked prefill, dynamic with-past step — plus the
-shared decoder parameter archive as a real streaming loop on the device: PCM in, cumulative partial
-transcripts out, one exact full re-decode on `finish()`. The Kotlin binding is shaped like `IreeKvSession`:
-files by absolute path, no `Context`. With the exporter (0.56.1) this is the last piece a Moonshine
-cartridge needed from a released artifact rather than from C source of its own.
+**Engine 0.57.0 and Kotlin 2.4.20.** The engine fixes the StableHLO export of an explicit attention mask
+under grouped-query attention and onto a dynamic key length, the shape of a chunked-prefill graph over a
+KV cache. **The FunctionGemma export contract now carries the embedding geometry** (`vocabSize`,
+`nHeads`, `hiddenSize`, `slidingWindow`) into `manifest.json`, read from the checkpoint, so a fine-tune
+with added special tokens exports and runs without its new tokens silently collapsing to token 0.
 
-It builds on **0.56.1**, which released `MoonshineV2ExportCli` (a Hugging Face snapshot in, the five
+It builds on **0.56.2**, which released `IreeMoonshineStream`, the streaming Moonshine v2 runtime on the
+device; **0.56.1**, which released `MoonshineV2ExportCli` (a Hugging Face snapshot in, the five
 StableHLO graphs and two host-side tables out, no Python, nothing to configure per language or size), and
 **0.56.0**, which put the two version lines back in lock-step with **SKaiNET 0.56.0** (the engine skipped
 0.55.0 to realign them).
@@ -256,7 +254,7 @@ The recommended way to consume is via the BOM. It pins every published `skainet-
 
 ```kotlin
 dependencies {
-    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.56.2"))
+    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.57.0"))
 
     // Versions resolved from the BOM:
     implementation("sk.ainet.transformers:skainet-transformers-core")
