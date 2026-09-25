@@ -1,0 +1,14 @@
+# Qwen3-0.6B Q8_0 greedy parity fixture (L3 host vmfb oracle, qwen-kv-v1)
+#
+# Oracle: MAINLINE llama.cpp (brew, version 0.3.0 build 10621 commit c1d0e7a00), CPU.
+# Checkpoint: Qwen3-0.6B-Q8_0.gguf, sha256 9465e63a22add5354d9bb4b99e90117043c7124007664907259bd16d043bb031.
+# Greedy decisiveness: the oracle's smallest top-1/top-2 logprob gap across all 32 steps is 2.35
+# nats (step 0), far above Q8_0 cross-implementation noise. Qwen GGUFs add no BOS token.
+#   llama-server -m Qwen3-0.6B-Q8_0.gguf -ngl 0 -t 4 --port 8816
+#   curl :8816/tokenize   -d '{"content": "The first ten prime numbers are", "add_special": true}'
+#   curl :8816/completion -d '{"prompt": "The first ten prime numbers are", "n_predict": 32, "temperature": 0, "top_k": 1, "n_probs": 2, "return_tokens": true, "cache_prompt": false}'
+prompt=The first ten prime numbers are
+steps=32
+prompt_tokens=785,1156,5779,10250,5109,525
+oracle_tokens=220,17,11,220,18,11,220,20,11,220,22,11,220,16,16,11,220,16,18,11,220,16,22,11,220,16,24,11,220,17,18,11
+oracle_text= 2, 3, 5, 7, 11, 13, 17, 19, 23,

@@ -1,0 +1,65 @@
+{
+  "rung": "L3",
+  "id": "qwen3-06b-host-vmfb-greedy32",
+  "subject": {
+    "model": "Qwen3-0.6B-Q8_0",
+    "contract": "qwen-kv-v1",
+    "weights": "bf16",
+    "host_gather": true,
+    "checkpoint_sha256": "9465e63a22add5354d9bb4b99e90117043c7124007664907259bd16d043bb031"
+  },
+  "oracle": {
+    "kind": "llama.cpp",
+    "build": "0.3.0 build 10621 commit c1d0e7a00",
+    "fixture": "qwen3-06b/golden-greedy-06b.txt",
+    "min_top2_gap_nats": 2.35
+  },
+  "runner": {
+    "tool": "iree-run-module",
+    "image": "skainet/iree-compiler:3.11.0",
+    "target": "llvm-cpu host",
+    "flow": "prefill_at(3) + chunk(32) + with_past"
+  },
+  "metric": {
+    "tokens_compared": 32,
+    "first_divergence": null,
+    "tokens": [
+      220,
+      17,
+      11,
+      220,
+      18,
+      11,
+      220,
+      20,
+      11,
+      220,
+      22,
+      11,
+      220,
+      16,
+      16,
+      11,
+      220,
+      16,
+      18,
+      11,
+      220,
+      16,
+      22,
+      11,
+      220,
+      16,
+      24,
+      11,
+      220,
+      17,
+      18,
+      11
+    ]
+  },
+  "tolerance": 0,
+  "result": "pass",
+  "when": "2026-09-25",
+  "produced_by": "QwenVmfbParityTest"
+}

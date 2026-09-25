@@ -9,6 +9,71 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Qwen on the compiled IREE KV path (closes #411, #409)
+
+- **`IreeKvSession` / `IreeKvSpec` generalized for GQA and single-RoPE-base models**
+  (`llm-runtime:iree-android`): `nKvHeads` may now be any value with `nHeads % nKvHeads == 0`
+  (grouped-query attention — Qwen2.5-0.5B nKvHeads=2, Qwen3-0.6B nKvHeads=8), not just
+  FunctionGemma's plain multi-head `nKvHeads == 1`. `globalLayerPeriod == 1` (every layer
+  "global") skips building the sliding-side RoPE/mask tensors entirely for models with no
+  sliding-window/global split — the qwen-kv-v1 shape. New optional `IreeKvSpec.maskHeads`
+  (`0` = `nHeads`, the default and FunctionGemma's per-head mask; `1` = one head-shared chunk mask
+  `[1, 1, C, past+C]`, what the Qwen factories and `manifest.json` set, read by `fromManifest`);
+  the mask rows never depended on the head, so this only shrinks the buffer. The 11-argument
+  constructor stays (`@JvmOverloads`). `nativeCreate` opens one shared IREE session
+  when the same vmfb+irpa path is passed for all three graphs — the merged-module design a
+  three-archive-per-model contract can't fit in a 32-bit process. `IreeKvSpec.qwen25_05bInstruct()`
+  / `qwen3_06b()` factories. FunctionGemma's behaviour and binary compatibility are unchanged.
+- **`DecoderKvModel`** (`llm-core`): an architecture-neutral KV-cache decode path
+  (`forwardPrefillAt` / `forwardPrefillWithPast` / `forwardWithPast`) over any
+  `decoderTransformerNetwork`-built module — the `GemmaModel` with-past forwards, generalized:
+  GQA-native SDPA (no `expandKV`), Q/K/V/O projection bias support, one RoPE base, no sandwich
+  norms/PLE/softcapping. Verified numerically identical to the eager reference path.
+- **`QwenKvArch` / `QwenKvContract`** (`llm-inference:qwen`, commonMain): the qwen-kv-v1
+  manifest contract (`manifest.json` emission, arg/output orders for `qwen_prefill_at` /
+  `qwen_prefill_with_past` / `qwen_with_past`), architecture facts derived from the loaded
+  checkpoint (GQA, QK-norm, attention bias) rather than hardcoded per model.
+- **`QwenExportHarness` / `QwenExportCli`** (`llm-inference:qwen`, jvmMain,
+  `:llm-inference:qwen:exportQwen`): traces the three qwen-kv-v1 graphs from a Qwen2/Qwen3 GGUF
+  and emits StableHLO MLIR + bf16 safetensors + `manifest.json`, following
+  `FunctionGemmaExportHarness`'s structure. Verified against both real checkpoints: Qwen3-0.6B
+  exports correctly end to end (all three graphs, real weights, dynamic KV-cache dims). **Known
+  gap**: Qwen2.5-0.5B-Instruct's attention bias does not externalize as a baked weight during
+  tracing — it leaks into the compiled function's signature as a runtime argument instead (a
+  SKaiNET core tracer gap: `ModuleParameter.BiasParameter` isn't recognized as an externalizable
+  constant the way `WeightParameter` is; no existing harness in this repo had ever traced a
+  bias-bearing attention layer before this one). Qwen2.5-0.5B export is blocked on a SKaiNET core
+  fix; Qwen3-0.6B is not. Per-graph archives for now, not the merged single-archive design
+  qwen-kv-v1 calls for — `IreeKvSession`'s non-shared path already supports this at
+  FunctionGemma's existing three-archive memory cost; the merge is tracked as a follow-up.
+  **Vulkan (valhall4) compiles.** The first real compile crashed in
+  `SPIRVInitialVectorLoweringPass`; bisecting on real Qwen3-0.6B exports found three independent
+  causes, none of them bf16: (1) IREE 3.11's SPIR-V backend cannot lower the fused argMax
+  reduction unless its extent is a multiple of 2048 (the 151936 vocab fails, FunctionGemma's
+  262144 does not), so the harness pads the logits row with a finite minimum to 153600 before the
+  argMax, leaving real logits and the returned id unchanged; (2) the in-graph token-embedding
+  gather does not lower either, so `QWEN_HOST_GATHER=1` applies the host-gather rewrite to every
+  function (the contract's `emb` argument, what the native runtime already passes) — both are
+  post-emit rewrites, unit-tested in `QwenExportRewriteTest`; (3) SKaiNET 0.56.0's SDPA converter
+  emitted a static `broadcast_in_dim` of the chunk mask onto the dynamic grouped-query scores
+  shape, invalid on every backend — fixed in the engine (SKaiNET#1302, 0.57.0), which now emits
+  the hinted `dynamic_broadcast_in_dim` IREE 3.11 lowers for the head-shared chunk mask.
+  With all three, the Qwen3-0.6B `qwen_prefill_at` (seq 1024), `qwen_prefill_with_past` and
+  `qwen_with_past` graphs compile for both `vulkan-spirv valhall4` and `llvm-cpu arm32`.
+- **`QwenVmfbParityTest`** (`llm-inference:qwen`, gated on `QWEN3_06B_GGUF` and docker): the compiled
+  Qwen3-0.6B graphs, exported as they ship (bf16, host-gather, padded argMax, head-shared mask), run on
+  host IREE through `iree-run-module` exactly as the native session drives them (prefill-at over 3
+  prompt tokens, one 32-token chunk call, 31 decode steps) and reproduce mainline llama.cpp's 32 greedy
+  tokens exactly (fixture `qwen3-06b/golden-greedy-06b.txt`, smallest top-1/top-2 gap 2.35 nats). The
+  run's evidence record is `llm-inference/qwen/validation/L3-qwen3-06b-host-vmfb.json`.
+- **`Qwen25ChatTemplate`** (`llm-agent`): faithful to Qwen2.5-Instruct's official `chat_template`
+  (verified against a real Jinja2 render of `Qwen/Qwen2.5-0.5B-Instruct`'s `tokenizer_config.json`
+  fetched from huggingface.co) — a default "You are Qwen, created by Alibaba Cloud…" persona when
+  the caller supplies no system message, and no `<think>` handling anywhere (Qwen2.5 predates
+  thinking mode entirely; `QwenChatTemplate(enableThinking = false)`'s empty `<think></think>`
+  prefill is itself out-of-distribution for it). Measured on an 8-utterance zero-shot tool-calling set: 0/8 and 1/8
+  under generic ChatML / `QwenChatTemplate` vs 4-5/8 with this template.
+
 ## [0.56.2] — 2026-09-22
 
 A transformers-only release against **SKaiNET engine 0.56.0** (unchanged).
