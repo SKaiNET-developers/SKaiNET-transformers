@@ -275,10 +275,13 @@ static iree_hal_buffer_view_t* run1(Engine* e, iree_runtime_session_t* s, const 
 
 /* The model card's output-length cap, in tokens, for `npcm` samples of audio:
  *   max_new_tokens = samples * 6.5 / 16000 + 2
- * A fixed budget lets a short clip keep decoding long after the audio is spent, which is exactly
- * when this model loops ("Lauter, lauter", "Kanal, vorheriges Kanal, vorher") — the card names
- * short clips as its weak point and capping the length as the cure. Floored at 4 so a one-word
- * command still has room, ceilinged at the previous fixed budget so nothing decodes longer than before. */
+ * A fixed budget lets a short clip keep decoding long after the audio is spent, and the greedy
+ * decode spends that budget restarting the utterance rather than stopping. Floored at 4 so a
+ * one-word command still has room, ceilinged at the previous fixed budget so nothing decodes
+ * longer than before — above ~3.4 s of audio the formula exceeds the ceiling and this is a no-op.
+ * Measured on 183 German command-and-control recordings on a Mali device: clips below that
+ * threshold finish 0.58 s sooner (paired median, faster in 135 of 172), clips above it are
+ * unchanged (+0.09 s, 11 recordings), and the median word error rate does not move. */
 static int finish_budget(int npcm) {
   int b = (int)(npcm * TOKENS_PER_SAMPLE) + 2;
   if (b < 4) b = 4;
@@ -710,20 +713,9 @@ JNIEXPORT jstring JNICALL JNIFN(nativeFinish)(JNIEnv* env, jobject thiz, jlong h
   Engine* e = (Engine*)(intptr_t)handle; if (!e) return NULL;
   double t0 = now_ms();
   int produced = e->npcm / SPF;
-  /* Flush the remaining windows, lookahead released. The encoder graph takes features only — it has
-   * no attention mask — so a window running past the end of the audio has its tail zero-padded and
-   * the encoder attends to that silence as if it were speech. For the last window we therefore pull
-   * `start` back so the window ENDS on the final frame: every one of its CHUNK frames is then real
-   * audio, and the rows still missing from memory are computed with a full right context. Only
-   * possible when the utterance is at least one window long and the pulled-back start does not run
-   * ahead of what is already finalized; a clip shorter than CHUNK still needs a real mask. */
+  /* flush remaining windows (zero-padded), lookahead released */
   while (e->nmem < produced && e->nmem < MAXMEM) {
-    int start = e->win * HOP;
-    if (start + CHUNK > produced && produced >= CHUNK) {
-      int aligned = produced - CHUNK;
-      if (aligned < start && aligned <= e->nmem) start = aligned;
-    }
-    if (process_window(e, start, produced, 1, 0)) break;
+    if (process_window(e, e->win * HOP, produced, 1, 0)) break;
     e->win++;
   }
   jstring out = NULL;
