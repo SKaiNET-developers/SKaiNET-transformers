@@ -32,7 +32,7 @@ From your own build, resolve the published module and run its main class:
 ----
 val exportTool by configurations.creating
 dependencies {
-    exportTool(platform("sk.ainet.transformers:skainet-transformers-bom:0.56.2"))
+    exportTool(platform("sk.ainet.transformers:skainet-transformers-bom:0.57.0"))
     exportTool("sk.ainet.transformers:skainet-transformers-inference-moonshine")
 }
 tasks.register<JavaExec>("exportMoonshine") {
