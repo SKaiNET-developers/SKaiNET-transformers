@@ -59,6 +59,37 @@ public class IreeMoonshineStream(
     /** Abort the current utterance, keep the engine. */
     public fun reset() { if (handle != 0L) nativeReset(handle) }
 
+    /**
+     * What the last [finish] cost, by stage. Empty before the first one, and valid until the next.
+     *
+     * These numbers were only ever written to logcat, so a caller wanting to know where recognition
+     * spent its time had to scrape the device log. They are the same figures the `moonshine-timing`
+     * `finish` line prints:
+     *
+     * - `flushMs`, `decodeMs`, `finishMs` — turning the remaining audio into memory rows, the exact
+     *   final decode, and their sum. The decode is normally the larger half.
+     * - `lagMs` — how far the stream was behind the microphone when the utterance ended. Positive
+     *   means the audio arrived faster than it could be consumed and the caller waited for the rest.
+     * - `droppedDecodes`, `hops`, `windows` — partial decodes given up to the real-time budget,
+     *   partial decodes actually run, and encoder windows processed. Windows are the mandatory work;
+     *   a dropped decode costs a partial and cannot change the final transcript.
+     * - `memFrames`, `tokens`, `tokenBudget`, `audioMs` — the utterance's size in each unit.
+     * - `fastFinish`, `lagBudgetMs` — what this binary was compiled with, so a measurement can say
+     *   which build produced it.
+     *
+     * Deliberately a string map rather than a typed record: it crosses two more artifacts before
+     * anything consumes it, and adding a counter must not change a signature along the way.
+     */
+    public fun stats(): Map<String, String> {
+        if (handle == 0L) return emptyMap()
+        val raw = nativeStats(handle) ?: return emptyMap()
+        if (raw.isEmpty()) return emptyMap()
+        return raw.split(',').mapNotNull { pair ->
+            val k = pair.substringBefore('=', "")
+            if (k.isEmpty() || '=' !in pair) null else k to pair.substringAfter('=')
+        }.toMap()
+    }
+
     override fun close() { if (handle != 0L) { nativeDestroy(handle); handle = 0 } }
 
     private external fun nativeCreate(
@@ -68,6 +99,7 @@ public class IreeMoonshineStream(
     private external fun nativeFeedPcm(handle: Long, pcm: FloatArray): String?
     private external fun nativeFinish(handle: Long): String?
     private external fun nativeReset(handle: Long)
+    private external fun nativeStats(handle: Long): String?
     private external fun nativeDestroy(handle: Long)
 
     public companion object {

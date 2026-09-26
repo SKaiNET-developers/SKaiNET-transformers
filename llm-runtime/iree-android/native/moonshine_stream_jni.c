@@ -14,6 +14,7 @@
  *   String nativeFeedPcm(long h, float[] pcm)   // 16 kHz mono [-1,1]; returns new partial or null
  *   String nativeFinish(long h)                 // end of utterance: exact final transcript; resets
  *   void   nativeReset(long h)                  // abort utterance, keep engine
+ *   String nativeStats(long h)                  // last finish()'s counters as key=value pairs
  *   void   nativeDestroy(long h)
  *
  * Decode strategy (measured on a Mali GPU): the with_past step is ~120 ms and flat in
@@ -138,7 +139,13 @@ typedef struct {
   int halted;          /* decode hit EOS/cycle; stop continuing until the next hop */
   double t_first_feed; /* wall clock of the first fed sample, 0 before it — the real-time reference */
   int dropped;         /* partial decodes skipped because the stream had fallen behind the microphone */
+  int windows;         /* encoder windows processed this utterance (the mandatory work) */
+  int hops;            /* partial decodes actually run */
   char text[4096];
+  /* Last utterance's counters, taken before the reset so a caller can still read them afterwards.
+   * `key=value` pairs, because this travels through two more repositories before anything consumes it
+   * and adding a counter must not change a signature anywhere along the way. */
+  char stats[512];
 } Engine;
 
 static double now_ms(void) {
@@ -373,6 +380,7 @@ static int process_window(Engine* e, int start, int produced, int flush, int pee
   if (new_final > e->nmem) e->nmem = new_final;
   if (!peek && start == 0) e->peeked = 0;
   double t3 = now_ms();
+  e->windows++;
   TLOG("win %d fe %.0fms enc %.0fms adp+fin %.0fms nmem %d\n",
           e->win, t1 - t0, t2 - t1, t3 - t2, e->nmem);
   return 0;
@@ -582,7 +590,7 @@ static void warmup(Engine* e) {
   if (run_prefill(e, 1) == 0 && e->ntoks > 0) run_steps(e, 1, 0);
   e->npcm = 0; e->win = 0; e->nmem = 0;
   e->peeked = 0; e->pending = 0; e->halted = 0; e->shown_len = 0;
-  e->t_first_feed = 0.0; e->dropped = 0;
+  e->t_first_feed = 0.0; e->dropped = 0; e->windows = 0; e->hops = 0;
   release_self(e); release_cross(e);
   e->ntoks = 0; e->pos = 0; e->text[0] = 0;
   TLOG("warmup %.0fms (all pipelines compiled)\n", now_ms() - t0);
@@ -591,7 +599,7 @@ static void warmup(Engine* e) {
 static void reset_utterance(Engine* e) {
   e->npcm = 0; e->win = 0; e->nmem = 0;
   e->peeked = 0; e->pending = 0; e->halted = 0; e->shown_len = 0;
-  e->t_first_feed = 0.0; e->dropped = 0;
+  e->t_first_feed = 0.0; e->dropped = 0; e->windows = 0; e->hops = 0;
   release_self(e); release_cross(e);
   e->ntoks = 0; e->pos = 0; e->text[0] = 0;
 }
@@ -727,6 +735,7 @@ JNIEXPORT jstring JNICALL JNIFN(nativeFeedPcm)(JNIEnv* env, jobject thiz,
     if (restart) { release_self(e); e->ntoks = 0; e->pos = 0; e->text[0] = 0; }
     if (run_prefill(e, restart) == 0) run_steps(e, STEP_SLICE, restart);
     e->pending = (restart ? 2 * HOP_TOKENS : HOP_TOKENS) - STEP_SLICE;
+    e->hops++;
     hopped = 1;
     if (e->ntoks != prev || e->win == 1) changed = 1;
     TLOG("hop %d total %.0fms toks %d \"%s\"\n",
@@ -792,8 +801,24 @@ JNIEXPORT jstring JNICALL JNIFN(nativeFinish)(JNIEnv* env, jobject thiz, jlong h
             finish_budget(e->npcm), MOONSHINE_FAST_FINISH, e->dropped,
             e->t_first_feed > 0.0 ? t0 - e->t_first_feed - (double)e->npcm * 1000.0 / 16000.0 : 0.0, p);
   }
+  /* Same figures the line above logs, kept for nativeStats — a caller should not have to parse logcat
+   * to learn what recognition cost. Written before the reset, which clears the counters. */
+  snprintf(e->stats, sizeof(e->stats),
+      "flushMs=%.0f,decodeMs=%.0f,finishMs=%.0f,lagMs=%.0f,droppedDecodes=%d,windows=%d,hops=%d,"
+      "memFrames=%d,tokens=%d,tokenBudget=%d,audioMs=%.0f,fastFinish=%d,lagBudgetMs=%d",
+      t_flush - t0, now_ms() - t_flush, now_ms() - t0,
+      e->t_first_feed > 0.0 ? t0 - e->t_first_feed - (double)e->npcm * 1000.0 / 16000.0 : 0.0,
+      e->dropped, e->windows, e->hops, e->nmem, e->ntoks, finish_budget(e->npcm),
+      (double)e->npcm * 1000.0 / 16000.0, MOONSHINE_FAST_FINISH, MOONSHINE_LAG_BUDGET_MS);
   reset_utterance(e);
   return out;
+}
+
+/* The last utterance's counters as `key=value` pairs, or an empty string before the first finish().
+ * Valid until the next finish(); reset() and a new utterance leave it untouched. */
+JNIEXPORT jstring JNICALL JNIFN(nativeStats)(JNIEnv* env, jobject thiz, jlong handle) {
+  Engine* e = (Engine*)(intptr_t)handle; if (!e) return NULL;
+  return (*env)->NewStringUTF(env, e->stats);
 }
 
 JNIEXPORT void JNICALL JNIFN(nativeReset)(JNIEnv* env, jobject thiz, jlong handle) {
