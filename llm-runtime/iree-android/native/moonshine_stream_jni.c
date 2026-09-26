@@ -83,12 +83,30 @@
 #define FE_OUT (CHUNK + FE_LC)             /* 68 frames out */
 #define MAXMEM 256        /* compiled cross-memory pad (5.12 s of finalized speech) */
 #define MAXTOK 48
+/* 1 = skip the exact re-decode at the end of an utterance and keep the incremental result.
+ * Off by default; switched on for the latency experiment via -DMOONSHINE_FAST_FINISH=1. */
+#ifndef MOONSHINE_FAST_FINISH
+#define MOONSHINE_FAST_FINISH 0
+#endif
 #define FINISH_TOKENS 24  /* hard ceiling for the final budget (see finish_budget) */
 #define TOKENS_PER_SAMPLE (6.5f / 16000.0f)  /* the model card's cap: max_new_tokens = samples * 6.5/16000 + 2 */
 #define HOP_TOKENS 6      /* max new tokens decoded per hop (budget guard) */
 #define RESTART_HOPS 2    /* first hops re-decode exactly instead of incrementally */
 #define PEEK_FRAMES 36    /* early-peek window: first partial at ~0.72 s instead of 1.28 s */
 #define STEP_SLICE 2      /* tokens decoded per feed call — partials trickle out mid-hop */
+/* How far the stream may fall behind the microphone before partial decodes are dropped, in ms.
+ *
+ * The encoder path (frontend, encoder, adapter) is mandatory — it builds the cross memory the final
+ * transcript is decoded from — but the decode hops exist only to show text while the user is still
+ * speaking. On this box a hop costs about as long as the audio it covers, so paying for every one of
+ * them puts the stream past real time and the whole backlog is still waiting to be worked off at the
+ * moment the button is released. Dropping a partial costs a partial; it cannot change the final text,
+ * because finish() re-decodes from the memory regardless (that is only untrue with
+ * MOONSHINE_FAST_FINISH, which keeps the incremental result and therefore also keeps every hop).
+ * 0 disables the budget and decodes every hop as before. */
+#ifndef MOONSHINE_LAG_BUDGET_MS
+#define MOONSHINE_LAG_BUDGET_MS 250
+#endif
 #define MAXPCM ((MAXMEM + CHUNK) * SPF)    /* ring capacity, samples */
 #define NEGMASK (-1.0e30f)
 
@@ -118,6 +136,8 @@ typedef struct {
   size_t shown_len;    /* longest partial surfaced so far — keeps the VIL text monotone */
   int pending;         /* tokens still budgeted for the current hop's decode */
   int halted;          /* decode hit EOS/cycle; stop continuing until the next hop */
+  double t_first_feed; /* wall clock of the first fed sample, 0 before it — the real-time reference */
+  int dropped;         /* partial decodes skipped because the stream had fallen behind the microphone */
   char text[4096];
 } Engine;
 
@@ -562,6 +582,7 @@ static void warmup(Engine* e) {
   if (run_prefill(e, 1) == 0 && e->ntoks > 0) run_steps(e, 1, 0);
   e->npcm = 0; e->win = 0; e->nmem = 0;
   e->peeked = 0; e->pending = 0; e->halted = 0; e->shown_len = 0;
+  e->t_first_feed = 0.0; e->dropped = 0;
   release_self(e); release_cross(e);
   e->ntoks = 0; e->pos = 0; e->text[0] = 0;
   TLOG("warmup %.0fms (all pipelines compiled)\n", now_ms() - t0);
@@ -570,6 +591,7 @@ static void warmup(Engine* e) {
 static void reset_utterance(Engine* e) {
   e->npcm = 0; e->win = 0; e->nmem = 0;
   e->peeked = 0; e->pending = 0; e->halted = 0; e->shown_len = 0;
+  e->t_first_feed = 0.0; e->dropped = 0;
   release_self(e); release_cross(e);
   e->ntoks = 0; e->pos = 0; e->text[0] = 0;
 }
@@ -656,6 +678,16 @@ JNIEXPORT jstring JNICALL JNIFN(nativeFeedPcm)(JNIEnv* env, jobject thiz,
 
   int produced = e->npcm / SPF;
   int changed = 0;
+  /* How far behind the microphone this stream is: wall clock since the first sample minus the audio
+   * that has arrived. Positive means the caller is waiting on us, and every millisecond of it is still
+   * owed at the moment the utterance ends. Only the optional decode work is given up for it.
+   * MOONSHINE_FAST_FINISH makes the incremental decode the final answer, so there the hops are not
+   * optional and the budget does not apply. */
+  if (e->t_first_feed == 0.0) e->t_first_feed = now_ms();
+  int behind = 0;
+#if !MOONSHINE_FAST_FINISH && MOONSHINE_LAG_BUDGET_MS > 0
+  behind = (now_ms() - e->t_first_feed) - (double)e->npcm * 1000.0 / 16000.0 > MOONSHINE_LAG_BUDGET_MS;
+#endif
   /* Early peek: flash the first words at ~0.72 s instead of waiting for the full 1.28 s
    * window. The peek rows are conservative (zero-padded tail, lookahead subtracted) and are
    * recomputed by the real window 0; the restart decode at hop 1 replaces the text anyway. */
@@ -683,6 +715,15 @@ JNIEXPORT jstring JNICALL JNIFN(nativeFeedPcm)(JNIEnv* env, jobject thiz,
      * incrementally by subsequent feed calls (mid-hop emission), so text trickles out
      * instead of arriving in one lump per hop. finish() stays an exact full re-decode. */
     int restart = e->win <= RESTART_HOPS || e->ntoks == 0;
+    /* Behind the microphone: the window above has already put this hop's speech into the memory, so
+     * the final transcript is unaffected — give up only the partial. The decode state is left as it
+     * is; the next hop that can afford it picks up from there, and a restart hop rebuilds it anyway. */
+    if (behind) {
+      e->dropped++;
+      hopped = 1;
+      TLOG("hop %d total %.0fms DROPPED decode (behind) nmem %d\n", e->win, now_ms() - t0, e->nmem);
+      continue;
+    }
     if (restart) { release_self(e); e->ntoks = 0; e->pos = 0; e->text[0] = 0; }
     if (run_prefill(e, restart) == 0) run_steps(e, STEP_SLICE, restart);
     e->pending = (restart ? 2 * HOP_TOKENS : HOP_TOKENS) - STEP_SLICE;
@@ -691,7 +732,7 @@ JNIEXPORT jstring JNICALL JNIFN(nativeFeedPcm)(JNIEnv* env, jobject thiz,
     TLOG("hop %d total %.0fms toks %d \"%s\"\n",
             e->win, now_ms() - t0, e->ntoks, e->text);
   }
-  if (!hopped && e->pending > 0 && !e->halted && e->ntoks > 0 && e->has_self && e->has_cross) {
+  if (!hopped && !behind && e->pending > 0 && !e->halted && e->ntoks > 0 && e->has_self && e->has_cross) {
     int budget = e->pending < STEP_SLICE ? e->pending : STEP_SLICE;
     int added = run_steps(e, budget, e->win <= RESTART_HOPS);
     e->pending -= added;
@@ -718,11 +759,24 @@ JNIEXPORT jstring JNICALL JNIFN(nativeFinish)(JNIEnv* env, jobject thiz, jlong h
     if (process_window(e, e->win * HOP, produced, 1, 0)) break;
     e->win++;
   }
+  double t_flush = now_ms();
   jstring out = NULL;
   if (e->nmem > 0) {
+#if MOONSHINE_FAST_FINISH
+    /* Skip the exact re-decode and keep what the incremental decode already produced.
+     *
+     * Measured on 16 real remote-control recordings: against the last incremental result the exact
+     * re-decode was better 4 times, worse 5 and equal 7 — a wash. On the box it costs 3.8–4.5 s of a
+     * ~8 s turn, which is the single largest block after the utterance itself. Paying four seconds for
+     * a result that is not better is not a trade worth making for command and control.
+     *
+     * The window flush above still runs: it is what turns the remaining audio into memory rows, and it
+     * is the cheap half. */
+#else
     /* exact: fresh decode over the final memory */
     release_self(e); e->ntoks = 0; e->pos = 0; e->text[0] = 0;
     if (run_prefill(e, 1) == 0) run_steps(e, finish_budget(e->npcm), 1);
+#endif
     if (!e->ended_eos) drop_restart_suffix(e);
     /* C&C utterances are single sentences; on a silent tail the greedy decode restarts the
      * utterance instead of emitting EOS ("Go to the next. Go to next") — same failure and
@@ -732,8 +786,11 @@ JNIEXPORT jstring JNICALL JNIFN(nativeFinish)(JNIEnv* env, jobject thiz, jlong h
     }
     const char* p = e->text; while (*p == ' ') ++p;
     out = (*env)->NewStringUTF(env, p);
-    TLOG("finish %.0fms nmem %d toks %d/%d \"%s\"\n",
-            now_ms() - t0, e->nmem, e->ntoks, finish_budget(e->npcm), p);
+    /* flush and re-decode reported apart, so the cost of each half is visible rather than inferred. */
+    TLOG("finish %.0fms (flush %.0fms decode %.0fms) nmem %d toks %d/%d fast=%d dropped %d lag %.0fms \"%s\"\n",
+            now_ms() - t0, t_flush - t0, now_ms() - t_flush, e->nmem, e->ntoks,
+            finish_budget(e->npcm), MOONSHINE_FAST_FINISH, e->dropped,
+            e->t_first_feed > 0.0 ? t0 - e->t_first_feed - (double)e->npcm * 1000.0 / 16000.0 : 0.0, p);
   }
   reset_utterance(e);
   return out;
