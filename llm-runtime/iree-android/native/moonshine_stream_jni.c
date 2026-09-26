@@ -108,6 +108,11 @@
 #ifndef MOONSHINE_LAG_BUDGET_MS
 #define MOONSHINE_LAG_BUDGET_MS 250
 #endif
+#define MAXEVT 24         /* per-event timeline entries retained for nativeStats */
+#define EVT_WINDOW 0
+#define EVT_PEEK 1
+#define EVT_HOP 2
+#define EVT_DROPPED 3
 #define MAXPCM ((MAXMEM + CHUNK) * SPF)    /* ring capacity, samples */
 #define NEGMASK (-1.0e30f)
 
@@ -141,12 +146,30 @@ typedef struct {
   int dropped;         /* partial decodes skipped because the stream had fallen behind the microphone */
   int windows;         /* encoder windows processed this utterance (the mandatory work) */
   int hops;            /* partial decodes actually run */
+  /* Per-event costs, so a caller can draw the utterance's timeline instead of only totalling it.
+   * Offsets are ms from the first fed sample. Capped: past MAXEVT the counters above still grow,
+   * the timeline simply stops — a status surface wants the shape, not an unbounded log. */
+  short evt_at[MAXEVT], evt_a[MAXEVT], evt_b[MAXEVT], evt_c[MAXEVT];
+  unsigned char evt_kind[MAXEVT];   /* EVT_WINDOW / EVT_PEEK / EVT_HOP / EVT_DROPPED */
+  int nevt;
   char text[4096];
   /* Last utterance's counters, taken before the reset so a caller can still read them afterwards.
    * `key=value` pairs, because this travels through two more repositories before anything consumes it
    * and adding a counter must not change a signature anywhere along the way. */
-  char stats[512];
+  char stats[1400];
 } Engine;
+
+/* Record one timeline event: `at` is ms from the first fed sample, a/b/c are the stage costs of the
+ * event's kind (a window's frontend/encoder/adapter; a decode's total in `a`). */
+static void note_evt(Engine* e, int kind, double at, double a, double b, double c) {
+  if (e->nevt >= MAXEVT) return;
+  int i = e->nevt++;
+  e->evt_kind[i] = (unsigned char)kind;
+  e->evt_at[i] = (short)(at < 0 ? 0 : (at > 32000 ? 32000 : at));
+  e->evt_a[i] = (short)(a > 32000 ? 32000 : a);
+  e->evt_b[i] = (short)(b > 32000 ? 32000 : b);
+  e->evt_c[i] = (short)(c > 32000 ? 32000 : c);
+}
 
 static double now_ms(void) {
   struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -381,6 +404,7 @@ static int process_window(Engine* e, int start, int produced, int flush, int pee
   if (!peek && start == 0) e->peeked = 0;
   double t3 = now_ms();
   e->windows++;
+  note_evt(e, EVT_WINDOW, t0 - e->t_first_feed, t1 - t0, t2 - t1, t3 - t2);
   TLOG("win %d fe %.0fms enc %.0fms adp+fin %.0fms nmem %d\n",
           e->win, t1 - t0, t2 - t1, t3 - t2, e->nmem);
   return 0;
@@ -590,7 +614,7 @@ static void warmup(Engine* e) {
   if (run_prefill(e, 1) == 0 && e->ntoks > 0) run_steps(e, 1, 0);
   e->npcm = 0; e->win = 0; e->nmem = 0;
   e->peeked = 0; e->pending = 0; e->halted = 0; e->shown_len = 0;
-  e->t_first_feed = 0.0; e->dropped = 0; e->windows = 0; e->hops = 0;
+  e->t_first_feed = 0.0; e->dropped = 0; e->windows = 0; e->hops = 0; e->nevt = 0;
   release_self(e); release_cross(e);
   e->ntoks = 0; e->pos = 0; e->text[0] = 0;
   TLOG("warmup %.0fms (all pipelines compiled)\n", now_ms() - t0);
@@ -599,7 +623,7 @@ static void warmup(Engine* e) {
 static void reset_utterance(Engine* e) {
   e->npcm = 0; e->win = 0; e->nmem = 0;
   e->peeked = 0; e->pending = 0; e->halted = 0; e->shown_len = 0;
-  e->t_first_feed = 0.0; e->dropped = 0; e->windows = 0; e->hops = 0;
+  e->t_first_feed = 0.0; e->dropped = 0; e->windows = 0; e->hops = 0; e->nevt = 0;
   release_self(e); release_cross(e);
   e->ntoks = 0; e->pos = 0; e->text[0] = 0;
 }
@@ -708,6 +732,7 @@ JNIEXPORT jstring JNICALL JNIFN(nativeFeedPcm)(JNIEnv* env, jobject thiz,
       if (run_prefill(e, 1) == 0) run_steps(e, STEP_SLICE, 1);
       e->pending = 2 * HOP_TOKENS - STEP_SLICE;
       if (e->ntoks > 0) changed = 1;
+      note_evt(e, EVT_PEEK, t0 - e->t_first_feed, now_ms() - t0, 0, 0);
       TLOG("peek total %.0fms nmem %d toks %d \"%s\"\n", now_ms() - t0, e->nmem, e->ntoks, e->text);
     }
   }
@@ -728,6 +753,7 @@ JNIEXPORT jstring JNICALL JNIFN(nativeFeedPcm)(JNIEnv* env, jobject thiz,
      * is; the next hop that can afford it picks up from there, and a restart hop rebuilds it anyway. */
     if (behind) {
       e->dropped++;
+      note_evt(e, EVT_DROPPED, t0 - e->t_first_feed, now_ms() - t0, 0, 0);
       hopped = 1;
       TLOG("hop %d total %.0fms DROPPED decode (behind) nmem %d\n", e->win, now_ms() - t0, e->nmem);
       continue;
@@ -736,6 +762,7 @@ JNIEXPORT jstring JNICALL JNIFN(nativeFeedPcm)(JNIEnv* env, jobject thiz,
     if (run_prefill(e, restart) == 0) run_steps(e, STEP_SLICE, restart);
     e->pending = (restart ? 2 * HOP_TOKENS : HOP_TOKENS) - STEP_SLICE;
     e->hops++;
+    note_evt(e, EVT_HOP, t0 - e->t_first_feed, now_ms() - t0, 0, 0);
     hopped = 1;
     if (e->ntoks != prev || e->win == 1) changed = 1;
     TLOG("hop %d total %.0fms toks %d \"%s\"\n",
@@ -803,13 +830,28 @@ JNIEXPORT jstring JNICALL JNIFN(nativeFinish)(JNIEnv* env, jobject thiz, jlong h
   }
   /* Same figures the line above logs, kept for nativeStats — a caller should not have to parse logcat
    * to learn what recognition cost. Written before the reset, which clears the counters. */
-  snprintf(e->stats, sizeof(e->stats),
-      "flushMs=%.0f,decodeMs=%.0f,finishMs=%.0f,lagMs=%.0f,droppedDecodes=%d,windows=%d,hops=%d,"
-      "memFrames=%d,tokens=%d,tokenBudget=%d,audioMs=%.0f,fastFinish=%d,lagBudgetMs=%d",
+  int n = snprintf(e->stats, sizeof(e->stats),
+      "flushMs=%.0f,decodeMs=%.0f,finishMs=%.0f,finishAtMs=%.0f,lagMs=%.0f,droppedDecodes=%d,"
+      "windows=%d,hops=%d,memFrames=%d,tokens=%d,tokenBudget=%d,audioMs=%.0f,fastFinish=%d,lagBudgetMs=%d",
       t_flush - t0, now_ms() - t_flush, now_ms() - t0,
+      e->t_first_feed > 0.0 ? t0 - e->t_first_feed : 0.0,
       e->t_first_feed > 0.0 ? t0 - e->t_first_feed - (double)e->npcm * 1000.0 / 16000.0 : 0.0,
       e->dropped, e->windows, e->hops, e->nmem, e->ntoks, finish_budget(e->npcm),
       (double)e->npcm * 1000.0 / 16000.0, MOONSHINE_FAST_FINISH, MOONSHINE_LAG_BUDGET_MS);
+  /* The utterance's timeline, so the shape can be drawn and not just totalled:
+   *   timeline=<kind>:<atMs>:<a>:<b>:<c>|...
+   * kind w = encoder window (a/b/c = frontend, encoder, adapter), p = early peek, h = partial
+   * decode, d = partial decode dropped to the real-time budget (a = its cost, b/c unused).
+   * `at` is ms from the first fed sample, the same zero `finishAtMs` uses. */
+  if (e->nevt > 0 && n > 0 && (size_t)n < sizeof(e->stats)) {
+    n += snprintf(e->stats + n, sizeof(e->stats) - n, ",timeline=");
+    for (int i = 0; i < e->nevt && n > 0 && (size_t)n < sizeof(e->stats); ++i) {
+      const char k = e->evt_kind[i] == EVT_WINDOW ? 'w' : e->evt_kind[i] == EVT_PEEK ? 'p'
+                   : e->evt_kind[i] == EVT_HOP ? 'h' : 'd';
+      n += snprintf(e->stats + n, sizeof(e->stats) - n, "%s%c:%d:%d:%d:%d",
+              i ? "|" : "", k, e->evt_at[i], e->evt_a[i], e->evt_b[i], e->evt_c[i]);
+    }
+  }
   reset_utterance(e);
   return out;
 }
