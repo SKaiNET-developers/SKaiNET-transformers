@@ -801,7 +801,7 @@ JNIEXPORT jstring JNICALL JNIFN(nativeFinish)(JNIEnv* env, jobject thiz, jlong h
 #if MOONSHINE_FAST_FINISH
     /* Skip the exact re-decode and keep what the incremental decode already produced.
      *
-     * Measured on 16 real remote-control recordings: against the last incremental result the exact
+     * Measured on 16 push-to-talk recordings: against the last incremental result the exact
      * re-decode was better 4 times, worse 5 and equal 7 — a wash. On the box it costs 3.8–4.5 s of a
      * ~8 s turn, which is the single largest block after the utterance itself. Paying four seconds for
      * a result that is not better is not a trade worth making for command and control.
