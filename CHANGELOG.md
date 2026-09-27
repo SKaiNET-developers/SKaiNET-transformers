@@ -1,8 +1,10 @@
 # Changelog
 
 All notable changes to **SKaiNET-transformers** are documented here. The
-version line is kept in lock-step with the underlying SKaiNET engine
-(`sk.ainet.core:*`) — a transformers `X.Y.Z` ships against engine `X.Y.Z`.
+version line tracks the underlying SKaiNET engine (`sk.ainet.core:*`): a transformers
+release carries **at least** the engine's `X.Y`, and its **patch number may advance on its
+own** — a fix confined to transformers ships as `X.Y.Z+1` against engine `X.Y.Z` without
+requiring an engine release. `0.57.1` against engine `0.57.0` is such a release.
 
 The format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
@@ -16,16 +18,16 @@ streaming Moonshine path, no engine API.
 
 ### Changed
 
-- **The streaming partial decode now has a real-time budget.** On an Android TV box the stream did
+- **The streaming partial decode now has a real-time budget.** On an ARM Android device with a Mali GPU the stream did
   not keep up with the microphone: per 0.88 s hop it spent ~350 ms on the encoder window and another
   ~350 ms on a prefill plus greedy steps, so it ran at 1.2–1.45× real time and the whole backlog was
   still owed at the moment the user stopped speaking. The encoder path is mandatory — it builds the
   cross memory the final transcript is decoded from — but the decode hops only produce text to show
   while the user is still talking, and `finish()` re-decodes from that memory regardless. Past
   `MOONSHINE_LAG_BUDGET_MS` (default 250) the window runs and the decode is skipped, which provably
-  cannot change the final result. Measured on the box: RTF 1.23 → 0.67, drain 656 ms → 6 ms. Verified
-  against 444 studio recordings: on 311 comparable rows 310 transcripts byte-identical and **not one
-  dispatched action changed**. The budget is disabled when `MOONSHINE_FAST_FINISH` is on, where the
+  cannot change the final result. Measured on that device: RTF 1.23 → 0.67, drain 656 ms → 6 ms. Verified
+  against a 444-utterance German evaluation set: on 311 comparable rows 310 final transcripts were
+  byte-identical, and the single difference is a runaway repetition on both sides. The budget is disabled when `MOONSHINE_FAST_FINISH` is on, where the
   incremental result *is* the answer.
 
 ### Added
@@ -41,11 +43,11 @@ streaming Moonshine path, no engine API.
 
 - **Audio that arrives before a run is open is held instead of dropped.** `sendAudioChunk` was
   `activeRun?.feed(...)`: with no run open the chunk vanished silently. Opening a run costs 229 ms of
-  the 259 ms measured between a button press and the first recorded sample, and a host that waited for
-  it lost that much speech off the *front* — on the box it cost the first word, so every "Schalte auf
-  Arte" was recognised as "auf ate". Chunks now go into a pre-roll, bounded to 1 s keeping the newest
+  the 259 ms measured between a push-to-talk trigger and the first recorded sample, and a host that
+  waited for it lost that much speech off the *front* — enough to swallow the first word of an
+  utterance entirely. Chunks now go into a pre-roll, bounded to 1 s keeping the newest
   and discarded entirely past 2 s of age, and are fed in order once the run opens. Measured: 259 ms →
-  68 ms, and with a real remote the transcript came back complete.
+  68 ms, and an utterance whose first word was previously lost transcribes in full.
 
 ## [0.57.0] — 2026-09-25
 
