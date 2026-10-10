@@ -468,7 +468,7 @@ class GGUFTokenizer private constructor(
          * Detect tokenizer type by inspecting vocabulary for characteristic markers.
          */
         private fun detectFromVocab(vocab: List<String>): TokenizerStrategy {
-            val sentencePieceMarker = "\u2581" // ▁
+            val sentencePieceMarker = "\u2581" // SentencePiece metaspace
             val bpeMarker = "\u0120" // Ġ
             val wordPieceMarker = "##"
 
