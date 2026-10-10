@@ -155,10 +155,7 @@ class GGUFTokenizer private constructor(
                     }
                 }
             }
-
-            if (debug) println("DEBUG: Total vocab size = ${vocab.size}, BOS=$bosTokenId, EOS=$eosTokenId")
-
-            // --- Parse merges: ["tok1 tok2", ...] → scores (earlier merge = higher score) ---
+            // --- Parse merges: supports both string format "tok1 tok2" and array format ["tok1", "tok2"] ---
             val scores = FloatArray(vocab.size) { 0f }
             val mergesStart = json.indexOf("\"merges\"")
             if (mergesStart >= 0) {
@@ -166,22 +163,49 @@ class GGUFTokenizer private constructor(
                 if (mergesArrStart >= 0) {
                     val mergesArrEnd = findMatchingBracket(json, mergesArrStart)
                     val mergesContent = json.substring(mergesArrStart + 1, mergesArrEnd)
-                    val mergePattern = Regex("\"((?:[^\"\\\\]|\\\\.)*)\"")
+                    
                     var mergeRank = 0
-                    for (match in mergePattern.findAll(mergesContent)) {
-                        val merge = unescapeJsonString(match.groupValues[1])
-                        val parts = merge.split(' ', limit = 2)
-                        if (parts.size == 2) {
-                            val merged = parts[0] + parts[1]
-                            val mergedId = vocabMap[merged]
-                            if (mergedId != null && mergedId < scores.size) {
-                                // Higher score = higher merge priority (earlier in list)
-                                scores[mergedId] = (1_000_000 - mergeRank).toFloat()
+                    var i = 0
+                    while (i < mergesContent.length) {
+                        while (i < mergesContent.length && mergesContent[i].isWhitespace()) i++
+                        if (i >= mergesContent.length) break
+
+                        when (mergesContent[i]) {
+                            '"' -> {
+                                // String format: "token1 token2"
+                                val strEnd = findStringEnd(mergesContent, i)
+                                val mergeStr = unescapeJsonString(mergesContent.substring(i + 1, strEnd))
+                                val parts = mergeStr.split(' ', limit = 2)
+                                if (parts.size == 2) {
+                                    val merged = parts[0] + parts[1]
+                                    val mergedId = vocabMap[merged]
+                                    if (mergedId != null && mergedId < scores.size) {
+                                        scores[mergedId] = (1_000_000 - mergeRank).toFloat()
+                                    }
+                                    mergeRank++
+                                }
+                                i = strEnd + 1
                             }
-                            mergeRank++
+                            '[' -> {
+                                // Array format: ["token1", "token2"]
+                                val bracketEnd = findMatchingBracket(mergesContent, i)
+                                val arrayContent = mergesContent.substring(i + 1, bracketEnd)
+                                val tokens = parseStringArray(arrayContent) // Ensure helper is available or parse inline
+                                if (tokens.size == 2) {
+                                    val merged = tokens[0] + tokens[1]
+                                    val mergedId = vocabMap[merged]
+                                    if (mergedId != null && mergedId < scores.size) {
+                                        scores[mergedId] = (1_000_000 - mergeRank).toFloat()
+                                    }
+                                    mergeRank++
+                                }
+                                i = bracketEnd + 1
+                            }
+                            ',' -> i++
+                            else -> i++
                         }
                     }
-                    if (debug) println("DEBUG: Parsed $mergeRank merges")
+                    if (debug) println("DEBUG: Parsed $mergeRank merges (supporting strings and arrays)")
                 }
             }
 
