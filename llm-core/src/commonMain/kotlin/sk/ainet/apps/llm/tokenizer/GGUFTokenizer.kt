@@ -481,10 +481,10 @@ class GGUFTokenizer private constructor(
             for (i in 0 until sampleSize) {
                 val token = vocab[i]
                 when {
-                    token.contains(sentencePieceMarker) -> sentencePieceCount++
-                    token.contains(bpeMarker) -> bpeCount++
-                    token.startsWith(wordPieceMarker) -> wordPieceCount++
-                }
+                        token.contains(sentencePieceMarker) -> sentencePieceCount++
+                        token.contains(bpeMarker) -> bpeCount++
+                        token.startsWith(wordPieceMarker) -> wordPieceCount++
+                    }
             }
 
             // Return strategy based on which marker is most prevalent
