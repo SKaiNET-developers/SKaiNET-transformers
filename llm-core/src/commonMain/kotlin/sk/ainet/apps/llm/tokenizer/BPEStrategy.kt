@@ -31,8 +31,21 @@ public object BPEStrategy : TokenizerStrategy {
 
     override fun preprocess(text: String): String {
         // GPT-2 style: space becomes Ġ prefix on following token
-        // First token doesn't get a space prefix unless the text starts with space
-        return text.replace(" ", spaceMarker)
+        val replacedSpaces = text.replace(" ", spaceMarker)
+    
+        // Encode non-ASCII characters to their byte representations
+        return replacedSpaces.map { char ->
+            if (char.code > 127) {
+                // Map non-ASCII char to its UTF-8 byte representation characters
+                char.toString().encodeToByteArray().joinToString("") { byte ->
+                    // Convert byte to corresponding unicode mapping if required by BPE spec
+                    // or keep byte representation
+                    String(CharArray(1) { byte.toInt().toChar() })
+                }
+            } else {
+            char.toString()
+            }
+        }.joinToString("")
     }
 
     /**
