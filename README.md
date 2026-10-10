@@ -10,11 +10,13 @@ Tranformers based LLM application layer on top of the [SKaiNET](https://github.c
 > **Project status — early / experimental.**
 > This repository is an **initial version**. Nothing here is stable, and there is
 > **no support or status guarantee for any feature, model, or API**. Model
-> coverage, tool calling, and the runtime APIs are all work in progress and may
-> not work for a given model or model version — for example, tool calling can
-> fail to trigger or parse even on a model that generates plain text correctly.
-> The capabilities described below are **goals, not promises**. Treat everything
-> as a preview and expect things to break.
+> coverage and the runtime APIs are work in progress and may not work for a given
+> model or model version. Tool calling is verified per family by model-gated
+> smoke tests (see the [tool-calling table](#tool-calling-native-vs-generic-support)),
+> but outside those families the `GENERIC` fallback can still fail to trigger or
+> parse even on a model that generates plain text correctly. The capabilities
+> described below are **goals, not promises**. Treat everything as a preview and
+> expect things to break.
 
 ## Start in 5 minutes
 
@@ -48,7 +50,7 @@ Use the version shown in this README as the source of truth for first-run snippe
 
 - **Multi-model support.** Llama / Mistral, Qwen 2 / 2.5 / 3, Gemma 3 / 4, Apertus (Swiss AI) and BitNet b1.58 are each **verified token-for-token against a reference implementation** (mainline llama.cpp; bitnet.cpp + the HF BF16 reference for BitNet) by model-gated golden-token parity tests on the DSL path the CLIs ship. BERT (vs sentence-transformers) and T5/GTR (real-weights round-trip) are verified on the embedding side. Voxtral is the remaining unverified family — see the status table below.
 - **Native CPU performance.** Auto-discovers SKaiNET's priority-100 FFM (Foreign Function & Memory) native kernel provider when present (4–6× faster Q4_K matmul, 1.5–1.8× faster FP32 SGEMM vs the priority-50 Panama Vector path; Linux x86_64 / macOS ARM64 / Windows x86_64 in the published JAR — no manual setup). On **Android**, the runtime facades ship the engine's JNI NEON backend the same way — native kernels out of the box, ~6.4× measured on SmolLM2-135M Q8_0 (see the [supported-targets matrix](#supported-targets)).
-- **Tool calling (experimental).** Family-specific chat templates and tool-call parsers (Llama 3, Qwen, Gemma, Apertus, ChatML/Hermes) and a Java surface (`KLlamaJava`, `JavaTools.definition`, `JavaAgentLoop`) exist, but tool calling is **not reliable yet** — it may fail to trigger or parse even when plain generation works.
+- **Tool calling.** Each model family ships its own chat template and tool-call parser as a `ToolCallingSupport` provider (Llama 3, Qwen 2.5 / 3, Gemma 2 / 3 / 4, FunctionGemma, Apertus, SmolLM2, ChatML/Hermes), auto-selected from model metadata by `ToolCallingSupportResolver`, with a Java surface (`KLlamaJava`, `JavaTools.definition`, `JavaAgentLoop`). The NATIVE providers are **verified end-to-end on real checkpoints** by model-gated smoke tests that run a full agent round-trip (prompt → parsed tool call → tool execution → final answer): Qwen3-0.6B / 1.7B Q8_0 (`QwenToolCallSmokeTest`), Gemma 4 E2B Q4_K_M (`Gemma4E2BToolCallSmokeTest`), FunctionGemma 270M (`FunctionGemmaOfficialGgufTest`), SmolLM2-1.7B (`SmolLM2ToolCallSmokeTest`); last re-run against engine 0.57.0 on 2026-10-09. Only the `GENERIC` fallback for unknown families is best-effort — see [native vs. generic support](#tool-calling-native-vs-generic-support). Zero-shot tool-call *quality* is still the model's: on an 8-utterance set Qwen2.5-0.5B lands 4–5/8 with its faithful template, so pick a checkpoint that was trained for tools.
 - **Parallel attention heads (unreleased, SKaiNET SKEEP-005).** `MultiHeadAttention` spreads heads over all cores through the engine's `Schedule` on the execution context — bit-identical to the sequential path — and reads K/V in place from the positional cache (`withKVCacheKind(POSITIONAL)`), instead of copying the prefix per token. No DSL change; see the *Parallel Attention — Getting Started* tutorial.
 - **GGUF + SafeTensors loading.** Streaming reader for any model size; `NATIVE_OPTIMIZED` quant policy keeps weights in their packed SIMD-friendly form.
 - **Kotlin Multiplatform.** JVM, Android, Kotlin/Native (Linux x64/ARM64, macOS ARM64, iOS arm64/sim arm64), JS, Wasm targets — see the [supported targets matrix](#supported-targets) for exactly which module publishes which target.
@@ -99,8 +101,9 @@ Honest status — see the project-status note at the top of this README.
 
 ### Near term
 
-- Make the **eager JVM path reliable per family** — including tool calling —
-  before extending scope.
+- Make the **eager JVM path reliable per family** before extending scope
+  (tool calling is covered for the NATIVE families; a Llama 3 real-checkpoint
+  smoke test is still missing).
 - Verify each generative architecture end-to-end with smoke tests.
 - Wire the **StableHLO / native compilation path** for full transformer models.
   As of 0.28.1 a full gemma3 graph exports to StableHLO and `iree-compile`s to a
