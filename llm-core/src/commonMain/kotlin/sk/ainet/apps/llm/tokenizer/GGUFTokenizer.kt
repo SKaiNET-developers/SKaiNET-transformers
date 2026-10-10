@@ -155,6 +155,8 @@ class GGUFTokenizer private constructor(
                     }
                 }
             }
+
+            
             // --- Parse merges: supports both string format "tok1 tok2" and array format ["tok1", "tok2"] ---
             val scores = FloatArray(vocab.size) { 0f }
             val mergesStart = json.indexOf("\"merges\"")
