@@ -86,12 +86,22 @@ public final class sk/ainet/models/bert/HuggingFaceTokenizer : sk/ainet/apps/llm
 	public static final field Companion Lsk/ainet/models/bert/HuggingFaceTokenizer$Companion;
 	public fun decode (I)Ljava/lang/String;
 	public fun decode ([I)Ljava/lang/String;
+	public fun decode ([IZ)Ljava/lang/String;
+	public fun decodeToken (I)Ljava/lang/String;
 	public fun encode (Ljava/lang/String;)[I
+	public fun encode (Ljava/lang/String;Z)[I
 	public final fun encodeWithMetadata (Ljava/lang/String;)Lsk/ainet/models/bert/TokenizerOutput;
 	public final fun encodeWithMetadata (Ljava/lang/String;Ljava/lang/String;)Lsk/ainet/models/bert/TokenizerOutput;
-	public fun getBosTokenId ()I
-	public fun getEosTokenId ()I
+	public fun getBosTokenId ()Ljava/lang/Integer;
+	public fun getEosTokenId ()Ljava/lang/Integer;
+	public fun getSpec ()Lsk/ainet/frontend/FrontEndSpec;
+	public fun getSpecialTokens ()Lsk/ainet/frontend/text/SpecialTokens;
 	public fun getVocabSize ()I
+	public fun getVocabulary ()Lsk/ainet/frontend/text/Vocabulary;
+	public synthetic fun invert (Ljava/lang/Object;)Ljava/lang/Object;
+	public fun invert ([I)Ljava/lang/String;
+	public synthetic fun process (Ljava/lang/Object;)Ljava/lang/Object;
+	public fun process (Ljava/lang/String;)[I
 }
 
 public final class sk/ainet/models/bert/HuggingFaceTokenizer$Companion {
@@ -156,7 +166,7 @@ public final class sk/ainet/models/bert/java/KBertJava {
 }
 
 public final class sk/ainet/models/bert/java/KBertSession : java/lang/AutoCloseable {
-	public fun <init> (Lsk/ainet/models/bert/BertEncoderRuntime;Lsk/ainet/models/bert/HuggingFaceTokenizer;)V
+	public fun <init> (Lsk/ainet/models/bert/BertEncoderRuntime;Lsk/ainet/frontend/tokenizer/WordPieceTokenizer;)V
 	public fun close ()V
 	public final fun encode (Ljava/lang/String;)[F
 	public final fun similarity (Ljava/lang/String;Ljava/lang/String;)F

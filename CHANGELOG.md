@@ -50,6 +50,16 @@ contributed by [@Sehul07](https://github.com/Sehul07) in #480, #481 and #482.
 - Engine pin `skainet 0.57.0 → 0.58.0-SNAPSHOT` (local integration build); new dependency aliases
   `skainet-model-identity`, `skainet-frontend-core`, `skainet-frontend-text`.
 
+### Binary compatibility
+
+- The JVM dumps of `llm-core`, `bert`, `voxtral`, `kgemma` and `kllama` show signature changes,
+  not removals: `Tokenizer.getBosTokenId()` / `getEosTokenId()` now return the boxed `Integer`
+  the engine contract declares (Kotlin and Java sources compile unchanged; Java binaries built
+  against 0.57 must be recompiled), `GemmaStopTokens.resolve` takes the engine `Tokenizer`,
+  `KBertSession` takes the engine `WordPieceTokenizer`, and the constructors of the deprecated
+  `SentencePieceSpecialTokens` / `TekkenTokenizerAdapter` name the engine classes behind the
+  former `sk.ainet.io.tokenizer` aliases.
+
 ### Deprecated (WARNING; ERROR in 0.59; removed in 0.60)
 
 - `GGUFTokenizer`, its strategies (`BPEStrategy`, `SentencePieceStrategy`, `WordPieceStrategy`,
