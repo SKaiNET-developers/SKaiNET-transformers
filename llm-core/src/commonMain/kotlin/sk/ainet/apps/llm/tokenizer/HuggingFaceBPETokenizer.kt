@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION")
+
 package sk.ainet.apps.llm.tokenizer
 
 import sk.ainet.apps.llm.Tokenizer
@@ -11,6 +13,7 @@ import sk.ainet.apps.llm.Tokenizer
  * This is a Kotlin Multiplatform implementation that can be used on
  * JVM, Native, JS, and WASM targets.
  */
+@Deprecated("No callers; the engine's QwenByteLevelBpeTokenizer / MetaspaceBpeTokenizer replace it (SKEEP-006). Removed in 0.59.")
 public class HuggingFaceBPETokenizer internal constructor(
     private val vocab: List<String>,
     private val tokenToId: Map<String, Int>,
@@ -107,6 +110,7 @@ private const val SPACE_MARKER = "\u2581"
  * @param configContent Optional tokenizer_config.json content for special token settings
  * @return Configured BPE tokenizer
  */
+@Deprecated("Use TokenizerFactory.fromTokenizerJsonString (SKEEP-006). Removed in 0.59.")
 public fun createHuggingFaceBPETokenizerFromJson(jsonContent: String, configContent: String? = null): HuggingFaceBPETokenizer {
     val parser = TokenizerJsonParser(jsonContent)
 

@@ -5,6 +5,8 @@ import kotlinx.io.buffered
 import sk.ainet.apps.llm.Tokenizer
 import sk.ainet.apps.llm.TokenizerStrategy
 import sk.ainet.apps.llm.TokenizerType
+import sk.ainet.frontend.text.SpecialTokens
+import sk.ainet.frontend.text.Vocabulary
 import sk.ainet.io.RandomAccessSource
 import sk.ainet.io.gguf.GGUFReader
 import sk.ainet.io.gguf.ReaderField
@@ -16,7 +18,18 @@ import sk.ainet.io.gguf.StreamingGGUFReader
  *
  * Automatically detects tokenizer type (SentencePiece, BPE, WordPiece) from GGUF
  * metadata and uses the appropriate preprocessing strategy.
+ *
+ * **Deprecated (SKEEP-006).** This is the pre-engine implementation: it scrapes `tokenizer.json`
+ * with regular expressions and merges greedily by score, which gives ids that differ from the
+ * Hugging Face reference on many files (SKaiNET-transformers #471). Every runtime now resolves
+ * its tokenizer through [TokenizerFactory], which is backed by the engine's golden-tested
+ * algorithms. Kept with unchanged behaviour for one release cycle: WARNING in 0.58, ERROR in
+ * 0.59, removed in 0.60 together with the strategies and [TokenizerType].
  */
+@Deprecated(
+    "Legacy tokenizer with reference-divergent ids; use TokenizerFactory (engine-backed, SKEEP-006). Removed in 0.60.",
+    ReplaceWith("TokenizerFactory", "sk.ainet.apps.llm.tokenizer.TokenizerFactory"),
+)
 class GGUFTokenizer private constructor(
     private val vocab: List<String>,
     private val scores: FloatArray,
@@ -763,6 +776,20 @@ class GGUFTokenizer private constructor(
     override val bosTokenId: Int get() = _bosTokenId
     override val eosTokenId: Int get() = _eosTokenId
     override val vocabSize: Int get() = vocab.size
+
+    override val vocabulary: Vocabulary = object : Vocabulary {
+        override val size: Int get() = vocab.size
+        override fun tokenToId(piece: String): Int? = tokenId(piece)
+        override fun idToToken(id: Int): String? = vocab.getOrNull(id)
+    }
+
+    override val specialTokens: SpecialTokens
+        get() = SpecialTokens(
+            bos = _bosTokenId.takeIf { it >= 0 },
+            eos = _eosTokenId.takeIf { it >= 0 },
+            unk = unkTokenId.takeIf { it >= 0 },
+            declared = specialTokensByLength.map { it.second }.toSet(),
+        )
 
     /**
      * Exact-vocab lookup: the id of [token]'s literal string form, or null when the

@@ -1,98 +1,64 @@
 package sk.ainet.apps.llm.tokenizer
 
 import sk.ainet.apps.llm.Tokenizer
+import sk.ainet.apps.llm.families.TransformersFamilies
+import sk.ainet.frontend.FrontEndResolver
+import sk.ainet.frontend.text.TextFrontEnd
+import sk.ainet.frontend.tokenizer.TextFrontEnds
 import sk.ainet.io.RandomAccessSource
 import sk.ainet.io.gguf.StreamingGGUFReader
+import sk.ainet.model.CheckpointView
+import sk.ainet.model.ModelFamilyRegistry
 
 /**
- * Unified factory for creating tokenizers from various sources. Delegates
- * the byte-level BPE (Qwen/GPT-2) and SentencePiece (LLaMA/Gemma) algorithms
- * to upstream `sk.ainet.io.tokenizer.*` and layers the
- * [SentencePieceSpecialTokens] decorator on top of SP-family results so
- * chat-template markers (`<bos>`, `<|turn>`, etc.) encode atomically.
+ * Builds a [Tokenizer] for the runtimes in this repository from one tokenizer source.
  *
- * Usage:
+ * Since 0.58 (SKEEP-006) every path is the engine's: byte-level BPE, Metaspace BPE,
+ * SentencePiece, Unigram, WordPiece and Tekken come from `skainet-frontend-text`, selected by
+ * `TextFrontEnds` (the dispatch table FE-R-02) and decorated by [TransformersFamilies] — the
+ * special-token splitting and the `add_space_prefix` detection this factory used to patch in
+ * downstream now live upstream, where the goldens are. The object stays as the bridge to this
+ * repository's [Tokenizer] sub-interface; it is deprecated in 0.59 and removed in 0.60.
+ *
  * ```kotlin
- * // From an already-parsed GGUF metadata map (cheapest — no extra file open):
  * val info = UnifiedModelLoader.peek { sourceProvider() }
- * val tokenizer = TokenizerFactory.fromGgufFields(info.fields)
- *
- * // From a GGUF RandomAccessSource (parses metadata via StreamingGGUFReader):
- * val tokenizer = TokenizerFactory.fromGgufSource(source)
- *
- * // From a HuggingFace tokenizer.json string (+ optional tokenizer_config.json):
- * val tokenizer = TokenizerFactory.fromTokenizerJsonString(json, configJson)
+ * val tokenizer = TokenizerFactory.fromGgufFields(info.fields)         // GGUF metadata map
+ * val tokenizer = TokenizerFactory.fromGgufSource(source)              // GGUF RandomAccessSource
+ * val tokenizer = TokenizerFactory.fromTokenizerJsonString(json, cfg)  // tokenizer.json (+ tokenizer_config.json)
+ * val text = TokenizerFactory.resolve(view)                            // any CheckpointView, family-decorated
  * ```
  */
 public object TokenizerFactory {
 
-    /**
-     * Create a tokenizer from a pre-parsed GGUF metadata field map.
-     *
-     * Routes byte-level BPE through upstream directly; routes SentencePiece
-     * through [SentencePieceSpecialTokens] so chat-template control / user-
-     * defined tokens encode atomically (Gemma 4, etc.).
-     *
-     * @param fields The GGUF metadata map, e.g. `GGUFModelInfo.fields` from
-     *   `UnifiedModelLoader.peek`.
-     */
-    public fun fromGgufFields(fields: Map<String, Any?>): Tokenizer {
-        val model = (fields["tokenizer.ggml.model"] as? String)?.lowercase()
-        return when (model) {
-            "llama", "sentencepiece" -> SentencePieceSpecialTokens.fromGgufFields(fields)
-            else -> {
-                val upstream = sk.ainet.io.tokenizer.TokenizerFactory.fromGguf(fields)
-                UpstreamTokenizerAdapter(upstream)
-            }
-        }
-    }
+    /** Create a tokenizer from a pre-parsed GGUF metadata field map (`GGUFModelInfo.fields`). */
+    public fun fromGgufFields(fields: Map<String, Any?>): Tokenizer = adapt(TextFrontEnds.fromGguf(fields))
+
+    /** Open a [StreamingGGUFReader] over [source], parse the metadata and build via [fromGgufFields]. */
+    public fun fromGgufSource(source: RandomAccessSource): Tokenizer =
+        StreamingGGUFReader.open(source).use { reader -> fromGgufFields(reader.fields) }
+
+    /** Create a tokenizer from a Hugging Face `tokenizer.json` string and its optional `tokenizer_config.json`. */
+    public fun fromTokenizerJsonString(json: String, configJson: String? = null): Tokenizer =
+        adapt(TextFrontEnds.fromTokenizerJson(json, configJson))
+
+    /** Create the Mistral Tekken tokenizer from a `tekken.json` string. */
+    public fun fromTekkenJson(json: String): Tokenizer = adapt(TextFrontEnds.fromTekkenJson(json))
 
     /**
-     * Convenience: open a [StreamingGGUFReader] over [source], parse metadata,
-     * and build a tokenizer via [fromGgufFields]. The reader is closed before
-     * returning. Use this when you only have the source handle and don't need
-     * the rest of the GGUF metadata.
+     * Resolve the text front end of any checkpoint view (GGUF, Hugging Face directory, in-memory)
+     * through [registry] — this repository's families by default, so stop ids and templates come
+     * decorated.
      */
-    public fun fromGgufSource(source: RandomAccessSource): Tokenizer {
-        return StreamingGGUFReader.open(source).use { reader ->
-            fromGgufFields(reader.fields)
-        }
-    }
+    public fun resolve(view: CheckpointView, registry: ModelFamilyRegistry = TransformersFamilies.registry): TextFrontEnd =
+        resolver(registry).resolveText(view)
 
-    /**
-     * Create a tokenizer from a HuggingFace `tokenizer.json` string (+ optional
-     * `tokenizer_config.json`).
-     *
-     * Routes BPE through upstream directly; routes Unigram / SentencePiece
-     * through [SentencePieceSpecialTokens] so the `added_tokens` registry
-     * (including bos/eos resolution) and `add_space_prefix` detection are
-     * applied — both are upstream gaps that affect Gemma 4 SafeTensors.
-     */
-    public fun fromTokenizerJsonString(json: String, configJson: String? = null): Tokenizer {
-        // Detect model.type with a minimal substring scan so we don't have to
-        // round-trip through kotlinx.serialization twice (once here, once in
-        // the dispatched factory).
-        val modelType = detectModelType(json)
-        return when (modelType) {
-            "Unigram" -> SentencePieceSpecialTokens.fromTokenizerJson(json, configJson)
-            else -> {
-                val upstream = sk.ainet.io.tokenizer.TokenizerFactory.fromTokenizerJson(json)
-                UpstreamTokenizerAdapter(upstream)
-            }
-        }
-    }
+    /** As [resolve], returning the tokenizer as this repository's [Tokenizer]. */
+    public fun fromCheckpoint(view: CheckpointView, registry: ModelFamilyRegistry = TransformersFamilies.registry): Tokenizer =
+        adapt(resolve(view, registry).tokenizer)
 
-    private fun detectModelType(json: String): String? {
-        val modelIdx = json.indexOf("\"model\"")
-        if (modelIdx < 0) return null
-        val typeIdx = json.indexOf("\"type\"", modelIdx)
-        if (typeIdx < 0) return null
-        val colonIdx = json.indexOf(':', typeIdx)
-        if (colonIdx < 0) return null
-        val openQuote = json.indexOf('"', colonIdx)
-        if (openQuote < 0) return null
-        val closeQuote = json.indexOf('"', openQuote + 1)
-        if (closeQuote < 0) return null
-        return json.substring(openQuote + 1, closeQuote)
-    }
+    /** A text-only [FrontEndResolver] over [registry]. */
+    public fun resolver(registry: ModelFamilyRegistry = TransformersFamilies.registry): FrontEndResolver = TextFrontEnds.resolver(registry)
+
+    /** Present an engine tokenizer as this repository's [Tokenizer] (identity when it already is one). */
+    public fun adapt(engine: sk.ainet.frontend.text.Tokenizer): Tokenizer = engine as? Tokenizer ?: UpstreamTokenizerAdapter(engine)
 }

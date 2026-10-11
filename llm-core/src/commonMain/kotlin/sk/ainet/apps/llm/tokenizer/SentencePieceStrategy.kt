@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION")
+
 package sk.ainet.apps.llm.tokenizer
 
 import sk.ainet.apps.llm.TokenizerStrategy
@@ -11,6 +13,7 @@ import sk.ainet.apps.llm.TokenizerType
  * the ▁ character to mark word boundaries (spaces become ▁, and text
  * starts with ▁ to mark the beginning).
  */
+@Deprecated("Preprocessing strategy of the legacy GGUFTokenizer (SKEEP-006); removed in 0.60.")
 public object SentencePieceStrategy : TokenizerStrategy {
     override val type: TokenizerType = TokenizerType.SENTENCEPIECE
 

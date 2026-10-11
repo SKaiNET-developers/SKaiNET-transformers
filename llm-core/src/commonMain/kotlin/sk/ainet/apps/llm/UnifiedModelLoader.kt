@@ -1,12 +1,20 @@
+@file:Suppress("DEPRECATION")
+
 package sk.ainet.apps.llm
 
+import sk.ainet.apps.llm.families.TransformersFamilies
 import sk.ainet.io.RandomAccessSource
+import sk.ainet.io.gguf.GgufCheckpointView
 import sk.ainet.io.gguf.StreamingGGUFReader
 import sk.ainet.io.gguf.getInt
 import sk.ainet.lang.types.DType
+import sk.ainet.model.ModelIdentity
 
 /**
  * Metadata extracted from a GGUF file for model detection and loading.
+ *
+ * @property family the 0.57 enum view; prefer [identity] (`identity.family` is the string every
+ *   descriptor in [TransformersFamilies] is keyed on)
  */
 public data class GGUFModelInfo(
     val architecture: String,
@@ -16,7 +24,13 @@ public data class GGUFModelInfo(
     val blockCount: Int,
     val embeddingLength: Int,
     val fields: Map<String, Any?>
-)
+) {
+    /** The GGUF metadata as the `CheckpointView` the front-end resolver consumes (SKEEP-006). */
+    val view: GgufCheckpointView get() = GgufCheckpointView(fields)
+
+    /** The identity this repository's family registry assigns to the checkpoint. */
+    val identity: ModelIdentity get() = TransformersFamilies.registry.identify(view)
+}
 
 /**
  * Unified model loader that auto-detects model architecture from GGUF metadata

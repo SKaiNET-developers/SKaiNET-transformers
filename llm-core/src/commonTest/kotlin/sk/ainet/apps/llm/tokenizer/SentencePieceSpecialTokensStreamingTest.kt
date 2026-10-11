@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION")
+
 package sk.ainet.apps.llm.tokenizer
 
 import sk.ainet.io.tokenizer.SentencePieceTokenizer
@@ -26,7 +28,7 @@ class SentencePieceSpecialTokensStreamingTest {
             eosTokenId = 2,
             addSpacePrefix = true,
         )
-        return SentencePieceSpecialTokens(base, specialTokens = emptyMap())
+        return SentencePieceSpecialTokens(base, addedTokens = emptyMap())
     }
 
     @Test
