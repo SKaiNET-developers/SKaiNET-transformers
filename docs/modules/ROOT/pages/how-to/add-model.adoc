@@ -97,6 +97,16 @@ Return a `<F>RuntimeWeights(metadata, tensors)`; `toModule()` binds it into the 
   and a dispatch branch in `skainet-cli`'s `Main.kt`.
 * `llm-runtime/k<f>` with a `<F>Ingestion` facade (copy `kbitnet`'s `BitNetIngestion`).
 
+
+*Declare the family descriptor.* Add an `object : TransformersFamily(...)` in
+`llm-core/src/commonMain/kotlin/sk/ainet/apps/llm/families/TransformersFamilies.kt` with the
+architecture strings the family claims, its display name, whether it supports tool calling, the
+chat-template family and its end-of-turn markers (literal strings; the engine resolves them to
+ids through the checkpoint's vocabulary). Register it in `TransformersFamilies.all`. That one
+object drives identity (`GGUFModelInfo.identity`), weight-map lookup and the stop set every
+tokenizer the family resolves to carries — no enum edit, no tokenizer code
+(the engine's resolver already handles the checkpoint's `tokenizer.json` or GGUF fields).
+
 === 6. The maturity gate — before calling the family "supported"
 
 This is the part that catches real bugs. BitNet's RoPE pairing was wrong for its first two

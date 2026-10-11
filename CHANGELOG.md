@@ -29,6 +29,38 @@ contributed by [@Sehul07](https://github.com/Sehul07) in #480, #481 and #482.
   byte-level vocabulary entries (`Ċ`, `ĉ`, `Ã¼`, …) never matched and they encoded as unknown.
   `postprocess` already had the inverse table; the forward pass now uses the same one.
 
+### Changed
+
+- **Tokenization is the engine's job (SKEEP-006).** `sk.ainet.apps.llm.Tokenizer` is now a
+  sub-interface of the engine's `sk.ainet.frontend.text.Tokenizer` (same `encode` / `decode`,
+  plus `vocabulary`, `specialTokens`, the `addSpecialTokens` / `skipSpecialTokens` overloads
+  and `decodeToken`; the `-1` bos/eos sentinels and `decode(Int)` stay for two releases).
+  `TokenizerFactory` is engine-backed on every path — byte-level BPE, Metaspace BPE, SentencePiece,
+  Unigram, WordPiece, Tekken — and gains `fromTekkenJson`, `resolve(view)` and `fromCheckpoint(view)`;
+  `GemmaStopTokens.resolve` accepts any engine tokenizer. Every runtime, CLI, Java facade and
+  benchmark now resolves its tokenizer through the factory: kgemma (`GemmaChatModel`,
+  `FunctionGemma`, CLI), kllama (JVM / native / browser CLIs, `KLlamaJava`), `gemma-iree`,
+  `llm-performance`, `skainet-cli`, `skainet-decode-core`; the bert Java facade and
+  `BertEmbeddingModel` use the engine `WordPieceTokenizer`. SafeTensors paths also read
+  `tokenizer_config.json`. Token ids on the former legacy paths change to the reference ids.
+- **Families are descriptors.** `sk.ainet.apps.llm.families.TransformersFamilies` (Llama, Qwen,
+  Gemma, Apertus, BitNet, BERT, Voxtral, Whisper, Moonshine, T5) replaces the `ModelFamily` enum
+  and `ModelRegistry.detect`; `GGUFModelInfo.identity` / `.view` expose the engine identity and
+  checkpoint view. `skainet-cli` and `skainet-decode-core` switch on the string family.
+- Engine pin `skainet 0.57.0 → 0.58.0-SNAPSHOT` (local integration build); new dependency aliases
+  `skainet-model-identity`, `skainet-frontend-core`, `skainet-frontend-text`.
+
+### Deprecated (WARNING; ERROR in 0.59; removed in 0.60)
+
+- `GGUFTokenizer`, its strategies (`BPEStrategy`, `SentencePieceStrategy`, `WordPieceStrategy`,
+  `UnknownStrategy`), `TokenizerType` / `TokenizerStrategy`, `HuggingFaceBPETokenizer`
+  (removed in 0.59, no callers), `SentencePieceSpecialTokens`, bert `HuggingFaceTokenizer` /
+  `TokenizerOutput`, `TekkenTokenizerAdapter` (now reads bos/eos/vocab size from the file),
+  the kllama `GGUFTokenizer` alias, the `ModelFamily` enum and `ModelRegistry`. Behaviour of the
+  deprecated classes is unchanged; they are never silently forwarded to the engine (FE-D-01).
+  The `androidNativeArm32` `NativeFunctionGemma` keeps the legacy GGUF parser until that target
+  has a random-access file source.
+
 ## [0.57.1] — 2026-09-27
 
 Ships against **SKaiNET engine 0.57.0**: this release touches only the Android IREE runtime's
