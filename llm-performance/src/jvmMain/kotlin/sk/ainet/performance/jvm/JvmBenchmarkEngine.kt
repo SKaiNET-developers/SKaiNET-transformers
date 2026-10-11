@@ -1,5 +1,6 @@
 package sk.ainet.performance.jvm
 
+import sk.ainet.apps.llm.tokenizer.TokenizerFactory
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.Path
@@ -7,7 +8,6 @@ import kotlin.io.path.absolutePathString
 import kotlin.system.measureNanoTime
 import kotlin.time.measureTime
 import kotlinx.coroutines.delay
-import sk.ainet.apps.kllama.GGUFTokenizer
 import sk.ainet.apps.llm.OptimizedLLMMode
 import sk.ainet.apps.llm.OptimizedLLMRuntime
 import sk.ainet.context.DirectCpuExecutionContext
@@ -140,7 +140,7 @@ private class LlamaRuntimeThroughputScenario : JvmBenchmarkScenario {
         log("Resolved model: ${resolvedModel.path} (source: ${resolvedModel.source})")
         log("Tokenizing prompts...")
         val tokenizer = JvmRandomAccessSource.open(resolvedModel.path.toString()).use { source ->
-            GGUFTokenizer.fromRandomAccessSource(source)
+            TokenizerFactory.fromGgufSource(source)
         }
         val promptPlans = prompts.map { prompt ->
             PromptPlan(prompt = prompt, promptTokens = tokenizer.encode(prompt.text))

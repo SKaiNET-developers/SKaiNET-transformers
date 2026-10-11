@@ -1,3 +1,6 @@
+@file:Suppress("DEPRECATION") // androidNativeArm32 has no pread-backed RandomAccessSource yet, so the
+// GGUF-embedded tokenizer is still read with the legacy streaming parser (SKEEP-006 follow-up).
+
 package sk.ainet.apps.kgemma
 
 import kotlinx.coroutines.runBlocking

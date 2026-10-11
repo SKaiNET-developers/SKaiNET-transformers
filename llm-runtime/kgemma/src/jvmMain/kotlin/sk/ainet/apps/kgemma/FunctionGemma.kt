@@ -1,7 +1,8 @@
 package sk.ainet.apps.kgemma
 
+import sk.ainet.apps.llm.tokenizer.TokenizerFactory
+import sk.ainet.apps.llm.Tokenizer
 import kotlinx.coroutines.runBlocking
-import sk.ainet.apps.kllama.GGUFTokenizer
 import sk.ainet.apps.llm.InferenceRuntime
 import sk.ainet.apps.llm.OptimizedLLMMode
 import sk.ainet.apps.llm.OptimizedLLMRuntime
@@ -49,7 +50,7 @@ import kotlin.random.Random
 public class FunctionGemma private constructor(
     private val ggufPath: String,
     private val runtime: InferenceRuntime<FP32>,
-    private val tokenizer: GGUFTokenizer,
+    private val tokenizer: Tokenizer,
     private val style: Style,
     private val bos: Int,
     private val eot: Int,
@@ -137,7 +138,7 @@ public class FunctionGemma private constructor(
             style: Style = Style.OCTOPUS_V2,
         ): FunctionGemma = runBlocking {
             KgemmaKernels.ensureInstalled()
-            val tok = GGUFTokenizer.fromRandomAccessSource(JvmRandomAccessSource.open(gguf))
+            val tok = JvmRandomAccessSource.open(gguf).use { TokenizerFactory.fromGgufSource(it) }
             val ctx = DirectCpuExecutionContext.create()
             // Keep BF16 weights at their stored width instead of widening them to FP32. This
             // checkpoint ships BF16, and a decode step is bound by the bytes it reads: halving them
@@ -160,7 +161,7 @@ public class FunctionGemma private constructor(
                 tokenizer = tok,
                 style = style,
                 bos = tok.bosTokenId,
-                eot = tok.tokenId("<end_of_turn>") ?: tok.encode("<end_of_turn>").single(),
+                eot = tok.vocabulary.tokenToId("<end_of_turn>") ?: tok.encode("<end_of_turn>").single(),
                 eos = tok.eosTokenId,
             )
         }

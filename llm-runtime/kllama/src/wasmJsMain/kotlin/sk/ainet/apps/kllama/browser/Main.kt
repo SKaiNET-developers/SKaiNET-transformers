@@ -13,7 +13,9 @@ import org.khronos.webgl.ArrayBuffer
 import org.khronos.webgl.DataView
 import org.w3c.fetch.Response
 import kotlin.js.Promise
-import sk.ainet.apps.kllama.GGUFTokenizer
+import sk.ainet.apps.llm.tokenizer.TokenizerFactory
+import sk.ainet.io.RandomAccessSource
+import sk.ainet.io.gguf.StreamingGGUFReader
 import sk.ainet.apps.llm.InferenceRuntime
 import sk.ainet.apps.llm.OptimizedLLMMode
 import sk.ainet.apps.llm.OptimizedLLMRuntime
@@ -89,8 +91,32 @@ private suspend fun loadRuntimeAndTokenizer(path: String): Pair<InferenceRuntime
         bos = weights.metadata.bosTokenId,
     )
 
-    val tokenizerSource: Source = (Buffer().apply { write(bytes) } as RawSource).buffered()
-    val tokenizer = GGUFTokenizer.fromSource(tokenizerSource)
+    // The GGUF-embedded tokenizer through the engine resolver (SKEEP-006): the fetched bytes
+    // double as the random-access source the streaming header reader needs.
+    val tokenizer = StreamingGGUFReader.open(ByteArrayRandomAccessSource(bytes)).use { reader ->
+        TokenizerFactory.fromGgufFields(reader.fields)
+    }
 
     return runtime to tokenizer
+}
+
+/** In-memory [RandomAccessSource] over the fetched model bytes. */
+private class ByteArrayRandomAccessSource(private val bytes: ByteArray) : RandomAccessSource {
+    override val size: Long get() = bytes.size.toLong()
+
+    override fun readAt(position: Long, length: Int): ByteArray {
+        val start = position.toInt()
+        val end = minOf(bytes.size, start + length)
+        return if (start >= bytes.size) ByteArray(0) else bytes.copyOfRange(start, end)
+    }
+
+    override fun readAt(position: Long, buffer: ByteArray, offset: Int, length: Int): Int {
+        val start = position.toInt()
+        if (start >= bytes.size) return -1
+        val n = minOf(length, bytes.size - start)
+        bytes.copyInto(buffer, offset, start, start + n)
+        return n
+    }
+
+    override fun close() {}
 }

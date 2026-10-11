@@ -1,6 +1,5 @@
 package sk.ainet.apps.kllama.cli
 
-import sk.ainet.apps.kllama.GGUFTokenizer
 import sk.ainet.apps.kllama.LlamaIngestion
 import sk.ainet.apps.kllama.LlamaLoadConfig
 import sk.ainet.models.llama.LlamaConfigParser
@@ -497,7 +496,7 @@ fun main(args: Array<String>) {
                 val tPath = tokenizerPath ?: error("tokenizer.json not found for SafeTensors model")
                 if (!tPath.exists()) error("Tokenizer not found: $tPath")
                 println("Loading tokenizer from $tPath...")
-                GGUFTokenizer.fromTokenizerJson(tPath.readText())
+                TokenizerFactory.fromTokenizerJsonString(tPath.readText(), tPath.resolveSibling("tokenizer_config.json").takeIf { it.exists() }?.readText())
             }
             format == ModelFormat.GGUF && tokenizerPath == null -> {
                 println("Loading embedded GGUF tokenizer...")

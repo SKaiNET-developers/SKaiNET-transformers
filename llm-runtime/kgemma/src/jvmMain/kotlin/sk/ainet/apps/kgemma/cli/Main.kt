@@ -1,10 +1,11 @@
 package sk.ainet.apps.kgemma.cli
 
+import sk.ainet.apps.llm.tokenizer.TokenizerFactory
+import sk.ainet.apps.llm.Tokenizer
 import sk.ainet.apps.kgemma.GemmaIngestion
 import sk.ainet.apps.kgemma.Gemma4LoadConfig
 import sk.ainet.apps.kgemma.GemmaStopTokens
 import sk.ainet.apps.kgemma.KgemmaKernels
-import sk.ainet.apps.kllama.GGUFTokenizer
 import sk.ainet.apps.kllama.chat.ChatMessage
 import sk.ainet.apps.kllama.chat.ChatRole
 import sk.ainet.apps.kllama.chat.ChatSession
@@ -230,12 +231,13 @@ fun main(args: Array<String>) {
             }
         }
 
-        // Load tokenizer from GGUF or from tokenizer.json in model directory
-        val tokenizer: GGUFTokenizer = when (format) {
+        // Load tokenizer from GGUF or from tokenizer.json (+ tokenizer_config.json) in the model
+        // directory — both through the engine-backed factory (SKEEP-006).
+        val tokenizer: Tokenizer = when (format) {
             ModelFormat.GGUF -> {
                 println("Loading embedded GGUF tokenizer...")
                 JvmRandomAccessSource.open(modelPath.toString()).use { source ->
-                    GGUFTokenizer.fromRandomAccessSource(source)
+                    TokenizerFactory.fromGgufSource(source)
                 }
             }
             ModelFormat.SAFETENSORS -> {
@@ -243,7 +245,8 @@ fun main(args: Array<String>) {
                 val tokenizerFile = modelDir.resolve("tokenizer.json")
                 if (!tokenizerFile.exists()) error("tokenizer.json not found in $modelDir")
                 println("Loading tokenizer from $tokenizerFile...")
-                GGUFTokenizer.fromTokenizerJson(tokenizerFile.readText())
+                val configFile = modelDir.resolve("tokenizer_config.json")
+                TokenizerFactory.fromTokenizerJsonString(tokenizerFile.readText(), configFile.takeIf { it.exists() }?.readText())
             }
         }
 

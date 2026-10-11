@@ -1,10 +1,16 @@
+@file:Suppress("DEPRECATION")
+
 package sk.ainet.models.bert
 
 import sk.ainet.apps.llm.Tokenizer
 
 /**
  * Tokenizer output including attention mask and token type IDs needed by BERT.
+ *
+ * Deprecated (SKEEP-006): the engine's `sk.ainet.frontend.text.Encoding` carries the same three
+ * arrays (`ids`, `attentionMask`, `tokenTypeIds`). Removed in 0.60.
  */
+@Deprecated("Use sk.ainet.frontend.text.Encoding from WordPieceTokenizer.encodeWithMetadata (SKEEP-006). Removed in 0.60.")
 public data class TokenizerOutput(
     val inputIds: IntArray,
     val attentionMask: IntArray,
@@ -32,7 +38,15 @@ public data class TokenizerOutput(
  * Reads vocabulary from either `vocab.txt` (one token per line) or
  * `tokenizer.json` (HuggingFace format). Implements the `Tokenizer` interface
  * and adds `encodeWithMetadata()` for BERT-specific outputs.
+ *
+ * Deprecated (SKEEP-006): the engine's `sk.ainet.frontend.tokenizer.WordPieceTokenizer` is the
+ * golden-tested implementation (real JSON parse, `BertNormalizer` accent handling, the
+ * reference decoder); `TextFrontEnds.fromVocabTxt` / `fromTokenizerJson` build it. Removed in 0.60.
  */
+@Deprecated(
+    "Use the engine WordPieceTokenizer via TextFrontEnds.fromVocabTxt / fromTokenizerJson (SKEEP-006). Removed in 0.60.",
+    ReplaceWith("WordPieceTokenizer", "sk.ainet.frontend.tokenizer.WordPieceTokenizer"),
+)
 public class HuggingFaceTokenizer private constructor(
     private val tokenToId: Map<String, Int>,
     private val idToToken: Map<Int, String>,

@@ -7,7 +7,7 @@ import kotlin.io.path.isDirectory
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
-import sk.ainet.apps.llm.tokenizer.GGUFTokenizer
+import sk.ainet.apps.llm.tokenizer.TokenizerFactory
 
 /**
  * Fast (no-model-load) regression guard for the tokenizer fixes that
@@ -33,7 +33,7 @@ class Gemma4TokenizerParityTest {
     @Test
     fun `chat template rendered prompt tokenizes to HF reference ids`() {
         val tokenizerJson = locateTokenizerJson() ?: return
-        val tokenizer = GGUFTokenizer.fromTokenizerJson(Files.readString(tokenizerJson))
+        val tokenizer = TokenizerFactory.fromTokenizerJsonString(Files.readString(tokenizerJson), tokenizerJson.resolveSibling("tokenizer_config.json").takeIf { Files.exists(it) }?.let(Files::readString))
 
         // Exact rendered output of `Gemma4ChatTemplate.apply()` for a single
         // user turn with the canonical prompt. Hand-built here so the test
@@ -74,7 +74,7 @@ class Gemma4TokenizerParityTest {
     @Test
     fun `single-token specials encode atomically with the right ids`() {
         val tokenizerJson = locateTokenizerJson() ?: return
-        val tokenizer = GGUFTokenizer.fromTokenizerJson(Files.readString(tokenizerJson))
+        val tokenizer = TokenizerFactory.fromTokenizerJsonString(Files.readString(tokenizerJson), tokenizerJson.resolveSibling("tokenizer_config.json").takeIf { Files.exists(it) }?.let(Files::readString))
 
         val cases = listOf(
             "<bos>" to 2,
@@ -95,7 +95,7 @@ class Gemma4TokenizerParityTest {
     @Test
     fun `bos and eos token ids resolve from added_tokens`() {
         val tokenizerJson = locateTokenizerJson() ?: return
-        val tokenizer = GGUFTokenizer.fromTokenizerJson(Files.readString(tokenizerJson))
+        val tokenizer = TokenizerFactory.fromTokenizerJsonString(Files.readString(tokenizerJson), tokenizerJson.resolveSibling("tokenizer_config.json").takeIf { Files.exists(it) }?.let(Files::readString))
 
         assertEquals(2, tokenizer.bosTokenId, "BOS id should be 2 (Gemma 4)")
         assertEquals(1, tokenizer.eosTokenId, "EOS id should be 1 (Gemma 4)")
@@ -104,7 +104,7 @@ class Gemma4TokenizerParityTest {
     @Test
     fun `decoded text has no SentencePiece marker leakage`() {
         val tokenizerJson = locateTokenizerJson() ?: return
-        val tokenizer = GGUFTokenizer.fromTokenizerJson(Files.readString(tokenizerJson))
+        val tokenizer = TokenizerFactory.fromTokenizerJsonString(Files.readString(tokenizerJson), tokenizerJson.resolveSibling("tokenizer_config.json").takeIf { Files.exists(it) }?.let(Files::readString))
 
         // Round-trip encode → decode for a phrase with multiple internal
         // spaces. With BPE strategy + the `▁` SentencePiece marker, the

@@ -10,7 +10,8 @@ import sk.ainet.lang.types.FP32
 import sk.ainet.models.bert.BertConfigParser
 import sk.ainet.models.bert.BertEncoderRuntime
 import sk.ainet.models.bert.BertNetworkLoader
-import sk.ainet.models.bert.HuggingFaceTokenizer
+import sk.ainet.frontend.tokenizer.TextFrontEnds
+import sk.ainet.frontend.tokenizer.WordPieceTokenizer
 import sk.ainet.models.bert.MDBR_LEAF_IR_CONFIG
 import sk.ainet.models.bert.PooledExecutionContext
 import sk.ainet.models.bert.createBertEncoderRuntime
@@ -66,7 +67,7 @@ public object KBertJava {
             MDBR_LEAF_IR_CONFIG
         }
 
-        val tokenizer = HuggingFaceTokenizer.fromVocabTxt(vocabPath.readText())
+        val tokenizer = TextFrontEnds.fromVocabTxt(vocabPath.readText())
         // Pool scratch buffers across encode() calls — embedding workloads
         // typically encode many strings in a row, so the SizeClassedScratchPool
         // returns real wins. With a single one-shot call the pool is no
@@ -104,7 +105,7 @@ public object KBertJava {
  */
 public class KBertSession(
     private val runtime: BertEncoderRuntime<FP32>,
-    private val tokenizer: HuggingFaceTokenizer
+    private val tokenizer: WordPieceTokenizer
 ) : AutoCloseable {
 
     /**
@@ -114,8 +115,8 @@ public class KBertSession(
      * @return A float array representing the embedding.
      */
     public fun encode(text: String): FloatArray {
-        val tokOutput = tokenizer.encodeWithMetadata(text)
-        return runtime.encode(tokOutput.inputIds, tokOutput.attentionMask)
+        val encoding = tokenizer.encodeWithMetadata(text)
+        return runtime.encode(encoding.ids, encoding.attentionMask)
     }
 
     /**
