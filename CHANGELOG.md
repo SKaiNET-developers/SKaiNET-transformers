@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`GGUFTokenizer.fromTokenizerJson` honours the Metaspace `prepend_scheme`** (#473). The JSON path
+  assumed that no `▁` is prepended to the first word; files that declare
+  `"prepend_scheme": "always"` (or a legacy `Prepend` normalizer) encoded the first word one id off
+  from the reference. Gemma 4, which declares neither, is unchanged.
+
 ## [0.57.1] — 2026-09-27
 
 Ships against **SKaiNET engine 0.57.0**: this release touches only the Android IREE runtime's

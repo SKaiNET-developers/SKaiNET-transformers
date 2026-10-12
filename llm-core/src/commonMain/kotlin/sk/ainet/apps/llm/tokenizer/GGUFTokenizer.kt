@@ -199,14 +199,14 @@ class GGUFTokenizer private constructor(
             val bpeVotes = vocab.count { it.startsWith(gpt2Marker) }
             val strategy: TokenizerStrategy = if (spVotes > bpeVotes) SentencePieceStrategy else BPEStrategy
             val strategyLabel = if (strategy === SentencePieceStrategy) "SentencePiece" else "BPE"
-            // SentencePiece tokenizers shipped via HF `tokenizer.json` (Gemma 4,
-            // LLaMA-3) typically set `add_dummy_prefix=false` — the modern
-            // convention. Without this, encoding `"Hi"` would produce `[▁Hi]`
-            // (id 18428) instead of `[Hi]` (id 10979), shifting every prompt
-            // token by one and breaking parity with HF reference outputs. The
-            // GGUF path reads `tokenizer.ggml.add_space_prefix` directly; this
-            // is the JSON-path equivalent default.
-            val sentencePieceAddSpace = false
+            // Whether the first word gets the `▁` prefix is declared by the
+            // file: `pre_tokenizer.prepend_scheme` (`always` / `first` → yes,
+            // `never` → no) or, in older files, a `Prepend` normalizer with
+            // `"prepend": "▁"`. Gemma 4 declares neither and must encode
+            // `"Hi"` as `[Hi]` (id 10979), not `[▁Hi]` (id 18428); mmBERT
+            // declares `always` and expects the prefix. The GGUF path reads
+            // `tokenizer.ggml.add_space_prefix` for the same decision.
+            val sentencePieceAddSpace = detectPrependScheme(json)
             println(
                 "Tokenizer: $strategyLabel (from tokenizer.json, vocab=${vocab.size}, special=${addedTokenIds.size})"
             )
@@ -221,6 +221,44 @@ class GGUFTokenizer private constructor(
                 tokenTypes = tokenTypes,
                 addSpacePrefix = if (strategy === SentencePieceStrategy) sentencePieceAddSpace else DEFAULT_ADD_SPACE_PREFIX,
             )
+        }
+
+        /**
+         * Reads whether the file prepends the SentencePiece word-boundary
+         * marker to the input. Checks `pre_tokenizer.prepend_scheme`
+         * (`always` and `first` → true, `never` → false; `first` differs from
+         * `always` only across several pre-split sequences, which this
+         * encoder never produces) and, failing that, a `normalizer` step of
+         * type `Prepend` with `"prepend": "▁"`, also inside a `Sequence`.
+         * A file that declares neither keeps the previous behaviour, false.
+         */
+        private fun detectPrependScheme(json: String): Boolean {
+            val preTokenizer = topLevelObject(json, "pre_tokenizer")
+            if (preTokenizer != null) {
+                val scheme = Regex("\"prepend_scheme\"\\s*:\\s*\"([a-z]+)\"").find(preTokenizer)
+                if (scheme != null) {
+                    return when (scheme.groupValues[1]) {
+                        "always", "first" -> true
+                        else -> false
+                    }
+                }
+            }
+            val normalizer = topLevelObject(json, "normalizer") ?: return false
+            val prependStep = Regex("\"type\"\\s*:\\s*\"Prepend\"[^{}]*\"prepend\"\\s*:\\s*\"([^\"]*)\"")
+            return prependStep.findAll(normalizer).any { it.groupValues[1] == "▁" || it.groupValues[1] == "\\u2581" }
+        }
+
+        /** The text of the top-level object stored under [key], or null when absent or not an object. */
+        private fun topLevelObject(json: String, key: String): String? {
+            val keyStart = json.indexOf("\"$key\"")
+            if (keyStart < 0) return null
+            val colon = json.indexOf(':', keyStart + key.length + 2)
+            if (colon < 0) return null
+            var i = colon + 1
+            while (i < json.length && json[i].isWhitespace()) i++
+            if (i >= json.length || json[i] != '{') return null
+            val end = findMatchingBrace(json, i)
+            return json.substring(i, end + 1)
         }
 
         private fun findMatchingBrace(s: String, start: Int): Int {
@@ -481,10 +519,10 @@ class GGUFTokenizer private constructor(
             for (i in 0 until sampleSize) {
                 val token = vocab[i]
                 when {
-                        token.contains(sentencePieceMarker) -> sentencePieceCount++
-                        token.contains(bpeMarker) -> bpeCount++
-                        token.startsWith(wordPieceMarker) -> wordPieceCount++
-                    }
+                    token.contains(sentencePieceMarker) -> sentencePieceCount++
+                    token.contains(bpeMarker) -> bpeCount++
+                    token.startsWith(wordPieceMarker) -> wordPieceCount++
+                }
             }
 
             // Return strategy based on which marker is most prevalent
