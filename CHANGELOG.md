@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`GGUFTokenizer.fromTokenizerJson` reads array-form merges** (#472). `tokenizers` 0.20+ writes
+  each BPE merge as `["a", "b"]` instead of `"a b"`; the merges block was only parsed in the string
+  form, so every merge of a modern `tokenizer.json` was dropped and encoding fell back to
+  character-by-character merges in vocabulary order. Both forms now produce the same ranks.
+
 ## [0.57.1] — 2026-09-27
 
 Ships against **SKaiNET engine 0.57.0**: this release touches only the Android IREE runtime's
