@@ -29,23 +29,17 @@ public object BPEStrategy : TokenizerStrategy {
     /** GPT-2 BPE space marker: Ġ (U+0120). */
     override val spaceMarker: String = "Ġ"
 
+    /**
+     * Apply the byte-to-unicode mapping to every UTF-8 byte of [text]:
+     * `" "` → `Ġ`, `"\n"` → `Ċ`, `"ü"` → `Ã¼`. The glyphs are what the
+     * vocabulary of a byte-level BPE model is made of, so a token that is
+     * not mapped here never matches the vocabulary and encodes as unknown.
+     */
     override fun preprocess(text: String): String {
-        // GPT-2 style: space becomes Ġ prefix on following token
-        val replacedSpaces = text.replace(" ", spaceMarker)
-    
-        // Encode non-ASCII characters to their byte representations
-        return replacedSpaces.map { char ->
-            if (char.code > 127) {
-                // Map non-ASCII char to its UTF-8 byte representation characters
-                char.toString().encodeToByteArray().joinToString("") { byte ->
-                    // Convert byte to corresponding unicode mapping if required by BPE spec
-                    // or keep byte representation
-                    String(CharArray(1) { byte.toInt().toChar() })
-                }
-            } else {
-            char.toString()
-            }
-        }.joinToString("")
+        val bytes = text.encodeToByteArray()
+        val sb = StringBuilder(bytes.size)
+        for (b in bytes) sb.append(BYTE_TO_UNICODE.getValue(b))
+        return sb.toString()
     }
 
     /**
