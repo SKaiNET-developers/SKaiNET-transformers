@@ -1,0 +1,742 @@
+public final class sk/ainet/decisions/AbstentionReason : java/lang/Enum {
+	public static final field BELOW_CONFIDENCE Lsk/ainet/decisions/AbstentionReason;
+	public static final field BELOW_MARGIN Lsk/ainet/decisions/AbstentionReason;
+	public static final field BETWEEN_THRESHOLDS Lsk/ainet/decisions/AbstentionReason;
+	public static final field BUDGET_EXHAUSTED Lsk/ainet/decisions/AbstentionReason;
+	public static final field MISSING_BUNDLE Lsk/ainet/decisions/AbstentionReason;
+	public static final field NO_POLICY Lsk/ainet/decisions/AbstentionReason;
+	public static final field UNCERTAIN_MODEL_SELECTION Lsk/ainet/decisions/AbstentionReason;
+	public static final field UNSUPPORTED_LANGUAGE Lsk/ainet/decisions/AbstentionReason;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lsk/ainet/decisions/AbstentionReason;
+	public static fun values ()[Lsk/ainet/decisions/AbstentionReason;
+}
+
+public final class sk/ainet/decisions/AcceptancePolicy {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Lsk/ainet/decisions/ChoiceAcceptance;Lsk/ainet/decisions/ScoreAcceptance;Lsk/ainet/decisions/BooleanAcceptance;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Lsk/ainet/decisions/ChoiceAcceptance;Lsk/ainet/decisions/ScoreAcceptance;Lsk/ainet/decisions/BooleanAcceptance;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Lsk/ainet/decisions/ChoiceAcceptance;
+	public final fun component4 ()Lsk/ainet/decisions/ScoreAcceptance;
+	public final fun component5 ()Lsk/ainet/decisions/BooleanAcceptance;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Lsk/ainet/decisions/ChoiceAcceptance;Lsk/ainet/decisions/ScoreAcceptance;Lsk/ainet/decisions/BooleanAcceptance;)Lsk/ainet/decisions/AcceptancePolicy;
+	public static synthetic fun copy$default (Lsk/ainet/decisions/AcceptancePolicy;Ljava/lang/String;Ljava/lang/String;Lsk/ainet/decisions/ChoiceAcceptance;Lsk/ainet/decisions/ScoreAcceptance;Lsk/ainet/decisions/BooleanAcceptance;ILjava/lang/Object;)Lsk/ainet/decisions/AcceptancePolicy;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getBoolean ()Lsk/ainet/decisions/BooleanAcceptance;
+	public final fun getChoice ()Lsk/ainet/decisions/ChoiceAcceptance;
+	public final fun getId ()Ljava/lang/String;
+	public final fun getScore ()Lsk/ainet/decisions/ScoreAcceptance;
+	public final fun getVersion ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/decisions/AdapterCapabilities {
+	public fun <init> (Ljava/lang/String;Ljava/util/Set;Lsk/ainet/decisions/LanguageSupport;IIIIZLjava/lang/String;Ljava/lang/String;Lsk/ainet/decisions/CalibrationStatus;Ljava/lang/String;Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component10 ()Ljava/lang/String;
+	public final fun component11 ()Lsk/ainet/decisions/CalibrationStatus;
+	public final fun component12 ()Ljava/lang/String;
+	public final fun component13 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/util/Set;
+	public final fun component3 ()Lsk/ainet/decisions/LanguageSupport;
+	public final fun component4 ()I
+	public final fun component5 ()I
+	public final fun component6 ()I
+	public final fun component7 ()I
+	public final fun component8 ()Z
+	public final fun component9 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/util/Set;Lsk/ainet/decisions/LanguageSupport;IIIIZLjava/lang/String;Ljava/lang/String;Lsk/ainet/decisions/CalibrationStatus;Ljava/lang/String;Ljava/lang/String;)Lsk/ainet/decisions/AdapterCapabilities;
+	public static synthetic fun copy$default (Lsk/ainet/decisions/AdapterCapabilities;Ljava/lang/String;Ljava/util/Set;Lsk/ainet/decisions/LanguageSupport;IIIIZLjava/lang/String;Ljava/lang/String;Lsk/ainet/decisions/CalibrationStatus;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lsk/ainet/decisions/AdapterCapabilities;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getBackend ()Ljava/lang/String;
+	public final fun getBatchSupport ()Z
+	public final fun getCalibration ()Lsk/ainet/decisions/CalibrationStatus;
+	public final fun getCalibrationIdentity ()Ljava/lang/String;
+	public final fun getLanguages ()Lsk/ainet/decisions/LanguageSupport;
+	public final fun getMaxContextTokens ()I
+	public final fun getMaxOptionTokens ()I
+	public final fun getMaxOptions ()I
+	public final fun getMaxQuestionsPerRequest ()I
+	public final fun getModelId ()Ljava/lang/String;
+	public final fun getPrecision ()Ljava/lang/String;
+	public final fun getPreprocessingVersion ()Ljava/lang/String;
+	public final fun getPrimitives ()Ljava/util/Set;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract class sk/ainet/decisions/AdapterOutcome {
+	public abstract fun getQuestionId ()Ljava/lang/String;
+}
+
+public final class sk/ainet/decisions/AdapterOutcome$Candidate : sk/ainet/decisions/AdapterOutcome {
+	public fun <init> (Ljava/lang/String;Lsk/ainet/decisions/Prediction;Lsk/ainet/decisions/QuestionTrace;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Lsk/ainet/decisions/Prediction;
+	public final fun component3 ()Lsk/ainet/decisions/QuestionTrace;
+	public final fun copy (Ljava/lang/String;Lsk/ainet/decisions/Prediction;Lsk/ainet/decisions/QuestionTrace;)Lsk/ainet/decisions/AdapterOutcome$Candidate;
+	public static synthetic fun copy$default (Lsk/ainet/decisions/AdapterOutcome$Candidate;Ljava/lang/String;Lsk/ainet/decisions/Prediction;Lsk/ainet/decisions/QuestionTrace;ILjava/lang/Object;)Lsk/ainet/decisions/AdapterOutcome$Candidate;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getPrediction ()Lsk/ainet/decisions/Prediction;
+	public fun getQuestionId ()Ljava/lang/String;
+	public final fun getTrace ()Lsk/ainet/decisions/QuestionTrace;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/decisions/AdapterOutcome$Failure : sk/ainet/decisions/AdapterOutcome {
+	public fun <init> (Ljava/lang/String;Lsk/ainet/decisions/DecisionError;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Lsk/ainet/decisions/DecisionError;
+	public final fun copy (Ljava/lang/String;Lsk/ainet/decisions/DecisionError;)Lsk/ainet/decisions/AdapterOutcome$Failure;
+	public static synthetic fun copy$default (Lsk/ainet/decisions/AdapterOutcome$Failure;Ljava/lang/String;Lsk/ainet/decisions/DecisionError;ILjava/lang/Object;)Lsk/ainet/decisions/AdapterOutcome$Failure;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getError ()Lsk/ainet/decisions/DecisionError;
+	public fun getQuestionId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/decisions/BooleanAcceptance {
+	public fun <init> (DD)V
+	public final fun component1 ()D
+	public final fun component2 ()D
+	public final fun copy (DD)Lsk/ainet/decisions/BooleanAcceptance;
+	public static synthetic fun copy$default (Lsk/ainet/decisions/BooleanAcceptance;DDILjava/lang/Object;)Lsk/ainet/decisions/BooleanAcceptance;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getLower ()D
+	public final fun getUpper ()D
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/decisions/BooleanCriteria {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;)Lsk/ainet/decisions/BooleanCriteria;
+	public static synthetic fun copy$default (Lsk/ainet/decisions/BooleanCriteria;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lsk/ainet/decisions/BooleanCriteria;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getWhenFalse ()Ljava/lang/String;
+	public final fun getWhenTrue ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/decisions/BooleanProbabilityQuestion : sk/ainet/decisions/DecisionQuestion {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Lsk/ainet/decisions/BooleanCriteria;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Lsk/ainet/decisions/BooleanCriteria;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Lsk/ainet/decisions/BooleanCriteria;)Lsk/ainet/decisions/BooleanProbabilityQuestion;
+	public static synthetic fun copy$default (Lsk/ainet/decisions/BooleanProbabilityQuestion;Ljava/lang/String;Ljava/lang/String;Lsk/ainet/decisions/BooleanCriteria;ILjava/lang/Object;)Lsk/ainet/decisions/BooleanProbabilityQuestion;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCriteria ()Lsk/ainet/decisions/BooleanCriteria;
+	public fun getId ()Ljava/lang/String;
+	public fun getInstructions ()Ljava/lang/String;
+	public fun getOptionCount ()I
+	public fun getPrimitive ()Lsk/ainet/decisions/Primitive;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/decisions/CalibrationStatus : java/lang/Enum {
+	public static final field CHECKPOINT_PROVIDED Lsk/ainet/decisions/CalibrationStatus;
+	public static final field LOCALLY_VALIDATED Lsk/ainet/decisions/CalibrationStatus;
+	public static final field UNVERIFIED Lsk/ainet/decisions/CalibrationStatus;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lsk/ainet/decisions/CalibrationStatus;
+	public static fun values ()[Lsk/ainet/decisions/CalibrationStatus;
+}
+
+public final class sk/ainet/decisions/ChoiceAcceptance {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/Double;Ljava/lang/Double;)V
+	public synthetic fun <init> (Ljava/lang/Double;Ljava/lang/Double;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/Double;
+	public final fun component2 ()Ljava/lang/Double;
+	public final fun copy (Ljava/lang/Double;Ljava/lang/Double;)Lsk/ainet/decisions/ChoiceAcceptance;
+	public static synthetic fun copy$default (Lsk/ainet/decisions/ChoiceAcceptance;Ljava/lang/Double;Ljava/lang/Double;ILjava/lang/Object;)Lsk/ainet/decisions/ChoiceAcceptance;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getMinConfidence ()Ljava/lang/Double;
+	public final fun getMinMargin ()Ljava/lang/Double;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/decisions/ChoiceOption {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;)Lsk/ainet/decisions/ChoiceOption;
+	public static synthetic fun copy$default (Lsk/ainet/decisions/ChoiceOption;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lsk/ainet/decisions/ChoiceOption;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getDescription ()Ljava/lang/String;
+	public final fun getId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/decisions/ChoiceQuestion : sk/ainet/decisions/DecisionQuestion {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/util/List;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/util/List;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/util/List;)Lsk/ainet/decisions/ChoiceQuestion;
+	public static synthetic fun copy$default (Lsk/ainet/decisions/ChoiceQuestion;Ljava/lang/String;Ljava/lang/String;Ljava/util/List;ILjava/lang/Object;)Lsk/ainet/decisions/ChoiceQuestion;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getId ()Ljava/lang/String;
+	public fun getInstructions ()Ljava/lang/String;
+	public fun getOptionCount ()I
+	public final fun getOptions ()Ljava/util/List;
+	public fun getPrimitive ()Lsk/ainet/decisions/Primitive;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/decisions/Confidence {
+	public fun <init> (DLsk/ainet/decisions/ConfidenceDefinition;)V
+	public final fun component1 ()D
+	public final fun component2 ()Lsk/ainet/decisions/ConfidenceDefinition;
+	public final fun copy (DLsk/ainet/decisions/ConfidenceDefinition;)Lsk/ainet/decisions/Confidence;
+	public static synthetic fun copy$default (Lsk/ainet/decisions/Confidence;DLsk/ainet/decisions/ConfidenceDefinition;ILjava/lang/Object;)Lsk/ainet/decisions/Confidence;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getDefinition ()Lsk/ainet/decisions/ConfidenceDefinition;
+	public final fun getValue ()D
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/decisions/ConfidenceDefinition : java/lang/Enum {
+	public static final field NORMALIZED_ENTROPY Lsk/ainet/decisions/ConfidenceDefinition;
+	public static final field TWO_WAY_MAX Lsk/ainet/decisions/ConfidenceDefinition;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lsk/ainet/decisions/ConfidenceDefinition;
+	public static fun values ()[Lsk/ainet/decisions/ConfidenceDefinition;
+}
+
+public abstract class sk/ainet/decisions/Decision {
+	public abstract fun getPrediction ()Lsk/ainet/decisions/Prediction;
+}
+
+public final class sk/ainet/decisions/Decision$Boolean : sk/ainet/decisions/Decision {
+	public fun <init> (ZLsk/ainet/decisions/Prediction$BooleanProbability;)V
+	public final fun component1 ()Z
+	public final fun component2 ()Lsk/ainet/decisions/Prediction$BooleanProbability;
+	public final fun copy (ZLsk/ainet/decisions/Prediction$BooleanProbability;)Lsk/ainet/decisions/Decision$Boolean;
+	public static synthetic fun copy$default (Lsk/ainet/decisions/Decision$Boolean;ZLsk/ainet/decisions/Prediction$BooleanProbability;ILjava/lang/Object;)Lsk/ainet/decisions/Decision$Boolean;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getPrediction ()Lsk/ainet/decisions/Prediction$BooleanProbability;
+	public synthetic fun getPrediction ()Lsk/ainet/decisions/Prediction;
+	public final fun getValue ()Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/decisions/Decision$Choice : sk/ainet/decisions/Decision {
+	public fun <init> (Ljava/lang/String;Lsk/ainet/decisions/Prediction$Choice;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Lsk/ainet/decisions/Prediction$Choice;
+	public final fun copy (Ljava/lang/String;Lsk/ainet/decisions/Prediction$Choice;)Lsk/ainet/decisions/Decision$Choice;
+	public static synthetic fun copy$default (Lsk/ainet/decisions/Decision$Choice;Ljava/lang/String;Lsk/ainet/decisions/Prediction$Choice;ILjava/lang/Object;)Lsk/ainet/decisions/Decision$Choice;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getOptionId ()Ljava/lang/String;
+	public fun getPrediction ()Lsk/ainet/decisions/Prediction$Choice;
+	public synthetic fun getPrediction ()Lsk/ainet/decisions/Prediction;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/decisions/Decision$Score : sk/ainet/decisions/Decision {
+	public fun <init> (ILsk/ainet/decisions/Prediction$Score;)V
+	public final fun component1 ()I
+	public final fun component2 ()Lsk/ainet/decisions/Prediction$Score;
+	public final fun copy (ILsk/ainet/decisions/Prediction$Score;)Lsk/ainet/decisions/Decision$Score;
+	public static synthetic fun copy$default (Lsk/ainet/decisions/Decision$Score;ILsk/ainet/decisions/Prediction$Score;ILjava/lang/Object;)Lsk/ainet/decisions/Decision$Score;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getLevel ()I
+	public fun getPrediction ()Lsk/ainet/decisions/Prediction$Score;
+	public synthetic fun getPrediction ()Lsk/ainet/decisions/Prediction;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class sk/ainet/decisions/DecisionAdapter : java/lang/AutoCloseable {
+	public abstract fun close ()V
+	public abstract fun getCapabilities ()Lsk/ainet/decisions/AdapterCapabilities;
+	public abstract fun predict (Lsk/ainet/decisions/DecisionState;Ljava/util/List;Lsk/ainet/decisions/InferencePolicy;)Ljava/util/List;
+}
+
+public abstract class sk/ainet/decisions/DecisionError {
+	public abstract fun getMessage ()Ljava/lang/String;
+}
+
+public final class sk/ainet/decisions/DecisionError$Cancelled : sk/ainet/decisions/DecisionError {
+	public static final field INSTANCE Lsk/ainet/decisions/DecisionError$Cancelled;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getMessage ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/decisions/DecisionError$ContextOverflow : sk/ainet/decisions/DecisionError {
+	public fun <init> (II)V
+	public final fun component1 ()I
+	public final fun component2 ()I
+	public final fun copy (II)Lsk/ainet/decisions/DecisionError$ContextOverflow;
+	public static synthetic fun copy$default (Lsk/ainet/decisions/DecisionError$ContextOverflow;IIILjava/lang/Object;)Lsk/ainet/decisions/DecisionError$ContextOverflow;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getLimitTokens ()I
+	public fun getMessage ()Ljava/lang/String;
+	public final fun getRequiredTokens ()I
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/decisions/DecisionError$InvalidSchema : sk/ainet/decisions/DecisionError {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Lsk/ainet/decisions/DecisionError$InvalidSchema;
+	public static synthetic fun copy$default (Lsk/ainet/decisions/DecisionError$InvalidSchema;Ljava/lang/String;ILjava/lang/Object;)Lsk/ainet/decisions/DecisionError$InvalidSchema;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getMessage ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/decisions/DecisionError$ModelCorruption : sk/ainet/decisions/DecisionError {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Lsk/ainet/decisions/DecisionError$ModelCorruption;
+	public static synthetic fun copy$default (Lsk/ainet/decisions/DecisionError$ModelCorruption;Ljava/lang/String;ILjava/lang/Object;)Lsk/ainet/decisions/DecisionError$ModelCorruption;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getMessage ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/decisions/DecisionError$NumericalFailure : sk/ainet/decisions/DecisionError {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Lsk/ainet/decisions/DecisionError$NumericalFailure;
+	public static synthetic fun copy$default (Lsk/ainet/decisions/DecisionError$NumericalFailure;Ljava/lang/String;ILjava/lang/Object;)Lsk/ainet/decisions/DecisionError$NumericalFailure;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getMessage ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/decisions/DecisionError$ResourceExhausted : sk/ainet/decisions/DecisionError {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Lsk/ainet/decisions/DecisionError$ResourceExhausted;
+	public static synthetic fun copy$default (Lsk/ainet/decisions/DecisionError$ResourceExhausted;Ljava/lang/String;ILjava/lang/Object;)Lsk/ainet/decisions/DecisionError$ResourceExhausted;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getMessage ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/decisions/DecisionError$UnsupportedCapability : sk/ainet/decisions/DecisionError {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Lsk/ainet/decisions/DecisionError$UnsupportedCapability;
+	public static synthetic fun copy$default (Lsk/ainet/decisions/DecisionError$UnsupportedCapability;Ljava/lang/String;ILjava/lang/Object;)Lsk/ainet/decisions/DecisionError$UnsupportedCapability;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getMessage ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract class sk/ainet/decisions/DecisionQuestion {
+	public abstract fun getId ()Ljava/lang/String;
+	public abstract fun getInstructions ()Ljava/lang/String;
+	public abstract fun getOptionCount ()I
+	public abstract fun getPrimitive ()Lsk/ainet/decisions/Primitive;
+	protected final fun validateCommon ()V
+}
+
+public final class sk/ainet/decisions/DecisionRequest {
+	public static final field Companion Lsk/ainet/decisions/DecisionRequest$Companion;
+	public fun <init> (Ljava/lang/String;Lsk/ainet/decisions/DecisionState;Ljava/util/List;Lsk/ainet/decisions/ModelSelector;Lsk/ainet/decisions/InferencePolicy;)V
+	public synthetic fun <init> (Ljava/lang/String;Lsk/ainet/decisions/DecisionState;Ljava/util/List;Lsk/ainet/decisions/ModelSelector;Lsk/ainet/decisions/InferencePolicy;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public static final fun builder (Ljava/lang/String;)Lsk/ainet/decisions/DecisionRequest$Builder;
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Lsk/ainet/decisions/DecisionState;
+	public final fun component3 ()Ljava/util/List;
+	public final fun component4 ()Lsk/ainet/decisions/ModelSelector;
+	public final fun component5 ()Lsk/ainet/decisions/InferencePolicy;
+	public final fun copy (Ljava/lang/String;Lsk/ainet/decisions/DecisionState;Ljava/util/List;Lsk/ainet/decisions/ModelSelector;Lsk/ainet/decisions/InferencePolicy;)Lsk/ainet/decisions/DecisionRequest;
+	public static synthetic fun copy$default (Lsk/ainet/decisions/DecisionRequest;Ljava/lang/String;Lsk/ainet/decisions/DecisionState;Ljava/util/List;Lsk/ainet/decisions/ModelSelector;Lsk/ainet/decisions/InferencePolicy;ILjava/lang/Object;)Lsk/ainet/decisions/DecisionRequest;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getId ()Ljava/lang/String;
+	public final fun getInference ()Lsk/ainet/decisions/InferencePolicy;
+	public final fun getModel ()Lsk/ainet/decisions/ModelSelector;
+	public final fun getQuestions ()Ljava/util/List;
+	public final fun getState ()Lsk/ainet/decisions/DecisionState;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/decisions/DecisionRequest$Builder {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun build ()Lsk/ainet/decisions/DecisionRequest;
+	public final fun inference (Lsk/ainet/decisions/InferencePolicy;)Lsk/ainet/decisions/DecisionRequest$Builder;
+	public final fun model (Ljava/lang/String;)Lsk/ainet/decisions/DecisionRequest$Builder;
+	public final fun question (Lsk/ainet/decisions/DecisionQuestion;)Lsk/ainet/decisions/DecisionRequest$Builder;
+	public final fun state (Ljava/lang/String;)Lsk/ainet/decisions/DecisionRequest$Builder;
+	public final fun state (Lkotlinx/serialization/json/JsonElement;)Lsk/ainet/decisions/DecisionRequest$Builder;
+}
+
+public final class sk/ainet/decisions/DecisionRequest$Companion {
+	public final fun builder (Ljava/lang/String;)Lsk/ainet/decisions/DecisionRequest$Builder;
+}
+
+public final class sk/ainet/decisions/DecisionRequestException : java/lang/RuntimeException {
+	public fun <init> (Lsk/ainet/decisions/DecisionError;)V
+	public final fun getError ()Lsk/ainet/decisions/DecisionError;
+}
+
+public final class sk/ainet/decisions/DecisionResult {
+	public fun <init> (Ljava/lang/String;Ljava/util/List;Lsk/ainet/decisions/Provenance;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/util/List;
+	public final fun component3 ()Lsk/ainet/decisions/Provenance;
+	public final fun copy (Ljava/lang/String;Ljava/util/List;Lsk/ainet/decisions/Provenance;)Lsk/ainet/decisions/DecisionResult;
+	public static synthetic fun copy$default (Lsk/ainet/decisions/DecisionResult;Ljava/lang/String;Ljava/util/List;Lsk/ainet/decisions/Provenance;ILjava/lang/Object;)Lsk/ainet/decisions/DecisionResult;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getOutcomes ()Ljava/util/List;
+	public final fun getProvenance ()Lsk/ainet/decisions/Provenance;
+	public final fun getRequestId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public final fun question (Ljava/lang/String;)Lsk/ainet/decisions/QuestionOutcome;
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract class sk/ainet/decisions/DecisionState {
+	public static final field Companion Lsk/ainet/decisions/DecisionState$Companion;
+	public static final fun structured (Lkotlinx/serialization/json/JsonElement;)Lsk/ainet/decisions/DecisionState;
+	public static final fun text (Ljava/lang/String;)Lsk/ainet/decisions/DecisionState;
+}
+
+public final class sk/ainet/decisions/DecisionState$Companion {
+	public final fun structured (Lkotlinx/serialization/json/JsonElement;)Lsk/ainet/decisions/DecisionState;
+	public final fun text (Ljava/lang/String;)Lsk/ainet/decisions/DecisionState;
+}
+
+public final class sk/ainet/decisions/DecisionState$Structured : sk/ainet/decisions/DecisionState {
+	public fun <init> (Lkotlinx/serialization/json/JsonElement;)V
+	public final fun component1 ()Lkotlinx/serialization/json/JsonElement;
+	public final fun copy (Lkotlinx/serialization/json/JsonElement;)Lsk/ainet/decisions/DecisionState$Structured;
+	public static synthetic fun copy$default (Lsk/ainet/decisions/DecisionState$Structured;Lkotlinx/serialization/json/JsonElement;ILjava/lang/Object;)Lsk/ainet/decisions/DecisionState$Structured;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getValue ()Lkotlinx/serialization/json/JsonElement;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/decisions/DecisionState$Text : sk/ainet/decisions/DecisionState {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Lsk/ainet/decisions/DecisionState$Text;
+	public static synthetic fun copy$default (Lsk/ainet/decisions/DecisionState$Text;Ljava/lang/String;ILjava/lang/Object;)Lsk/ainet/decisions/DecisionState$Text;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getText ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/decisions/InferencePolicy {
+	public static final field Companion Lsk/ainet/decisions/InferencePolicy$Companion;
+	public fun <init> ()V
+	public fun <init> (Lsk/ainet/decisions/TruncationPolicy;Ljava/lang/String;)V
+	public synthetic fun <init> (Lsk/ainet/decisions/TruncationPolicy;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Lsk/ainet/decisions/TruncationPolicy;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun copy (Lsk/ainet/decisions/TruncationPolicy;Ljava/lang/String;)Lsk/ainet/decisions/InferencePolicy;
+	public static synthetic fun copy$default (Lsk/ainet/decisions/InferencePolicy;Lsk/ainet/decisions/TruncationPolicy;Ljava/lang/String;ILjava/lang/Object;)Lsk/ainet/decisions/InferencePolicy;
+	public fun equals (Ljava/lang/Object;)Z
+	public static final fun getDEFAULT ()Lsk/ainet/decisions/InferencePolicy;
+	public final fun getLanguage ()Ljava/lang/String;
+	public final fun getTruncation ()Lsk/ainet/decisions/TruncationPolicy;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/decisions/InferencePolicy$Companion {
+	public final fun getDEFAULT ()Lsk/ainet/decisions/InferencePolicy;
+}
+
+public final class sk/ainet/decisions/InvalidPolicyException : java/lang/IllegalArgumentException {
+	public fun <init> (Ljava/lang/String;)V
+}
+
+public abstract class sk/ainet/decisions/LanguageSupport {
+}
+
+public final class sk/ainet/decisions/LanguageSupport$Only : sk/ainet/decisions/LanguageSupport {
+	public fun <init> (Ljava/util/Set;)V
+	public final fun component1 ()Ljava/util/Set;
+	public final fun copy (Ljava/util/Set;)Lsk/ainet/decisions/LanguageSupport$Only;
+	public static synthetic fun copy$default (Lsk/ainet/decisions/LanguageSupport$Only;Ljava/util/Set;ILjava/lang/Object;)Lsk/ainet/decisions/LanguageSupport$Only;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getLanguages ()Ljava/util/Set;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/decisions/LanguageSupport$Unrestricted : sk/ainet/decisions/LanguageSupport {
+	public static final field INSTANCE Lsk/ainet/decisions/LanguageSupport$Unrestricted;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract class sk/ainet/decisions/ModelSelector {
+}
+
+public final class sk/ainet/decisions/ModelSelector$Installed : sk/ainet/decisions/ModelSelector {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Lsk/ainet/decisions/ModelSelector$Installed;
+	public static synthetic fun copy$default (Lsk/ainet/decisions/ModelSelector$Installed;Ljava/lang/String;ILjava/lang/Object;)Lsk/ainet/decisions/ModelSelector$Installed;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getModelId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/decisions/OptionProbability {
+	public fun <init> (Ljava/lang/String;D)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()D
+	public final fun copy (Ljava/lang/String;D)Lsk/ainet/decisions/OptionProbability;
+	public static synthetic fun copy$default (Lsk/ainet/decisions/OptionProbability;Ljava/lang/String;DILjava/lang/Object;)Lsk/ainet/decisions/OptionProbability;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getOptionId ()Ljava/lang/String;
+	public final fun getProbability ()D
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract class sk/ainet/decisions/Prediction {
+	public abstract fun getConfidence ()Lsk/ainet/decisions/Confidence;
+}
+
+public final class sk/ainet/decisions/Prediction$BooleanProbability : sk/ainet/decisions/Prediction {
+	public fun <init> (DLsk/ainet/decisions/Confidence;)V
+	public final fun component1 ()D
+	public final fun component2 ()Lsk/ainet/decisions/Confidence;
+	public final fun copy (DLsk/ainet/decisions/Confidence;)Lsk/ainet/decisions/Prediction$BooleanProbability;
+	public static synthetic fun copy$default (Lsk/ainet/decisions/Prediction$BooleanProbability;DLsk/ainet/decisions/Confidence;ILjava/lang/Object;)Lsk/ainet/decisions/Prediction$BooleanProbability;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getConfidence ()Lsk/ainet/decisions/Confidence;
+	public final fun getProbabilityFalse ()D
+	public final fun getProbabilityTrue ()D
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/decisions/Prediction$Choice : sk/ainet/decisions/Prediction {
+	public fun <init> (Ljava/lang/String;Ljava/util/List;Lsk/ainet/decisions/Confidence;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/util/List;
+	public final fun component3 ()Lsk/ainet/decisions/Confidence;
+	public final fun copy (Ljava/lang/String;Ljava/util/List;Lsk/ainet/decisions/Confidence;)Lsk/ainet/decisions/Prediction$Choice;
+	public static synthetic fun copy$default (Lsk/ainet/decisions/Prediction$Choice;Ljava/lang/String;Ljava/util/List;Lsk/ainet/decisions/Confidence;ILjava/lang/Object;)Lsk/ainet/decisions/Prediction$Choice;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getConfidence ()Lsk/ainet/decisions/Confidence;
+	public final fun getMargin ()D
+	public final fun getProbabilities ()Ljava/util/List;
+	public final fun getSelectedOptionId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public final fun probabilityOf (Ljava/lang/String;)D
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/decisions/Prediction$Score : sk/ainet/decisions/Prediction {
+	public fun <init> (DILjava/util/List;Lsk/ainet/decisions/Confidence;)V
+	public final fun component1 ()D
+	public final fun component2 ()I
+	public final fun component3 ()Ljava/util/List;
+	public final fun component4 ()Lsk/ainet/decisions/Confidence;
+	public final fun copy (DILjava/util/List;Lsk/ainet/decisions/Confidence;)Lsk/ainet/decisions/Prediction$Score;
+	public static synthetic fun copy$default (Lsk/ainet/decisions/Prediction$Score;DILjava/util/List;Lsk/ainet/decisions/Confidence;ILjava/lang/Object;)Lsk/ainet/decisions/Prediction$Score;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getConfidence ()Lsk/ainet/decisions/Confidence;
+	public final fun getDistribution ()Ljava/util/List;
+	public final fun getExpected ()D
+	public final fun getNormalizedEntropy ()D
+	public final fun getSelectedLevel ()I
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/decisions/Primitive : java/lang/Enum {
+	public static final field BOOLEAN_PROBABILITY Lsk/ainet/decisions/Primitive;
+	public static final field CHOICE Lsk/ainet/decisions/Primitive;
+	public static final field SCORE Lsk/ainet/decisions/Primitive;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public final fun getWire ()Ljava/lang/String;
+	public static fun valueOf (Ljava/lang/String;)Lsk/ainet/decisions/Primitive;
+	public static fun values ()[Lsk/ainet/decisions/Primitive;
+}
+
+public final class sk/ainet/decisions/Provenance {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lsk/ainet/decisions/CalibrationStatus;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/List;JLjava/util/List;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lsk/ainet/decisions/CalibrationStatus;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/List;JLjava/util/List;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component10 ()J
+	public final fun component11 ()Ljava/util/List;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Lsk/ainet/decisions/CalibrationStatus;
+	public final fun component6 ()Ljava/lang/String;
+	public final fun component7 ()Ljava/lang/String;
+	public final fun component8 ()Ljava/lang/String;
+	public final fun component9 ()Ljava/util/List;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lsk/ainet/decisions/CalibrationStatus;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/List;JLjava/util/List;)Lsk/ainet/decisions/Provenance;
+	public static synthetic fun copy$default (Lsk/ainet/decisions/Provenance;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lsk/ainet/decisions/CalibrationStatus;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/List;JLjava/util/List;ILjava/lang/Object;)Lsk/ainet/decisions/Provenance;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getBackend ()Ljava/lang/String;
+	public final fun getCalibration ()Lsk/ainet/decisions/CalibrationStatus;
+	public final fun getCalibrationIdentity ()Ljava/lang/String;
+	public final fun getDurationMillis ()J
+	public final fun getModelId ()Ljava/lang/String;
+	public final fun getNotes ()Ljava/util/List;
+	public final fun getPolicyId ()Ljava/lang/String;
+	public final fun getPolicyVersion ()Ljava/lang/String;
+	public final fun getPrecision ()Ljava/lang/String;
+	public final fun getPreprocessingVersion ()Ljava/lang/String;
+	public final fun getTraces ()Ljava/util/List;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract class sk/ainet/decisions/QuestionOutcome {
+	public abstract fun getQuestionId ()Ljava/lang/String;
+}
+
+public final class sk/ainet/decisions/QuestionOutcome$Abstained : sk/ainet/decisions/QuestionOutcome {
+	public fun <init> (Ljava/lang/String;Lsk/ainet/decisions/AbstentionReason;Lsk/ainet/decisions/Prediction;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Lsk/ainet/decisions/AbstentionReason;
+	public final fun component3 ()Lsk/ainet/decisions/Prediction;
+	public final fun copy (Ljava/lang/String;Lsk/ainet/decisions/AbstentionReason;Lsk/ainet/decisions/Prediction;)Lsk/ainet/decisions/QuestionOutcome$Abstained;
+	public static synthetic fun copy$default (Lsk/ainet/decisions/QuestionOutcome$Abstained;Ljava/lang/String;Lsk/ainet/decisions/AbstentionReason;Lsk/ainet/decisions/Prediction;ILjava/lang/Object;)Lsk/ainet/decisions/QuestionOutcome$Abstained;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCandidate ()Lsk/ainet/decisions/Prediction;
+	public fun getQuestionId ()Ljava/lang/String;
+	public final fun getReason ()Lsk/ainet/decisions/AbstentionReason;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/decisions/QuestionOutcome$Accepted : sk/ainet/decisions/QuestionOutcome {
+	public fun <init> (Ljava/lang/String;Lsk/ainet/decisions/Decision;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Lsk/ainet/decisions/Decision;
+	public final fun copy (Ljava/lang/String;Lsk/ainet/decisions/Decision;)Lsk/ainet/decisions/QuestionOutcome$Accepted;
+	public static synthetic fun copy$default (Lsk/ainet/decisions/QuestionOutcome$Accepted;Ljava/lang/String;Lsk/ainet/decisions/Decision;ILjava/lang/Object;)Lsk/ainet/decisions/QuestionOutcome$Accepted;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getDecision ()Lsk/ainet/decisions/Decision;
+	public fun getQuestionId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/decisions/QuestionOutcome$Failed : sk/ainet/decisions/QuestionOutcome {
+	public fun <init> (Ljava/lang/String;Lsk/ainet/decisions/DecisionError;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Lsk/ainet/decisions/DecisionError;
+	public final fun copy (Ljava/lang/String;Lsk/ainet/decisions/DecisionError;)Lsk/ainet/decisions/QuestionOutcome$Failed;
+	public static synthetic fun copy$default (Lsk/ainet/decisions/QuestionOutcome$Failed;Ljava/lang/String;Lsk/ainet/decisions/DecisionError;ILjava/lang/Object;)Lsk/ainet/decisions/QuestionOutcome$Failed;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getError ()Lsk/ainet/decisions/DecisionError;
+	public fun getQuestionId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/decisions/QuestionTrace {
+	public fun <init> (Ljava/lang/String;III)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()I
+	public final fun component3 ()I
+	public final fun component4 ()I
+	public final fun copy (Ljava/lang/String;III)Lsk/ainet/decisions/QuestionTrace;
+	public static synthetic fun copy$default (Lsk/ainet/decisions/QuestionTrace;Ljava/lang/String;IIIILjava/lang/Object;)Lsk/ainet/decisions/QuestionTrace;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getPackedTokens ()I
+	public final fun getQuestionId ()Ljava/lang/String;
+	public final fun getStateTokens ()I
+	public final fun getStateTokensDropped ()I
+	public final fun getTruncated ()Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract class sk/ainet/decisions/ScoreAcceptance {
+}
+
+public final class sk/ainet/decisions/ScoreAcceptance$MaxNormalizedEntropy : sk/ainet/decisions/ScoreAcceptance {
+	public fun <init> (D)V
+	public final fun component1 ()D
+	public final fun copy (D)Lsk/ainet/decisions/ScoreAcceptance$MaxNormalizedEntropy;
+	public static synthetic fun copy$default (Lsk/ainet/decisions/ScoreAcceptance$MaxNormalizedEntropy;DILjava/lang/Object;)Lsk/ainet/decisions/ScoreAcceptance$MaxNormalizedEntropy;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getMax ()D
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/decisions/ScoreAcceptance$MinTopProbability : sk/ainet/decisions/ScoreAcceptance {
+	public fun <init> (D)V
+	public final fun component1 ()D
+	public final fun copy (D)Lsk/ainet/decisions/ScoreAcceptance$MinTopProbability;
+	public static synthetic fun copy$default (Lsk/ainet/decisions/ScoreAcceptance$MinTopProbability;DILjava/lang/Object;)Lsk/ainet/decisions/ScoreAcceptance$MinTopProbability;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getMin ()D
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/decisions/ScoreLevel {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Lsk/ainet/decisions/ScoreLevel;
+	public static synthetic fun copy$default (Lsk/ainet/decisions/ScoreLevel;Ljava/lang/String;ILjava/lang/Object;)Lsk/ainet/decisions/ScoreLevel;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getDescription ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/decisions/ScoreQuestion : sk/ainet/decisions/DecisionQuestion {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/util/List;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/util/List;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/util/List;)Lsk/ainet/decisions/ScoreQuestion;
+	public static synthetic fun copy$default (Lsk/ainet/decisions/ScoreQuestion;Ljava/lang/String;Ljava/lang/String;Ljava/util/List;ILjava/lang/Object;)Lsk/ainet/decisions/ScoreQuestion;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getId ()Ljava/lang/String;
+	public fun getInstructions ()Ljava/lang/String;
+	public final fun getLevels ()Ljava/util/List;
+	public fun getOptionCount ()I
+	public fun getPrimitive ()Lsk/ainet/decisions/Primitive;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/decisions/TruncationPolicy : java/lang/Enum {
+	public static final field REJECT Lsk/ainet/decisions/TruncationPolicy;
+	public static final field TRUNCATE_STATE Lsk/ainet/decisions/TruncationPolicy;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lsk/ainet/decisions/TruncationPolicy;
+	public static fun values ()[Lsk/ainet/decisions/TruncationPolicy;
+}
+

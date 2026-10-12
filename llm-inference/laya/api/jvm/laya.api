@@ -111,6 +111,21 @@ public final class sk/ainet/models/laya/LayaCheckpointFilesJvmKt {
 	public static final fun read (Lsk/ainet/models/laya/LayaCheckpointFiles$Companion;Ljava/nio/file/Path;)Lsk/ainet/models/laya/LayaCheckpointFiles;
 }
 
+public final class sk/ainet/models/laya/LayaDecisionAdapter : sk/ainet/decisions/DecisionAdapter {
+	public static final field Companion Lsk/ainet/models/laya/LayaDecisionAdapter$Companion;
+	public static final field PREPROCESSING_VERSION Ljava/lang/String;
+	public fun <init> (Lsk/ainet/models/laya/LayaAgent;Ljava/lang/String;Lsk/ainet/decisions/LanguageSupport;Ljava/lang/String;Ljava/lang/String;Lkotlin/jvm/functions/Function0;)V
+	public synthetic fun <init> (Lsk/ainet/models/laya/LayaAgent;Ljava/lang/String;Lsk/ainet/decisions/LanguageSupport;Ljava/lang/String;Ljava/lang/String;Lkotlin/jvm/functions/Function0;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun close ()V
+	public final fun getAgent ()Lsk/ainet/models/laya/LayaAgent;
+	public fun getCapabilities ()Lsk/ainet/decisions/AdapterCapabilities;
+	public fun predict (Lsk/ainet/decisions/DecisionState;Ljava/util/List;Lsk/ainet/decisions/InferencePolicy;)Ljava/util/List;
+	public final fun toLaya (Lsk/ainet/decisions/DecisionQuestion;)Lsk/ainet/models/laya/LayaQuestion;
+}
+
+public final class sk/ainet/models/laya/LayaDecisionAdapter$Companion {
+}
+
 public final class sk/ainet/models/laya/LayaDecisionModel {
 	public static final field Companion Lsk/ainet/models/laya/LayaDecisionModel$Companion;
 	public fun <init> (Lsk/ainet/lang/nn/Module;Lsk/ainet/lang/nn/Module;Lsk/ainet/lang/nn/Module;Lsk/ainet/lang/tensor/Tensor;ILsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;)V

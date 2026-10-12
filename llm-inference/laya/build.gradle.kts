@@ -47,6 +47,8 @@ kotlin {
             implementation(project.dependencies.platform(project(":llm-bom")))
             // The Laya adapter consumes the engine text front end directly (SKEEP-006):
             // the tokenizer contract and the tokenizer.json reader.
+            // The typed decision contract this module implements an adapter for (REQ-API-014).
+            api(project(":decisions:decisions-api"))
             api(libs.skainet.frontend.core)
             api(libs.skainet.frontend.text)
             api(libs.kotlinx.serialization.json)
@@ -68,6 +70,8 @@ kotlin {
                 implementation(project.dependencies.platform(project(":llm-bom")))
                 implementation(libs.kotlin.test)
                 implementation(libs.skainet.backend.cpu)
+                // End-to-end test of the adapter through the shared runtime.
+                implementation(project(":decisions:decisions-runtime"))
             }
         }
     }
