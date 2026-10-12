@@ -69,6 +69,8 @@ include("llm-inference:moonshine")
 include("llm-inference:whisper")
 include("llm-inference:apertus")
 include("llm-inference:bert")
+// Laya typed-decision adapter (mmBERT/ModernBERT encoder + decision head), REQ M1.
+include("llm-inference:laya")
 include("llm-inference:voxtral")
 include("llm-inference:t5")
 include("llm-inference:vec2text")
