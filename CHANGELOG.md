@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+The three tokenizer fixes below are the Lane 2 work of the `tokenizer.json` parity gate (#471),
+contributed by [@Sehul07](https://github.com/Sehul07) in #480, #481 and #482.
+
 ### Fixed
 
 - **`GGUFTokenizer.fromTokenizerJson` reads array-form merges** (#472). `tokenizers` 0.20+ writes
