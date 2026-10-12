@@ -47,7 +47,7 @@ contributed by [@Sehul07](https://github.com/Sehul07) in #480, #481 and #482.
   Gemma, Apertus, BitNet, BERT, Voxtral, Whisper, Moonshine, T5) replaces the `ModelFamily` enum
   and `ModelRegistry.detect`; `GGUFModelInfo.identity` / `.view` expose the engine identity and
   checkpoint view. `skainet-cli` and `skainet-decode-core` switch on the string family.
-- Engine pin `skainet 0.57.0 → 0.58.0-SNAPSHOT` (local integration build); new dependency aliases
+- Engine pin `skainet 0.57.0 → 0.58.0`; new dependency aliases
   `skainet-model-identity`, `skainet-frontend-core`, `skainet-frontend-text`.
 
 ### Binary compatibility
