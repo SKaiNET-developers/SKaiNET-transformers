@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`BPEStrategy.preprocess` applies the full byte-to-unicode table** (#474). Only spaces were
+  mapped to `Ġ`; newlines, tabs and every non-ASCII character were passed through as is, so their
+  byte-level vocabulary entries (`Ċ`, `ĉ`, `Ã¼`, …) never matched and they encoded as unknown.
+  `postprocess` already had the inverse table; the forward pass now uses the same one.
+
 ## [0.57.1] — 2026-09-27
 
 Ships against **SKaiNET engine 0.57.0**: this release touches only the Android IREE runtime's
