@@ -1,3 +1,21 @@
+public final class sk/ainet/models/laya/LayaAgent {
+	public fun <init> (Lsk/ainet/models/laya/LayaPreprocessor;Lsk/ainet/models/laya/LayaDecisionModel;Lsk/ainet/models/laya/LayaDecoder;)V
+	public synthetic fun <init> (Lsk/ainet/models/laya/LayaPreprocessor;Lsk/ainet/models/laya/LayaDecisionModel;Lsk/ainet/models/laya/LayaDecoder;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun decide (Lsk/ainet/models/laya/LayaState;Lsk/ainet/models/laya/LayaQuestion;[I[I)Lsk/ainet/models/laya/LayaAgent$Result;
+	public static synthetic fun decide$default (Lsk/ainet/models/laya/LayaAgent;Lsk/ainet/models/laya/LayaState;Lsk/ainet/models/laya/LayaQuestion;[I[IILjava/lang/Object;)Lsk/ainet/models/laya/LayaAgent$Result;
+	public final fun decideAll (Lsk/ainet/models/laya/LayaState;Ljava/util/Map;)Ljava/util/Map;
+	public final fun getDecoder ()Lsk/ainet/models/laya/LayaDecoder;
+	public final fun getModel ()Lsk/ainet/models/laya/LayaDecisionModel;
+	public final fun getPreprocessor ()Lsk/ainet/models/laya/LayaPreprocessor;
+}
+
+public final class sk/ainet/models/laya/LayaAgent$Result {
+	public fun <init> (Lsk/ainet/models/laya/LayaAnswer;Lsk/ainet/models/laya/LayaSequence;[F)V
+	public final fun getAnswer ()Lsk/ainet/models/laya/LayaAnswer;
+	public final fun getLogits ()[F
+	public final fun getSequence ()Lsk/ainet/models/laya/LayaSequence;
+}
+
 public final class sk/ainet/models/laya/LayaAgentConfig {
 	public static final field Companion Lsk/ainet/models/laya/LayaAgentConfig$Companion;
 	public fun <init> (Ljava/lang/String;IIILjava/util/List;Ljava/util/Map;Ljava/util/Map;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
@@ -48,6 +66,35 @@ public final class sk/ainet/models/laya/LayaAgentConfig$Companion {
 	public final fun serializer ()Lkotlinx/serialization/KSerializer;
 }
 
+public abstract class sk/ainet/models/laya/LayaAnswer {
+	public final fun getAnswerConfidence ()D
+	public abstract fun getConfidence ()D
+	public abstract fun getProbabilities ()[D
+}
+
+public final class sk/ainet/models/laya/LayaAnswer$Choice : sk/ainet/models/laya/LayaAnswer {
+	public fun <init> (Ljava/lang/String;Ljava/util/List;[DD)V
+	public final fun getByKey ()Ljava/util/Map;
+	public final fun getChoice ()Ljava/lang/String;
+	public fun getConfidence ()D
+	public final fun getKeys ()Ljava/util/List;
+	public fun getProbabilities ()[D
+}
+
+public final class sk/ainet/models/laya/LayaAnswer$Noul : sk/ainet/models/laya/LayaAnswer {
+	public fun <init> (D[DD)V
+	public fun getConfidence ()D
+	public final fun getNoul ()D
+	public fun getProbabilities ()[D
+}
+
+public final class sk/ainet/models/laya/LayaAnswer$Score : sk/ainet/models/laya/LayaAnswer {
+	public fun <init> (D[DD)V
+	public fun getConfidence ()D
+	public fun getProbabilities ()[D
+	public final fun getScore ()D
+}
+
 public final class sk/ainet/models/laya/LayaCheckpointFiles {
 	public static final field Companion Lsk/ainet/models/laya/LayaCheckpointFiles$Companion;
 	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
@@ -62,6 +109,41 @@ public final class sk/ainet/models/laya/LayaCheckpointFiles$Companion {
 
 public final class sk/ainet/models/laya/LayaCheckpointFilesJvmKt {
 	public static final fun read (Lsk/ainet/models/laya/LayaCheckpointFiles$Companion;Ljava/nio/file/Path;)Lsk/ainet/models/laya/LayaCheckpointFiles;
+}
+
+public final class sk/ainet/models/laya/LayaDecisionModel {
+	public static final field Companion Lsk/ainet/models/laya/LayaDecisionModel$Companion;
+	public fun <init> (Lsk/ainet/lang/nn/Module;Lsk/ainet/lang/nn/Module;Lsk/ainet/lang/nn/Module;Lsk/ainet/lang/tensor/Tensor;ILsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;)V
+	public final fun encode ([I)Lsk/ainet/lang/tensor/Tensor;
+	public final fun getEncoder ()Lsk/ainet/lang/nn/Module;
+	public final fun getHead ()Lsk/ainet/lang/nn/Module;
+	public final fun getHiddenSize ()I
+	public final fun getScorer ()Lsk/ainet/lang/nn/Module;
+	public final fun getTypeEmbedding ()Lsk/ainet/lang/tensor/Tensor;
+	public final fun hidden ([ILsk/ainet/models/laya/LayaQuestionType;)Lsk/ainet/lang/tensor/Tensor;
+	public final fun logits (Lsk/ainet/models/laya/LayaSequence;Lsk/ainet/models/laya/LayaQuestionType;)[F
+	public final fun logits ([I[ILsk/ainet/models/laya/LayaQuestionType;)[F
+}
+
+public final class sk/ainet/models/laya/LayaDecisionModel$Companion {
+	public final fun build (Lsk/ainet/models/laya/LayaEncoderConfig;Lsk/ainet/models/laya/LayaAgentConfig;Lsk/ainet/models/laya/LayaPreparedWeights;Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;Z)Lsk/ainet/models/laya/LayaDecisionModel;
+	public static synthetic fun build$default (Lsk/ainet/models/laya/LayaDecisionModel$Companion;Lsk/ainet/models/laya/LayaEncoderConfig;Lsk/ainet/models/laya/LayaAgentConfig;Lsk/ainet/models/laya/LayaPreparedWeights;Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;ZILjava/lang/Object;)Lsk/ainet/models/laya/LayaDecisionModel;
+}
+
+public final class sk/ainet/models/laya/LayaDecoder {
+	public static final field Companion Lsk/ainet/models/laya/LayaDecoder$Companion;
+	public static final field TEMP_MAX D
+	public static final field TEMP_MIN D
+	public fun <init> (Lsk/ainet/models/laya/LayaAgentConfig;)V
+	public final fun decode (Lsk/ainet/models/laya/LayaQuestion;[F[I)Lsk/ainet/models/laya/LayaAnswer;
+	public final fun getConfig ()Lsk/ainet/models/laya/LayaAgentConfig;
+	public final fun probabilities ([FLsk/ainet/models/laya/LayaQuestionType;[I)[D
+	public final fun temperature (Lsk/ainet/models/laya/LayaQuestionType;I)D
+}
+
+public final class sk/ainet/models/laya/LayaDecoder$Companion {
+	public final fun bucket (Lsk/ainet/models/laya/LayaQuestionType;I)Ljava/lang/String;
+	public final fun entropyConfidence ([D)D
 }
 
 public final class sk/ainet/models/laya/LayaEncoderConfig {
@@ -138,6 +220,36 @@ public final class sk/ainet/models/laya/LayaEncoderConfig$Companion {
 	public final fun serializer ()Lkotlinx/serialization/KSerializer;
 }
 
+public final class sk/ainet/models/laya/LayaExtraTensors {
+	public fun <init> (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;)V
+	public final fun getTemperature ()Lsk/ainet/lang/tensor/Tensor;
+	public final fun getTypeEmbedding ()Lsk/ainet/lang/tensor/Tensor;
+}
+
+public final class sk/ainet/models/laya/LayaGeGLU : sk/ainet/lang/nn/Module, sk/ainet/lang/nn/topology/ModuleParameters {
+	public fun <init> (IILkotlin/reflect/KClass;ZLjava/lang/String;)V
+	public synthetic fun <init> (IILkotlin/reflect/KClass;ZLjava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getDim ()I
+	public final fun getHiddenDim ()I
+	public fun getModules ()Ljava/util/List;
+	public fun getName ()Ljava/lang/String;
+	public fun getParams ()Ljava/util/List;
+}
+
+public final class sk/ainet/models/laya/LayaGelu : sk/ainet/lang/nn/Module {
+	public static final field Companion Lsk/ainet/models/laya/LayaGelu$Companion;
+	public fun <init> (Lkotlin/reflect/KClass;ZLjava/lang/String;)V
+	public synthetic fun <init> (Lkotlin/reflect/KClass;ZLjava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getExact ()Z
+	public fun getModules ()Ljava/util/List;
+	public fun getName ()Ljava/lang/String;
+}
+
+public final class sk/ainet/models/laya/LayaGelu$Companion {
+	public final fun erf (D)D
+	public final fun geluErf (F)F
+}
+
 public final class sk/ainet/models/laya/LayaHead {
 	public fun <init> ([I[ILsk/ainet/models/laya/LayaOptionStats;)V
 	public final fun getIds ()[I
@@ -152,6 +264,29 @@ public final class sk/ainet/models/laya/LayaLayerKind : java/lang/Enum {
 	public final fun getWire ()Ljava/lang/String;
 	public static fun valueOf (Ljava/lang/String;)Lsk/ainet/models/laya/LayaLayerKind;
 	public static fun values ()[Lsk/ainet/models/laya/LayaLayerKind;
+}
+
+public final class sk/ainet/models/laya/LayaLinear : sk/ainet/lang/nn/Module, sk/ainet/lang/nn/topology/ModuleParameters {
+	public fun <init> (IIZLkotlin/reflect/KClass;Ljava/lang/String;)V
+	public final fun getBias ()Z
+	public final fun getInFeatures ()I
+	public fun getModules ()Ljava/util/List;
+	public fun getName ()Ljava/lang/String;
+	public final fun getOutFeatures ()I
+	public fun getParams ()Ljava/util/List;
+}
+
+public final class sk/ainet/models/laya/LayaModelLoader {
+	public static final field INSTANCE Lsk/ainet/models/laya/LayaModelLoader;
+	public final fun load (Ljava/nio/file/Path;Lsk/ainet/context/ExecutionContext;Z)Lsk/ainet/models/laya/LayaAgent;
+	public static synthetic fun load$default (Lsk/ainet/models/laya/LayaModelLoader;Ljava/nio/file/Path;Lsk/ainet/context/ExecutionContext;ZILjava/lang/Object;)Lsk/ainet/models/laya/LayaAgent;
+}
+
+public final class sk/ainet/models/laya/LayaNetwork {
+	public static final field INSTANCE Lsk/ainet/models/laya/LayaNetwork;
+	public final fun encoder (Lsk/ainet/models/laya/LayaEncoderConfig;ILkotlin/reflect/KClass;Z)Lsk/ainet/lang/nn/Module;
+	public final fun head (IILkotlin/reflect/KClass;)Lsk/ainet/lang/nn/Module;
+	public final fun scorer (ILkotlin/reflect/KClass;Z)Lsk/ainet/lang/nn/Module;
 }
 
 public final class sk/ainet/models/laya/LayaOptionLayout : java/lang/Enum {
@@ -176,6 +311,15 @@ public final class sk/ainet/models/laya/LayaOptionStats {
 	public final fun getTokensPerOption ()Ljava/lang/Integer;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/models/laya/LayaPreparedWeights {
+	public fun <init> (Ljava/util/List;Ljava/util/List;Ljava/util/List;Lsk/ainet/models/laya/LayaExtraTensors;Ljava/util/List;)V
+	public final fun getEncoder ()Ljava/util/List;
+	public final fun getExtras ()Lsk/ainet/models/laya/LayaExtraTensors;
+	public final fun getHead ()Ljava/util/List;
+	public final fun getIgnored ()Ljava/util/List;
+	public final fun getScorer ()Ljava/util/List;
 }
 
 public final class sk/ainet/models/laya/LayaPreprocessor {
@@ -250,6 +394,14 @@ public final class sk/ainet/models/laya/LayaQuestionType : java/lang/Enum {
 	public static fun values ()[Lsk/ainet/models/laya/LayaQuestionType;
 }
 
+public final class sk/ainet/models/laya/LayaRelu : sk/ainet/lang/nn/Module {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun getModules ()Ljava/util/List;
+	public fun getName ()Ljava/lang/String;
+}
+
 public final class sk/ainet/models/laya/LayaRopeParameters {
 	public static final field Companion Lsk/ainet/models/laya/LayaRopeParameters$Companion;
 	public fun <init> (DLjava/lang/String;)V
@@ -278,6 +430,11 @@ public final synthetic class sk/ainet/models/laya/LayaRopeParameters$$serializer
 
 public final class sk/ainet/models/laya/LayaRopeParameters$Companion {
 	public final fun serializer ()Lkotlinx/serialization/KSerializer;
+}
+
+public final class sk/ainet/models/laya/LayaSafeTensorsNameResolver : sk/ainet/io/weights/WeightNameResolver {
+	public fun <init> ()V
+	public fun resolve (Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
 }
 
 public final class sk/ainet/models/laya/LayaSequence {
@@ -315,6 +472,12 @@ public final class sk/ainet/models/laya/LayaSequenceBuilder$Companion {
 
 public final class sk/ainet/models/laya/LayaSequenceException : java/lang/IllegalArgumentException {
 	public fun <init> (Ljava/lang/String;)V
+}
+
+public final class sk/ainet/models/laya/LayaSequential : sk/ainet/lang/nn/Module {
+	public fun <init> (Ljava/util/List;Ljava/lang/String;)V
+	public fun getModules ()Ljava/util/List;
+	public fun getName ()Ljava/lang/String;
 }
 
 public final class sk/ainet/models/laya/LayaSpecialIds {
@@ -415,6 +578,11 @@ public final class sk/ainet/models/laya/LayaTruncation {
 	public final fun getTruncated ()Z
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/models/laya/LayaWeightPreparation {
+	public static final field INSTANCE Lsk/ainet/models/laya/LayaWeightPreparation;
+	public final fun prepare (Ljava/util/List;Lsk/ainet/models/laya/LayaEncoderConfig;Lsk/ainet/models/laya/LayaAgentConfig;Lsk/ainet/context/ExecutionContext;Lkotlin/reflect/KClass;)Lsk/ainet/models/laya/LayaPreparedWeights;
 }
 
 public final class sk/ainet/models/laya/PythonJson {

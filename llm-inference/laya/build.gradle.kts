@@ -50,6 +50,12 @@ kotlin {
             api(libs.skainet.frontend.core)
             api(libs.skainet.frontend.text)
             api(libs.kotlinx.serialization.json)
+            // Encoder blocks (attention, RoPE, residual, embedding) and the engine module contract.
+            api(project(":transformer-core"))
+            api(libs.skainet.lang.core)
+            implementation(libs.skainet.io.core)
+            implementation(libs.skainet.io.safetensors)
+            implementation(libs.kotlinx.coroutines)
         }
 
         commonTest.dependencies {
@@ -61,7 +67,14 @@ kotlin {
             dependencies {
                 implementation(project.dependencies.platform(project(":llm-bom")))
                 implementation(libs.kotlin.test)
+                implementation(libs.skainet.backend.cpu)
             }
         }
     }
+}
+
+tasks.withType<Test>().configureEach {
+    // The multilingual checkpoint up-casts to 1.3 GB of FP32 weights for the parity test.
+    maxHeapSize = "8g"
+    jvmArgs("--enable-preview", "--add-modules", "jdk.incubator.vector")
 }
