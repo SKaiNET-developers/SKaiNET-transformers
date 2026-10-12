@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`GGUFTokenizer.fromTokenizerJson` honours the Metaspace `prepend_scheme`** (#473). The JSON path
+  assumed that no `▁` is prepended to the first word; files that declare
+  `"prepend_scheme": "always"` (or a legacy `Prepend` normalizer) encoded the first word one id off
+  from the reference. Gemma 4, which declares neither, is unchanged.
 - **`BPEStrategy.preprocess` applies the full byte-to-unicode table** (#474). Only spaces were
   mapped to `Ġ`; newlines, tabs and every non-ASCII character were passed through as is, so their
   byte-level vocabulary entries (`Ċ`, `ĉ`, `Ã¼`, …) never matched and they encoded as unknown.
