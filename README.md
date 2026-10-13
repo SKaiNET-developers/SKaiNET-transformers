@@ -112,7 +112,24 @@ Honest status — see the project-status note at the top of this README.
 
 ## Current release
 
-The current release is **0.57.0**, in lock-step with **SKaiNET 0.57.0**.
+The current release is **0.58.0**, in lock-step with **SKaiNET 0.58.0**.
+
+**Tokenization is the engine's job (SKEEP-006).** `sk.ainet.apps.llm.Tokenizer` is a sub-interface of the
+engine's `sk.ainet.frontend.text.Tokenizer`, and `TokenizerFactory` resolves every format through the
+engine's input front ends: byte-level BPE, Metaspace BPE, SentencePiece, Unigram, WordPiece and Tekken, from
+a GGUF or a Hugging Face directory (`fromCheckpoint(view)`), with `tokenizer_config.json` read on the
+SafeTensors paths. Token ids on the former legacy paths change to the reference ids, exact against
+Hugging Face `tokenizers` on the engine's goldens. **Families are descriptors**: `TransformersFamilies`
+(Llama, Qwen, Gemma, Apertus, BitNet, BERT, Voxtral, Whisper, Moonshine, T5) replaces the `ModelFamily`
+enum and `ModelRegistry.detect`; `GGUFModelInfo.identity` exposes the engine's model identity. The
+transformers-side tokenizer classes (`GGUFTokenizer` and its strategies, `HuggingFaceBPETokenizer`, bert's
+`HuggingFaceTokenizer`, `TekkenTokenizerAdapter`) are deprecated at WARNING and leave in 0.60. The three
+`tokenizer.json` parity fixes of #471 (array-form merges, Metaspace `prepend_scheme`, the full byte-level
+table) are in, contributed by [@Sehul07](https://github.com/Sehul07). Java sources compile unchanged;
+Java binaries built against 0.57 must be recompiled.
+
+It builds on **0.57.1**, which gave the streaming Moonshine partial decode a real-time budget, and on
+**0.57.0**:
 
 **Qwen on the compiled IREE KV path.** `QwenExportHarness` / `QwenExportCli` trace Qwen2 and Qwen3
 checkpoints to the three graphs of the `qwen-kv-v1` contract (catalog-prefix prefill, one-call chunk,
@@ -265,7 +282,7 @@ The recommended way to consume is via the BOM. It pins every published `skainet-
 
 ```kotlin
 dependencies {
-    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.57.0"))
+    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.58.0"))
 
     // Versions resolved from the BOM:
     implementation("sk.ainet.transformers:skainet-transformers-core")
