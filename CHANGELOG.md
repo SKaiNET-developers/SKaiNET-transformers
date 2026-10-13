@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.58.0] — 2026-10-13
+
+Lock-step with **SKaiNET engine 0.58.0** (input front ends and model identity, SKEEP-006). The
+tokenizers move into the engine; this release makes every transformers path consume them and
+introduces the family descriptors that replace the `ModelFamily` enum. Java binaries built against
+0.57 must be recompiled (see *Binary compatibility*).
+
 The three tokenizer fixes below are the Lane 2 work of the `tokenizer.json` parity gate (#471),
 contributed by [@Sehul07](https://github.com/Sehul07) in #480, #481 and #482.
 
