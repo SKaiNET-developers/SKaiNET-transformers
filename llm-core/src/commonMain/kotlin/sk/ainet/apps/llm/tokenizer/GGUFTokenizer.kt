@@ -24,10 +24,10 @@ import sk.ainet.io.gguf.StreamingGGUFReader
  * Hugging Face reference on many files (SKaiNET-transformers #471). Every runtime now resolves
  * its tokenizer through [TokenizerFactory], which is backed by the engine's golden-tested
  * algorithms. Kept with unchanged behaviour for one release cycle: WARNING in 0.58, ERROR in
- * 0.59, removed in 0.60 together with the strategies and [TokenizerType].
+ * 0.60, removed in 0.61 together with the strategies and [TokenizerType].
  */
 @Deprecated(
-    "Legacy tokenizer with reference-divergent ids; use TokenizerFactory (engine-backed, SKEEP-006). Removed in 0.60.",
+    "Legacy tokenizer with reference-divergent ids; use TokenizerFactory (engine-backed, SKEEP-006). Removed in 0.61.",
     ReplaceWith("TokenizerFactory", "sk.ainet.apps.llm.tokenizer.TokenizerFactory"),
 )
 class GGUFTokenizer private constructor(

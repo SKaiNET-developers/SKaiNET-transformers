@@ -39,5 +39,5 @@ behaviour the runtimes rely on); `encode(text, addSpecialTokens = true)` applies
 
 Forwarding `GGUFTokenizer` to the engine silently would change token ids under consumers that
 changed no code; a loud deprecation is better than a quiet behaviour change. The class keeps its
-behaviour at WARNING level in 0.58, ERROR in 0.59, and is removed in 0.60. Goldens recorded
+behaviour at WARNING level in 0.58 and 0.59, ERROR in 0.60, and is removed in 0.61. Goldens recorded
 against it must be re-recorded from the reference library before a call site migrates.

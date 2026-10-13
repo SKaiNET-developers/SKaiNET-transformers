@@ -143,8 +143,8 @@ gates certify this exact path against reference implementations.
 
 `Tokenizer`::
 Encode/decode text with `eosTokenId`, `bosTokenId`, `vocabSize`. Obtained via
-`TokenizerFactory.fromGgufFields(...)`; implementations include `GGUFTokenizer`,
-`HuggingFaceBPETokenizer`, `TekkenTokenizerAdapter`.
+`TokenizerFactory.fromGgufFields(...)` (engine-backed since 0.58); the legacy `GGUFTokenizer` and
+`TekkenTokenizerAdapter` remain as deprecated implementations until 0.61.
 
 `ChatTemplate`::
 Format conversation messages into prompt strings and parse tool calls from output.
