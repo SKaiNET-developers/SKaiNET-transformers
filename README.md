@@ -98,6 +98,7 @@ Honest status — see the project-status note at the top of this README.
 | **BERT** | Sentence embeddings on the DSL path (`bertNetwork()` + `BertEncoderRuntime`, eager or traced/fused) — verified against sentence-transformers on MongoDB/mdbr-leaf. One-call `BertEmbeddingModel.fromHuggingFace(...)` with built-in Hub download; MEAN or CLS pooling and retrieval prefixes cover LEAF, BGE and E5-style models. No text generation, no tool calling. |
 | **T5 / GTR** | Encoder-decoder runtime (hand-coded, batch 1, no KV cache) + `GtrEmbedder`, powering the **vec2text** embedding-inversion pipeline, with greedy and beam-search decoding — verified with a real-weights gtr-base round-trip test. |
 | **Voxtral** | TTS / voice; architecture code only — no runtime facade or CLI yet. |
+| **Laya** | Typed decisions, not text: `LayaDecisionAdapter` answers `choice` / `score` / `boolean probability` questions about a state through the shared `sk.ainet.decisions` API, abstaining under the caller's policy. mmBERT-base encoder + decision head on the FP32 CPU path, verified against the reference fixtures of the multilingual checkpoint (sequences, tokenizer corpus, predictions within 5e-5). JVM only for now; see `docs/…/reference/typed-decisions.adoc`. |
 
 ### Near term
 
