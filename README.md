@@ -113,7 +113,11 @@ Honest status — see the project-status note at the top of this README.
 
 ## Current release
 
-The current release is **0.58.0**, in lock-step with **SKaiNET 0.58.0**.
+The current release is **0.59.0**, against **SKaiNET 0.58.0**.
+
+**Typed decisions, not text.** Three new modules bring decision models to the JVM path. `skainet-transformers-decisions-api` (`sk.ainet.decisions`, no engine dependency) is the contract: a `DecisionRequest` carries a state and up to 64 questions of three primitives — `choice` (one option out of a list), `score` (an ordinal scale), `boolean probability` — and every question ends in `Accepted`, `Abstained(reason, candidate)` or `Failed(error)`, never a silent guess; the caller owns the `AcceptancePolicy`. `skainet-transformers-decisions-runtime` validates a request against the adapter's capabilities and applies the policy. `skainet-transformers-inference-laya` is the first adapter: the Laya multilingual checkpoint (mmBERT-base encoder, decision head, Apache 2.0, Convai Innovations) on the FP32 CPU path with exact GELU, verified against the fixtures shipped with the checkpoint (26/26 packed sequences, a 40-text tokenizer corpus, predictions within 5e-5). The Kotlin DSL — `decisionSchema { }` declares questions, policy and model once and stamps out a request per state; `decisionRequest { }`, `acceptancePolicy { }`; `choice(id)` / `score(id)` / `boolean(id)` readback — follows the NN and data pipeline DSLs. Eager FP32 is seconds per decision on a laptop; the compiled and quantized lanes, batching across questions (#490) and an exact GELU op in the engine (SKaiNET#1342) are the open items. `HuggingFaceBPETokenizer` is removed; the remaining SKEEP-006 deprecations stay at WARNING and leave in 0.61.
+
+It builds on **0.58.0**, in lock-step with **SKaiNET 0.58.0**:
 
 **Tokenization is the engine's job (SKEEP-006).** `sk.ainet.apps.llm.Tokenizer` is a sub-interface of the
 engine's `sk.ainet.frontend.text.Tokenizer`, and `TokenizerFactory` resolves every format through the
@@ -129,7 +133,7 @@ transformers-side tokenizer classes (`GGUFTokenizer` and its strategies, `Huggin
 table) are in, contributed by [@Sehul07](https://github.com/Sehul07). Java sources compile unchanged;
 Java binaries built against 0.57 must be recompiled.
 
-It builds on **0.57.1**, which gave the streaming Moonshine partial decode a real-time budget, and on
+Before that, **0.57.1** gave the streaming Moonshine partial decode a real-time budget, and on
 **0.57.0**:
 
 **Qwen on the compiled IREE KV path.** `QwenExportHarness` / `QwenExportCli` trace Qwen2 and Qwen3
@@ -283,7 +287,7 @@ The recommended way to consume is via the BOM. It pins every published `skainet-
 
 ```kotlin
 dependencies {
-    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.58.0"))
+    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.59.0"))
 
     // Versions resolved from the BOM:
     implementation("sk.ainet.transformers:skainet-transformers-core")
