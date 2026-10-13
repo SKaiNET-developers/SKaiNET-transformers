@@ -49,6 +49,8 @@ public final class sk/ainet/apps/llm/GGUFModelInfo {
 	public final fun getEmbeddingLength ()I
 	public final fun getFamily ()Lsk/ainet/apps/llm/ModelFamily;
 	public final fun getFields ()Ljava/util/Map;
+	public final fun getIdentity ()Lsk/ainet/model/ModelIdentity;
+	public final fun getView ()Lsk/ainet/io/gguf/GgufCheckpointView;
 	public final fun getVocabSize ()I
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
@@ -266,13 +268,27 @@ public final class sk/ainet/apps/llm/ScoredToken {
 	public fun toString ()Ljava/lang/String;
 }
 
-public abstract interface class sk/ainet/apps/llm/Tokenizer {
+public abstract interface class sk/ainet/apps/llm/Tokenizer : sk/ainet/frontend/text/Tokenizer {
 	public abstract fun decode (I)Ljava/lang/String;
 	public abstract fun decode ([I)Ljava/lang/String;
+	public fun decodeToken (I)Ljava/lang/String;
 	public abstract fun encode (Ljava/lang/String;)[I
-	public abstract fun getBosTokenId ()I
-	public abstract fun getEosTokenId ()I
+	public abstract fun getBosTokenId ()Ljava/lang/Integer;
+	public abstract fun getEosTokenId ()Ljava/lang/Integer;
+	public fun getSpecialTokens ()Lsk/ainet/frontend/text/SpecialTokens;
 	public abstract fun getVocabSize ()I
+	public fun getVocabulary ()Lsk/ainet/frontend/text/Vocabulary;
+}
+
+public final class sk/ainet/apps/llm/Tokenizer$DefaultImpls {
+	public static fun decode (Lsk/ainet/apps/llm/Tokenizer;[IZ)Ljava/lang/String;
+	public static fun decodeToken (Lsk/ainet/apps/llm/Tokenizer;I)Ljava/lang/String;
+	public static fun encode (Lsk/ainet/apps/llm/Tokenizer;Ljava/lang/String;Z)[I
+	public static fun getSpec (Lsk/ainet/apps/llm/Tokenizer;)Lsk/ainet/frontend/FrontEndSpec;
+	public static fun getSpecialTokens (Lsk/ainet/apps/llm/Tokenizer;)Lsk/ainet/frontend/text/SpecialTokens;
+	public static fun getVocabulary (Lsk/ainet/apps/llm/Tokenizer;)Lsk/ainet/frontend/text/Vocabulary;
+	public static fun invert (Lsk/ainet/apps/llm/Tokenizer;[I)Ljava/lang/String;
+	public static fun process (Lsk/ainet/apps/llm/Tokenizer;Ljava/lang/String;)[I
 }
 
 public abstract interface class sk/ainet/apps/llm/TokenizerStrategy {
@@ -375,6 +391,68 @@ public final class sk/ainet/apps/llm/diag/PlatformDiag_jvmKt {
 	public static final fun envFlag (Ljava/lang/String;)Z
 }
 
+public final class sk/ainet/apps/llm/families/ApertusFamily : sk/ainet/apps/llm/families/TransformersFamily {
+	public static final field INSTANCE Lsk/ainet/apps/llm/families/ApertusFamily;
+}
+
+public final class sk/ainet/apps/llm/families/BertFamily : sk/ainet/apps/llm/families/TransformersFamily {
+	public static final field INSTANCE Lsk/ainet/apps/llm/families/BertFamily;
+}
+
+public final class sk/ainet/apps/llm/families/BitNetFamily : sk/ainet/apps/llm/families/TransformersFamily {
+	public static final field INSTANCE Lsk/ainet/apps/llm/families/BitNetFamily;
+}
+
+public final class sk/ainet/apps/llm/families/GemmaFamily : sk/ainet/apps/llm/families/TransformersFamily {
+	public static final field INSTANCE Lsk/ainet/apps/llm/families/GemmaFamily;
+}
+
+public final class sk/ainet/apps/llm/families/LlamaFamily : sk/ainet/apps/llm/families/TransformersFamily {
+	public static final field INSTANCE Lsk/ainet/apps/llm/families/LlamaFamily;
+}
+
+public final class sk/ainet/apps/llm/families/MoonshineFamily : sk/ainet/apps/llm/families/TransformersFamily {
+	public static final field INSTANCE Lsk/ainet/apps/llm/families/MoonshineFamily;
+}
+
+public final class sk/ainet/apps/llm/families/QwenFamily : sk/ainet/apps/llm/families/TransformersFamily {
+	public static final field INSTANCE Lsk/ainet/apps/llm/families/QwenFamily;
+}
+
+public final class sk/ainet/apps/llm/families/T5Family : sk/ainet/apps/llm/families/TransformersFamily {
+	public static final field INSTANCE Lsk/ainet/apps/llm/families/T5Family;
+}
+
+public final class sk/ainet/apps/llm/families/TransformersFamilies {
+	public static final field INSTANCE Lsk/ainet/apps/llm/families/TransformersFamilies;
+	public final fun forArchitecture (Ljava/lang/String;)Lsk/ainet/apps/llm/families/TransformersFamily;
+	public final fun forFamily (Ljava/lang/String;)Lsk/ainet/apps/llm/families/TransformersFamily;
+	public final fun getAll ()Ljava/util/List;
+	public final fun getRegistry ()Lsk/ainet/model/ModelFamilyRegistry;
+}
+
+public class sk/ainet/apps/llm/families/TransformersFamily : sk/ainet/frontend/FamilyFrontEnds, sk/ainet/model/ModelFamilyDescriptor {
+	public fun <init> (Ljava/lang/String;Ljava/util/Set;Ljava/lang/String;ZLjava/lang/String;Ljava/util/List;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/util/Set;Ljava/lang/String;ZLjava/lang/String;Ljava/util/List;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun decorate (Lsk/ainet/model/CheckpointView;Lsk/ainet/model/ModelIdentity;Lsk/ainet/frontend/FrontEndSet;Lsk/ainet/context/ExecutionContext;)Lsk/ainet/frontend/FrontEndSet;
+	public final fun getArchitectures ()Ljava/util/Set;
+	public final fun getChatTemplateFamily ()Ljava/lang/String;
+	public final fun getDisplayName ()Ljava/lang/String;
+	public final fun getFamily ()Ljava/lang/String;
+	public final fun getStopTokenStrings ()Ljava/util/List;
+	public final fun getSupportsToolCalling ()Z
+	public fun nameMap (Lsk/ainet/model/ModelFormat;)Lsk/ainet/model/NameMap;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/apps/llm/families/VoxtralFamily : sk/ainet/apps/llm/families/TransformersFamily {
+	public static final field INSTANCE Lsk/ainet/apps/llm/families/VoxtralFamily;
+}
+
+public final class sk/ainet/apps/llm/families/WhisperFamily : sk/ainet/apps/llm/families/TransformersFamily {
+	public static final field INSTANCE Lsk/ainet/apps/llm/families/WhisperFamily;
+}
+
 public final class sk/ainet/apps/llm/graph/LLMFusedOpHandlers {
 	public static final field INSTANCE Lsk/ainet/apps/llm/graph/LLMFusedOpHandlers;
 	public final fun registerAll ()V
@@ -393,13 +471,23 @@ public final class sk/ainet/apps/llm/tokenizer/GGUFTokenizer : sk/ainet/apps/llm
 	public synthetic fun <init> (Ljava/util/List;[FIIILsk/ainet/apps/llm/TokenizerStrategy;[IZLkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun decode (I)Ljava/lang/String;
 	public fun decode ([I)Ljava/lang/String;
+	public fun decode ([IZ)Ljava/lang/String;
+	public fun decodeToken (I)Ljava/lang/String;
 	public fun encode (Ljava/lang/String;)[I
+	public fun encode (Ljava/lang/String;Z)[I
 	public final fun getBosId ()I
-	public fun getBosTokenId ()I
+	public fun getBosTokenId ()Ljava/lang/Integer;
 	public final fun getEosId ()I
-	public fun getEosTokenId ()I
+	public fun getEosTokenId ()Ljava/lang/Integer;
+	public fun getSpec ()Lsk/ainet/frontend/FrontEndSpec;
+	public fun getSpecialTokens ()Lsk/ainet/frontend/text/SpecialTokens;
 	public final fun getTokenizerType ()Lsk/ainet/apps/llm/TokenizerType;
 	public fun getVocabSize ()I
+	public fun getVocabulary ()Lsk/ainet/frontend/text/Vocabulary;
+	public synthetic fun invert (Ljava/lang/Object;)Ljava/lang/Object;
+	public fun invert ([I)Ljava/lang/String;
+	public synthetic fun process (Ljava/lang/Object;)Ljava/lang/Object;
+	public fun process (Ljava/lang/String;)[I
 	public final fun tokenId (Ljava/lang/String;)Ljava/lang/Integer;
 }
 
@@ -419,10 +507,20 @@ public final class sk/ainet/apps/llm/tokenizer/GGUFTokenizer$Companion {
 public final class sk/ainet/apps/llm/tokenizer/HuggingFaceBPETokenizer : sk/ainet/apps/llm/Tokenizer {
 	public fun decode (I)Ljava/lang/String;
 	public fun decode ([I)Ljava/lang/String;
+	public fun decode ([IZ)Ljava/lang/String;
+	public fun decodeToken (I)Ljava/lang/String;
 	public fun encode (Ljava/lang/String;)[I
-	public fun getBosTokenId ()I
-	public fun getEosTokenId ()I
+	public fun encode (Ljava/lang/String;Z)[I
+	public fun getBosTokenId ()Ljava/lang/Integer;
+	public fun getEosTokenId ()Ljava/lang/Integer;
+	public fun getSpec ()Lsk/ainet/frontend/FrontEndSpec;
+	public fun getSpecialTokens ()Lsk/ainet/frontend/text/SpecialTokens;
 	public fun getVocabSize ()I
+	public fun getVocabulary ()Lsk/ainet/frontend/text/Vocabulary;
+	public synthetic fun invert (Ljava/lang/Object;)Ljava/lang/Object;
+	public fun invert ([I)Ljava/lang/String;
+	public synthetic fun process (Ljava/lang/Object;)Ljava/lang/Object;
+	public fun process (Ljava/lang/String;)[I
 }
 
 public final class sk/ainet/apps/llm/tokenizer/HuggingFaceBPETokenizerKt {
@@ -432,14 +530,24 @@ public final class sk/ainet/apps/llm/tokenizer/HuggingFaceBPETokenizerKt {
 
 public final class sk/ainet/apps/llm/tokenizer/SentencePieceSpecialTokens : sk/ainet/apps/llm/Tokenizer {
 	public static final field Companion Lsk/ainet/apps/llm/tokenizer/SentencePieceSpecialTokens$Companion;
-	public fun <init> (Lsk/ainet/io/tokenizer/SentencePieceTokenizer;Ljava/util/Map;Ljava/lang/Integer;Ljava/lang/Integer;)V
-	public synthetic fun <init> (Lsk/ainet/io/tokenizer/SentencePieceTokenizer;Ljava/util/Map;Ljava/lang/Integer;Ljava/lang/Integer;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lsk/ainet/frontend/tokenizer/SentencePieceTokenizer;Ljava/util/Map;Ljava/lang/Integer;Ljava/lang/Integer;)V
+	public synthetic fun <init> (Lsk/ainet/frontend/tokenizer/SentencePieceTokenizer;Ljava/util/Map;Ljava/lang/Integer;Ljava/lang/Integer;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun decode (I)Ljava/lang/String;
 	public fun decode ([I)Ljava/lang/String;
+	public fun decode ([IZ)Ljava/lang/String;
+	public fun decodeToken (I)Ljava/lang/String;
 	public fun encode (Ljava/lang/String;)[I
-	public fun getBosTokenId ()I
-	public fun getEosTokenId ()I
+	public fun encode (Ljava/lang/String;Z)[I
+	public fun getBosTokenId ()Ljava/lang/Integer;
+	public fun getEosTokenId ()Ljava/lang/Integer;
+	public fun getSpec ()Lsk/ainet/frontend/FrontEndSpec;
+	public fun getSpecialTokens ()Lsk/ainet/frontend/text/SpecialTokens;
 	public fun getVocabSize ()I
+	public fun getVocabulary ()Lsk/ainet/frontend/text/Vocabulary;
+	public synthetic fun invert (Ljava/lang/Object;)Ljava/lang/Object;
+	public fun invert ([I)Ljava/lang/String;
+	public synthetic fun process (Ljava/lang/Object;)Ljava/lang/Object;
+	public fun process (Ljava/lang/String;)[I
 }
 
 public final class sk/ainet/apps/llm/tokenizer/SentencePieceSpecialTokens$Companion {
@@ -458,10 +566,18 @@ public final class sk/ainet/apps/llm/tokenizer/SentencePieceStrategy : sk/ainet/
 
 public final class sk/ainet/apps/llm/tokenizer/TokenizerFactory {
 	public static final field INSTANCE Lsk/ainet/apps/llm/tokenizer/TokenizerFactory;
+	public final fun adapt (Lsk/ainet/frontend/text/Tokenizer;)Lsk/ainet/apps/llm/Tokenizer;
+	public final fun fromCheckpoint (Lsk/ainet/model/CheckpointView;Lsk/ainet/model/ModelFamilyRegistry;)Lsk/ainet/apps/llm/Tokenizer;
+	public static synthetic fun fromCheckpoint$default (Lsk/ainet/apps/llm/tokenizer/TokenizerFactory;Lsk/ainet/model/CheckpointView;Lsk/ainet/model/ModelFamilyRegistry;ILjava/lang/Object;)Lsk/ainet/apps/llm/Tokenizer;
 	public final fun fromGgufFields (Ljava/util/Map;)Lsk/ainet/apps/llm/Tokenizer;
 	public final fun fromGgufSource (Lsk/ainet/io/RandomAccessSource;)Lsk/ainet/apps/llm/Tokenizer;
+	public final fun fromTekkenJson (Ljava/lang/String;)Lsk/ainet/apps/llm/Tokenizer;
 	public final fun fromTokenizerJsonString (Ljava/lang/String;Ljava/lang/String;)Lsk/ainet/apps/llm/Tokenizer;
 	public static synthetic fun fromTokenizerJsonString$default (Lsk/ainet/apps/llm/tokenizer/TokenizerFactory;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lsk/ainet/apps/llm/Tokenizer;
+	public final fun resolve (Lsk/ainet/model/CheckpointView;Lsk/ainet/model/ModelFamilyRegistry;)Lsk/ainet/frontend/text/TextFrontEnd;
+	public static synthetic fun resolve$default (Lsk/ainet/apps/llm/tokenizer/TokenizerFactory;Lsk/ainet/model/CheckpointView;Lsk/ainet/model/ModelFamilyRegistry;ILjava/lang/Object;)Lsk/ainet/frontend/text/TextFrontEnd;
+	public final fun resolver (Lsk/ainet/model/ModelFamilyRegistry;)Lsk/ainet/frontend/FrontEndResolver;
+	public static synthetic fun resolver$default (Lsk/ainet/apps/llm/tokenizer/TokenizerFactory;Lsk/ainet/model/ModelFamilyRegistry;ILjava/lang/Object;)Lsk/ainet/frontend/FrontEndResolver;
 }
 
 public final class sk/ainet/apps/llm/tokenizer/UnknownStrategy : sk/ainet/apps/llm/TokenizerStrategy {

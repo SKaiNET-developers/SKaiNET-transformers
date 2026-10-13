@@ -12,7 +12,9 @@ import kotlinx.io.files.SystemFileSystem
 import kotlinx.io.readByteArray
 import kotlinx.io.write
 import platform.posix.getenv
-import sk.ainet.apps.llm.tokenizer.GGUFTokenizer
+import sk.ainet.apps.llm.Tokenizer
+import sk.ainet.apps.llm.tokenizer.TokenizerFactory
+import sk.ainet.io.openRandomAccessSource
 
 /**
  * FunctionGemma-270M **KV-cache** decoder — the 2-graph (prefill + with_past) board loop that replaces
@@ -132,7 +134,7 @@ public class GemmaKvDecoder(
         val eos: Int
         val ptoks: List<Int>
         run {
-            val tok = GGUFTokenizer.fromSource(SystemFileSystem.source(Path(gguf)).buffered())
+            val tok = ggufTokenizer(gguf)
             eot = tok.encode("<end_of_turn>").single()
             eos = tok.eosTokenId
             ptoks = listOf(tok.bosTokenId) + tok.encode(prompt).toList()
@@ -205,7 +207,7 @@ public class GemmaKvDecoder(
             println("[perf] gemma-kv total: $total ms, ${gen.size} tokens, ${total / n} ms/token")
         }
 
-        val tok2 = GGUFTokenizer.fromSource(SystemFileSystem.source(Path(gguf)).buffered())
+        val tok2 = ggufTokenizer(gguf)
         val text = tok2.decode(gen.toIntArray())
         return GemmaDecoder.Generation(text, CompactCodec.parse(text))
     }
@@ -285,3 +287,8 @@ public class GemmaKvDecoder(
         }
     }
 }
+
+/** The GGUF-embedded tokenizer through the engine resolver (SKEEP-006); opened, read and closed at once. */
+private fun ggufTokenizer(gguf: String): Tokenizer =
+    (openRandomAccessSource(gguf) ?: error("could not open $gguf for random access"))
+        .use { TokenizerFactory.fromGgufSource(it) }

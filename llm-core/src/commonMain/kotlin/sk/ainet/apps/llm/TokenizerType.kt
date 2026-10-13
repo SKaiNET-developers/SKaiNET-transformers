@@ -1,8 +1,11 @@
+@file:Suppress("DEPRECATION")
+
 package sk.ainet.apps.llm
 
 /**
  * Supported tokenizer types based on their preprocessing strategies.
  */
+@Deprecated("Belongs to the legacy GGUFTokenizer (SKEEP-006); the engine reports the algorithm in FrontEndSpec.Text.algorithm. Removed in 0.60.")
 enum class TokenizerType {
     /** LLaMA, Mistral, T5 - uses ▁ (U+2581) as space marker */
     SENTENCEPIECE,
@@ -21,6 +24,7 @@ enum class TokenizerType {
  * Strategy interface for tokenizer preprocessing and postprocessing.
  * Different tokenizer types handle whitespace and word boundaries differently.
  */
+@Deprecated("Belongs to the legacy GGUFTokenizer (SKEEP-006); removed in 0.60.")
 interface TokenizerStrategy {
     /**
      * The type of tokenizer this strategy implements.

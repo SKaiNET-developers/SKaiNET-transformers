@@ -156,7 +156,8 @@ public object KLlamaJava {
         // Tokenizer from tokenizer.json
         val tokenizerPath = modelDir.resolve("tokenizer.json")
         require(tokenizerPath.exists()) { "tokenizer.json not found in $modelDir" }
-        val tokenizer = GGUFTokenizer.fromTokenizerJson(tokenizerPath.readText())
+        val tokenizerConfig = modelDir.resolve("tokenizer_config.json")
+        val tokenizer = TokenizerFactory.fromTokenizerJsonString(tokenizerPath.readText(), if (tokenizerConfig.exists()) tokenizerConfig.readText() else null)
 
         return KLlamaSession(
             runtime = runtime,

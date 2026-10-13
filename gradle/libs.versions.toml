@@ -1,5 +1,5 @@
 [versions]
-skainet = "0.57.0"
+skainet = "0.58.0"
 agp = "9.4.1"
 jacksonDatabind = "2.22.3"
 jsonSchemaValidator = "3.0.7"
@@ -104,6 +104,10 @@ skainet-io-core = { module = "sk.ainet.core:skainet-io-core" }
 skainet-io-gguf = { module = "sk.ainet.core:skainet-io-gguf" }
 skainet-io-iree-params = { module = "sk.ainet.core:skainet-io-iree-params" }
 skainet-io-safetensors = { module = "sk.ainet.core:skainet-io-safetensors" }
+# SKEEP-006 input front ends: identity, the FrontEnd/Tokenizer contract, the tokenizer algorithms
+skainet-model-identity = { module = "sk.ainet.core:skainet-model-identity" }
+skainet-frontend-core = { module = "sk.ainet.core:skainet-frontend-core" }
+skainet-frontend-text = { module = "sk.ainet.core:skainet-frontend-text" }
 # URI-backed data sources (hf:// downloads) — BertEmbeddingModel.fromHuggingFace
 skainet-data-source = { module = "sk.ainet.core:skainet-data-source" }
 

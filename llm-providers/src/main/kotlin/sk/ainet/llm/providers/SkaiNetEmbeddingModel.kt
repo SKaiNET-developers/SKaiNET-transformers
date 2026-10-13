@@ -28,7 +28,8 @@ public class SkaiNetEmbeddingModel<T : DType>(
     override fun call(request: EmbeddingRequest): EmbeddingResponse {
         var totalPromptTokens = 0
         val embeddings = request.inputs.mapIndexed { idx, text ->
-            val tokens = tokenizer.encode(text)
+            // BERT-class encoders consume [CLS] … [SEP]: the checkpoint's add-specials policy (SKEEP-006).
+            val tokens = tokenizer.encode(text, addSpecialTokens = true)
             totalPromptTokens += tokens.size
             Embedding(index = idx, vector = runtime.encode(tokens))
         }

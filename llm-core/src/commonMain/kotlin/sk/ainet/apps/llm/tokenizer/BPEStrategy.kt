@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION")
+
 package sk.ainet.apps.llm.tokenizer
 
 import sk.ainet.apps.llm.TokenizerStrategy
@@ -23,6 +25,7 @@ import sk.ainet.apps.llm.TokenizerType
  * handled the space marker, which was enough to make Latin sentences
  * look right but broke every byte that needed escaping.
  */
+@Deprecated("Preprocessing strategy of the legacy GGUFTokenizer (SKEEP-006); removed in 0.60.")
 public object BPEStrategy : TokenizerStrategy {
     override val type: TokenizerType = TokenizerType.BPE
 

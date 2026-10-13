@@ -30,7 +30,7 @@ import kotlinx.serialization.json.put
  *   NOT a JSON array.
  * - **`<|"|>` (id 168 in the GGUF vocab, USER_DEFINED) is the quote
  *   token for string literals**, not the regular `"`. The tokenizer
- *   encodes it atomically (see `GGUFTokenizer.specialTokensByLength`).
+ *   encodes it atomically (the engine's added-token matching, SKEEP-006).
  * - **JSON-schema type names are uppercased** (`STRING`, `OBJECT`,
  *   `ARRAY`, `NUMBER`, `BOOLEAN`).
  * - **Tool calls use `<|tool_call>call:NAME{key:value,...}<tool_call|>`**,

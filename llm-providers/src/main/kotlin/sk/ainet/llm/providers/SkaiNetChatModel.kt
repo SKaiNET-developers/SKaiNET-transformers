@@ -71,7 +71,7 @@ public class SkaiNetChatModel<T : DType>(
                 finish = FinishReason.STOP
                 false
             } else {
-                sb.append(tokenizer.decode(tokenId))
+                sb.append(tokenizer.decodeToken(tokenId))
                 produced++
                 val stopAt = findStopSequenceStart(sb, opts.stopSequences)
                 if (stopAt != null) {
@@ -115,7 +115,7 @@ public class SkaiNetChatModel<T : DType>(
                     finish = FinishReason.STOP
                     return@runGenerationLoop false
                 }
-                val piece = tokenizer.decode(tokenId)
+                val piece = tokenizer.decodeToken(tokenId)
                 val before = sb.length
                 sb.append(piece)
                 produced++

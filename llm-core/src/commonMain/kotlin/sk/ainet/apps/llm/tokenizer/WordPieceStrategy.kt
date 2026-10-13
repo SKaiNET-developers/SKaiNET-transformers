@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION")
+
 package sk.ainet.apps.llm.tokenizer
 
 import sk.ainet.apps.llm.TokenizerStrategy
@@ -13,6 +15,7 @@ import sk.ainet.apps.llm.TokenizerType
  *
  * Example: "unbelievable" might become ["un", "##believ", "##able"]
  */
+@Deprecated("Preprocessing strategy of the legacy GGUFTokenizer (SKEEP-006); removed in 0.60.")
 object WordPieceStrategy : TokenizerStrategy {
     override val type: TokenizerType = TokenizerType.WORDPIECE
 

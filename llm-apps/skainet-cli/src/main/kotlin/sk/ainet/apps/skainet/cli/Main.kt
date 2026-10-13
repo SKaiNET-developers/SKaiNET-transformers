@@ -3,7 +3,7 @@ package sk.ainet.apps.skainet.cli
 import sk.ainet.apps.kllama.cli.AgentCli
 import sk.ainet.apps.kllama.cli.ToolCallingDemo
 import sk.ainet.apps.llm.InferenceRuntime
-import sk.ainet.apps.llm.ModelFamily
+import sk.ainet.apps.llm.families.TransformersFamilies
 import sk.ainet.apps.llm.OptimizedLLMMode
 import sk.ainet.apps.llm.OptimizedLLMRuntime
 import sk.ainet.apps.llm.Tokenizer
@@ -163,7 +163,7 @@ fun main(args: Array<String>) {
 
         // Auto-detect architecture
         val modelInfo = UnifiedModelLoader.peek { JvmRandomAccessSource.open(modelPath.toString()) }
-        println("Architecture: ${modelInfo.architecture}, Family: ${modelInfo.family.displayName}")
+        println("Architecture: ${modelInfo.architecture}, Family: ${TransformersFamilies.forFamily(modelInfo.identity.family)?.displayName ?: modelInfo.identity.family}")
         println("Dimensions: ${modelInfo.embeddingLength}d, ${modelInfo.blockCount} layers, vocab=${modelInfo.vocabSize}")
 
         // Select backend
@@ -238,7 +238,7 @@ fun main(args: Array<String>) {
         // two-stage decode loop at the generation site (transformers#358).
         var bitnetTwoStageHead: BitNetPlanesTensorData? = null
 
-        val runtime: InferenceRuntime<FP32> = if (modelInfo.family == ModelFamily.GEMMA) {
+        val runtime: InferenceRuntime<FP32> = if (modelInfo.identity.family == "gemma") {
             // ModelFamily.GEMMA claims every gemma* architecture, but this DSL lane serves
             // gemma3/gemma4/gemma3n (#376, #377): gemma3n runs its own DSL lane
             // (gemma3nNetwork() — AltUp/Laurel/sparsity/PLE, parity-gated vs llama.cpp);
@@ -268,7 +268,7 @@ fun main(args: Array<String>) {
                 ).load<FP32, Float>(ctx)
                 OptimizedLLMRuntime(model, ctx, OptimizedLLMMode.DIRECT, FP32::class)
             }
-        } else if (modelInfo.family == ModelFamily.APERTUS) {
+        } else if (modelInfo.identity.family == "apertus") {
             println("Loading Apertus GGUF model from $modelPath via apertusNetwork() + OptimizedLLMRuntime (engine loader, keep-packed, mapped)...")
             if (cliArgs.contextLength != null) {
                 println("  --context flag currently ignored on the Apertus path; uses model default.")
@@ -277,7 +277,7 @@ fun main(args: Array<String>) {
                 randomAccessProvider = { JvmRandomAccessSource.open(modelPath.toString()) }
             ).load<FP32, Float>(ctx)
             OptimizedLLMRuntime(model, ctx, OptimizedLLMMode.DIRECT, FP32::class)
-        } else if (modelInfo.family == ModelFamily.BITNET) {
+        } else if (modelInfo.identity.family == "bitnet") {
             // BitNet b1.58: the packed I2_S path (transformers#337). Ternary projections load as
             // 2-bit BITNET_B1_58 tensors (0.25 B/weight) through the SKaiNET engine loader, and
             // dispatch runs them on the vendored NeoGPU NEON kernels installed below — the exact
@@ -346,9 +346,9 @@ fun main(args: Array<String>) {
                 println("Context length capped to ${cliArgs.contextLength} (model default: ${convertedWeights.metadata.contextLength})")
             }
 
-            val model = when (modelInfo.family) {
-                ModelFamily.QWEN -> QwenNetworkLoader.fromWeights(convertedWeights)
-                ModelFamily.BITNET -> BitNetNetworkLoader.fromWeights(convertedWeights)
+            val model = when (modelInfo.identity.family) {
+                "qwen" -> QwenNetworkLoader.fromWeights(convertedWeights)
+                "bitnet" -> BitNetNetworkLoader.fromWeights(convertedWeights)
                 else -> LlamaNetworkLoader.fromWeights(convertedWeights)
             }
             OptimizedLLMRuntime(
@@ -369,7 +369,7 @@ fun main(args: Array<String>) {
 
         // Build model metadata for chat template auto-detection
         val metadata = ModelMetadata(
-            family = modelInfo.family.id,
+            family = modelInfo.identity.family,
             architecture = modelInfo.architecture,
             chatTemplate = modelInfo.fields["tokenizer.chat_template"] as? String
         )

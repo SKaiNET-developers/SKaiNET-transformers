@@ -14,7 +14,9 @@ import sk.ainet.llm.api.EmbeddingModel
 import sk.ainet.models.bert.BertConfigParser
 import sk.ainet.models.bert.BertExecutionMode
 import sk.ainet.models.bert.BertNetworkLoader
-import sk.ainet.models.bert.HuggingFaceTokenizer
+import sk.ainet.apps.llm.tokenizer.TokenizerFactory
+import sk.ainet.frontend.tokenizer.TextFrontEnds
+import sk.ainet.frontend.tokenizer.WordPieceTokenizer
 import sk.ainet.models.bert.PooledExecutionContext
 import sk.ainet.models.bert.createBertEncoderRuntime
 import java.nio.file.Files
@@ -105,7 +107,7 @@ public object BertEmbeddingModel {
 
         val model: EmbeddingModel = SkaiNetEmbeddingModel(
             runtime = runtime,
-            tokenizer = tokenizer,
+            tokenizer = TokenizerFactory.adapt(tokenizer),
             modelId = modelId,
         )
         return if (prefixes == EmbeddingPrefixes.NONE) model else PrefixedEmbeddingModel(model, prefixes)
@@ -224,11 +226,16 @@ public object BertEmbeddingModel {
         error("No .safetensors file found in $modelDir")
     }
 
-    private fun loadTokenizer(modelDir: Path): HuggingFaceTokenizer {
-        val vocab = modelDir.resolve("vocab.txt")
-        if (vocab.exists()) return HuggingFaceTokenizer.fromVocabTxt(vocab.readText())
+    private fun loadTokenizer(modelDir: Path): WordPieceTokenizer {
         val tokenizerJson = modelDir.resolve("tokenizer.json")
-        if (tokenizerJson.exists()) return HuggingFaceTokenizer.fromTokenizerJson(tokenizerJson.readText())
-        error("Neither vocab.txt nor tokenizer.json found in $modelDir")
+        val config = modelDir.resolve("tokenizer_config.json").takeIf { it.exists() }?.readText()
+        if (tokenizerJson.exists()) {
+            val tokenizer = TextFrontEnds.fromTokenizerJson(tokenizerJson.readText(), config)
+            return tokenizer as? WordPieceTokenizer
+                ?: error("${tokenizerJson} is not a WordPiece tokenizer (${tokenizer.spec}); BERT encoders need one")
+        }
+        val vocab = modelDir.resolve("vocab.txt")
+        if (vocab.exists()) return TextFrontEnds.fromVocabTxt(vocab.readText())
+        error("Neither tokenizer.json nor vocab.txt found in $modelDir")
     }
 }

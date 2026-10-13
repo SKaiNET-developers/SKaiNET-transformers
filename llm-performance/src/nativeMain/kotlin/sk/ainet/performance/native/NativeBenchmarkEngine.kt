@@ -1,10 +1,11 @@
 package sk.ainet.performance.native
 
+import sk.ainet.io.openRandomAccessSource
+import sk.ainet.apps.llm.tokenizer.TokenizerFactory
 import kotlinx.io.buffered
 import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
 import kotlin.time.measureTime
-import sk.ainet.apps.kllama.GGUFTokenizer
 import sk.ainet.apps.llm.OptimizedLLMMode
 import sk.ainet.apps.llm.OptimizedLLMRuntime
 import sk.ainet.apps.llm.generate
@@ -144,9 +145,8 @@ internal class NativeCpuThroughputScenario : BenchmarkScenario {
 
         log("Resolved model: $modelPathStr")
         log("Tokenizing prompts...")
-        val tokenizer = GGUFTokenizer.fromSource(
-            SystemFileSystem.source(modelPath).buffered()
-        )
+        val tokenizer = (openRandomAccessSource(modelPathStr) ?: error("could not open $modelPathStr for random access"))
+            .use { TokenizerFactory.fromGgufSource(it) }
         val promptPlans = prompts.map { prompt ->
             PromptPlan(prompt = prompt, promptTokens = tokenizer.encode(prompt.text))
         }
