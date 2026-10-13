@@ -22,3 +22,13 @@ public final class sk/ainet/decisions/runtime/RequestValidator {
 	public final fun validate (Lsk/ainet/decisions/DecisionRequest;Lsk/ainet/decisions/AdapterCapabilities;)V
 }
 
+public final class sk/ainet/decisions/runtime/SchemaSessionsKt {
+	public static final fun decide (Lsk/ainet/decisions/runtime/DecisionSession;Lsk/ainet/decisions/dsl/DecisionSchema;Ljava/lang/String;Ljava/lang/String;Lsk/ainet/decisions/AcceptancePolicy;)Lsk/ainet/decisions/DecisionResult;
+	public static final fun decide (Lsk/ainet/decisions/runtime/DecisionSession;Lsk/ainet/decisions/dsl/DecisionSchema;Ljava/lang/String;Lkotlinx/serialization/json/JsonElement;Lsk/ainet/decisions/AcceptancePolicy;)Lsk/ainet/decisions/DecisionResult;
+	public static final fun decide (Lsk/ainet/decisions/runtime/DecisionSession;Lsk/ainet/decisions/dsl/DecisionSchema;Ljava/lang/String;Lsk/ainet/decisions/DecisionState;Lsk/ainet/decisions/AcceptancePolicy;)Lsk/ainet/decisions/DecisionResult;
+	public static synthetic fun decide$default (Lsk/ainet/decisions/runtime/DecisionSession;Lsk/ainet/decisions/dsl/DecisionSchema;Ljava/lang/String;Ljava/lang/String;Lsk/ainet/decisions/AcceptancePolicy;ILjava/lang/Object;)Lsk/ainet/decisions/DecisionResult;
+	public static synthetic fun decide$default (Lsk/ainet/decisions/runtime/DecisionSession;Lsk/ainet/decisions/dsl/DecisionSchema;Ljava/lang/String;Lkotlinx/serialization/json/JsonElement;Lsk/ainet/decisions/AcceptancePolicy;ILjava/lang/Object;)Lsk/ainet/decisions/DecisionResult;
+	public static synthetic fun decide$default (Lsk/ainet/decisions/runtime/DecisionSession;Lsk/ainet/decisions/dsl/DecisionSchema;Ljava/lang/String;Lsk/ainet/decisions/DecisionState;Lsk/ainet/decisions/AcceptancePolicy;ILjava/lang/Object;)Lsk/ainet/decisions/DecisionResult;
+	public static final fun openSession (Lsk/ainet/decisions/runtime/DecisionRuntime;Lsk/ainet/decisions/dsl/DecisionSchema;)Lsk/ainet/decisions/runtime/DecisionSession;
+}
+
