@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.59.0] — 2026-10-13
+
+**Typed decisions.** Three new modules on the JVM path, against engine **0.58.0**: the
+`sk.ainet.decisions` contract (choice, score, boolean probability; accepted, abstained or failed,
+never a silent guess), the runtime that validates a request and applies the caller's acceptance
+policy, and **Laya** (mmBERT-base encoder + decision head, Apache 2.0) as the first
+`DecisionAdapter`, verified against the reference fixtures of the multilingual checkpoint. A Kotlin
+DSL (`decisionSchema { }`, `decisionRequest { }`, `acceptancePolicy { }`) and typed readback on
+`DecisionResult` round it off. `HuggingFaceBPETokenizer` is gone; the remaining SKEEP-006
+deprecations move one minor (see *Deprecated*). No engine bump: the BOM re-exports `skainet-bom:0.58.0`.
+
 ### Added
 
 - **Typed decisions and the Laya adapter.** Three new modules bring decision models
