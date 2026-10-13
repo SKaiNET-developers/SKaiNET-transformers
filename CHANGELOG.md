@@ -11,6 +11,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Typed decisions and the Laya adapter.** Three new modules bring decision models
+  ("System 1": a typed answer instead of generated text) to the JVM path:
+  - `skainet-transformers-decisions-api` (`sk.ainet.decisions`, no engine dependency): a
+    `DecisionRequest` carries a text or structured state and up to 64 questions of three
+    primitives, `ChoiceQuestion` (one option out of a list), `ScoreQuestion` (an ordinal scale)
+    and `BooleanProbabilityQuestion` (P(statement is true)). Every question ends in a
+    `QuestionOutcome`: `Accepted(decision)`, `Abstained(reason, candidate)` or `Failed(error)`,
+    never a silent guess; an `AcceptancePolicy` sets the inclusive confidence, margin and
+    probability thresholds. `Provenance` records model, policy, preprocessing version, calibration
+    status and per-question packing traces.
+  - `skainet-transformers-decisions-runtime`: `DecisionRuntime(adapters).openSession(model)
+    .decide(request, policy)` validates the request against the adapter's `AdapterCapabilities`
+    and applies the policy (`AcceptanceEngine`); `FakeAdapter`-based conformance tests document
+    the contract any adapter must meet.
+  - `skainet-transformers-inference-laya` (`sk.ainet.models.laya`): the Laya multilingual
+    checkpoint (mmBERT-base encoder, two-layer decision head, type embedding and scorer; Apache
+    2.0, Convai Innovations) as a `DecisionAdapter`. Preprocessing is a port of the reference
+    `build_sequence` (CPython `json.dumps` parity included), the encoder runs on the FP32 CPU
+    path with exact (erf) GELU, and the JVM `LayaModelLoader` reads the SafeTensors directory.
+    Verified against the reference fixtures shipped with the checkpoint: 26/26 sequences, a
+    40-text tokenizer corpus and the six `predict.json` cases within 5e-5. The Metaspace BPE
+    tokenizer and the added-token `lstrip` flag it needs are engine 0.58.0 features (SKEEP-006).
+
 ## [0.58.0] — 2026-10-13
 
 Lock-step with **SKaiNET engine 0.58.0** (input front ends and model identity, SKEEP-006). The

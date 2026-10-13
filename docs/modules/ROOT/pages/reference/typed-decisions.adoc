@@ -1,0 +1,128 @@
+= Typed Decisions (Laya)
+:description: The sk.ainet.decisions contract (choice, score, boolean probability), the runtime that applies an acceptance policy, and Laya as the first adapter.
+
+A decision model answers a bounded question about a state with a typed result instead of
+generating text: one option out of a list (*choice*), a level on an ordinal scale (*score*),
+or the probability that a statement is true (*boolean probability*). The result carries a
+confidence and takes milliseconds of encoder time, not seconds of decoding. The three modules
+below put that on the JVM path with the same contract for every model.
+
+== Coordinates
+
+[source,kotlin]
+----
+dependencies {
+    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.58.0"))  // the three modules ship with the first release after 0.58.0
+    implementation("sk.ainet.transformers:skainet-transformers-decisions-api")      // the contract, no engine dependency
+    implementation("sk.ainet.transformers:skainet-transformers-decisions-runtime")  // validation + acceptance policy
+    implementation("sk.ainet.transformers:skainet-transformers-inference-laya")     // Laya as a DecisionAdapter
+}
+----
+
+== The contract (`sk.ainet.decisions`)
+
+A `DecisionRequest` names a model, a state and the questions:
+
+[source,kotlin]
+----
+val request = DecisionRequest.builder("ticket-4711")
+    .model("laya-multilingual")
+    .state("Customer writes: my invoice shows the old address although I changed it last week.")
+    .question(ChoiceQuestion("department", "Which department handles this request?", listOf(
+        ChoiceOption("billing", "billing and invoices"),
+        ChoiceOption("account", "account data and profile"),
+        ChoiceOption("shipping", "delivery and logistics"),
+    )))
+    .question(ScoreQuestion("urgency", "How urgent is this request?", listOf(
+        ScoreLevel("can wait"), ScoreLevel("this week"), ScoreLevel("today"), ScoreLevel("now"),
+    )))
+    .question(BooleanProbabilityQuestion("escalate", "Should a human look at this request?",
+        BooleanCriteria(whenFalse = "no", whenTrue = "yes")))
+    .build()
+----
+
+The state is `DecisionState.text(...)` or `DecisionState.structured(jsonElement)`; the
+`InferencePolicy` decides whether an over-long state is rejected (`REJECT`, the default) or
+truncated (`TRUNCATE_STATE`). A request fails before any inference when an option set is
+invalid, a primitive is unsupported or the option count exceeds the adapter's capabilities.
+
+Every question ends in exactly one `QuestionOutcome`:
+
+[cols="1,3"]
+|===
+| `Accepted(decision)` | `Decision.Choice(optionId)`, `Decision.Score(level)` or `Decision.Boolean(value)`, each with its `Prediction` (probabilities, margin, expected score, confidence).
+| `Abstained(reason, candidate)` | The policy did not accept the candidate: `BELOW_CONFIDENCE`, `BELOW_MARGIN`, `BETWEEN_THRESHOLDS`, `NO_POLICY`, … The candidate stays visible, so a caller can show "unclear" instead of dropping the item.
+| `Failed(error)` | `ContextOverflow`, `NumericalFailure`, `UnsupportedCapability`, … A failure never masquerades as a decision.
+|===
+
+`DecisionResult.provenance` records the model id, backend and precision, the preprocessing
+version, the calibration status, the policy id and version, the duration and one
+`QuestionTrace` per question (sequence length, state tokens kept and dropped).
+
+== The runtime (`sk.ainet.decisions.runtime`)
+
+[source,kotlin]
+----
+val agent = LayaModelLoader.load(Path.of("/models/laya/multilingual"), ctx, exactGelu = true)
+val runtime = DecisionRuntime(listOf(LayaDecisionAdapter(agent, modelId = "laya-multilingual")))
+val policy = AcceptancePolicy(
+    id = "triage", version = "1",
+    choice = ChoiceAcceptance(minConfidence = 0.2, minMargin = 0.1),
+    score = ScoreAcceptance.MinTopProbability(0.35),
+    boolean = BooleanAcceptance(lower = 0.4, upper = 0.6),
+)
+runtime.openSession(ModelSelector.Installed("laya-multilingual")).use { session ->
+    val result = session.decide(request, policy)
+    when (val outcome = result.question("department")) {
+        is QuestionOutcome.Accepted -> println((outcome.decision as Decision.Choice).optionId)
+        is QuestionOutcome.Abstained -> println("unclear: ${outcome.reason}")
+        is QuestionOutcome.Failed -> println("failed: ${outcome.error}")
+    }
+}
+----
+
+Thresholds are inclusive. A choice is accepted when its entropy confidence
+(`1 − H(p) / log k`) reaches `minConfidence` and the gap to the runner-up reaches `minMargin`;
+a score when the mass on its top level reaches `MinTopProbability` (or its normalized entropy
+stays under `MaxNormalizedEntropy`); a boolean when P(true) lies outside the open interval
+`(lower, upper)`. Without a policy every question abstains with `NO_POLICY`. `AcceptanceEngine`
+is public, so a caller can re-apply a stricter policy to the recorded candidates.
+
+`DecisionRuntime` holds one adapter per installed model id and validates every request against
+the adapter's `AdapterCapabilities` (primitives, languages, context and option budgets, maximum
+questions per request) before the adapter sees it. The conformance tests in
+`decisions-runtime` run against a `FakeAdapter` and are the contract any adapter must satisfy.
+
+== Laya (`sk.ainet.models.laya`)
+
+`skainet-transformers-inference-laya` wraps the multilingual Laya checkpoint
+(https://huggingface.co/convaiinnovations/laya[convaiinnovations/laya], Apache 2.0):
+an mmBERT-base encoder (22 layers, hidden 768, GeGLU, RoPE on every layer, a local attention
+window on two of every three layers) followed by a type embedding, a two-layer decision head
+and a scorer. The port follows the reference `build_sequence` exactly, including CPython
+`json.dumps` float formatting for structured states (`PythonJson`), the 48-token option cap and
+the state-type-dependent truncation direction.
+
+* `LayaCheckpointFiles.read(dir)` reads `rl_agent_config.json`, `encoder/config.json` and the
+  tokenizer pair; `LayaModelLoader.load(dir, ctx)` adds `model.safetensors` (F16, up-cast to
+  FP32) and returns a `LayaAgent`.
+* `LayaDecisionAdapter(agent, modelId)` is the `DecisionAdapter`. Option ids are the model-facing
+  keys; the descriptions are what the model reads. Calibration is `UNVERIFIED` unless the
+  checkpoint ships temperatures.
+* Exact (erf) GELU is required for parity with the reference (`exactGelu = true`); the tanh
+  approximation moves the predictions by about 7e-4.
+
+Verification against the fixtures shipped with the checkpoint (copied under
+`llm-inference/laya/src/jvmTest/resources/laya-fixtures/`, Apache 2.0): 26 of 26 packed
+sequences, the 40-text tokenizer corpus (CJK, RTL, combining marks, emoji, literal `<mask>`),
+and all six `predict.json` cases within 5e-5. The model-gated tests run when
+`LAYA_MULTILINGUAL_PATH` points at the checkpoint directory.
+
+== Current limits
+
+* JVM only: the loader uses `java.nio.file.Path`; the common code has no file access of its own.
+* Eager FP32 on the CPU path, no batching across questions: a short state with three questions
+  takes seconds on a laptop, a 1024-token state tens of seconds. The compiled and quantized
+  lanes are open items.
+* The base checkpoint is a starting point the publisher expects to be specialised; keep option
+  sets small (six or fewer) and treat abstentions as the normal case, not the exception.

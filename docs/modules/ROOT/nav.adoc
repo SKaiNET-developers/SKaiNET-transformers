@@ -25,6 +25,7 @@
 * xref:reference/moonshine-encoder.adoc[Moonshine Encoder (Speech-to-Text)]
 * xref:reference/pipeline.adoc[Inference Pipeline]
 * xref:reference/tokenizer-api.adoc[Tokenizer API]
+* xref:reference/typed-decisions.adoc[Typed Decisions (Laya)]
 * xref:reference/chat-session-api.adoc[ChatSession API]
 * xref:reference/model-registry.adoc[Model Registry]
 * xref:reference/cli-reference.adoc[CLI Reference]
