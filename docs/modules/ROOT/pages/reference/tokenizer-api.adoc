@@ -24,7 +24,7 @@ interface Tokenizer : sk.ainet.frontend.text.Tokenizer {
 Everything else is inherited: `encode(text)` (no bos/eos added), `encode(text, addSpecialTokens)`,
 `decode(ids)`, `decode(ids, skipSpecialTokens)`, `decodeToken(id)`, `vocabulary`
 (`tokenToId` / `idToToken`) and `specialTokens` (`bos`, `eos`, `pad`, `unk`, `addBos`, `addEos`,
-`stopIds`). In 0.60 the interface becomes a type alias of the engine one; until then the `-1`
+`stopIds`). In 0.61 the interface becomes a type alias of the engine one; until then the `-1`
 sentinel is kept for callers that do arithmetic on the ids.
 
 == TokenizerFactory
@@ -61,7 +61,7 @@ claims, `displayName`, `supportsToolCalling`, `chatTemplateFamily` and its stop 
 descriptor with `+`. `GGUFModelInfo.identity` is the string identity
 (`family` / `variant`) the registry assigns.
 
-== Deprecated (removed in 0.60)
+== Deprecated (removed in 0.61)
 
 [cols="1,2",options="header"]
 |===
@@ -69,9 +69,6 @@ descriptor with `+`. `GGUFModelInfo.identity` is the string identity
 
 | `GGUFTokenizer`, `BPEStrategy`, `SentencePieceStrategy`, `WordPieceStrategy`, `UnknownStrategy`, `TokenizerType`, `TokenizerStrategy`
 | `TokenizerFactory` (engine-backed). The legacy class keeps its behaviour — including its reference-divergent ids — while deprecated; it is never silently forwarded.
-
-| `HuggingFaceBPETokenizer`
-| engine `QwenByteLevelBpeTokenizer` / `MetaspaceBpeTokenizer` through `TokenizerFactory.fromTokenizerJsonString` (removed in 0.59, no callers)
 
 | `SentencePieceSpecialTokens`
 | engine `SpecialTokenSplitter`, applied by the engine for every algorithm
@@ -88,3 +85,8 @@ descriptor with `+`. `GGUFModelInfo.identity` is the string identity
 | `sk.ainet.apps.kllama.GGUFTokenizer` alias
 | `TokenizerFactory`
 |===
+
+`HuggingFaceBPETokenizer` (no callers since 0.58) was removed in 0.59.0. The schedule for the
+rest moved by one minor in 0.59.0: the legacy classes stay at WARNING through 0.59, go to ERROR
+in 0.60 and leave in 0.61, because the runtimes, CLIs and benchmarks still reach the engine
+through `TokenizerFactory` and the sub-interface, and moving them is a release of its own.

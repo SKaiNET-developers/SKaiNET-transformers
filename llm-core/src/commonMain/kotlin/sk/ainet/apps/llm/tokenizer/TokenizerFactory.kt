@@ -18,7 +18,8 @@ import sk.ainet.model.ModelFamilyRegistry
  * `TextFrontEnds` (the dispatch table FE-R-02) and decorated by [TransformersFamilies] — the
  * special-token splitting and the `add_space_prefix` detection this factory used to patch in
  * downstream now live upstream, where the goldens are. The object stays as the bridge to this
- * repository's [Tokenizer] sub-interface; it is deprecated in 0.59 and removed in 0.60.
+ * repository's [Tokenizer] sub-interface; it is deprecated in 0.60 and removed in 0.61, together
+ * with the sub-interface.
  *
  * ```kotlin
  * val info = UnifiedModelLoader.peek { sourceProvider() }

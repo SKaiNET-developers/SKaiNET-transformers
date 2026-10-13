@@ -504,30 +504,6 @@ public final class sk/ainet/apps/llm/tokenizer/GGUFTokenizer$Companion {
 	public static synthetic fun fromTokenizerJson$default (Lsk/ainet/apps/llm/tokenizer/GGUFTokenizer$Companion;Ljava/lang/String;ZILjava/lang/Object;)Lsk/ainet/apps/llm/tokenizer/GGUFTokenizer;
 }
 
-public final class sk/ainet/apps/llm/tokenizer/HuggingFaceBPETokenizer : sk/ainet/apps/llm/Tokenizer {
-	public fun decode (I)Ljava/lang/String;
-	public fun decode ([I)Ljava/lang/String;
-	public fun decode ([IZ)Ljava/lang/String;
-	public fun decodeToken (I)Ljava/lang/String;
-	public fun encode (Ljava/lang/String;)[I
-	public fun encode (Ljava/lang/String;Z)[I
-	public fun getBosTokenId ()Ljava/lang/Integer;
-	public fun getEosTokenId ()Ljava/lang/Integer;
-	public fun getSpec ()Lsk/ainet/frontend/FrontEndSpec;
-	public fun getSpecialTokens ()Lsk/ainet/frontend/text/SpecialTokens;
-	public fun getVocabSize ()I
-	public fun getVocabulary ()Lsk/ainet/frontend/text/Vocabulary;
-	public synthetic fun invert (Ljava/lang/Object;)Ljava/lang/Object;
-	public fun invert ([I)Ljava/lang/String;
-	public synthetic fun process (Ljava/lang/Object;)Ljava/lang/Object;
-	public fun process (Ljava/lang/String;)[I
-}
-
-public final class sk/ainet/apps/llm/tokenizer/HuggingFaceBPETokenizerKt {
-	public static final fun createHuggingFaceBPETokenizerFromJson (Ljava/lang/String;Ljava/lang/String;)Lsk/ainet/apps/llm/tokenizer/HuggingFaceBPETokenizer;
-	public static synthetic fun createHuggingFaceBPETokenizerFromJson$default (Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lsk/ainet/apps/llm/tokenizer/HuggingFaceBPETokenizer;
-}
-
 public final class sk/ainet/apps/llm/tokenizer/SentencePieceSpecialTokens : sk/ainet/apps/llm/Tokenizer {
 	public static final field Companion Lsk/ainet/apps/llm/tokenizer/SentencePieceSpecialTokens$Companion;
 	public fun <init> (Lsk/ainet/frontend/tokenizer/SentencePieceTokenizer;Ljava/util/Map;Ljava/lang/Integer;Ljava/lang/Integer;)V

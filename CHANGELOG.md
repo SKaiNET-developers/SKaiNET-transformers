@@ -44,6 +44,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   or failed), `probabilityTrue(id)`, `outcome.candidate`, `accepted(id)`, `isComplete`, `summary()`.
   The DSL produces the same data classes as the constructors, so nothing changes on the wire.
 
+### Removed
+
+- `HuggingFaceBPETokenizer` (deprecated in 0.58 with no callers; the engine's `QwenByteLevelBpeTokenizer`
+  and `MetaspaceBpeTokenizer` replace it through `TokenizerFactory.fromTokenizerJsonString`).
+
+### Deprecated
+
+- **Schedule moved by one minor.** The remaining SKEEP-006 legacy surface (`GGUFTokenizer` and its
+  strategies, `TokenizerType`, `SentencePieceSpecialTokens`, `TekkenTokenizerAdapter`, `ModelRegistry`,
+  the `sk.ainet.apps.kllama.GGUFTokenizer` alias) stays at WARNING in 0.59, goes to ERROR in 0.60
+  and leaves in 0.61; `TokenizerFactory` and the `sk.ainet.apps.llm.Tokenizer` sub-interface are
+  deprecated in 0.60 and removed in 0.61. The runtimes, CLIs and benchmarks still reach the engine
+  through the factory, and moving them is a release of its own.
+
 ## [0.58.0] — 2026-10-13
 
 Lock-step with **SKaiNET engine 0.58.0** (input front ends and model identity, SKEEP-006). The
