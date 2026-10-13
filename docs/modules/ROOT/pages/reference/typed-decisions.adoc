@@ -93,6 +93,79 @@ the adapter's `AdapterCapabilities` (primitives, languages, context and option b
 questions per request) before the adapter sees it. The conformance tests in
 `decisions-runtime` run against a `FakeAdapter` and are the contract any adapter must satisfy.
 
+== The DSL (`sk.ainet.decisions.dsl`)
+
+Like the NN DSL and the data pipeline DSL, the decision contract has a Kotlin DSL that produces
+the same data classes as the constructors above; nothing in a block exists that the request
+model cannot express, so serialisation and provenance are unaffected. Three entry points:
+
+[source,kotlin]
+----
+import sk.ainet.decisions.*            // the contract and the typed readback
+import sk.ainet.decisions.dsl.*        // decisionSchema, decisionRequest, acceptancePolicy
+import sk.ainet.decisions.runtime.*    // openSession(schema), decide(schema, ...)
+
+// Questions and policy declared once, states supplied later.
+val triage = decisionSchema("commit-triage") {
+    model("laya-multilingual")
+    choice("kind", "What kind of change is this commit?", "feature", "bugfix", "refactor", "docs", "test", "chore")
+    score("risk", "How risky is this change for the team?", "trivial", "low", "moderate", "high", "critical or breaking")
+    probability("standup", "Is this commit worth mentioning in the team's daily stand-up?")
+    probability("adr", "Does this commit contain or imply an architecture decision?") {
+        whenFalse = "no decision"; whenTrue = "a decision is made or implied"
+    }
+    policy(version = "1") {                       // id defaults to the schema id
+        choice { minConfidence = 0.2; minMargin = 0.1 }
+        score { minTopProbability(0.35) }
+        boolean { abstainBetween(0.4, 0.6) }
+    }
+}
+
+runtime.openSession(triage).use { session ->
+    for (commit in commits) {
+        val result = session.decide(triage, "commit-${commit.id}", commit.message)
+        println("${commit.id}: ${result.summary()}")   // kind=bugfix risk=1 standup=? adr=false
+        if (result.boolean("standup") == false) continue
+        val kind = result.choice("kind") ?: "unclear"
+    }
+}
+
+// One request, inline.
+val request = decisionRequest("ticket-4711") {
+    model("laya-multilingual")
+    state("Customer writes: my invoice shows the old address although I changed it last week.")
+    choice("department", "Which department handles this request?") {
+        option("billing", "billing and invoices")
+        option("account", "account data and profile")
+        option("shipping", "delivery and logistics")
+    }
+    score("urgency", "How urgent is this request?", "can wait", "this week", "today", "now")
+    probability("escalate", "Should a human look at this request?")
+    truncateState()
+}
+
+// A policy on its own.
+val strict = acceptancePolicy("triage", "2") { choice { minConfidence = 0.5 } }
+----
+
+* `decisionSchema(id) { }` fixes the questions, the policy, the model and the inference policy
+  and stamps out one `DecisionRequest` per state with `schema.request(requestId, state)`;
+  `DecisionRuntime.openSession(schema)` and `DecisionSession.decide(schema, requestId, state)`
+  in `decisions-runtime` use them directly, the schema policy applying unless a call overrides it.
+* `decisionRequest(id) { }` builds a single request; `acceptancePolicy(id, version) { }` a
+  policy. A `score { }` block takes exactly one criterion and `boolean { }` needs both thresholds,
+  otherwise `InvalidPolicyException`; a primitive without a block keeps abstaining with `NO_POLICY`.
+* `choice`/`score` accept a block (`option(id, description)`, `level(description)`) or a vararg of
+  ids whose text doubles as the description; `probability` takes the plain `no`/`yes` criteria
+  unless its block sets `whenFalse`/`whenTrue`.
+* Typed readback on `DecisionResult`: `choice(id)`, `score(id)`, `boolean(id)` return the accepted
+  value or `null` for an abstention or failure and throw for an unknown id or another primitive;
+  `probabilityTrue(id)` reads the accepted or abstained candidate; `outcome.candidate`,
+  `accepted(id)`, `isComplete` and the one-line `summary()` complete the set.
+
+The scopes carry a `@DslMarker`, so a nested block cannot call the functions of an enclosing
+scope by accident.
+
 == Laya (`sk.ainet.models.laya`)
 
 `skainet-transformers-inference-laya` wraps the multilingual Laya checkpoint

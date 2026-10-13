@@ -35,6 +35,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     Verified against the reference fixtures shipped with the checkpoint: 26/26 sequences, a
     40-text tokenizer corpus and the six `predict.json` cases within 5e-5. The Metaspace BPE
     tokenizer and the added-token `lstrip` flag it needs are engine 0.58.0 features (SKEEP-006).
+- **Decision DSL** (`sk.ainet.decisions.dsl`, in `decisions-api`): `decisionSchema(id) { }` declares
+  the questions, policy and model once and stamps out a `DecisionRequest` per state;
+  `decisionRequest(id) { }` and `acceptancePolicy(id, version) { }` build a single request or policy;
+  `choice`/`score`/`probability` take blocks or varargs. `decisions-runtime` adds
+  `DecisionRuntime.openSession(schema)` and `DecisionSession.decide(schema, requestId, state)`.
+  Typed readback on `DecisionResult`: `choice(id)`, `score(id)`, `boolean(id)` (null when abstained
+  or failed), `probabilityTrue(id)`, `outcome.candidate`, `accepted(id)`, `isComplete`, `summary()`.
+  The DSL produces the same data classes as the constructors, so nothing changes on the wire.
 
 ## [0.58.0] — 2026-10-13
 
