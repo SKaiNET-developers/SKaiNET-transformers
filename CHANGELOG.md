@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Engine 0.59.0.** The version catalog moves `sk.ainet.core:*` to 0.59.0.
+- **Laya's exact GELU is the engine op.** `LayaGelu` calls `gelu(approximate = false)` (new in
+  engine 0.59.0) instead of copying every activation to the host, applying erf there and copying
+  it back; `exactGelu = true` keeps its meaning and the parity gates are unchanged. The activation
+  is now a regular op on the compiled path (graph executor, backward rule, StableHLO export), and
+  the 22-layer encoder no longer pays 44 host round trips per decision. `LayaGelu.geluErf` /
+  `erf` stay as the double-precision reference the engine kernel is checked against.
+
 ## [0.59.0] — 2026-10-13
 
 **Typed decisions.** Three new modules on the JVM path, against engine **0.58.0**: the
