@@ -131,7 +131,16 @@ public class MultiHeadAttention<T : DType, V>(
     // (void) projection/bias weights carry it instead of erasing to Object — so
     // the module can be traced to a graph (and StableHLO) before weights load.
     private val dtype: KClass<T>? = null,
-) : Module<T, V>(), ModuleParameters<T, V> {
+) : Module<T, V>(), ModuleParameters<T, V>, PaddedBatchAware {
+
+    /**
+     * The layout of a flattened padded batch for the current forward (see [PaddedBatch]), or
+     * `null` for one sequence. Set for the duration of a call by [withPaddedBatch]. With a batch
+     * the projections stay row-wise, attention runs as `[batch, heads, seqLen, headDim]` with the
+     * batch's key lengths as the op's padding rule, and the KV cache, cross-attention and the
+     * fused eager kernels are not available.
+     */
+    override var paddedBatch: PaddedBatch? = null
 
     init {
         require(rightContext >= 0) { "MultiHeadAttention: rightContext must be >= 0, got $rightContext" }
@@ -356,6 +365,19 @@ public class MultiHeadAttention<T : DType, V>(
             v = ops.add(v, params[vWIdx + 1].value)
         }
 
+        paddedBatch?.let { batch ->
+            require(!isCrossAttention && crossMask == null) {
+                "MultiHeadAttention($name): a padded batch is a self-attention layout; cross-attention is not batched"
+            }
+            require(kvCache == null) { "MultiHeadAttention($name): a padded batch cannot be combined with a KV cache" }
+            require(!wantKV) { "MultiHeadAttention($name): forwardWithKV is a single-sequence (export) entry; a padded batch is not supported" }
+            require(qInput.rank == 2 && qInput.shape[0] == batch.rows) {
+                "MultiHeadAttention($name): a padded batch of ${batch.batchSize}x${batch.seqLen} expects [${batch.rows}, dim] input, got ${qInput.shape}"
+            }
+            val (merged, kHeads, vHeads) = paddedBatchAttention(q, k, v, batch, scale, ctx)
+            return finishFused(merged, wO, ctx, mhaDump, kHeads, vHeads)
+        }
+
         // Reshape to multi-head and put heads first.
         //
         // Q/K/V projections produce [seqLen, qDim] where qDim = nHeads*headDim.
@@ -428,6 +450,7 @@ public class MultiHeadAttention<T : DType, V>(
         // intermediate tensors — with heads split across the context schedule's tasks. Kept off
         // while recording (the kernels read concrete floats and would detach the tape), for
         // cross-attention and for an explicit cross mask, which stay on the symbolic path below.
+        // (A padded batch returned above; it never reaches the fused kernels.)
         val cache = kvCache
         val eagerFusable = useFusedPaths && !isCrossAttention && !ctx.isRecording && crossMask == null
         if (eagerFusable && !wantKV && cache != null) {
@@ -576,6 +599,65 @@ public class MultiHeadAttention<T : DType, V>(
         val kBuf = (fullK.data as? FloatArrayTensorData<*>)?.buffer ?: fullK.data.copyToFloatArray()
         val vBuf = (fullV.data as? FloatArrayTensorData<*>)?.buffer ?: fullV.data.copyToFloatArray()
         return KVBufferView.contiguous(kBuf, vBuf, seqKV, headDim)
+    }
+
+    /**
+     * Attention over a flattened padded batch (see [PaddedBatch]). The `[rows, qDim]` projections
+     * become `[batch * heads, seqLen, headDim]` — the heads-first layout of the single-sequence
+     * path, so QK-norm, V-norm and RoPE run unchanged and every sequence is positioned from 0 —
+     * then `[batch, heads, seqLen, headDim]` for one SDPA call that takes the batch's key lengths
+     * and this layer's window / causal rule as op parameters: no dense mask is built, and the
+     * recorded op carries `maskKind` metadata for the compiled path. The result is merged back to
+     * `[rows, qDim]`; rows of padded positions are finite but meaningless.
+     */
+    private fun paddedBatchAttention(
+        qProj: Tensor<T, V>,
+        kProj: Tensor<T, V>,
+        vProj: Tensor<T, V>,
+        batch: PaddedBatch,
+        scale: Float,
+        ctx: ExecutionContext,
+    ): Triple<Tensor<T, V>, Tensor<T, V>, Tensor<T, V>> {
+        val ops = ctx.ops
+        val b = batch.batchSize
+        val s = batch.seqLen
+        fun headsFirst(t: Tensor<T, V>, heads: Int): Tensor<T, V> =
+            ops.reshape(ops.permute(ops.reshape(t, Shape(b, s, heads, headDim)), intArrayOf(0, 2, 1, 3)), Shape(b * heads, s, headDim))
+
+        var q = PhaseProfile.time("attn.reshape") { headsFirst(qProj, nHeads) }
+        var k = PhaseProfile.time("attn.reshape") { headsFirst(kProj, nKVHeads) }
+        var v = PhaseProfile.time("attn.reshape") { headsFirst(vProj, nKVHeads) }
+        if (qNorm != null && kNorm != null) {
+            q = qNorm.forward(q, ctx)
+            k = kNorm.forward(k, ctx)
+        }
+        if (vNormNoScale) {
+            val vSq = ops.multiply(v, v)
+            val vMean = ops.mean(vSq, dim = v.rank - 1)
+            val vRms = ops.unsqueeze(ops.sqrt(ops.addScalar(vMean, 1e-6f)), v.rank - 1)
+            v = ops.divide(v, vRms)
+        }
+        rope?.let { r ->
+            q = PhaseProfile.time("attn.rope") { r.forward(q, 0, ctx) }
+            k = PhaseProfile.time("attn.rope") { r.forward(k, 0, ctx) }
+        }
+        val attnOut = ops.scaledDotProductAttention(
+            query = ops.reshape(q, Shape(b, nHeads, s, headDim)),
+            key = ops.reshape(k, Shape(b, nKVHeads, s, headDim)),
+            value = ops.reshape(v, Shape(b, nKVHeads, s, headDim)),
+            mask = null,
+            scale = scale,
+            causal = causal,
+            keyLengths = batch.keyLengths,
+            window = slidingWindow ?: 0,
+            rightContext = rightContext,
+        )
+        // [b, nHeads, s, headDim] → [b, s, nHeads, headDim] → [rows, qDim]: row r = token s of sequence b,
+        // its heads concatenated — the single-sequence merge, per sequence.
+        val merged = PhaseProfile.time("attn.reshape") {
+            ops.reshape(ops.permute(attnOut, intArrayOf(0, 2, 1, 3)), Shape(batch.rows, qDim))
+        }
+        return Triple(merged, k, v)
     }
 
     private fun finishFused(

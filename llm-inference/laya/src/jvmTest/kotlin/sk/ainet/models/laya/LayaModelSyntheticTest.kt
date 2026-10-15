@@ -98,6 +98,35 @@ class LayaModelSyntheticTest {
     }
 
     @Test
+    fun a_padded_batch_reproduces_the_single_sequence_logits() {
+        // Sequences of different lengths, types and marker counts through one encoder pass
+        // (REQ-EXE-005): every logit equals its unpadded single pass, and the layer kinds cover the
+        // full and the sliding (right-context) attention of the encoder plus the biased head.
+        val m = model()
+        fun seq(ids: IntArray, markers: IntArray) = LayaSequence(
+            ids, markers, LayaOptionStats(markers.size, markers.size, null), LayaTruncation(0, 0, 0), IntArray(markers.size) { it },
+        )
+        val sequences = listOf(
+            seq(intArrayOf(2, 5, 7, 1, 4, 9, 4, 11, 1, 3, 1), intArrayOf(4, 6)),
+            seq(intArrayOf(2, 8, 1, 6, 1), intArrayOf(2, 4)),
+            seq(intArrayOf(2, 3, 3, 5, 7, 1, 9, 1, 13, 1, 17, 1, 19, 1, 1), intArrayOf(5, 7, 9, 11)),
+            seq(intArrayOf(2, 1), intArrayOf(1)),
+        )
+        val types = listOf(LayaQuestionType.CHOICE, LayaQuestionType.NOUL, LayaQuestionType.SCORE, LayaQuestionType.CHOICE)
+        val batched = m.logitsBatch(sequences, types, padId = 0)
+        var maxDiff = 0f
+        for (i in sequences.indices) {
+            val single = m.logits(sequences[i], types[i])
+            assertEquals(single.size, batched[i].size)
+            for (j in single.indices) maxDiff = maxOf(maxDiff, abs(single[j] - batched[i][j]))
+        }
+        assertTrue(maxDiff < 1e-5f, "batched vs single logits: max |diff| = $maxDiff")
+        // Padding content must not reach the real rows: another pad id gives the same logits.
+        val otherPad = m.logitsBatch(sequences, types, padId = 17)
+        for (i in sequences.indices) for (j in batched[i].indices) assertEquals(batched[i][j], otherPad[i][j], 1e-6f)
+    }
+
+    @Test
     fun engine_exact_gelu_matches_the_reference_formula() {
         // The engine op LayaGelu now delegates to, checked against the double-precision reference
         // that was the host-side implementation before engine 0.59.

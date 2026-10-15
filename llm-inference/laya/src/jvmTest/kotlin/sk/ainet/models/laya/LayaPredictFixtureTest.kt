@@ -13,6 +13,7 @@ import sk.ainet.context.DirectCpuExecutionContext
 import java.nio.file.Files
 import kotlin.math.abs
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.fail
 
 /**
@@ -76,6 +77,68 @@ class LayaPredictFixtureTest {
         }
         println("[laya] predict.json: $compared values compared, max |diff| = ${"%.3e".format(maxDiff)}, ${failures.size} outside tolerance $probabilityTolerance")
         if (failures.isNotEmpty()) fail(failures.joinToString("\n"))
+    }
+
+    /**
+     * REQ-EXE-005: the questions of one request as padded batches (`decideAll`) equal the unpadded
+     * single passes (`decide`) within the parity tolerance, and the time per question of a 6- and a
+     * 12-question request is reported for both. Needs the checkpoint like the test above.
+     */
+    @Test
+    fun `multilingual batched requests match single passes and report timing`() {
+        val dir = LayaFixtures.checkpointDir() ?: return
+        if (!Files.exists(dir.resolve("model.safetensors"))) { println("[skip] $dir has no model.safetensors"); return }
+        val agent = LayaModelLoader.load(dir, DirectCpuExecutionContext())
+        val fixture = LayaFixtures.resource("predict.json")
+        val cases = fixture["single"]!!.jsonObject.entries.map { (name, element) ->
+            val case = element.jsonObject
+            Triple(name, LayaState.of(case["state"]!!), case["questions"]!!.jsonObject.mapValues { (_, q) -> questionOf(q.jsonObject) })
+        }
+        // Warm-up: the first pass pays for lazy allocations.
+        cases.first().let { (_, state, questions) -> agent.decideAll(state, questions) }
+
+        var maxDiff = 0.0
+        var compared = 0
+        for ((name, state, questions) in cases) {
+            val t0 = System.nanoTime()
+            val batched = agent.decideAll(state, questions)
+            val batchedMs = (System.nanoTime() - t0) / 1_000_000
+            val t1 = System.nanoTime()
+            val stateIds = agent.preprocessor.builder.encodeState(state)
+            val single = questions.mapValues { (_, q) -> agent.decide(state, q, stateIds = stateIds) }
+            val singleMs = (System.nanoTime() - t1) / 1_000_000
+            for ((qid, s) in single) {
+                val b = batched.getValue(qid)
+                assertEquals(s.logits.size, b.logits.size)
+                for (i in s.logits.indices) {
+                    compared++
+                    maxDiff = maxOf(maxDiff, abs(s.logits[i] - b.logits[i]).toDouble())
+                }
+            }
+            val n = questions.size
+            println("[laya] $name: $n questions — batched ${batchedMs} ms (${batchedMs / n} ms/question), single $singleMs ms (${singleMs / n} ms/question)")
+        }
+        // One request with every fixture question about the first case's state (the long-state case
+        // is left out: its single sequence runs alone either way).
+        val (_, stateMany, _) = cases.first()
+        val many = cases.filter { it.first != "long-state" }.flatMap { it.third.entries.map { (k, q) -> "${it.first}/$k" to q } }.toMap()
+        run {
+            val n = many.size
+            val t0 = System.nanoTime()
+            val batched = agent.decideAll(stateMany, many)
+            val batchedMs = (System.nanoTime() - t0) / 1_000_000
+            val t1 = System.nanoTime()
+            val stateIds = agent.preprocessor.builder.encodeState(stateMany)
+            val single = many.mapValues { (_, q) -> agent.decide(stateMany, q, stateIds = stateIds) }
+            val singleMs = (System.nanoTime() - t1) / 1_000_000
+            for ((qid, s) in single) for (i in s.logits.indices) {
+                compared++
+                maxDiff = maxOf(maxDiff, abs(s.logits[i] - batched.getValue(qid).logits[i]).toDouble())
+            }
+            println("[laya] $n questions, one request — batched $batchedMs ms (${batchedMs / n} ms/question), single $singleMs ms (${singleMs / n} ms/question)")
+        }
+        println("[laya] batched vs single logits: $compared compared, max |diff| = ${"%.3e".format(maxDiff)}")
+        if (maxDiff > 1e-4) fail("batched vs single logits diverge: max |diff| = $maxDiff")
     }
 
     /** The public request shape (`type`, `instructions`, `criteria`, `labels`), normalised as `Agent._to_internal` does. */

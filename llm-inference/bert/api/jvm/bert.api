@@ -9,12 +9,14 @@ public final class sk/ainet/models/bert/BertConfigParser {
 	public final fun parsePooling (Ljava/lang/String;)Lsk/ainet/models/bert/BertPooling;
 }
 
-public final class sk/ainet/models/bert/BertEmbeddings : sk/ainet/lang/nn/Module, sk/ainet/lang/nn/topology/ModuleParameters {
+public final class sk/ainet/models/bert/BertEmbeddings : sk/ainet/lang/nn/Module, sk/ainet/lang/nn/topology/ModuleParameters, sk/ainet/lang/nn/transformer/PaddedBatchAware {
 	public fun <init> (Lsk/ainet/models/bert/BertModelConfig;Lkotlin/reflect/KClass;Ljava/lang/String;)V
 	public synthetic fun <init> (Lsk/ainet/models/bert/BertModelConfig;Lkotlin/reflect/KClass;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun getModules ()Ljava/util/List;
 	public fun getName ()Ljava/lang/String;
+	public fun getPaddedBatch ()Lsk/ainet/lang/nn/transformer/PaddedBatch;
 	public fun getParams ()Ljava/util/List;
+	public fun setPaddedBatch (Lsk/ainet/lang/nn/transformer/PaddedBatch;)V
 }
 
 public final class sk/ainet/models/bert/BertEncoderRuntime {
@@ -24,8 +26,11 @@ public final class sk/ainet/models/bert/BertEncoderRuntime {
 	public static synthetic fun compile$default (Lsk/ainet/models/bert/BertEncoderRuntime;IILjava/lang/Object;)Ljava/util/List;
 	public final fun encode ([I[I)[F
 	public static synthetic fun encode$default (Lsk/ainet/models/bert/BertEncoderRuntime;[I[IILjava/lang/Object;)[F
+	public final fun encodeBatch ([II[I)Ljava/util/List;
+	public final fun encodePadded ([II[I)Ljava/util/List;
 	public final fun exportTape (I)Lsk/ainet/lang/graph/DefaultExecutionTape;
 	public final fun forward ([I)Lsk/ainet/lang/tensor/Tensor;
+	public final fun forwardBatch ([II[I)Lsk/ainet/lang/tensor/Tensor;
 	public final fun getConfig ()Lsk/ainet/models/bert/BertModelConfig;
 	public final fun getDimensions ()I
 }

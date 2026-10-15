@@ -11,6 +11,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Padded batches for the encoders** (#490): `PaddedBatch` (`transformer-core`) describes a
+  right-padded batch flattened into rows, `row = sequence * seqLen + position`. Every row-wise module
+  stays unchanged; `MultiHeadAttention` and `BertEmbeddings` implement `PaddedBatchAware` and, under
+  `withPaddedBatch(model, batch) { … }`, run attention as `[batch, heads, seqLen, headDim]` with the
+  batch's lengths passed to the engine's `scaledDotProductAttention(keyLengths, window, rightContext)`
+  (engine 0.60): padded keys are excluded by the op's rule and the recorded node carries `maskKind`
+  metadata instead of a dense `[b, 1, S, S]` mask. The single-sequence path is untouched.
+- `BertEncoderRuntime.forwardBatch`, `encodeBatch(tokenIds, seqLen, attentionMask)` (the layout
+  `BatchTokenizer.encodeBatch` produces) and `encodePadded(tokenIds, seqLen, lengths)`: masked mean or
+  CLS pooling over the real rows, projection and L2 normalization per sequence, on the DIRECT and the
+  OPTIMIZED path (the lengths are a graph input, one compiled graph per `batch × seqLen`). Each
+  embedding equals the single-sequence `encode` within 1e-5 on the synthetic checkpoints.
+- `LayaDecisionModel.encodeBatch` / `hiddenBatch` / `logitsBatch` (REQ-EXE-005) and
+  `LayaAgent.logitsFor`: the questions of one request run as padded batches under
+  `LayaAgent.maxBatchTokens` (default 4096 tokens per pass); `decideAll` uses them, `decide` keeps the
+  unpadded single pass. `LayaDecisionAdapter.predict` packs every question first, batches the ones
+  that fit and reports `batchSupport = true`.
+
+### Changed
+
+- **Engine 0.60.0** (`scaledDotProductAttention` with `keyLengths`, `window`, `rightContext`;
+  `skainet.sdpa` composite). The version catalog moves `sk.ainet.core:*` to 0.60.0.
+
 ## [0.60.0] — 2026-10-15
 
 **Exact GELU from the engine.** Against engine **0.59.0**, which makes `erf` a first-class op and
