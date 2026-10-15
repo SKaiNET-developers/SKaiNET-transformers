@@ -2,7 +2,7 @@
 
 package sk.ainet.apps.llm.tokenizer
 
-import sk.ainet.io.tokenizer.SentencePieceTokenizer
+import sk.ainet.frontend.tokenizer.SentencePieceTokenizer
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
