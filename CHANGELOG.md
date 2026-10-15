@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.60.0] — 2026-10-15
+
+**Exact GELU from the engine.** Against engine **0.59.0**, which makes `erf` a first-class op and
+gives `gelu` an `approximate` flag carried as op metadata. Laya's decision models now run their
+exact GELU through `gelu(approximate = false)` instead of a host-side loop per FFN per layer, so the
+activation is a regular op on the compiled path (graph executor, backward rule, StableHLO `chlo.erf`
+or `skainet.gelu` composite) and the multilingual predict fixtures still reproduce (55 values,
+max |diff| 4.99e-5). The BOM re-exports `skainet-bom:0.59.0`. The SKEEP-006 deprecation schedule
+moves by one more minor (see *Deprecated*).
+
 ### Changed
 
 - **Engine 0.59.0.** The version catalog moves `sk.ainet.core:*` to 0.59.0.
@@ -20,6 +30,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is now a regular op on the compiled path (graph executor, backward rule, StableHLO export), and
   the 22-layer encoder no longer pays 44 host round trips per decision. `LayaGelu.geluErf` /
   `erf` stay as the double-precision reference the engine kernel is checked against.
+
+### Deprecated
+
+- **Schedule moved by one more minor.** The SKEEP-006 legacy surface (`GGUFTokenizer` and its
+  strategies, `TokenizerType`, `SentencePieceSpecialTokens`, `TekkenTokenizerAdapter`, `ModelRegistry`,
+  the `sk.ainet.apps.kllama.GGUFTokenizer` alias) stays at WARNING in 0.60, goes to ERROR in 0.61
+  and leaves in 0.62; `TokenizerFactory` and the `sk.ainet.apps.llm.Tokenizer` sub-interface are
+  deprecated in 0.61 and removed in 0.62. The runtimes, CLIs and benchmarks still reach the engine
+  through the factory (about thirty main-source files); that migration is a release of its own and
+  did not fit next to the engine bump. This matches the engine, whose io-core aliases also stay at
+  WARNING in 0.59.
 
 ## [0.59.0] — 2026-10-13
 
