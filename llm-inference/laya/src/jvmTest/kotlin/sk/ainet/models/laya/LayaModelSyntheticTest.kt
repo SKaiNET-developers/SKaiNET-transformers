@@ -98,6 +98,18 @@ class LayaModelSyntheticTest {
     }
 
     @Test
+    fun engine_exact_gelu_matches_the_reference_formula() {
+        // The engine op LayaGelu now delegates to, checked against the double-precision reference
+        // that was the host-side implementation before engine 0.59.
+        val xs = FloatArray(1201) { -6f + it * 0.01f }
+        val input = ctx.fromFloatArray<FP32, Float>(Shape(xs.size), FP32::class, xs)
+        val out = LayaGelu<FP32, Float>(FP32::class, exact = true).forward(input, ctx).data.copyToFloatArray()
+        var maxDiff = 0f
+        for (i in xs.indices) maxDiff = maxOf(maxDiff, abs(out[i] - LayaGelu.geluErf(xs[i])))
+        assertTrue(maxDiff <= 1e-6f, "engine gelu(approximate = false) vs reference: max |diff| = $maxDiff")
+    }
+
+    @Test
     fun resolver_builds_tensor_names_from_module_paths() {
         val r = LayaSafeTensorsNameResolver()
         assertEquals("encoder.layers.3.attn.q_proj.weight", r.resolve("encoder/layers.3/attn", "attn.q_proj.weight"))

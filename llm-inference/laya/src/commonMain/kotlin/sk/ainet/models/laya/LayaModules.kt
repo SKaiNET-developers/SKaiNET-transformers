@@ -23,23 +23,20 @@ import kotlin.math.sqrt
 import kotlin.reflect.KClass
 
 /**
- * Exact (erf-based) GELU, the form `nn.GELU()` and ModernBERT's `hidden_activation: gelu`
- * compute (REQ-EXE-011). The engine's `gelu` op is the tanh approximation, so this runs on the
- * element data directly; [exact] = false selects the engine op to measure the difference.
+ * GELU in the form `nn.GELU()` and ModernBERT's `hidden_activation: gelu` compute (REQ-EXE-011):
+ * `0.5 · x · (1 + erf(x / √2))`, the engine's `gelu(approximate = false)` since SKaiNET 0.59.
+ * [exact] = false selects the tanh approximation (the engine default) to measure the difference.
+ * The companion holds the double-precision reference formula the engine kernel is checked against.
  */
 public class LayaGelu<T : DType, V>(
-    private val dtype: KClass<T>,
+    @Suppress("unused") private val dtype: KClass<T>,
     public val exact: Boolean = true,
     override val name: String = "gelu",
 ) : Module<T, V>() {
     override val modules: List<Module<T, V>> = emptyList()
 
-    override fun onForward(input: Tensor<T, V>, ctx: ExecutionContext): Tensor<T, V> {
-        if (!exact) return ctx.ops.gelu(input)
-        val out = input.data.copyToFloatArray()
-        for (i in out.indices) out[i] = geluErf(out[i])
-        return ctx.fromFloatArray(input.shape, dtype, out)
-    }
+    override fun onForward(input: Tensor<T, V>, ctx: ExecutionContext): Tensor<T, V> =
+        ctx.ops.gelu(input, approximate = !exact)
 
     public companion object {
         /** `0.5 · x · (1 + erf(x / √2))` in double precision. */

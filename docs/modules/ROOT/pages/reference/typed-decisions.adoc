@@ -182,8 +182,9 @@ the state-type-dependent truncation direction.
 * `LayaDecisionAdapter(agent, modelId)` is the `DecisionAdapter`. Option ids are the model-facing
   keys; the descriptions are what the model reads. Calibration is `UNVERIFIED` unless the
   checkpoint ships temperatures.
-* Exact (erf) GELU is required for parity with the reference (`exactGelu = true`); the tanh
-  approximation moves the predictions by about 7e-4.
+* Exact (erf) GELU is required for parity with the reference (`exactGelu = true`, the engine's
+  `gelu(approximate = false)` since SKaiNET 0.59); the tanh approximation moves the predictions
+  by about 7e-4.
 
 Verification against the fixtures shipped with the checkpoint (copied under
 `llm-inference/laya/src/jvmTest/resources/laya-fixtures/`, Apache 2.0): 26 of 26 packed
