@@ -7,6 +7,14 @@ import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.types.DType
 import kotlin.reflect.KClass
+import sk.ainet.lang.memory.BlockOrder
+import sk.ainet.lang.nn.quant.PackedRowDequantTensorData
+import sk.ainet.lang.tensor.data.Q4_0BlockTensorData
+import sk.ainet.lang.tensor.data.Q8_0BlockTensorData
+import sk.ainet.lang.tensor.data.TensorData
+import sk.ainet.lang.tensor.storage.PackedBlockStorage
+import sk.ainet.lang.tensor.storage.TensorEncoding
+import sk.ainet.lang.types.FP32
 
 /**
  * Maps module parameters of [LayaNetwork] to checkpoint tensor names after [LayaWeightPreparation]
@@ -76,7 +84,12 @@ public object LayaWeightPreparation {
             WeightTensor(name, listOf(size), ctx.fromFloatArray(Shape(size), dtype, FloatArray(size)))
 
         // --- encoder ---------------------------------------------------------------------------
-        encoder += take("encoder.embeddings.tok_embeddings.weight")
+        // A packed token table (SKEEP-007 Tier 2 lane) is read row by row by the embedding layer
+        // through RowDequantSource; dense tables pass through unchanged.
+        encoder += take("encoder.embeddings.tok_embeddings.weight").let { t ->
+            val wrapped = PackedRowDequantTensorData.wrapIfRowDequantable(t.tensor.data as TensorData<FP32, Float>)
+            if (wrapped === t.tensor.data) t else WeightTensor(t.name, t.shape, ctx.fromData(wrapped as TensorData<T, V>, dtype))
+        }
         encoder += take("encoder.embeddings.norm.weight")
         encoder += byName["encoder.embeddings.norm.bias"]?.also { consumed += it.name } ?: zeros("encoder.embeddings.norm.bias", d)
         for (i in 0 until encoderConfig.numHiddenLayers) {
@@ -146,18 +159,50 @@ public object LayaWeightPreparation {
         }
     }
 
-    /** Splits a `[rows, …]` tensor into [parts] equal row blocks, copying each into its own tensor. */
+    /**
+     * Splits a `[rows, …]` tensor into [parts] equal row blocks, copying each into its own tensor.
+     *
+     * A packed weight stays packed (SKEEP-007 Tier 2): in canonical row-major block storage a row
+     * block is a contiguous byte range (`rowsPerPart × blocksPerRow × bytesPerBlock`), so the fused
+     * `Wqkv` / `Wi` / `in_proj` matrices split without an FP32 transient and the parts are served by
+     * the packed kernels like every other projection. Dense weights take the float path as before.
+     */
     internal fun <T : DType, V> splitRows(source: WeightTensor<T, V>, parts: Int, ctx: ExecutionContext, dtype: KClass<T>): List<Tensor<T, V>> {
         val rows = source.shape[0]
         require(rows % parts == 0) { "cannot split ${source.name} with $rows rows into $parts parts" }
         val rowsPerPart = rows / parts
         val inner = source.shape.drop(1).fold(1) { a, b -> a * b }
+        splitPackedRows(source, parts, rowsPerPart, inner, ctx, dtype)?.let { return it }
         val block = rowsPerPart * inner
         val data = source.tensor.data.copyToFloatArray()
         return List(parts) { part ->
             val out = data.copyOfRange(part * block, (part + 1) * block)
             val shape = if (inner == 1) Shape(rowsPerPart) else Shape(rowsPerPart, *source.shape.drop(1).toIntArray())
             ctx.fromFloatArray(shape, dtype, out)
+        }
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun <T : DType, V> splitPackedRows(
+        source: WeightTensor<T, V>, parts: Int, rowsPerPart: Int, inner: Int, ctx: ExecutionContext, dtype: KClass<T>,
+    ): List<Tensor<T, V>>? {
+        val packed = source.tensor.data as? PackedBlockStorage ?: return null
+        if (source.shape.size != 2 || packed.blockOrder != BlockOrder.ROW_MAJOR) return null
+        if (inner % packed.blockSize != 0) return null
+        val blocksPerRow = inner / packed.blockSize
+        val totalBlocks = source.shape[0] * blocksPerRow
+        if (packed.blockCount != totalBlocks) return null
+        val bytesPerBlock = packed.packedData.size / totalBlocks
+        val partBytes = rowsPerPart * blocksPerRow * bytesPerBlock
+        val shape = Shape(rowsPerPart, inner)
+        return List(parts) { part ->
+            val bytes = packed.packedData.copyOfRange(part * partBytes, (part + 1) * partBytes)
+            val data: TensorData<*, *> = when (packed.encoding) {
+                TensorEncoding.Q8_0 -> Q8_0BlockTensorData(shape, bytes)
+                TensorEncoding.Q4_0 -> Q4_0BlockTensorData(shape, bytes)
+                else -> return null
+            }
+            ctx.fromData(data as TensorData<T, V>, dtype)
         }
     }
 }

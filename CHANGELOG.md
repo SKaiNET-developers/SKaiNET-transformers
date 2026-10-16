@@ -11,7 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.61.0] — 2026-10-16
+Against engine **0.61.0** (SKEEP-007, the browser lane). The BOM re-exports `skainet-bom:0.61.0`.
+Engine 0.61.0 removed its SKEEP-006 compatibility aliases as scheduled; nothing here referenced them.
+
+### Added
+
+- **Laya on the packed Q8_0 lane** (SKEEP-007 Tier 2 consumer). `LayaModelLoader.load` is common code: the four side files as text plus a `RandomAccessSource` for `model.safetensors`, so the JVM, Android and browser builds share one loader; the JVM `load(directory: Path, …)` is now an extension over it (source-compatible). `weightForm` / `weightFormFor` pass through to the engine's SafeTensors loader, and `LayaWeightForms.q8_0For` quantizes the encoder and head projections and the 256k × 768 token table to Q8_0 at load — about a quarter of the FP32 bytes, served by the packed kernels on every tier. `LayaWeightPreparation` splits the fused `Wqkv` / `Wi` / `in_proj` matrices in their packed form (row blocks are contiguous byte ranges) and wraps the token table as a `PackedRowDequantTensorData`, so the embedding reads rows on demand.
+- **Decision-quality gate for the quantized lane**: `LayaQuantizedParityTest` (model-gated) requires every `predict.json` choice of the Q8_0 agent to agree with the FP32 agent's and no probability, score, noul value or confidence to shift by more than 0.05 (`LAYA_Q8_TOL`; measured 2026-10-16 on the multilingual checkpoint: 5/5 choices agree, 45 values, max shift 0.035). FP32 parity (1.5e-4) remains the contract of the reference lane. On the eager JVM path the Q8_0 lane is a memory measure, not a speed one — the row-major packed kernels run one activation row at a time, so the six fixture cases take 173 s against 69 s in FP32 on a 12-core laptop; the speed comes with the browser sidecar and the compiled lane.
+
 
 **Padded batches for the encoders.** Against engine **0.60.0**, which gives
 `scaledDotProductAttention` key lengths, a window and a right context carried as op metadata

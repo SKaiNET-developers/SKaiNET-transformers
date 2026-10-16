@@ -192,11 +192,24 @@ sequences, the 40-text tokenizer corpus (CJK, RTL, combining marks, emoji, liter
 and all six `predict.json` cases within 5e-5. The model-gated tests run when
 `LAYA_MULTILINGUAL_PATH` points at the checkpoint directory.
 
+== Quantized lane
+
+`LayaModelLoader.load(files, weights, ctx, weightFormFor = LayaWeightForms.q8_0For)` loads the
+encoder and head projections and the token table as Q8_0 at load (engine 0.61 quantize-at-load,
+SKEEP-007): about a quarter of the FP32 bytes, served by the packed kernels on every tier — on the
+JVM the FFM pack, on Android the JNI pack, in a browser the `skainet-backend-wasm-simd` sidecar after
+`WasmSimd.install()`. The contract of that lane is decision quality rather than FP32 parity:
+`LayaQuantizedParityTest` requires every `predict.json` choice to agree with the FP32 agent and no
+probability, score, noul value or confidence to shift by more than 0.05 (measured: 5/5 choices,
+max shift 0.035). On the eager JVM path this lane trades speed for memory — the packed kernels run
+one activation row at a time — so use it where the bytes matter: the browser, a phone, a small heap.
+
 == Current limits
 
-* JVM only: the loader uses `java.nio.file.Path`; the common code has no file access of its own.
-* Eager FP32 on the CPU path, no batching across questions: a short state with three questions
-  takes seconds on a laptop, a 1024-token state tens of seconds. The compiled and quantized
-  lanes are open items.
+* The loader is common code (a `RandomAccessSource` plus the four side files as text); obtaining the
+  bytes — a file, an app's files directory, a download held in memory — is the caller's part.
+* Eager FP32 on the CPU path by default; batching across the questions of one request since 0.61
+  saves about 10 % per question there. The compiled lane is an open item; the quantized lane is
+  the section above.
 * The base checkpoint is a starting point the publisher expects to be specialised; keep option
   sets small (six or fewer) and treat abstentions as the normal case, not the exception.

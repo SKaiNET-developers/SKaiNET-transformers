@@ -41,7 +41,7 @@ class LayaPredictFixtureTest {
         for ((name, element) in fixture["single"]!!.jsonObject) {
             val case = element.jsonObject
             val state = LayaState.of(case["state"]!!)
-            val questions = case["questions"]!!.jsonObject.mapValues { (_, q) -> questionOf(q.jsonObject) }
+            val questions = case["questions"]!!.jsonObject.mapValues { (_, q) -> LayaFixtures.questionOf(q.jsonObject) }
             val t1 = System.nanoTime()
             val results = agent.decideAll(state, questions)
             println("[laya] $name: ${questions.size} questions in ${(System.nanoTime() - t1) / 1_000_000} ms")
@@ -92,7 +92,7 @@ class LayaPredictFixtureTest {
         val fixture = LayaFixtures.resource("predict.json")
         val cases = fixture["single"]!!.jsonObject.entries.map { (name, element) ->
             val case = element.jsonObject
-            Triple(name, LayaState.of(case["state"]!!), case["questions"]!!.jsonObject.mapValues { (_, q) -> questionOf(q.jsonObject) })
+            Triple(name, LayaState.of(case["state"]!!), case["questions"]!!.jsonObject.mapValues { (_, q) -> LayaFixtures.questionOf(q.jsonObject) })
         }
         // Warm-up: the first pass pays for lazy allocations.
         cases.first().let { (_, state, questions) -> agent.decideAll(state, questions) }
@@ -139,27 +139,5 @@ class LayaPredictFixtureTest {
         }
         println("[laya] batched vs single logits: $compared compared, max |diff| = ${"%.3e".format(maxDiff)}")
         if (maxDiff > 1e-4) fail("batched vs single logits diverge: max |diff| = $maxDiff")
-    }
-
-    /** The public request shape (`type`, `instructions`, `criteria`, `labels`), normalised as `Agent._to_internal` does. */
-    private fun questionOf(q: JsonObject): LayaQuestion {
-        val insElement = q["instructions"]!!
-        val ins = if (insElement is JsonPrimitive && insElement.isString) insElement.content else PythonJson.dumps(insElement)
-        val crit = q["criteria"]
-        return when (q["type"]!!.jsonPrimitive.content) {
-            "choice" -> when (crit) {
-                is JsonArray -> LayaQuestion.Choice(ins, crit.map { it.jsonPrimitive.content to null })
-                is JsonObject -> LayaQuestion.Choice(ins, crit.entries.map { (k, v) -> k to v.takeIf { it !is JsonNull } })
-                else -> error("choice without criteria")
-            }
-            "score" -> LayaQuestion.Score(ins, (crit as JsonArray).toList())
-            "noul" -> {
-                val c = crit as? JsonObject
-                val labels = (q["labels"] as? JsonObject)?.let { it["false"]!!.jsonPrimitive.content to it["true"]!!.jsonPrimitive.content }
-                fun get(key: String): JsonElement? = c?.entries?.firstOrNull { it.key.lowercase() == key }?.value?.takeIf { it !is JsonNull }
-                LayaQuestion.Noul(ins, get("false"), get("true"), labels)
-            }
-            else -> error("unknown type ${q["type"]}")
-        }
     }
 }
