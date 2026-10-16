@@ -113,7 +113,11 @@ Honest status — see the project-status note at the top of this README.
 
 ## Current release
 
-The current release is **0.60.0**, against **SKaiNET 0.59.0**.
+The current release is **0.61.0**, against **SKaiNET 0.60.0**.
+
+**Padded batches for the encoders.** SKaiNET 0.60.0 gives `scaledDotProductAttention` key lengths, a window and a right context carried as op metadata (`maskKind`), with a `skainet.sdpa` composite for targets that have a fused attention kernel. BERT-class encoders and the Laya decision models run the sequences of one request as right-padded batches (#490): `BertEncoderRuntime.encodeBatch` / `encodePadded`, `LayaDecisionModel.logitsBatch`, the Laya adapter with `batchSupport = true`. One attention node per layer takes the batch's lengths instead of a dense mask, so the compiled path gets the lengths as a graph input. The multilingual predict fixtures reproduce through the batched path (55 values, max |diff| 4.99e-5) and batched and single logits agree within 1.9e-6. On the eager FP32 CPU path a batch saves about 10 % per question at best; the gain is for the compiled lane and accelerators. The SKEEP-006 legacy tokenizer surface stays at WARNING in 0.61; the schedule moves by one more minor (ERROR in 0.62, gone in 0.63).
+
+It builds on **0.60.0**, against **SKaiNET 0.59.0**:
 
 **Exact GELU from the engine.** SKaiNET 0.59.0 makes `erf` a first-class op and gives `gelu` an `approximate` flag that travels as op metadata through the graph executor, the backward rule and the StableHLO export. Laya's decision models now run their exact GELU through `gelu(approximate = false)` instead of a host-side loop per FFN per layer, and the multilingual predict fixtures still reproduce (55 values, max |diff| 4.99e-5). The SKEEP-006 legacy tokenizer surface stays at WARNING in 0.60; the schedule moves by one more minor (ERROR in 0.61, gone in 0.62).
 
@@ -291,7 +295,7 @@ The recommended way to consume is via the BOM. It pins every published `skainet-
 
 ```kotlin
 dependencies {
-    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.60.0"))
+    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.61.0"))
 
     // Versions resolved from the BOM:
     implementation("sk.ainet.transformers:skainet-transformers-core")

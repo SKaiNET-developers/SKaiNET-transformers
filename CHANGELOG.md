@@ -11,6 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.61.0] — 2026-10-16
+
+**Padded batches for the encoders.** Against engine **0.60.0**, which gives
+`scaledDotProductAttention` key lengths, a window and a right context carried as op metadata
+(`maskKind`) and a `skainet.sdpa` composite for fused attention kernels. BERT-class encoders and the
+Laya decision models run the sequences of one request as right-padded batches (#490): one attention
+node per layer takes the batch's lengths instead of a dense `[b, 1, S, S]` mask, the lengths are a
+graph input on the compiled path, and the Laya adapter reports `batchSupport = true`. Parity holds
+(the multilingual predict fixtures reproduce through the batched path, 55 values, max |diff| 4.99e-5;
+batched vs single logits within 1.9e-6). On the eager FP32 CPU path a batch saves about 10 % per
+question at best, since that path is compute-bound; the gain is for the compiled lane and for
+accelerators. The BOM re-exports `skainet-bom:0.60.0`. Engine 0.60.0 made its io-core compatibility
+aliases errors; the transformers SKEEP-006 schedule moves by one more minor (see *Deprecated*).
+
 ### Added
 
 - **Padded batches for the encoders** (#490): `PaddedBatch` (`transformer-core`) describes a
@@ -35,6 +49,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Engine 0.60.0** (`scaledDotProductAttention` with `keyLengths`, `window`, `rightContext`;
   `skainet.sdpa` composite). The version catalog moves `sk.ainet.core:*` to 0.60.0.
+
+### Deprecated
+
+- **Schedule moved by one more minor.** The SKEEP-006 legacy surface (`GGUFTokenizer` and its
+  strategies, `TokenizerType`, `SentencePieceSpecialTokens`, `TekkenTokenizerAdapter`, `ModelRegistry`,
+  the `sk.ainet.apps.kllama.GGUFTokenizer` alias) stays at WARNING in 0.61, goes to ERROR in 0.62
+  and leaves in 0.63; `TokenizerFactory` and the `sk.ainet.apps.llm.Tokenizer` sub-interface are
+  deprecated in 0.62 and removed in 0.63. The runtimes, CLIs and benchmarks still reach the engine
+  through the factory; this release carries the engine bump and the batched encoders, and that
+  migration stays a release of its own. The engine's own io-core aliases (`sk.ainet.io.tokenizer.*`,
+  `sk.ainet.io.model.ModelFormat`, the weight name maps) are errors since engine 0.60.0; the two
+  tests here that still imported `sk.ainet.io.tokenizer.SentencePieceTokenizer` use the
+  `sk.ainet.frontend.tokenizer` home.
 
 ## [0.60.0] — 2026-10-15
 
