@@ -13,6 +13,8 @@ import sk.ainet.lang.graph.DefaultGraphExecutionContext
 import sk.ainet.lang.graph.exec.ComputeGraphExecutor
 import sk.ainet.lang.nn.Module
 import sk.ainet.lang.nn.topology.ModuleParameters
+import sk.ainet.lang.nn.transformer.PaddedBatch
+import sk.ainet.lang.nn.transformer.withPaddedBatch
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.tensor.div
@@ -61,9 +63,13 @@ public enum class BertPooling {
  * DSL network on purpose — the traced/exported graph remains a clean encoder,
  * and the pooling mask is dynamic per call.
  *
- * Intended use is one unpadded sequence per [encode] call; the attention mask
- * only affects pooling (attention itself is bidirectional over the full
- * sequence, exactly like the eager runtime this class replaces).
+ * [encode] runs one unpadded sequence per call; its attention mask only affects
+ * pooling (attention itself is bidirectional over the full sequence, exactly
+ * like the eager runtime this class replaces). [encodeBatch] runs several
+ * sequences as one right-padded batch: the per-sequence lengths become the
+ * attention op's key-padding rule (no padded key receives weight) and the
+ * pooling ignores padded rows, so each embedding equals its single-sequence
+ * [encode] within float rounding.
  *
  * Construction goes through [createBertEncoderRuntime], which maps checkpoint
  * tensors into the module via [WeightMapper].
@@ -90,7 +96,91 @@ public class BertEncoderRuntime<T : DType>(
         require(tokenIds.isNotEmpty()) { "BertEncoderRuntime: tokenIds must not be empty" }
         when (mode) {
             BertExecutionMode.DIRECT -> model.forward(tokenTensor(tokenIds), ctx)
-            BertExecutionMode.OPTIMIZED -> forwardOptimized(tokenIds)
+            BertExecutionMode.OPTIMIZED -> forwardOptimized(tokenIds, null)
+        }
+    }
+
+    /**
+     * Padded-batch encoder forward: [tokenIds] holds `lengths.size * seqLen` ids, sequence `b`
+     * right-padded at rows `b * seqLen until (b + 1) * seqLen` with `lengths[b]` real tokens.
+     * Returns `[lengths.size * seqLen, hiddenSize]` hidden states; rows of padded positions are
+     * finite but meaningless. See [PaddedBatch].
+     */
+    public fun forwardBatch(tokenIds: IntArray, seqLen: Int, lengths: IntArray): Tensor<T, Float> = ctx.scratch.scope {
+        require(lengths.isNotEmpty()) { "BertEncoderRuntime: a batch needs at least one sequence" }
+        require(seqLen > 0 && tokenIds.size == lengths.size * seqLen) {
+            "BertEncoderRuntime: ${tokenIds.size} token ids for a batch of ${lengths.size}x$seqLen"
+        }
+        val batch = PaddedBatch.of(ctx, seqLen, lengths)
+        when (mode) {
+            BertExecutionMode.DIRECT -> withPaddedBatch(model, batch) { model.forward(tokenTensor(tokenIds), ctx) }
+            BertExecutionMode.OPTIMIZED -> forwardOptimized(tokenIds, batch)
+        }
+    }
+
+    /**
+     * Batched [encode]: one normalized embedding per sequence of a right-padded batch (the layout
+     * `BatchTokenizer.encodeBatch` produces). [attentionMask] is row-major `[batchSize * seqLen]`,
+     * 1 for real tokens and 0 for padding, and every row must be ones followed by zeros.
+     */
+    public fun encodeBatch(tokenIds: IntArray, seqLen: Int, attentionMask: IntArray): List<FloatArray> {
+        require(seqLen > 0 && attentionMask.size == tokenIds.size && tokenIds.size % seqLen == 0) {
+            "BertEncoderRuntime: ${tokenIds.size} token ids and ${attentionMask.size} mask entries for seqLen=$seqLen"
+        }
+        val batchSize = tokenIds.size / seqLen
+        val lengths = IntArray(batchSize) { b ->
+            var len = 0
+            while (len < seqLen && attentionMask[b * seqLen + len] == 1) len++
+            for (c in len until seqLen) {
+                require(attentionMask[b * seqLen + c] == 0) {
+                    "BertEncoderRuntime: attention mask of sequence $b is not right-padded (ones followed by zeros)"
+                }
+            }
+            len
+        }
+        return encodePadded(tokenIds, seqLen, lengths)
+    }
+
+    /**
+     * Batched [encode] from per-sequence [lengths]: [forwardBatch] → pooling over the real rows of
+     * each sequence ([BertPooling.MEAN] over `lengths[b]` rows, [BertPooling.CLS] the first row) →
+     * optional dense projection → L2 normalization. Every length must be at least 1.
+     */
+    public fun encodePadded(tokenIds: IntArray, seqLen: Int, lengths: IntArray): List<FloatArray> {
+        require(lengths.all { it >= 1 }) { "BertEncoderRuntime: every sequence of a batch needs at least one real token, got ${lengths.toList()}" }
+        val batchSize = lengths.size
+        val hidden = config.hiddenSize
+        val states = forwardBatch(tokenIds, seqLen, lengths).data.copyToFloatArray() // [batchSize * seqLen, hidden]
+
+        val pooledData = FloatArray(batchSize * hidden)
+        for (b in 0 until batchSize) {
+            val first = b * seqLen * hidden
+            when (pooling) {
+                BertPooling.CLS -> states.copyInto(pooledData, destinationOffset = b * hidden, startIndex = first, endIndex = first + hidden)
+                BertPooling.MEAN -> {
+                    val len = lengths[b]
+                    for (d in 0 until hidden) {
+                        var sum = 0f
+                        for (s in 0 until len) sum += states[first + s * hidden + d]
+                        pooledData[b * hidden + d] = sum / len
+                    }
+                }
+            }
+        }
+        var pooled = ctx.fromFloatArray<T, Float>(Shape(batchSize, hidden), dtype, pooledData)
+        if (projectionWeight != null) {
+            pooled = pooled.matmul(projectionWeight.t())
+            if (projectionBias != null) pooled = pooled + projectionBias
+        }
+        val flat = pooled.data.copyToFloatArray()
+        val d = dimensions
+        return List(batchSize) { b ->
+            val v = flat.copyOfRange(b * d, (b + 1) * d)
+            var sumSq = 0f
+            for (x in v) sumSq += x * x
+            val norm = kotlin.math.sqrt(sumSq + 1e-12f)
+            for (i in v.indices) v[i] /= norm
+            v
         }
     }
 
@@ -155,9 +245,12 @@ public class BertEncoderRuntime<T : DType>(
         val executor: ComputeGraphExecutor,
         val weightMap: Map<String, Tensor<*, *>>,
         val inputNodeId: String,
+        /** The `[batchSize]` Int32 lengths leaf of a padded-batch graph; `null` for a single sequence. */
+        val lengthsNodeId: String?,
     )
 
-    private val compiledBySeqLen = LinkedHashMap<Int, CompiledEncoder>()
+    /** Key: `seqLen` for a single sequence, `batchSize to seqLen` for a padded batch. */
+    private val compiledByShape = LinkedHashMap<Any, CompiledEncoder>()
 
     /**
      * Pre-warm the OPTIMIZED cache for [sampleSeqLen] and return compile
@@ -165,7 +258,7 @@ public class BertEncoderRuntime<T : DType>(
      */
     public fun compile(sampleSeqLen: Int = 8): List<String> {
         val diagnostics = mutableListOf<String>()
-        compiledFor(IntArray(sampleSeqLen) { it % config.vocabSize }, diagnostics)
+        compiledFor(IntArray(sampleSeqLen) { it % config.vocabSize }, diagnostics, null)
         return diagnostics
     }
 
@@ -182,20 +275,25 @@ public class BertEncoderRuntime<T : DType>(
             ?: error("Expected DefaultExecutionTape but got ${tape?.let { it::class.simpleName }}")
     }
 
-    private fun forwardOptimized(tokenIds: IntArray): Tensor<T, Float> {
-        val compiled = compiledBySeqLen.getOrPut(tokenIds.size) {
-            if (compiledBySeqLen.size >= COMPILED_CACHE_LIMIT) {
-                compiledBySeqLen.remove(compiledBySeqLen.keys.first())
+    private fun forwardOptimized(tokenIds: IntArray, batch: PaddedBatch?): Tensor<T, Float> {
+        val key: Any = if (batch == null) tokenIds.size else (batch.batchSize to batch.seqLen)
+        val compiled = compiledByShape.getOrPut(key) {
+            if (compiledByShape.size >= COMPILED_CACHE_LIMIT) {
+                compiledByShape.remove(compiledByShape.keys.first())
             }
-            compiledFor(tokenIds, mutableListOf())
+            compiledFor(tokenIds, mutableListOf(), batch)
         }
 
-        // Feed the Int32 index tensor the traced gather consumes, plus every
-        // weight leaf resolved at compile time.
+        // Feed the Int32 index tensor the traced gather consumes (and the batch's lengths), plus
+        // every weight leaf resolved at compile time.
         val input = ctx.fromIntArray<Int32, Float>(Shape(tokenIds.size), Int32::class, tokenIds)
         val inputMap = mutableMapOf<String, Tensor<DType, Float>>()
         @Suppress("UNCHECKED_CAST")
         inputMap[compiled.inputNodeId] = input as Tensor<DType, Float>
+        if (compiled.lengthsNodeId != null) {
+            @Suppress("UNCHECKED_CAST")
+            inputMap[compiled.lengthsNodeId] = batch!!.keyLengths as Tensor<DType, Float>
+        }
         for ((nodeId, tensor) in compiled.weightMap) {
             @Suppress("UNCHECKED_CAST")
             inputMap[nodeId] = tensor as Tensor<DType, Float>
@@ -207,14 +305,18 @@ public class BertEncoderRuntime<T : DType>(
             ?: error("BertEncoderRuntime: graph execution produced no outputs")
     }
 
-    private fun compiledFor(sampleTokenIds: IntArray, diagnostics: MutableList<String>): CompiledEncoder {
+    private fun compiledFor(sampleTokenIds: IntArray, diagnostics: MutableList<String>, batch: PaddedBatch?): CompiledEncoder {
         // Fused-op replay handlers (RMSNorm / SwiGLU / QKV decompositions).
         LLMFusedOpHandlers.registerAll()
 
         // 1. Record one eager forward through a tape-recording context.
         val tapingCtx = DefaultGraphExecutionContext.tape(baseOps = ctx.ops)
         tapingCtx.startRecording()
-        model.forward(tokenTensor(sampleTokenIds), tapingCtx)
+        if (batch == null) {
+            model.forward(tokenTensor(sampleTokenIds), tapingCtx)
+        } else {
+            withPaddedBatch(model, batch) { model.forward(tokenTensor(sampleTokenIds), tapingCtx) }
+        }
         val tape = tapingCtx.stopRecording()
         val tapeObj = tape as? DefaultExecutionTape
             ?: error("Expected DefaultExecutionTape but got ${tape?.let { it::class.simpleName }}")
@@ -246,18 +348,21 @@ public class BertEncoderRuntime<T : DType>(
         //    they ride along in the static map) or the token input. The token
         //    input is the unique Int32 leaf: the index tensor Embedding
         //    creates for gather. (BertEmbeddings keeps position/type lookups
-        //    index-free precisely so this stays unambiguous.)
+        //    index-free precisely so this stays unambiguous.) A padded batch
+        //    adds one more Int32 leaf, its lengths tensor, known by identity.
         val paramTensors = HashSet<Tensor<*, *>>()
         collectParams(model, paramTensors)
 
         val weightMap = mutableMapOf<String, Tensor<*, *>>()
         val inputCandidates = mutableListOf<String>()
+        var lengthsNodeId: String? = null
         for (node in graph.nodes) {
             if (node.operationName !in setOf("input", "weight", "parameter", "constant")) continue
             val outputSpec = node.outputs.firstOrNull() ?: continue
             val tensor = session.resolve(outputSpec.name) ?: continue
             when {
                 paramTensors.any { it === tensor } -> weightMap[node.id] = tensor
+                batch != null && tensor === batch.keyLengths -> lengthsNodeId = node.id
                 tensor.dtype == Int32::class -> inputCandidates += node.id
                 else -> weightMap[node.id] = tensor
             }
@@ -266,12 +371,16 @@ public class BertEncoderRuntime<T : DType>(
             "BertEncoderRuntime: expected exactly one Int32 graph leaf (the token input), " +
                 "found ${inputCandidates.size}: $inputCandidates"
         }
-        diagnostics.add("Input node: ${inputCandidates.first()}, weight map: ${weightMap.size} entries")
+        require(batch == null || lengthsNodeId != null) {
+            "BertEncoderRuntime: the padded batch's lengths tensor is not a leaf of the traced graph"
+        }
+        diagnostics.add("Input node: ${inputCandidates.first()}, lengths node: $lengthsNodeId, weight map: ${weightMap.size} entries")
 
         return CompiledEncoder(
             executor = ComputeGraphExecutor(graph, ctx.ops),
             weightMap = weightMap,
             inputNodeId = inputCandidates.first(),
+            lengthsNodeId = lengthsNodeId,
         )
     }
 

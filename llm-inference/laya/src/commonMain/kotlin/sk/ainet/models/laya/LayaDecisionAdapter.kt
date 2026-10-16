@@ -48,7 +48,8 @@ public class LayaDecisionAdapter<T : DType>(
             // Every option costs at least the mask token plus the floor; the head budget bounds the count.
             maxOptions = maxOf(2, (cfg.headMaxLen - LayaSequenceBuilder.MIN_OPTION_BUDGET) / LayaSequenceBuilder.MIN_OPTION_TOKENS),
             maxQuestionsPerRequest = 64,
-            batchSupport = false,
+            // The questions of one request run as padded batches (LayaAgent.maxBatchTokens per pass).
+            batchSupport = true,
             backend = backend,
             precision = precision,
             calibration = if (provided) CalibrationStatus.CHECKPOINT_PROVIDED else CalibrationStatus.UNVERIFIED,
@@ -63,21 +64,43 @@ public class LayaDecisionAdapter<T : DType>(
             is DecisionState.Structured -> LayaState.Structured(state.value)
         }
         val stateIds = agent.preprocessor.builder.encodeState(layaState)
-        return questions.map { question -> predictOne(layaState, stateIds, question, inference) }
+        // Pack every question first; the ones that fit run as padded batches (LayaAgent.logitsFor),
+        // the others fail individually. Outcomes keep the request order.
+        val packed = questions.map { question -> pack(layaState, stateIds, question, inference) }
+        val ready = packed.filterIsInstance<Packed.Ready>()
+        val logits = if (ready.isEmpty()) emptyList() else agent.logitsFor(ready.map { it.sequence }, ready.map { it.laya.type })
+        var next = 0
+        return packed.map { p ->
+            when (p) {
+                is Packed.Failed -> p.outcome
+                is Packed.Ready -> outcome(p, logits[next++])
+            }
+        }
     }
 
-    private fun predictOne(state: LayaState, stateIds: IntArray, question: DecisionQuestion, inference: InferencePolicy): AdapterOutcome {
+    private sealed interface Packed {
+        class Failed(val outcome: AdapterOutcome.Failure) : Packed
+        class Ready(val question: DecisionQuestion, val laya: LayaQuestion, val sequence: LayaSequence) : Packed
+    }
+
+    private fun pack(state: LayaState, stateIds: IntArray, question: DecisionQuestion, inference: InferencePolicy): Packed {
         val laya = toLaya(question)
         val sequence = try {
             agent.preprocessor.prepare(state, laya, stateIds = stateIds)
         } catch (e: LayaSequenceException) {
-            return AdapterOutcome.Failure(question.id, DecisionError.ContextOverflow(requiredTokens = agent.preprocessor.agentConfig.maxLen + 1, limitTokens = agent.preprocessor.agentConfig.maxLen))
+            return Packed.Failed(AdapterOutcome.Failure(question.id, DecisionError.ContextOverflow(requiredTokens = agent.preprocessor.agentConfig.maxLen + 1, limitTokens = agent.preprocessor.agentConfig.maxLen)))
         }
         if (sequence.truncation.truncated && inference.truncation == TruncationPolicy.REJECT) {
             val required = sequence.length + sequence.truncation.stateTokensDropped
-            return AdapterOutcome.Failure(question.id, DecisionError.ContextOverflow(requiredTokens = required, limitTokens = agent.preprocessor.agentConfig.maxLen))
+            return Packed.Failed(AdapterOutcome.Failure(question.id, DecisionError.ContextOverflow(requiredTokens = required, limitTokens = agent.preprocessor.agentConfig.maxLen)))
         }
-        val logits = agent.model.logits(sequence, laya.type)
+        return Packed.Ready(question, laya, sequence)
+    }
+
+    private fun outcome(packed: Packed.Ready, logits: FloatArray): AdapterOutcome {
+        val question = packed.question
+        val laya = packed.laya
+        val sequence = packed.sequence
         if (logits.any { !it.isFinite() }) return AdapterOutcome.Failure(question.id, DecisionError.NumericalFailure("non-finite logit"))
         val answer = agent.decoder.decode(laya, logits, sequence.optionOrder)
         val prediction: Prediction = when (question) {

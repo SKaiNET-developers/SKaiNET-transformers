@@ -6,7 +6,7 @@ import kotlinx.serialization.json.jsonObject
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
 import sk.ainet.io.safetensors.SafeTensorsParametersLoader
-import sk.ainet.io.tokenizer.SentencePieceTokenizer
+import sk.ainet.frontend.tokenizer.SentencePieceTokenizer
 import sk.ainet.models.t5.GtrEmbedder
 import sk.ainet.models.t5.T5Config
 import sk.ainet.models.t5.T5Runtime

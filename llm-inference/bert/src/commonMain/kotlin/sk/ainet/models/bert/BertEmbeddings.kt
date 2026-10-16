@@ -5,6 +5,9 @@ import sk.ainet.lang.nn.Module
 import sk.ainet.lang.nn.layers.Embedding
 import sk.ainet.lang.nn.layers.EmbeddingAdapter
 import sk.ainet.lang.nn.normalization.LayerNormalization
+import sk.ainet.lang.nn.transformer.PaddedBatch
+import sk.ainet.lang.nn.transformer.PaddedBatchAware
+import sk.ainet.lang.nn.transformer.withPaddedBatch
 import sk.ainet.lang.nn.topology.ModuleParameter
 import sk.ainet.lang.nn.topology.ModuleParameters
 import sk.ainet.lang.tensor.Shape
@@ -33,7 +36,10 @@ import kotlin.reflect.KClass
  * Keeping position/type lookups index-free means a traced forward has exactly
  * one non-parameter leaf (the token-id tensor), which makes compiled-mode
  * input detection unambiguous and the exported graph a clean
- * `tokens → hidden-states` encoder.
+ * `tokens → hidden-states` encoder. A flattened padded batch ([PaddedBatch],
+ * set by [withPaddedBatch]) adds the attention lengths as the only other leaf:
+ * positions restart at 0 for every sequence through a `[B, S, dim] + [S, dim]`
+ * broadcast of the same narrowed table, still without an index tensor.
  *
  * Single-segment only: all positions use token-type row 0, which matches every
  * sentence-embedding caller (they pass all-zero segment ids). Two-segment
@@ -49,9 +55,12 @@ public class BertEmbeddings<T : DType, V>(
     config: BertModelConfig,
     dtype: KClass<T>,
     override val name: String = "embeddings",
-) : Module<T, V>(), ModuleParameters<T, V> {
+) : Module<T, V>(), ModuleParameters<T, V>, PaddedBatchAware {
 
     private val dim = config.hiddenSize
+
+    /** The padded-batch layout of the current forward, set by [withPaddedBatch]; `null` for one sequence. */
+    override var paddedBatch: PaddedBatch? = null
 
     private val wordEmbeddings: EmbeddingAdapter<T, V> = EmbeddingAdapter(
         Embedding(
@@ -84,7 +93,13 @@ public class BertEmbeddings<T : DType, V>(
 
     override fun onForward(input: Tensor<T, V>, ctx: ExecutionContext): Tensor<T, V> {
         val word = wordEmbeddings.forward(input, ctx) // gather → [L, dim]
-        val seqLen = word.shape[0]
+        val batch = paddedBatch
+        val seqLen = batch?.seqLen ?: word.shape[0]
+        if (batch != null) {
+            require(word.shape[0] == batch.rows) {
+                "BertEmbeddings($name): a padded batch of ${batch.batchSize}x${batch.seqLen} expects ${batch.rows} token ids, got ${word.shape[0]}"
+            }
+        }
 
         val positionTable = params[0].value
         require(seqLen <= positionTable.shape[0]) {
@@ -99,7 +114,14 @@ public class BertEmbeddings<T : DType, V>(
         val typeRow = ctx.ops.narrow(params[1].value, dim = 0, start = 0, length = 1) // [1, dim]
         val type = ctx.ops.reshape(typeRow, Shape(dim)) // [dim]
 
-        val summed = ctx.ops.add(ctx.ops.add(word, pos), type)
+        val positioned = if (batch == null) {
+            ctx.ops.add(word, pos)
+        } else {
+            // Every sequence of the flattened batch starts at position 0: [B, S, dim] + [S, dim].
+            val rows3 = ctx.ops.reshape(word, Shape(batch.batchSize, batch.seqLen, dim))
+            ctx.ops.reshape(ctx.ops.add(rows3, pos), Shape(batch.rows, dim))
+        }
+        val summed = ctx.ops.add(positioned, type)
         return layerNorm.forward(summed, ctx)
     }
 

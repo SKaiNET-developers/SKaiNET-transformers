@@ -233,7 +233,7 @@ public final class sk/ainet/lang/nn/transformer/LinearProjectionKt {
 	public static final fun linearProject (Lsk/ainet/lang/tensor/ops/TensorOps;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;)Lsk/ainet/lang/tensor/Tensor;
 }
 
-public final class sk/ainet/lang/nn/transformer/MultiHeadAttention : sk/ainet/lang/nn/Module, sk/ainet/lang/nn/topology/ModuleParameters {
+public final class sk/ainet/lang/nn/transformer/MultiHeadAttention : sk/ainet/lang/nn/Module, sk/ainet/lang/nn/topology/ModuleParameters, sk/ainet/lang/nn/transformer/PaddedBatchAware {
 	public fun <init> (IIIZZZDZDLjava/lang/Float;ZZLjava/lang/String;Lsk/ainet/lang/nn/transformer/RoPE;Lsk/ainet/lang/nn/transformer/KVCache;Ljava/lang/Integer;Ljava/lang/Integer;ILkotlin/reflect/KClass;)V
 	public synthetic fun <init> (IIIZZZDZDLjava/lang/Float;ZZLjava/lang/String;Lsk/ainet/lang/nn/transformer/RoPE;Lsk/ainet/lang/nn/transformer/KVCache;Ljava/lang/Integer;Ljava/lang/Integer;ILkotlin/reflect/KClass;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun forward (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/context/ExecutionContext;)Lsk/ainet/lang/tensor/Tensor;
@@ -253,6 +253,7 @@ public final class sk/ainet/lang/nn/transformer/MultiHeadAttention : sk/ainet/la
 	public final fun getNHeads ()I
 	public final fun getNKVHeads ()I
 	public fun getName ()Ljava/lang/String;
+	public fun getPaddedBatch ()Lsk/ainet/lang/nn/transformer/PaddedBatch;
 	public fun getParams ()Ljava/util/List;
 	public final fun getQDim ()I
 	public final fun getQNorm ()Lsk/ainet/lang/nn/normalization/RMSNormalization;
@@ -267,6 +268,7 @@ public final class sk/ainet/lang/nn/transformer/MultiHeadAttention : sk/ainet/la
 	public final fun getSubNorm ()Lsk/ainet/lang/nn/normalization/RMSNormalization;
 	public final fun getVNormNoScale ()Z
 	public final fun setKvCache (Lsk/ainet/lang/nn/transformer/KVCache;)V
+	public fun setPaddedBatch (Lsk/ainet/lang/nn/transformer/PaddedBatch;)V
 	public final fun setRope (Lsk/ainet/lang/nn/transformer/RoPE;)V
 	public final fun setSchedule (Lsk/ainet/context/schedule/Schedule;)V
 	public final fun setSchedulePolicy (Lsk/ainet/lang/nn/transformer/schedule/AttentionSchedulePolicy;)V
@@ -290,6 +292,30 @@ public final class sk/ainet/lang/nn/transformer/OwnerReadOnlyKVCache : sk/ainet/
 	public fun getPosition ()I
 	public fun reset ()V
 	public fun update (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/context/ExecutionContext;)Lkotlin/Pair;
+}
+
+public final class sk/ainet/lang/nn/transformer/PaddedBatch {
+	public static final field Companion Lsk/ainet/lang/nn/transformer/PaddedBatch$Companion;
+	public fun <init> (II[ILsk/ainet/lang/tensor/Tensor;)V
+	public final fun getBatchSize ()I
+	public final fun getKeyLengths ()Lsk/ainet/lang/tensor/Tensor;
+	public final fun getLengths ()[I
+	public final fun getRows ()I
+	public final fun getSeqLen ()I
+}
+
+public final class sk/ainet/lang/nn/transformer/PaddedBatch$Companion {
+	public final fun of (Lsk/ainet/context/ExecutionContext;I[I)Lsk/ainet/lang/nn/transformer/PaddedBatch;
+}
+
+public abstract interface class sk/ainet/lang/nn/transformer/PaddedBatchAware {
+	public abstract fun getPaddedBatch ()Lsk/ainet/lang/nn/transformer/PaddedBatch;
+	public abstract fun setPaddedBatch (Lsk/ainet/lang/nn/transformer/PaddedBatch;)V
+}
+
+public final class sk/ainet/lang/nn/transformer/PaddedBatchKt {
+	public static final fun collectPaddedBatchAware (Lsk/ainet/lang/nn/Module;Ljava/util/List;)V
+	public static final fun withPaddedBatch (Lsk/ainet/lang/nn/Module;Lsk/ainet/lang/nn/transformer/PaddedBatch;Lkotlin/jvm/functions/Function0;)Ljava/lang/Object;
 }
 
 public final class sk/ainet/lang/nn/transformer/PaddedSharedPositionalKVCache : sk/ainet/lang/nn/transformer/KVCache {
