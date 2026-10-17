@@ -87,8 +87,8 @@ descriptor with `+`. `GGUFModelInfo.identity` is the string identity
 |===
 
 `HuggingFaceBPETokenizer` (no callers since 0.58) was removed in 0.59.0. The schedule for the
-rest moved by one minor in 0.59.0, in 0.60.0 and again in 0.61.0: the legacy classes stay at
-WARNING through 0.61, go to ERROR in 0.62 and leave in 0.63, because the runtimes, CLIs and
+rest moved by one minor in 0.59.0, 0.60.0, 0.61.0 and again in 0.62.0: the legacy classes stay at
+WARNING through 0.62, go to ERROR in 0.63 and leave in 0.64, because the runtimes, CLIs and
 benchmarks still reach the engine through `TokenizerFactory` and the sub-interface, and moving
 them is a release of its own. The engine's io-core aliases they wrapped are errors since
 SKaiNET 0.60.0; new code imports the `sk.ainet.frontend.tokenizer` home directly.
