@@ -143,20 +143,35 @@ public object BitNetTwoStageDecode {
         for (h in hidden) hAbs += if (h >= 0f) h else -h
         val bytes = weight.packedData
 
-        // k-th best stage-1 LOWER bound.
-        val lower = FloatArray(n) { r ->
-            stage1[r] - TernaryCodec.planesRowScale(bytes, n, weight.cols, r) * TAIL_WEIGHT * hAbs
-        }
-        val kthLower = lower.sortedDescending()[k - 1]
+        // Per-row slack (scale · TAIL_WEIGHT · Σ|h|) computed once; bounds are stage1 ± slack.
+        val slack = FloatArray(n) { r -> TernaryCodec.planesRowScale(bytes, n, weight.cols, r) * TAIL_WEIGHT * hAbs }
 
-        // Every row whose UPPER bound reaches it is a candidate.
-        val candidates = (0 until n).filter { r ->
-            stage1[r] + TernaryCodec.planesRowScale(bytes, n, weight.cols, r) * TAIL_WEIGHT * hAbs >= kthLower
+        // k-th best stage-1 LOWER bound: O(n·k) selection into a small descending buffer
+        // instead of sorting all n (128k-vocab) lower bounds every token.
+        val top = FloatArray(k) { Float.NEGATIVE_INFINITY }
+        for (r in 0 until n) {
+            val v = stage1[r] - slack[r]
+            if (v > top[k - 1]) {
+                var i = k - 1
+                while (i > 0 && top[i - 1] < v) { top[i] = top[i - 1]; i-- }
+                top[i] = v
+            }
         }
-        val rescored = (
-            if (candidates.size <= maxCandidates) candidates
-            else candidates.sortedByDescending { stage1[it] }.take(maxCandidates)
-            ).map { r -> ScoredToken(r, exactScore(weight, hidden, r)) }
+        val kthLower = top[k - 1]
+
+        // Every row whose UPPER bound reaches it is a candidate (ascending row order, primitive).
+        var count = 0
+        val cand = IntArray(n)
+        for (r in 0 until n) if (stage1[r] + slack[r] >= kthLower) cand[count++] = r
+
+        // Over budget: keep the maxCandidates best by stage-1 score, ties to the lower row —
+        // the same set the stable sortedByDescending { stage1[it] }.take(maxCandidates) picked.
+        val chosen: IntArray = if (count <= maxCandidates) cand.copyOf(count) else {
+            val idx = cand.copyOf(count).toTypedArray()
+            idx.sortWith(compareByDescending<Int> { stage1[it] }.thenBy { it })
+            IntArray(maxCandidates) { idx[it] }
+        }
+        val rescored = chosen.map { r -> ScoredToken(r, exactScore(weight, hidden, r)) }
 
         return rescored.sortedByDescending { it.score }.take(k)
     }
