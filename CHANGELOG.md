@@ -11,14 +11,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Against engine **0.61.0** (SKEEP-007, the browser lane). The BOM re-exports `skainet-bom:0.61.0`.
-Engine 0.61.0 removed its SKEEP-006 compatibility aliases as scheduled; nothing here referenced them.
+## [0.62.0] — 2026-10-17
+
+**Laya on the packed Q8_0 lane.** Against engine **0.61.0** (SKEEP-007, the browser lane:
+quantize-at-load for the SafeTensors and GGUF loaders, the `skainet-backend-wasm-simd` SIMD128
+sidecar, packed-weight dispatch order). The Laya loader is common code over a `RandomAccessSource`,
+and `LayaWeightForms.q8_0For` quantizes the encoder and head projections and the token table to
+Q8_0 at load — about a quarter of the FP32 bytes, served by the packed kernels on every tier. A
+decision-quality gate (every fixture choice agrees with FP32, no value shifts by more than 0.05,
+measured 0.035) is the contract of that lane. The BOM re-exports `skainet-bom:0.61.0`. Engine
+0.61.0 removed its SKEEP-006 compatibility aliases as scheduled; nothing here referenced them. The
+transformers SKEEP-006 schedule moves by one more minor (see *Deprecated*).
 
 ### Added
 
 - **Laya on the packed Q8_0 lane** (SKEEP-007 Tier 2 consumer). `LayaModelLoader.load` is common code: the four side files as text plus a `RandomAccessSource` for `model.safetensors`, so the JVM, Android and browser builds share one loader; the JVM `load(directory: Path, …)` is now an extension over it (source-compatible). `weightForm` / `weightFormFor` pass through to the engine's SafeTensors loader, and `LayaWeightForms.q8_0For` quantizes the encoder and head projections and the 256k × 768 token table to Q8_0 at load — about a quarter of the FP32 bytes, served by the packed kernels on every tier. `LayaWeightPreparation` splits the fused `Wqkv` / `Wi` / `in_proj` matrices in their packed form (row blocks are contiguous byte ranges) and wraps the token table as a `PackedRowDequantTensorData`, so the embedding reads rows on demand.
 - **Decision-quality gate for the quantized lane**: `LayaQuantizedParityTest` (model-gated) requires every `predict.json` choice of the Q8_0 agent to agree with the FP32 agent's and no probability, score, noul value or confidence to shift by more than 0.05 (`LAYA_Q8_TOL`; measured 2026-10-16 on the multilingual checkpoint: 5/5 choices agree, 45 values, max shift 0.035). FP32 parity (1.5e-4) remains the contract of the reference lane. On the eager JVM path the Q8_0 lane is a memory measure, not a speed one — the row-major packed kernels run one activation row at a time, so the six fixture cases take 173 s against 69 s in FP32 on a 12-core laptop; the speed comes with the browser sidecar and the compiled lane.
 
+### Changed
+
+- **Engine 0.61.0.** The version catalog moves `sk.ainet.core:*` to 0.61.0; the new
+  `skainet-backend-wasm-simd` module is available to browser builds through the engine BOM.
+
+### Deprecated
+
+- **Schedule moved by one more minor.** The SKEEP-006 legacy surface (`GGUFTokenizer` and its
+  strategies, `TokenizerType`, `SentencePieceSpecialTokens`, `TekkenTokenizerAdapter`, `ModelRegistry`,
+  the `sk.ainet.apps.kllama.GGUFTokenizer` alias) stays at WARNING in 0.62, goes to ERROR in 0.63
+  and leaves in 0.64; `TokenizerFactory` and the `sk.ainet.apps.llm.Tokenizer` sub-interface are
+  deprecated in 0.63 and removed in 0.64. This release carries the engine bump and the quantized
+  Laya lane; the runtimes, CLIs and benchmarks still reach the engine through the factory, and that
+  migration stays a release of its own.
+
+## [0.61.0] — 2026-10-16
 
 **Padded batches for the encoders.** Against engine **0.60.0**, which gives
 `scaledDotProductAttention` key lengths, a window and a right context carried as op metadata
