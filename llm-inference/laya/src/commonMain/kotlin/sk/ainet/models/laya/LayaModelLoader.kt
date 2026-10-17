@@ -16,7 +16,9 @@ import sk.ainet.lang.types.FP32
  *
  * Common code since engine 0.61 (SKEEP-007): the JVM, Android and browser builds all run this
  * function; only how the bytes are obtained differs (a file, an app's files directory, a download
- * held in memory). The FP32 reference path (REQ-EXE-008) is the default: F16 weights are up-cast
+ * held in memory). It is an `expect` object so that the JVM can add its `load(directory: Path, …)`
+ * convenience as a *member*: callers reach it as `LayaModelLoader.load(dir, ctx)` without an
+ * import, as they did before 0.62.0. The FP32 reference path (REQ-EXE-008) is the default: F16 weights are up-cast
  * on load, which is what the Python reference does on CPU.
  *
  * [weightForm] / [weightFormFor] are passed through to the engine's SafeTensors loader. With
@@ -24,7 +26,7 @@ import sk.ainet.lang.types.FP32
  * Q8_0 at load — about a quarter of the FP32 bytes, served by the packed kernels on every tier —
  * and the decision-quality gate (`LayaQuantizedParityTest`) is the contract that lane keeps.
  */
-public object LayaModelLoader {
+public expect object LayaModelLoader {
     public suspend fun load(
         files: LayaCheckpointFiles,
         weights: () -> RandomAccessSource,
@@ -32,17 +34,27 @@ public object LayaModelLoader {
         exactGelu: Boolean = true,
         weightForm: WeightForm? = null,
         weightFormFor: ((String) -> WeightForm?)? = null,
-    ): LayaAgent<FP32> {
-        val preprocessor = LayaPreprocessor.fromFiles(files)
-        val raw = ArrayList<WeightTensor<FP32, Float>>()
-        SafeTensorsParametersLoader(sourceProvider = weights, weightForm = weightForm, weightFormFor = weightFormFor)
-            .load<FP32, Float>(ctx, FP32::class) { name, tensor ->
-                raw += WeightTensor(name, tensor.shape.dimensions.toList(), tensor)
-            }
-        val prepared = LayaWeightPreparation.prepare(raw, preprocessor.encoderConfig, preprocessor.agentConfig, ctx, FP32::class)
-        val model = LayaDecisionModel.build(preprocessor.encoderConfig, preprocessor.agentConfig, prepared, ctx, FP32::class, exactGelu)
-        return LayaAgent(preprocessor, model)
-    }
+    ): LayaAgent<FP32>
+}
+
+/** The six loading steps every platform's [LayaModelLoader.load] runs. */
+internal suspend fun loadLayaAgent(
+    files: LayaCheckpointFiles,
+    weights: () -> RandomAccessSource,
+    ctx: ExecutionContext,
+    exactGelu: Boolean,
+    weightForm: WeightForm?,
+    weightFormFor: ((String) -> WeightForm?)?,
+): LayaAgent<FP32> {
+    val preprocessor = LayaPreprocessor.fromFiles(files)
+    val raw = ArrayList<WeightTensor<FP32, Float>>()
+    SafeTensorsParametersLoader(sourceProvider = weights, weightForm = weightForm, weightFormFor = weightFormFor)
+        .load<FP32, Float>(ctx, FP32::class) { name, tensor ->
+            raw += WeightTensor(name, tensor.shape.dimensions.toList(), tensor)
+        }
+    val prepared = LayaWeightPreparation.prepare(raw, preprocessor.encoderConfig, preprocessor.agentConfig, ctx, FP32::class)
+    val model = LayaDecisionModel.build(preprocessor.encoderConfig, preprocessor.agentConfig, prepared, ctx, FP32::class, exactGelu)
+    return LayaAgent(preprocessor, model)
 }
 
 /**

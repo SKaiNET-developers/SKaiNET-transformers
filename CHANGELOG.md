@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`LayaModelLoader.load(directory: Path, …)` is a member again.** 0.62.0 had turned the JVM
+  convenience into an extension function on the common `LayaModelLoader` object; an extension needs
+  an explicit `import sk.ainet.models.laya.load`, so every existing Kotlin caller of
+  `LayaModelLoader.load(dir, ctx, exactGelu = true)` stopped compiling against 0.62.0 — the opposite
+  of the source compatibility 0.62.0 claimed. `LayaModelLoader` is now an `expect` object: the common
+  `load(files, weights, ctx, …)` is unchanged on every target, and the JVM `actual` adds
+  `load(directory, ctx, exactGelu, weightFormFor)` as a member, `@JvmOverloads` so that Java callers
+  get the 0.61 `load(Path, ExecutionContext, boolean)` signature back as well.
+
 ## [0.62.0] — 2026-10-17
 
 **Laya on the packed Q8_0 lane.** Against engine **0.61.0** (SKEEP-007, the browser lane:
