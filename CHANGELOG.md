@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`IreeModuleRunner` + `libskainet_iree_module.so`** (`runtime-iree-android`, `arm64-v8a` / `armeabi-v7a`,
+  CPU and Vulkan drivers): a generic single-shot runner for one compiled IREE module — one float32 tensor in,
+  one float32 tensor out, weights from an optional `.irpa` (scope `model`). For batch cartridges such as the
+  `detection-yolov8-iree` blueprint, which extracts the `.so` from this AAR. `FloatTensor` carries data + shape.
+
 ## [0.63.0] — 2026-10-21
 
 Against engine **0.62.0** (the JVM ↔ Kotlin/Wasm parity release: every kernel on the wasm tier, resident

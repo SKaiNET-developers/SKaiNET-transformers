@@ -205,3 +205,19 @@ the M = 1 matrix-vector products); encoder and prefill do — hence the CPU deco
 `native/build-whisper-session.sh <abi> --vulkan` builds the library like the others.
 `native/whisper_session_check.c` drives it on a device without an app (a minimal `JNIEnv` over `dlopen`) —
 how the numbers above were taken.
+
+## Single-shot modules (`IreeModuleRunner`, `libskainet_iree_module.so`)
+
+For batch graphs that are a plain tensor function — one float32 tensor in, one float32 tensor out, static
+shapes: a detector with its decoded head, a classifier, an embedding graph. Nothing model-specific: the vmfb,
+the optional `.irpa` (scope `model`; `null` when the vmfb carries its weights) and the function name are the
+caller's.
+
+```kotlin
+IreeModuleRunner("$dir/yolov8n.vmfb", "$dir/params.irpa", "yolov8_detect", IreeModuleRunner.VULKAN_DEVICE).use { runner ->
+    val head: FloatTensor = runner.run(FloatTensor(pixels, intArrayOf(1, 3, 640, 640)))   // head.shape = [1, 84, 8400]
+}
+```
+
+Failures throw, with the IREE status in logcat under `skainet_iree`. One `run` at a time per instance.
+`native/build-iree-module.sh <abi> --vulkan` builds it like the redecode `.so` (same image and links).
