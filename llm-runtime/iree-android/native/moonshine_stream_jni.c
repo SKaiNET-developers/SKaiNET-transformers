@@ -342,9 +342,17 @@ static int finish_budget(int npcm) {
 /* Process one encoder window starting at feature frame `start`; finalize rows into e->mem. */
 static int process_window(Engine* e, int start, int produced, int flush, int peek) {
   double t0 = now_ms();
-  /* frontend input: FE_LC frames of left context (zeros before utterance start) + the window */
+  /* frontend input: FE_LC frames of left context + the window.
+   *
+   * At the utterance start there is no left context, and zero samples are not the same thing: past the first
+   * convolution's bias they become non-zero features, where the model zero-pads. That corrupts the first memory rows
+   * (cos 0.15-0.6 against the reference model) and, through the encoder's attention, the transcript of the whole
+   * utterance — an empty final where the reference reads "Fail again, fail better.". So the window at frame 0 is fed
+   * from sample 0 and its first CHUNK output frames are kept: the graph's own convolution padding is then exactly the
+   * reference start. (The peek is a window at frame 0 too.) */
   static float fein[FE_IN];
-  int s0 = (start - FE_LC) * SPF;
+  const int lc = start == 0 ? 0 : FE_LC;
+  int s0 = (start - lc) * SPF;
   for (int i = 0; i < FE_IN; ++i) {
     int si = s0 + i;
     fein[i] = (si >= 0 && si < e->npcm) ? e->pcm[si] : 0.0f;
@@ -360,9 +368,9 @@ static int process_window(Engine* e, int start, int produced, int flush, int pee
   iree_hal_buffer_view_release(feo);
   double t1 = now_ms();
 
-  /* encoder on the clean 64 frames (drop the FE_LC context rows) */
+  /* encoder on the clean 64 frames (drop the lc context rows) */
   iree_hal_buffer_view_t* encin = mkview(e, (iree_hal_dim_t[]){1, CHUNK, ENC_DIM}, 3,
-      IREE_HAL_ELEMENT_TYPE_FLOAT_32, feats[FE_LC], CHUNK * ENC_DIM * sizeof(float));
+      IREE_HAL_ELEMENT_TYPE_FLOAT_32, feats[lc], CHUNK * ENC_DIM * sizeof(float));
   iree_hal_buffer_view_t* enco = encin ? run1(e, e->enc, FN_ENC, encin) : NULL;
   if (encin) iree_hal_buffer_view_release(encin);
   if (!enco) return -1;
