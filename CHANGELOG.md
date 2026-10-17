@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.62.1] — 2026-10-17
+
+Against engine **0.61.0**, a transformers-only fix: the JVM Laya loader overload is a member again
+(0.62.0 had made it an extension, which no existing caller imported). Nothing else changes; the BOM
+re-exports `skainet-bom:0.61.0`.
+
 ### Fixed
 
 - **`LayaModelLoader.load(directory: Path, …)` is a member again.** 0.62.0 had turned the JVM

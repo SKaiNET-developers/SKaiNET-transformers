@@ -113,7 +113,9 @@ Honest status — see the project-status note at the top of this README.
 
 ## Current release
 
-The current release is **0.62.0**, against **SKaiNET 0.61.0**.
+The current release is **0.62.1**, against **SKaiNET 0.61.0**: a transformers-only fix on 0.62.0, whose JVM `LayaModelLoader.load(directory, …)` had become an extension function that existing callers did not import; it is a member again (`@JvmOverloads`, so Java callers keep the 0.61 signature).
+
+It builds on **0.62.0**, against **SKaiNET 0.61.0**:
 
 **Laya on the packed Q8_0 lane.** SKaiNET 0.61.0 (SKEEP-007, the browser lane) brings quantize-at-load for the SafeTensors and GGUF loaders, a SIMD128 kernel sidecar for browser builds and the packed-weight dispatch order. The Laya loader is common code over a `RandomAccessSource`, so the JVM, Android and browser builds share one loader, and `LayaWeightForms.q8_0For` quantizes the encoder and head projections and the 256k × 768 token table to Q8_0 at load — about a quarter of the FP32 bytes, served by the packed kernels on every tier. The lane is gated on decision quality: every `predict.json` choice agrees with FP32 and no value shifts by more than 0.05 (measured 0.035, 5/5 choices). FP32 parity stays the contract of the reference lane.
 
@@ -299,7 +301,7 @@ The recommended way to consume is via the BOM. It pins every published `skainet-
 
 ```kotlin
 dependencies {
-    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.62.0"))
+    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.62.1"))
 
     // Versions resolved from the BOM:
     implementation("sk.ainet.transformers:skainet-transformers-core")
