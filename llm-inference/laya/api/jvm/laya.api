@@ -306,8 +306,13 @@ public final class sk/ainet/models/laya/LayaLinear : sk/ainet/lang/nn/Module, sk
 
 public final class sk/ainet/models/laya/LayaModelLoader {
 	public static final field INSTANCE Lsk/ainet/models/laya/LayaModelLoader;
-	public final fun load (Ljava/nio/file/Path;Lsk/ainet/context/ExecutionContext;Z)Lsk/ainet/models/laya/LayaAgent;
-	public static synthetic fun load$default (Lsk/ainet/models/laya/LayaModelLoader;Ljava/nio/file/Path;Lsk/ainet/context/ExecutionContext;ZILjava/lang/Object;)Lsk/ainet/models/laya/LayaAgent;
+	public final fun load (Lsk/ainet/models/laya/LayaCheckpointFiles;Lkotlin/jvm/functions/Function0;Lsk/ainet/context/ExecutionContext;ZLsk/ainet/lang/memory/plan/WeightForm;Lkotlin/jvm/functions/Function1;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun load$default (Lsk/ainet/models/laya/LayaModelLoader;Lsk/ainet/models/laya/LayaCheckpointFiles;Lkotlin/jvm/functions/Function0;Lsk/ainet/context/ExecutionContext;ZLsk/ainet/lang/memory/plan/WeightForm;Lkotlin/jvm/functions/Function1;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+}
+
+public final class sk/ainet/models/laya/LayaModelLoaderKt {
+	public static final fun load (Lsk/ainet/models/laya/LayaModelLoader;Ljava/nio/file/Path;Lsk/ainet/context/ExecutionContext;ZLkotlin/jvm/functions/Function1;)Lsk/ainet/models/laya/LayaAgent;
+	public static synthetic fun load$default (Lsk/ainet/models/laya/LayaModelLoader;Ljava/nio/file/Path;Lsk/ainet/context/ExecutionContext;ZLkotlin/jvm/functions/Function1;ILjava/lang/Object;)Lsk/ainet/models/laya/LayaAgent;
 }
 
 public final class sk/ainet/models/laya/LayaNetwork {
@@ -606,6 +611,12 @@ public final class sk/ainet/models/laya/LayaTruncation {
 	public final fun getTruncated ()Z
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/models/laya/LayaWeightForms {
+	public static final field INSTANCE Lsk/ainet/models/laya/LayaWeightForms;
+	public final fun getQ8_0For ()Lkotlin/jvm/functions/Function1;
+	public final fun isPacked (Ljava/lang/String;)Z
 }
 
 public final class sk/ainet/models/laya/LayaWeightPreparation {
