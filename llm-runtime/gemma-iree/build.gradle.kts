@@ -55,6 +55,7 @@ kotlin {
         nativeMain.dependencies {
             implementation(project.dependencies.platform(project(":llm-bom")))
             implementation(project(":llm-core"))
+            implementation(libs.skainet.io.core)
             implementation(libs.kotlinx.io.core)
         }
     }

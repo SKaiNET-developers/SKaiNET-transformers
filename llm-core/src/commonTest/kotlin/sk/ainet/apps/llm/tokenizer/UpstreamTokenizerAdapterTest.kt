@@ -1,5 +1,7 @@
 package sk.ainet.apps.llm.tokenizer
 
+import sk.ainet.frontend.text.SpecialTokens
+import sk.ainet.frontend.text.Vocabulary
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -9,11 +11,17 @@ class UpstreamTokenizerAdapterTest {
     /** Stub of the upstream Tokenizer interface for adapter contract tests. */
     private class StubUpstreamTokenizer(
         override val vocabSize: Int,
-        override val bosTokenId: Int? = null,
-        override val eosTokenId: Int? = null,
+        bosTokenId: Int? = null,
+        eosTokenId: Int? = null,
         private val encodeFn: (String) -> IntArray,
         private val decodeFn: (IntArray) -> String,
-    ) : sk.ainet.io.tokenizer.Tokenizer {
+    ) : sk.ainet.frontend.text.Tokenizer {
+        override val vocabulary: Vocabulary = object : Vocabulary {
+            override val size: Int get() = vocabSize
+            override fun tokenToId(piece: String): Int? = null
+            override fun idToToken(id: Int): String? = null
+        }
+        override val specialTokens: SpecialTokens = SpecialTokens(bos = bosTokenId, eos = eosTokenId)
         override fun encode(text: String): IntArray = encodeFn(text)
         override fun decode(ids: IntArray): String = decodeFn(ids)
     }
@@ -51,7 +59,7 @@ class UpstreamTokenizerAdapterTest {
         )
         val adapter = UpstreamTokenizerAdapter(stub)
 
-        adapter.decode(42)
+        adapter.decodeToken(42)
 
         assertTrue(capturedIds != null && capturedIds!!.size == 1)
         assertEquals(42, capturedIds!![0])

@@ -9,12 +9,14 @@ public final class sk/ainet/models/bert/BertConfigParser {
 	public final fun parsePooling (Ljava/lang/String;)Lsk/ainet/models/bert/BertPooling;
 }
 
-public final class sk/ainet/models/bert/BertEmbeddings : sk/ainet/lang/nn/Module, sk/ainet/lang/nn/topology/ModuleParameters {
+public final class sk/ainet/models/bert/BertEmbeddings : sk/ainet/lang/nn/Module, sk/ainet/lang/nn/topology/ModuleParameters, sk/ainet/lang/nn/transformer/PaddedBatchAware {
 	public fun <init> (Lsk/ainet/models/bert/BertModelConfig;Lkotlin/reflect/KClass;Ljava/lang/String;)V
 	public synthetic fun <init> (Lsk/ainet/models/bert/BertModelConfig;Lkotlin/reflect/KClass;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun getModules ()Ljava/util/List;
 	public fun getName ()Ljava/lang/String;
+	public fun getPaddedBatch ()Lsk/ainet/lang/nn/transformer/PaddedBatch;
 	public fun getParams ()Ljava/util/List;
+	public fun setPaddedBatch (Lsk/ainet/lang/nn/transformer/PaddedBatch;)V
 }
 
 public final class sk/ainet/models/bert/BertEncoderRuntime {
@@ -24,8 +26,11 @@ public final class sk/ainet/models/bert/BertEncoderRuntime {
 	public static synthetic fun compile$default (Lsk/ainet/models/bert/BertEncoderRuntime;IILjava/lang/Object;)Ljava/util/List;
 	public final fun encode ([I[I)[F
 	public static synthetic fun encode$default (Lsk/ainet/models/bert/BertEncoderRuntime;[I[IILjava/lang/Object;)[F
+	public final fun encodeBatch ([II[I)Ljava/util/List;
+	public final fun encodePadded ([II[I)Ljava/util/List;
 	public final fun exportTape (I)Lsk/ainet/lang/graph/DefaultExecutionTape;
 	public final fun forward ([I)Lsk/ainet/lang/tensor/Tensor;
+	public final fun forwardBatch ([II[I)Lsk/ainet/lang/tensor/Tensor;
 	public final fun getConfig ()Lsk/ainet/models/bert/BertModelConfig;
 	public final fun getDimensions ()I
 }
@@ -86,12 +91,22 @@ public final class sk/ainet/models/bert/HuggingFaceTokenizer : sk/ainet/apps/llm
 	public static final field Companion Lsk/ainet/models/bert/HuggingFaceTokenizer$Companion;
 	public fun decode (I)Ljava/lang/String;
 	public fun decode ([I)Ljava/lang/String;
+	public fun decode ([IZ)Ljava/lang/String;
+	public fun decodeToken (I)Ljava/lang/String;
 	public fun encode (Ljava/lang/String;)[I
+	public fun encode (Ljava/lang/String;Z)[I
 	public final fun encodeWithMetadata (Ljava/lang/String;)Lsk/ainet/models/bert/TokenizerOutput;
 	public final fun encodeWithMetadata (Ljava/lang/String;Ljava/lang/String;)Lsk/ainet/models/bert/TokenizerOutput;
-	public fun getBosTokenId ()I
-	public fun getEosTokenId ()I
+	public fun getBosTokenId ()Ljava/lang/Integer;
+	public fun getEosTokenId ()Ljava/lang/Integer;
+	public fun getSpec ()Lsk/ainet/frontend/FrontEndSpec;
+	public fun getSpecialTokens ()Lsk/ainet/frontend/text/SpecialTokens;
 	public fun getVocabSize ()I
+	public fun getVocabulary ()Lsk/ainet/frontend/text/Vocabulary;
+	public synthetic fun invert (Ljava/lang/Object;)Ljava/lang/Object;
+	public fun invert ([I)Ljava/lang/String;
+	public synthetic fun process (Ljava/lang/Object;)Ljava/lang/Object;
+	public fun process (Ljava/lang/String;)[I
 }
 
 public final class sk/ainet/models/bert/HuggingFaceTokenizer$Companion {
@@ -156,7 +171,7 @@ public final class sk/ainet/models/bert/java/KBertJava {
 }
 
 public final class sk/ainet/models/bert/java/KBertSession : java/lang/AutoCloseable {
-	public fun <init> (Lsk/ainet/models/bert/BertEncoderRuntime;Lsk/ainet/models/bert/HuggingFaceTokenizer;)V
+	public fun <init> (Lsk/ainet/models/bert/BertEncoderRuntime;Lsk/ainet/frontend/tokenizer/WordPieceTokenizer;)V
 	public fun close ()V
 	public final fun encode (Ljava/lang/String;)[F
 	public final fun similarity (Ljava/lang/String;Ljava/lang/String;)F

@@ -1,68 +1,43 @@
 = Tokenizer Internals
-:description: How tokenization works across different model families.
+:description: Where tokenization happens since 0.58, what this repository still owns, and why the legacy GGUFTokenizer is deprecated rather than fixed.
 
-== Tokenizer Types
+== One stack, in the engine
 
-Different model families use different tokenization strategies.
-The `GGUFTokenizer` auto-detects the type from GGUF metadata.
+Until 0.57 this repository carried a second tokenizer stack next to the engine's: a legacy
+`GGUFTokenizer` that scraped `tokenizer.json` with regular expressions and merged greedily by
+score, four preprocessing strategies, a wrapper factory and two adapters. Measured against the
+Hugging Face `tokenizers` library the legacy path returned wrong ids on most inputs of the public
+ModernBERT and mmBERT files without raising an error (SKaiNET-transformers #471).
 
-=== SentencePiece (LLaMA, Gemma)
+Since 0.58 the engine owns every algorithm (`skainet-frontend-text`, SKEEP-006): byte-level
+BPE, Metaspace BPE with byte fallback, SentencePiece, Unigram (Viterbi), WordPiece and Tekken,
+each guarded by a golden corpus recorded with the reference library. The engine also owns the
+*resolution*: which side file selects which algorithm, how `added_tokens` are matched atomically,
+how the `normalizer` and `pre_tokenizer` blocks apply, how `tokenizer_config.json` contributes
+bos/eos names and the chat template.
 
-* Space is encoded as `\u2581` (lower one eighth block)
-* Subword units are learned from training data
-* GGUF metadata field: `tokenizer.ggml.model = "llama"` or `"sentencepiece"`
+== What this repository owns
 
-=== BPE (Qwen, Mistral, GPT-2)
+* **Family policy.** `TransformersFamilies` describes each family: architecture strings, stop
+  markers, tool-calling support, chat-template family. A descriptor implements the engine's
+  `FamilyFrontEnds` and adds its end-of-turn ids to `SpecialTokens.extraStop`, resolved through
+  the checkpoint's own vocabulary — never hard-coded ids.
+* **Chat templates** (`llm-agent`), which render strings the tokenizer then encodes; the
+  template source shipped with a checkpoint is available as `TextFrontEnd.chatTemplateSource`.
+* **The `Tokenizer` sub-interface** with the `-1` sentinels and the `decode(Int)` spelling the
+  runtimes still use, and `TokenizerFactory` as the bridge.
 
-* Byte-level BPE: text is converted to UTF-8 bytes, each byte mapped to a Unicode character
-* The byte-to-Unicode mapping avoids control characters (bytes 0-32 map to U+0100+)
-* Space is represented as `\u0120` (Latin capital G with dot above)
-* GGUF metadata field: `tokenizer.ggml.model = "gpt2"` or `"bpe"`
+== Special tokens
 
-=== WordPiece (BERT)
+Every `added_tokens` entry is matched atomically before pre-tokenization, special or not; GGUF
+`CONTROL` and `USER_DEFINED` token types are treated the same way. The `special` flag decides what
+`decode(ids, skipSpecialTokens = true)` drops. `encode(text)` never adds bos/eos (the 0.57
+behaviour the runtimes rely on); `encode(text, addSpecialTokens = true)` applies the checkpoint's
+`add_bos_token` / `add_eos_token` policy.
 
-* Subwords prefixed with `##` (e.g., "playing" -> `["play", "##ing"]`)
-* Uses `[CLS]`, `[SEP]`, `[UNK]`, `[PAD]` special tokens
+== Why the legacy class is deprecated, not fixed
 
-== Special Token Handling
-
-Chat templates use special tokens like `<|im_start|>` and `<|im_end|>` to delimit messages.
-These must be encoded as single tokens, not character-split.
-
-The `GGUFTokenizer` collects special tokens from the vocabulary (tokens matching `<|...|>`) and splits text around them before applying BPE.
-This ensures `<|im_start|>system` encodes as `[151644, 8948]` (two tokens), not as individual characters.
-
-== GGUF Tokenizer Fields
-
-[cols="2,3"]
-|===
-|Field |Description
-
-|`tokenizer.ggml.model`
-|Tokenizer type: `"llama"`, `"gpt2"`, `"bert"`
-
-|`tokenizer.ggml.tokens`
-|Vocabulary as string array
-
-|`tokenizer.ggml.scores`
-|BPE merge scores (SentencePiece)
-
-|`tokenizer.ggml.merges`
-|BPE merge pairs (GPT-2 style)
-
-|`tokenizer.ggml.bos_token_id`
-|Beginning-of-sequence token ID
-
-|`tokenizer.ggml.eos_token_id`
-|End-of-sequence token ID
-
-|`tokenizer.ggml.token_type`
-|Per-token type (normal, control, unknown, byte)
-|===
-
-== TokenizerFactory
-
-`TokenizerFactory` in `llm-core` provides a unified entry point.
-It delegates to `GGUFTokenizer` or `HuggingFaceBPETokenizer` based on the source format.
-
-The factory is the recommended way to create tokenizers -- callers don't need to know which implementation is used.
+Forwarding `GGUFTokenizer` to the engine silently would change token ids under consumers that
+changed no code; a loud deprecation is better than a quiet behaviour change. The class keeps its
+behaviour at WARNING level in 0.58 and 0.59, ERROR in 0.60, and is removed in 0.61. Goldens recorded
+against it must be re-recorded from the reference library before a call site migrates.

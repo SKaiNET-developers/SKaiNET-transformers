@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION")
+
 package sk.ainet.apps.llm.tokenizer
 
 import kotlinx.serialization.json.Json
@@ -8,7 +10,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import sk.ainet.apps.llm.Tokenizer
-import sk.ainet.io.tokenizer.SentencePieceTokenizer
+import sk.ainet.frontend.tokenizer.SentencePieceTokenizer
 
 /**
  * Downstream model-specific decorator that adds atomic special-token
@@ -46,23 +48,34 @@ import sk.ainet.io.tokenizer.SentencePieceTokenizer
  *    boundaries always sit on UTF-8 boundaries (specials are literal
  *    strings).
  */
+@Deprecated(
+    "The engine's SpecialTokenSplitter does this, and TextFrontEnds applies it for every algorithm (SKEEP-006). Removed in 0.60.",
+    ReplaceWith("SpecialTokenSplitter", "sk.ainet.frontend.tokenizer.SpecialTokenSplitter"),
+)
 public class SentencePieceSpecialTokens(
     private val base: SentencePieceTokenizer,
-    private val specialTokens: Map<String, Int>,
+    private val addedTokens: Map<String, Int>,
     bosTokenId: Int? = null,
     eosTokenId: Int? = null,
 ) : Tokenizer {
 
     private val specialIdToString: Map<Int, String> =
-        specialTokens.entries.associate { (k, v) -> v to k }
+        addedTokens.entries.associate { (k, v) -> v to k }
 
     /** Longest-first ordering so e.g. `<|im_start|>` wins over `<|im`. */
     private val specialsByLengthDesc: List<String> =
-        specialTokens.keys.sortedByDescending { it.length }
+        addedTokens.keys.sortedByDescending { it.length }
 
     override val vocabSize: Int = base.vocabSize
     override val bosTokenId: Int = (bosTokenId ?: base.bosTokenId) ?: -1
     override val eosTokenId: Int = (eosTokenId ?: base.eosTokenId) ?: -1
+    override val vocabulary: sk.ainet.frontend.text.Vocabulary get() = base.vocabulary
+    override val specialTokens: sk.ainet.frontend.text.SpecialTokens
+        get() = base.specialTokens.copy(
+            bos = this.bosTokenId.takeIf { it >= 0 },
+            eos = this.eosTokenId.takeIf { it >= 0 },
+            declared = base.specialTokens.declared + addedTokens.values,
+        )
 
     override fun encode(text: String): IntArray {
         val out = ArrayList<Int>(text.length)
@@ -70,7 +83,7 @@ public class SentencePieceSpecialTokens(
         while (i < text.length) {
             val matched = matchSpecialAt(text, i)
             if (matched != null) {
-                out.add(specialTokens.getValue(matched))
+                out.add(addedTokens.getValue(matched))
                 i += matched.length
                 continue
             }
@@ -121,7 +134,7 @@ public class SentencePieceSpecialTokens(
 
     private fun nextSpecialStart(text: String, from: Int): Int {
         var earliest = text.length
-        for (tok in specialTokens.keys) {
+        for (tok in addedTokens.keys) {
             if (tok.isEmpty()) continue
             val idx = text.indexOf(tok, startIndex = from + 1)
             if (idx in 0 until earliest) earliest = idx
@@ -196,7 +209,7 @@ public class SentencePieceSpecialTokens(
             val (specials, bosId, eosId) = extractSpecialsFromAddedTokens(root)
             return SentencePieceSpecialTokens(
                 base = base,
-                specialTokens = specials,
+                addedTokens = specials,
                 bosTokenId = bosId,
                 eosTokenId = eosId,
             )

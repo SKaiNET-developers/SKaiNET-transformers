@@ -1,6 +1,6 @@
 public final class sk/ainet/apps/kgemma/FunctionGemma {
 	public static final field Companion Lsk/ainet/apps/kgemma/FunctionGemma$Companion;
-	public synthetic fun <init> (Ljava/lang/String;Lsk/ainet/apps/llm/InferenceRuntime;Lsk/ainet/apps/llm/tokenizer/GGUFTokenizer;Lsk/ainet/apps/kgemma/FunctionGemma$Style;IIILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (Ljava/lang/String;Lsk/ainet/apps/llm/InferenceRuntime;Lsk/ainet/apps/llm/Tokenizer;Lsk/ainet/apps/kgemma/FunctionGemma$Style;IIILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun call (Ljava/lang/String;I)Lsk/ainet/apps/kgemma/FunctionGemma$Turn;
 	public static synthetic fun call$default (Lsk/ainet/apps/kgemma/FunctionGemma;Ljava/lang/String;IILjava/lang/Object;)Lsk/ainet/apps/kgemma/FunctionGemma$Turn;
 	public final fun callWithTools (Ljava/lang/String;Ljava/util/List;IFIFLkotlin/random/Random;)Lsk/ainet/apps/kgemma/FunctionGemma$Turn;
@@ -103,7 +103,7 @@ public final class sk/ainet/apps/kgemma/GemmaIngestion {
 
 public final class sk/ainet/apps/kgemma/GemmaStopTokens {
 	public static final field INSTANCE Lsk/ainet/apps/kgemma/GemmaStopTokens;
-	public final fun resolve (Lsk/ainet/apps/llm/tokenizer/GGUFTokenizer;)Ljava/util/Set;
+	public final fun resolve (Lsk/ainet/frontend/text/Tokenizer;)Ljava/util/Set;
 }
 
 public final class sk/ainet/apps/kgemma/KgemmaKernels {

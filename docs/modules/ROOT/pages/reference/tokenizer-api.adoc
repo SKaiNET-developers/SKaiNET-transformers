@@ -1,71 +1,94 @@
 = Tokenizer API
-:description: Tokenizer interface and implementations.
+:description: How the runtimes in this repository obtain a tokenizer since 0.58 — the engine contract, the family-decorated resolver, the TokenizerFactory bridge and the deprecated legacy surface.
+
+Since 0.58 (SKEEP-006 in the engine) tokenization is the engine's job. This repository
+contributes *family policy* — stop markers, tool-calling facts, chat templates — and consumes
+the engine's golden-tested algorithms through one factory.
 
 == Interface
 
-.`llm-core/src/commonMain/kotlin/sk/ainet/apps/llm/Tokenizer.kt`
+`sk.ainet.apps.llm.Tokenizer` is a sub-interface of the engine's
+`sk.ainet.frontend.text.Tokenizer`. Every engine tokenizer can be used where this type is
+expected, and every implementation in this repository is an engine tokenizer.
+
 [source,kotlin]
 ----
-interface Tokenizer {
-    fun encode(text: String): IntArray
-    fun decode(tokens: IntArray): String
-    fun decode(token: Int): String
-    val eosTokenId: Int
-    val bosTokenId: Int
-    val vocabSize: Int
+interface Tokenizer : sk.ainet.frontend.text.Tokenizer {
+    override val bosTokenId: Int       // -1 when the checkpoint declares none (engine: Int?)
+    override val eosTokenId: Int
+    override val vocabSize: Int
+    fun decode(token: Int): String     // deprecated spelling of decodeToken(id)
 }
 ----
 
-== Implementations
-
-=== GGUFTokenizer
-
-.`llm-core/src/commonMain/kotlin/sk/ainet/apps/llm/tokenizer/GGUFTokenizer.kt`
-
-Auto-detects tokenizer type from GGUF metadata:
-
-* *BPE* (GPT-2 style) -- used by Qwen, Mistral
-* *SentencePiece* -- used by LLaMA
-* *WordPiece* -- used by BERT
-
-Factory methods:
-
-[source,kotlin]
-----
-// From GGUF file (streaming, memory-efficient)
-val tokenizer = GGUFTokenizer.fromRandomAccessSource(source)
-
-// From HuggingFace tokenizer.json
-val tokenizer = GGUFTokenizer.fromTokenizerJson(jsonString)
-----
-
-=== HuggingFaceBPETokenizer
-
-.`llm-core/src/commonMain/kotlin/sk/ainet/apps/llm/tokenizer/HuggingFaceBPETokenizer.kt`
-
-SentencePiece-style BPE with `\u2581` space marker.
-Used for Gemma, LLaMA models loaded from SafeTensors.
-
-=== TekkenTokenizerAdapter
-
-.`llm-inference/voxtral/src/commonMain/kotlin/sk/ainet/models/voxtral/TekkenTokenizerAdapter.kt`
-
-Wraps the Tekken tokenizer from skainet-io-core for Voxtral TTS models.
+Everything else is inherited: `encode(text)` (no bos/eos added), `encode(text, addSpecialTokens)`,
+`decode(ids)`, `decode(ids, skipSpecialTokens)`, `decodeToken(id)`, `vocabulary`
+(`tokenToId` / `idToToken`) and `specialTokens` (`bos`, `eos`, `pad`, `unk`, `addBos`, `addEos`,
+`stopIds`). In 0.61 the interface becomes a type alias of the engine one; until then the `-1`
+sentinel is kept for callers that do arithmetic on the ids.
 
 == TokenizerFactory
 
-.`llm-core/src/commonMain/kotlin/sk/ainet/apps/llm/tokenizer/TokenizerFactory.kt`
-
-Unified factory for creating tokenizers:
+`sk.ainet.apps.llm.tokenizer.TokenizerFactory` is the bridge from one tokenizer source to the
+interface above. Every path is engine-backed:
 
 [source,kotlin]
 ----
-// From GGUF file
-val tokenizer = TokenizerFactory.fromGGUF(randomAccessSource)
-
-// From tokenizer.json string
-val tokenizer = TokenizerFactory.fromTokenizerJson(jsonString)
-
-// From HuggingFace format with optional config
-val tokenizer = TokenizerFactory.fromHuggingFace(tokenizerJson, configJson)
+val info = UnifiedModelLoader.peek { sourceProvider() }
+val tok1 = TokenizerFactory.fromGgufFields(info.fields)                 // GGUF metadata map
+val tok2 = TokenizerFactory.fromGgufSource(randomAccessSource)          // GGUF file
+val tok3 = TokenizerFactory.fromTokenizerJsonString(json, configJson)   // tokenizer.json + tokenizer_config.json
+val tok4 = TokenizerFactory.fromTekkenJson(tekkenJson)                  // Mistral / Voxtral
+val text = TokenizerFactory.resolve(info.view)                          // TextFrontEnd: tokenizer + chat template source
 ----
+
+`resolve(view)` runs the engine `FrontEndResolver` with `TransformersFamilies.registry`, so the
+result carries the family's end-of-turn ids in `specialTokens.stopIds` (`<|im_end|>` for Qwen,
+`<end_of_turn>` / `<turn|>` for Gemma, `<|eot_id|>` for Llama 3). `GemmaStopTokens.resolve`
+accepts any engine tokenizer and uses the same lookups.
+
+Which algorithm a file gets (byte-level BPE, Metaspace BPE, SentencePiece, Unigram, WordPiece,
+Tekken) is the engine's dispatch table — see the engine documentation page
+*Input front ends and tokenizers*.
+
+== Families
+
+`sk.ainet.apps.llm.families.TransformersFamilies` holds one descriptor object per family
+(`LlamaFamily`, `QwenFamily`, `GemmaFamily`, `ApertusFamily`, `BitNetFamily`, `BertFamily`,
+`VoxtralFamily`, `WhisperFamily`, `MoonshineFamily`, `T5Family`): the architecture strings it
+claims, `displayName`, `supportsToolCalling`, `chatTemplateFamily` and its stop markers.
+`TransformersFamilies.registry` is `ModelFamilyRegistry.builtIn + all`; compose your own
+descriptor with `+`. `GGUFModelInfo.identity` is the string identity
+(`family` / `variant`) the registry assigns.
+
+== Deprecated (removed in 0.61)
+
+[cols="1,2",options="header"]
+|===
+| Symbol | Replacement
+
+| `GGUFTokenizer`, `BPEStrategy`, `SentencePieceStrategy`, `WordPieceStrategy`, `UnknownStrategy`, `TokenizerType`, `TokenizerStrategy`
+| `TokenizerFactory` (engine-backed). The legacy class keeps its behaviour — including its reference-divergent ids — while deprecated; it is never silently forwarded.
+
+| `SentencePieceSpecialTokens`
+| engine `SpecialTokenSplitter`, applied by the engine for every algorithm
+
+| bert `HuggingFaceTokenizer`, `TokenizerOutput`
+| engine `WordPieceTokenizer` (`TextFrontEnds.fromVocabTxt` / `fromTokenizerJson`), `Encoding`
+
+| `TekkenTokenizerAdapter`
+| `TokenizerFactory.fromTekkenJson` — bos/eos/vocab size now come from the file
+
+| `ModelFamily` enum, `ModelRegistry.detect`
+| `TransformersFamilies`, `GGUFModelInfo.identity`
+
+| `sk.ainet.apps.kllama.GGUFTokenizer` alias
+| `TokenizerFactory`
+|===
+
+`HuggingFaceBPETokenizer` (no callers since 0.58) was removed in 0.59.0. The schedule for the
+rest moved by one minor in 0.59.0, 0.60.0, 0.61.0 and again in 0.62.0: the legacy classes stay at
+WARNING through 0.62, go to ERROR in 0.63 and leave in 0.64, because the runtimes, CLIs and
+benchmarks still reach the engine through `TokenizerFactory` and the sub-interface, and moving
+them is a release of its own. The engine's io-core aliases they wrapped are errors since
+SKaiNET 0.60.0; new code imports the `sk.ainet.frontend.tokenizer` home directly.

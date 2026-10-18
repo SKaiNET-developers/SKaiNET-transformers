@@ -1,6 +1,8 @@
+@file:Suppress("DEPRECATION")
+
 package sk.ainet.apps.llm.tokenizer
 
-import sk.ainet.io.tokenizer.SentencePieceTokenizer
+import sk.ainet.frontend.tokenizer.SentencePieceTokenizer
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -26,7 +28,7 @@ class SentencePieceSpecialTokensStreamingTest {
             eosTokenId = 2,
             addSpacePrefix = true,
         )
-        return SentencePieceSpecialTokens(base, specialTokens = emptyMap())
+        return SentencePieceSpecialTokens(base, addedTokens = emptyMap())
     }
 
     @Test

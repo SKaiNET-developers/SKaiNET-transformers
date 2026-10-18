@@ -5,6 +5,8 @@ import kotlinx.io.buffered
 import sk.ainet.apps.llm.Tokenizer
 import sk.ainet.apps.llm.TokenizerStrategy
 import sk.ainet.apps.llm.TokenizerType
+import sk.ainet.frontend.text.SpecialTokens
+import sk.ainet.frontend.text.Vocabulary
 import sk.ainet.io.RandomAccessSource
 import sk.ainet.io.gguf.GGUFReader
 import sk.ainet.io.gguf.ReaderField
@@ -16,7 +18,18 @@ import sk.ainet.io.gguf.StreamingGGUFReader
  *
  * Automatically detects tokenizer type (SentencePiece, BPE, WordPiece) from GGUF
  * metadata and uses the appropriate preprocessing strategy.
+ *
+ * **Deprecated (SKEEP-006).** This is the pre-engine implementation: it scrapes `tokenizer.json`
+ * with regular expressions and merges greedily by score, which gives ids that differ from the
+ * Hugging Face reference on many files (SKaiNET-transformers #471). Every runtime now resolves
+ * its tokenizer through [TokenizerFactory], which is backed by the engine's golden-tested
+ * algorithms. Kept with unchanged behaviour for one release cycle: WARNING in 0.58, ERROR in
+ * 0.60, removed in 0.61 together with the strategies and [TokenizerType].
  */
+@Deprecated(
+    "Legacy tokenizer with reference-divergent ids; use TokenizerFactory (engine-backed, SKEEP-006). Removed in 0.61.",
+    ReplaceWith("TokenizerFactory", "sk.ainet.apps.llm.tokenizer.TokenizerFactory"),
+)
 class GGUFTokenizer private constructor(
     private val vocab: List<String>,
     private val scores: FloatArray,
@@ -158,7 +171,7 @@ class GGUFTokenizer private constructor(
 
             if (debug) println("DEBUG: Total vocab size = ${vocab.size}, BOS=$bosTokenId, EOS=$eosTokenId")
 
-            // --- Parse merges: ["tok1 tok2", ...] → scores (earlier merge = higher score) ---
+            // --- Parse merges: supports both string format "tok1 tok2" and array format ["tok1", "tok2"] ---
             val scores = FloatArray(vocab.size) { 0f }
             val mergesStart = json.indexOf("\"merges\"")
             if (mergesStart >= 0) {
@@ -166,22 +179,48 @@ class GGUFTokenizer private constructor(
                 if (mergesArrStart >= 0) {
                     val mergesArrEnd = findMatchingBracket(json, mergesArrStart)
                     val mergesContent = json.substring(mergesArrStart + 1, mergesArrEnd)
-                    val mergePattern = Regex("\"((?:[^\"\\\\]|\\\\.)*)\"")
                     var mergeRank = 0
-                    for (match in mergePattern.findAll(mergesContent)) {
-                        val merge = unescapeJsonString(match.groupValues[1])
-                        val parts = merge.split(' ', limit = 2)
-                        if (parts.size == 2) {
-                            val merged = parts[0] + parts[1]
-                            val mergedId = vocabMap[merged]
-                            if (mergedId != null && mergedId < scores.size) {
-                                // Higher score = higher merge priority (earlier in list)
-                                scores[mergedId] = (1_000_000 - mergeRank).toFloat()
+                    var i = 0
+                    while (i < mergesContent.length) {
+                        while (i < mergesContent.length && mergesContent[i].isWhitespace()) i++
+                        if (i >= mergesContent.length) break
+
+                        when (mergesContent[i]) {
+                            '"' -> {
+                                // String format: "token1 token2"
+                                val strEnd = findStringEnd(mergesContent, i)
+                                val mergeStr = unescapeJsonString(mergesContent.substring(i + 1, strEnd))
+                                val parts = mergeStr.split(' ', limit = 2)
+                                if (parts.size == 2) {
+                                    val merged = parts[0] + parts[1]
+                                    val mergedId = vocabMap[merged]
+                                    if (mergedId != null && mergedId < scores.size) {
+                                        scores[mergedId] = (1_000_000 - mergeRank).toFloat()
+                                    }
+                                    mergeRank++
+                                }
+                                i = strEnd + 1
                             }
-                            mergeRank++
+                            '[' -> {
+                                // Array format: ["token1", "token2"]
+                                val bracketEnd = findMatchingBracket(mergesContent, i)
+                                val arrayContent = mergesContent.substring(i + 1, bracketEnd)
+                                val tokens = parseStringArray(arrayContent)
+                                if (tokens.size == 2) {
+                                    val merged = tokens[0] + tokens[1]
+                                    val mergedId = vocabMap[merged]
+                                    if (mergedId != null && mergedId < scores.size) {
+                                        scores[mergedId] = (1_000_000 - mergeRank).toFloat()
+                                    }
+                                    mergeRank++
+                                }
+                                i = bracketEnd + 1
+                            }
+                            ',' -> i++
+                            else -> i++
                         }
                     }
-                    if (debug) println("DEBUG: Parsed $mergeRank merges")
+                    if (debug) println("DEBUG: Parsed $mergeRank merges (supporting strings and arrays)")
                 }
             }
 
@@ -199,14 +238,14 @@ class GGUFTokenizer private constructor(
             val bpeVotes = vocab.count { it.startsWith(gpt2Marker) }
             val strategy: TokenizerStrategy = if (spVotes > bpeVotes) SentencePieceStrategy else BPEStrategy
             val strategyLabel = if (strategy === SentencePieceStrategy) "SentencePiece" else "BPE"
-            // SentencePiece tokenizers shipped via HF `tokenizer.json` (Gemma 4,
-            // LLaMA-3) typically set `add_dummy_prefix=false` — the modern
-            // convention. Without this, encoding `"Hi"` would produce `[▁Hi]`
-            // (id 18428) instead of `[Hi]` (id 10979), shifting every prompt
-            // token by one and breaking parity with HF reference outputs. The
-            // GGUF path reads `tokenizer.ggml.add_space_prefix` directly; this
-            // is the JSON-path equivalent default.
-            val sentencePieceAddSpace = false
+            // Whether the first word gets the `▁` prefix is declared by the
+            // file: `pre_tokenizer.prepend_scheme` (`always` / `first` → yes,
+            // `never` → no) or, in older files, a `Prepend` normalizer with
+            // `"prepend": "▁"`. Gemma 4 declares neither and must encode
+            // `"Hi"` as `[Hi]` (id 10979), not `[▁Hi]` (id 18428); mmBERT
+            // declares `always` and expects the prefix. The GGUF path reads
+            // `tokenizer.ggml.add_space_prefix` for the same decision.
+            val sentencePieceAddSpace = detectPrependScheme(json)
             println(
                 "Tokenizer: $strategyLabel (from tokenizer.json, vocab=${vocab.size}, special=${addedTokenIds.size})"
             )
@@ -221,6 +260,44 @@ class GGUFTokenizer private constructor(
                 tokenTypes = tokenTypes,
                 addSpacePrefix = if (strategy === SentencePieceStrategy) sentencePieceAddSpace else DEFAULT_ADD_SPACE_PREFIX,
             )
+        }
+
+        /**
+         * Reads whether the file prepends the SentencePiece word-boundary
+         * marker to the input. Checks `pre_tokenizer.prepend_scheme`
+         * (`always` and `first` → true, `never` → false; `first` differs from
+         * `always` only across several pre-split sequences, which this
+         * encoder never produces) and, failing that, a `normalizer` step of
+         * type `Prepend` with `"prepend": "▁"`, also inside a `Sequence`.
+         * A file that declares neither keeps the previous behaviour, false.
+         */
+        private fun detectPrependScheme(json: String): Boolean {
+            val preTokenizer = topLevelObject(json, "pre_tokenizer")
+            if (preTokenizer != null) {
+                val scheme = Regex("\"prepend_scheme\"\\s*:\\s*\"([a-z]+)\"").find(preTokenizer)
+                if (scheme != null) {
+                    return when (scheme.groupValues[1]) {
+                        "always", "first" -> true
+                        else -> false
+                    }
+                }
+            }
+            val normalizer = topLevelObject(json, "normalizer") ?: return false
+            val prependStep = Regex("\"type\"\\s*:\\s*\"Prepend\"[^{}]*\"prepend\"\\s*:\\s*\"([^\"]*)\"")
+            return prependStep.findAll(normalizer).any { it.groupValues[1] == "▁" || it.groupValues[1] == "\\u2581" }
+        }
+
+        /** The text of the top-level object stored under [key], or null when absent or not an object. */
+        private fun topLevelObject(json: String, key: String): String? {
+            val keyStart = json.indexOf("\"$key\"")
+            if (keyStart < 0) return null
+            val colon = json.indexOf(':', keyStart + key.length + 2)
+            if (colon < 0) return null
+            var i = colon + 1
+            while (i < json.length && json[i].isWhitespace()) i++
+            if (i >= json.length || json[i] != '{') return null
+            val end = findMatchingBrace(json, i)
+            return json.substring(i, end + 1)
         }
 
         private fun findMatchingBrace(s: String, start: Int): Int {
@@ -255,6 +332,37 @@ class GGUFTokenizer private constructor(
                 i++
             }
             return s.length - 1
+        }
+
+        /** Index of the closing quote of the JSON string that opens at [start]. */
+        private fun findStringEnd(s: String, start: Int): Int {
+            var i = start + 1
+            while (i < s.length) {
+                when (s[i]) {
+                    '"' -> return i
+                    '\\' -> i += 2
+                    else -> i++
+                }
+            }
+            return s.length
+        }
+
+        /** Parses the inside of a JSON array of strings, e.g. `"a", "b"`, into its unescaped elements. */
+        private fun parseStringArray(content: String): List<String> {
+            val result = mutableListOf<String>()
+            var i = 0
+            while (i < content.length) {
+                while (i < content.length && content[i].isWhitespace()) i++
+                if (i >= content.length) break
+                if (content[i] == '"') {
+                    val strEnd = findStringEnd(content, i)
+                    result.add(unescapeJsonString(content.substring(i + 1, strEnd)))
+                    i = strEnd + 1
+                } else {
+                    i++
+                }
+            }
+            return result
         }
 
         private fun unescapeJsonString(s: String): String {
@@ -468,7 +576,7 @@ class GGUFTokenizer private constructor(
          * Detect tokenizer type by inspecting vocabulary for characteristic markers.
          */
         private fun detectFromVocab(vocab: List<String>): TokenizerStrategy {
-            val sentencePieceMarker = "\u2581" // ▁
+            val sentencePieceMarker = "\u2581" // SentencePiece metaspace
             val bpeMarker = "\u0120" // Ġ
             val wordPieceMarker = "##"
 
@@ -668,6 +776,20 @@ class GGUFTokenizer private constructor(
     override val bosTokenId: Int get() = _bosTokenId
     override val eosTokenId: Int get() = _eosTokenId
     override val vocabSize: Int get() = vocab.size
+
+    override val vocabulary: Vocabulary = object : Vocabulary {
+        override val size: Int get() = vocab.size
+        override fun tokenToId(piece: String): Int? = tokenId(piece)
+        override fun idToToken(id: Int): String? = vocab.getOrNull(id)
+    }
+
+    override val specialTokens: SpecialTokens
+        get() = SpecialTokens(
+            bos = _bosTokenId.takeIf { it >= 0 },
+            eos = _eosTokenId.takeIf { it >= 0 },
+            unk = unkTokenId.takeIf { it >= 0 },
+            declared = specialTokensByLength.map { it.second }.toSet(),
+        )
 
     /**
      * Exact-vocab lookup: the id of [token]'s literal string form, or null when the

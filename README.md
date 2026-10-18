@@ -10,11 +10,13 @@ Tranformers based LLM application layer on top of the [SKaiNET](https://github.c
 > **Project status — early / experimental.**
 > This repository is an **initial version**. Nothing here is stable, and there is
 > **no support or status guarantee for any feature, model, or API**. Model
-> coverage, tool calling, and the runtime APIs are all work in progress and may
-> not work for a given model or model version — for example, tool calling can
-> fail to trigger or parse even on a model that generates plain text correctly.
-> The capabilities described below are **goals, not promises**. Treat everything
-> as a preview and expect things to break.
+> coverage and the runtime APIs are work in progress and may not work for a given
+> model or model version. Tool calling is verified per family by model-gated
+> smoke tests (see the [tool-calling table](#tool-calling-native-vs-generic-support)),
+> but outside those families the `GENERIC` fallback can still fail to trigger or
+> parse even on a model that generates plain text correctly. The capabilities
+> described below are **goals, not promises**. Treat everything as a preview and
+> expect things to break.
 
 ## Start in 5 minutes
 
@@ -48,7 +50,7 @@ Use the version shown in this README as the source of truth for first-run snippe
 
 - **Multi-model support.** Llama / Mistral, Qwen 2 / 2.5 / 3, Gemma 3 / 4, Apertus (Swiss AI) and BitNet b1.58 are each **verified token-for-token against a reference implementation** (mainline llama.cpp; bitnet.cpp + the HF BF16 reference for BitNet) by model-gated golden-token parity tests on the DSL path the CLIs ship. BERT (vs sentence-transformers) and T5/GTR (real-weights round-trip) are verified on the embedding side. Voxtral is the remaining unverified family — see the status table below.
 - **Native CPU performance.** Auto-discovers SKaiNET's priority-100 FFM (Foreign Function & Memory) native kernel provider when present (4–6× faster Q4_K matmul, 1.5–1.8× faster FP32 SGEMM vs the priority-50 Panama Vector path; Linux x86_64 / macOS ARM64 / Windows x86_64 in the published JAR — no manual setup). On **Android**, the runtime facades ship the engine's JNI NEON backend the same way — native kernels out of the box, ~6.4× measured on SmolLM2-135M Q8_0 (see the [supported-targets matrix](#supported-targets)).
-- **Tool calling (experimental).** Family-specific chat templates and tool-call parsers (Llama 3, Qwen, Gemma, Apertus, ChatML/Hermes) and a Java surface (`KLlamaJava`, `JavaTools.definition`, `JavaAgentLoop`) exist, but tool calling is **not reliable yet** — it may fail to trigger or parse even when plain generation works.
+- **Tool calling.** Each model family ships its own chat template and tool-call parser as a `ToolCallingSupport` provider (Llama 3, Qwen 2.5 / 3, Gemma 2 / 3 / 4, FunctionGemma, Apertus, SmolLM2, ChatML/Hermes), auto-selected from model metadata by `ToolCallingSupportResolver`, with a Java surface (`KLlamaJava`, `JavaTools.definition`, `JavaAgentLoop`). The NATIVE providers are **verified end-to-end on real checkpoints** by model-gated smoke tests that run a full agent round-trip (prompt → parsed tool call → tool execution → final answer): Qwen3-0.6B / 1.7B Q8_0 (`QwenToolCallSmokeTest`), Gemma 4 E2B Q4_K_M (`Gemma4E2BToolCallSmokeTest`), FunctionGemma 270M (`FunctionGemmaOfficialGgufTest`), SmolLM2-1.7B (`SmolLM2ToolCallSmokeTest`); last re-run against engine 0.57.0 on 2026-10-09. Only the `GENERIC` fallback for unknown families is best-effort — see [native vs. generic support](#tool-calling-native-vs-generic-support). Zero-shot tool-call *quality* is still the model's: on an 8-utterance set Qwen2.5-0.5B lands 4–5/8 with its faithful template, so pick a checkpoint that was trained for tools.
 - **Parallel attention heads (unreleased, SKaiNET SKEEP-005).** `MultiHeadAttention` spreads heads over all cores through the engine's `Schedule` on the execution context — bit-identical to the sequential path — and reads K/V in place from the positional cache (`withKVCacheKind(POSITIONAL)`), instead of copying the prefix per token. No DSL change; see the *Parallel Attention — Getting Started* tutorial.
 - **GGUF + SafeTensors loading.** Streaming reader for any model size; `NATIVE_OPTIMIZED` quant policy keeps weights in their packed SIMD-friendly form.
 - **Kotlin Multiplatform.** JVM, Android, Kotlin/Native (Linux x64/ARM64, macOS ARM64, iOS arm64/sim arm64), JS, Wasm targets — see the [supported targets matrix](#supported-targets) for exactly which module publishes which target.
@@ -96,11 +98,13 @@ Honest status — see the project-status note at the top of this README.
 | **BERT** | Sentence embeddings on the DSL path (`bertNetwork()` + `BertEncoderRuntime`, eager or traced/fused) — verified against sentence-transformers on MongoDB/mdbr-leaf. One-call `BertEmbeddingModel.fromHuggingFace(...)` with built-in Hub download; MEAN or CLS pooling and retrieval prefixes cover LEAF, BGE and E5-style models. No text generation, no tool calling. |
 | **T5 / GTR** | Encoder-decoder runtime (hand-coded, batch 1, no KV cache) + `GtrEmbedder`, powering the **vec2text** embedding-inversion pipeline, with greedy and beam-search decoding — verified with a real-weights gtr-base round-trip test. |
 | **Voxtral** | TTS / voice; architecture code only — no runtime facade or CLI yet. |
+| **Laya** | Typed decisions, not text: `LayaDecisionAdapter` answers `choice` / `score` / `boolean probability` questions about a state through the shared `sk.ainet.decisions` API, abstaining under the caller's policy. mmBERT-base encoder + decision head on the FP32 CPU path, verified against the reference fixtures of the multilingual checkpoint (sequences, tokenizer corpus, predictions within 5e-5). JVM only for now; see `docs/…/reference/typed-decisions.adoc`. |
 
 ### Near term
 
-- Make the **eager JVM path reliable per family** — including tool calling —
-  before extending scope.
+- Make the **eager JVM path reliable per family** before extending scope
+  (tool calling is covered for the NATIVE families; a Llama 3 real-checkpoint
+  smoke test is still missing).
 - Verify each generative architecture end-to-end with smoke tests.
 - Wire the **StableHLO / native compilation path** for full transformer models.
   As of 0.28.1 a full gemma3 graph exports to StableHLO and `iree-compile`s to a
@@ -109,7 +113,42 @@ Honest status — see the project-status note at the top of this README.
 
 ## Current release
 
-The current release is **0.57.0**, in lock-step with **SKaiNET 0.57.0**.
+The current release is **0.62.1**, against **SKaiNET 0.61.0**: a transformers-only fix on 0.62.0, whose JVM `LayaModelLoader.load(directory, …)` had become an extension function that existing callers did not import; it is a member again (`@JvmOverloads`, so Java callers keep the 0.61 signature).
+
+It builds on **0.62.0**, against **SKaiNET 0.61.0**:
+
+**Laya on the packed Q8_0 lane.** SKaiNET 0.61.0 (SKEEP-007, the browser lane) brings quantize-at-load for the SafeTensors and GGUF loaders, a SIMD128 kernel sidecar for browser builds and the packed-weight dispatch order. The Laya loader is common code over a `RandomAccessSource`, so the JVM, Android and browser builds share one loader, and `LayaWeightForms.q8_0For` quantizes the encoder and head projections and the 256k × 768 token table to Q8_0 at load — about a quarter of the FP32 bytes, served by the packed kernels on every tier. The lane is gated on decision quality: every `predict.json` choice agrees with FP32 and no value shifts by more than 0.05 (measured 0.035, 5/5 choices). FP32 parity stays the contract of the reference lane.
+
+It builds on **0.61.0**, against **SKaiNET 0.60.0**:
+
+**Padded batches for the encoders.** SKaiNET 0.60.0 gives `scaledDotProductAttention` key lengths, a window and a right context carried as op metadata (`maskKind`), with a `skainet.sdpa` composite for targets that have a fused attention kernel. BERT-class encoders and the Laya decision models run the sequences of one request as right-padded batches (#490): `BertEncoderRuntime.encodeBatch` / `encodePadded`, `LayaDecisionModel.logitsBatch`, the Laya adapter with `batchSupport = true`. One attention node per layer takes the batch's lengths instead of a dense mask, so the compiled path gets the lengths as a graph input. The multilingual predict fixtures reproduce through the batched path (55 values, max |diff| 4.99e-5) and batched and single logits agree within 1.9e-6. On the eager FP32 CPU path a batch saves about 10 % per question at best; the gain is for the compiled lane and accelerators. The SKEEP-006 legacy tokenizer surface stays at WARNING in 0.61; the schedule moves by one more minor (ERROR in 0.62, gone in 0.63).
+
+It builds on **0.60.0**, against **SKaiNET 0.59.0**:
+
+**Exact GELU from the engine.** SKaiNET 0.59.0 makes `erf` a first-class op and gives `gelu` an `approximate` flag that travels as op metadata through the graph executor, the backward rule and the StableHLO export. Laya's decision models now run their exact GELU through `gelu(approximate = false)` instead of a host-side loop per FFN per layer, and the multilingual predict fixtures still reproduce (55 values, max |diff| 4.99e-5). The SKEEP-006 legacy tokenizer surface stays at WARNING in 0.60; the schedule moves by one more minor (ERROR in 0.61, gone in 0.62).
+
+It builds on **0.59.0**, against **SKaiNET 0.58.0**:
+
+**Typed decisions, not text.** Three new modules bring decision models to the JVM path. `skainet-transformers-decisions-api` (`sk.ainet.decisions`, no engine dependency) is the contract: a `DecisionRequest` carries a state and up to 64 questions of three primitives — `choice` (one option out of a list), `score` (an ordinal scale), `boolean probability` — and every question ends in `Accepted`, `Abstained(reason, candidate)` or `Failed(error)`, never a silent guess; the caller owns the `AcceptancePolicy`. `skainet-transformers-decisions-runtime` validates a request against the adapter's capabilities and applies the policy. `skainet-transformers-inference-laya` is the first adapter: the Laya multilingual checkpoint (mmBERT-base encoder, decision head, Apache 2.0, Convai Innovations) on the FP32 CPU path with exact GELU, verified against the fixtures shipped with the checkpoint (26/26 packed sequences, a 40-text tokenizer corpus, predictions within 5e-5). The Kotlin DSL — `decisionSchema { }` declares questions, policy and model once and stamps out a request per state; `decisionRequest { }`, `acceptancePolicy { }`; `choice(id)` / `score(id)` / `boolean(id)` readback — follows the NN and data pipeline DSLs. Eager FP32 is seconds per decision on a laptop; the compiled and quantized lanes, batching across questions (#490) and an exact GELU op in the engine (SKaiNET#1342) are the open items. `HuggingFaceBPETokenizer` is removed; the remaining SKEEP-006 deprecations stay at WARNING and leave in 0.61.
+
+It builds on **0.58.0**, in lock-step with **SKaiNET 0.58.0**:
+
+**Tokenization is the engine's job (SKEEP-006).** `sk.ainet.apps.llm.Tokenizer` is a sub-interface of the
+engine's `sk.ainet.frontend.text.Tokenizer`, and `TokenizerFactory` resolves every format through the
+engine's input front ends: byte-level BPE, Metaspace BPE, SentencePiece, Unigram, WordPiece and Tekken, from
+a GGUF or a Hugging Face directory (`fromCheckpoint(view)`), with `tokenizer_config.json` read on the
+SafeTensors paths. Token ids on the former legacy paths change to the reference ids, exact against
+Hugging Face `tokenizers` on the engine's goldens. **Families are descriptors**: `TransformersFamilies`
+(Llama, Qwen, Gemma, Apertus, BitNet, BERT, Voxtral, Whisper, Moonshine, T5) replaces the `ModelFamily`
+enum and `ModelRegistry.detect`; `GGUFModelInfo.identity` exposes the engine's model identity. The
+transformers-side tokenizer classes (`GGUFTokenizer` and its strategies, `HuggingFaceBPETokenizer`, bert's
+`HuggingFaceTokenizer`, `TekkenTokenizerAdapter`) are deprecated at WARNING and leave in 0.60. The three
+`tokenizer.json` parity fixes of #471 (array-form merges, Metaspace `prepend_scheme`, the full byte-level
+table) are in, contributed by [@Sehul07](https://github.com/Sehul07). Java sources compile unchanged;
+Java binaries built against 0.57 must be recompiled.
+
+Before that, **0.57.1** gave the streaming Moonshine partial decode a real-time budget, and on
+**0.57.0**:
 
 **Qwen on the compiled IREE KV path.** `QwenExportHarness` / `QwenExportCli` trace Qwen2 and Qwen3
 checkpoints to the three graphs of the `qwen-kv-v1` contract (catalog-prefix prefill, one-call chunk,
@@ -262,7 +301,7 @@ The recommended way to consume is via the BOM. It pins every published `skainet-
 
 ```kotlin
 dependencies {
-    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.57.0"))
+    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.62.1"))
 
     // Versions resolved from the BOM:
     implementation("sk.ainet.transformers:skainet-transformers-core")

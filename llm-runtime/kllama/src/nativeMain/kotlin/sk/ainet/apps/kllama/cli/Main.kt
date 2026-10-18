@@ -7,13 +7,14 @@ import kotlinx.io.files.SystemFileSystem
 import kotlin.reflect.KClass
 import kotlin.time.measureTime
 import sk.ainet.apps.kllama.CpuAttentionBackend
-import sk.ainet.apps.kllama.GGUFTokenizer
 import sk.ainet.apps.kllama.Llama2DotCWeightLoader
 import sk.ainet.apps.kllama.TokenizerUtils
 import sk.ainet.apps.llm.InferenceRuntime
 import sk.ainet.apps.llm.OptimizedLLMMode
 import sk.ainet.apps.llm.OptimizedLLMRuntime
 import sk.ainet.apps.llm.Tokenizer
+import sk.ainet.apps.llm.tokenizer.TokenizerFactory
+import sk.ainet.io.openRandomAccessSource
 import sk.ainet.apps.llm.backend.BackendRegistry
 import sk.ainet.apps.llm.backend.availableNames
 import sk.ainet.apps.llm.backend.bestAvailable
@@ -157,7 +158,9 @@ private suspend inline fun <reified T : DType> runInference(
 
     val tokenizer: Tokenizer = if (isGguf && tokenizerPathStr == null) {
         println("Loading embedded GGUF tokenizer...")
-        GGUFTokenizer.fromSource(SystemFileSystem.source(modelPath).buffered())
+        val source = openRandomAccessSource(modelPath.toString())
+            ?: error("could not open $modelPath for random access")
+        source.use { TokenizerFactory.fromGgufSource(it) }
     } else {
         val tPathStr = tokenizerPathStr ?: error("Tokenizer path required for .bin models")
         val tPath = Path(tPathStr)

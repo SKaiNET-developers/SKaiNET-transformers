@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION")
+
 package sk.ainet.apps.llm.tokenizer
 
 import sk.ainet.apps.llm.TokenizerStrategy
@@ -23,16 +25,24 @@ import sk.ainet.apps.llm.TokenizerType
  * handled the space marker, which was enough to make Latin sentences
  * look right but broke every byte that needed escaping.
  */
+@Deprecated("Preprocessing strategy of the legacy GGUFTokenizer (SKEEP-006); removed in 0.60.")
 public object BPEStrategy : TokenizerStrategy {
     override val type: TokenizerType = TokenizerType.BPE
 
     /** GPT-2 BPE space marker: Ġ (U+0120). */
     override val spaceMarker: String = "Ġ"
 
+    /**
+     * Apply the byte-to-unicode mapping to every UTF-8 byte of [text]:
+     * `" "` → `Ġ`, `"\n"` → `Ċ`, `"ü"` → `Ã¼`. The glyphs are what the
+     * vocabulary of a byte-level BPE model is made of, so a token that is
+     * not mapped here never matches the vocabulary and encodes as unknown.
+     */
     override fun preprocess(text: String): String {
-        // GPT-2 style: space becomes Ġ prefix on following token
-        // First token doesn't get a space prefix unless the text starts with space
-        return text.replace(" ", spaceMarker)
+        val bytes = text.encodeToByteArray()
+        val sb = StringBuilder(bytes.size)
+        for (b in bytes) sb.append(BYTE_TO_UNICODE.getValue(b))
+        return sb.toString()
     }
 
     /**

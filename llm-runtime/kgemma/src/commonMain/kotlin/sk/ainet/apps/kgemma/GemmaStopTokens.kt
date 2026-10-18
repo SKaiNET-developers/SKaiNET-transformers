@@ -1,9 +1,9 @@
 package sk.ainet.apps.kgemma
 
-import sk.ainet.apps.llm.tokenizer.GGUFTokenizer
+import sk.ainet.frontend.text.Tokenizer
 
 /**
- * Resolves the full Gemma 4 stop-token set from a GGUF-embedded tokenizer.
+ * Resolves the full Gemma 4 stop-token set from a tokenizer.
  *
  * Gemma 4 checkpoints ship multiple stop ids — the released
  * `generation_config.json` lists `[1, 106, 50]` (`<eos>`, the turn-close
@@ -14,9 +14,11 @@ import sk.ainet.apps.llm.tokenizer.GGUFTokenizer
  * E2B Q4_K_M checkpoint).
  *
  * Resolution order per marker: exact vocab lookup of the literal token
- * string via [GGUFTokenizer.tokenId]; when a marker is absent from this
- * vocab it is simply skipped. The tokenizer's own `eosTokenId` is always
- * included.
+ * string via [Tokenizer.vocabulary]; when a marker is absent from this
+ * vocab it is simply skipped. The tokenizer's own `eos` and every id in
+ * `specialTokens.stopIds` (the family-decorated extra stops) are always
+ * included. Works for any engine tokenizer since SKEEP-006, not only the
+ * legacy GGUF-embedded one.
  */
 public object GemmaStopTokens {
 
@@ -40,12 +42,14 @@ public object GemmaStopTokens {
      */
     private val GEMMA4_GENERATION_CONFIG_STOP_IDS = setOf(1, 106, 50)
 
-    public fun resolve(tokenizer: GGUFTokenizer): Set<Int> {
-        val ids = mutableSetOf(tokenizer.eosTokenId)
+    public fun resolve(tokenizer: Tokenizer): Set<Int> {
+        val ids = LinkedHashSet<Int>()
+        ids.addAll(tokenizer.specialTokens.stopIds)
+        val vocabulary = tokenizer.vocabulary
         for (token in STOP_TOKEN_STRINGS) {
-            tokenizer.tokenId(token)?.let { ids.add(it) }
+            vocabulary.tokenToId(token)?.let { ids.add(it) }
         }
-        if (tokenizer.tokenId("<turn|>") != null) {
+        if (vocabulary.tokenToId("<turn|>") != null) {
             ids.addAll(GEMMA4_GENERATION_CONFIG_STOP_IDS)
         }
         return ids

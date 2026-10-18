@@ -9,7 +9,7 @@ import kotlin.io.path.isDirectory
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.runBlocking
 import sk.ainet.apps.kllama.chat.Gemma4ChatTemplate
-import sk.ainet.apps.llm.tokenizer.GGUFTokenizer
+import sk.ainet.apps.llm.tokenizer.TokenizerFactory
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.context.ExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
@@ -32,7 +32,7 @@ import sk.ainet.models.gemma.GemmaWeights
  * Composes the four already-existing pieces:
  *  1. [GemmaIngestion.loadDslRuntimeFromSafeTensors] — produces an
  *     `InferenceRuntime<FP32>` from the DSL `gemmaNetwork()` definition.
- *  2. [GGUFTokenizer.fromTokenizerJson] — loads HF `tokenizer.json` next to
+ *  2. [TokenizerFactory.fromTokenizerJsonString] — loads HF `tokenizer.json` next to
  *     the index file (same loader the kgemma CLI uses).
  *  3. [Gemma4ChatTemplate] — emits the official `<bos><|turn>…<turn|>` format.
  *  4. [SkaiNetChatModel] — the neutral `ChatModel` / `StreamingChatModel` adapter.
@@ -78,11 +78,8 @@ public object GemmaChatModel {
      *     source through the engine loader; quantized (K-quant) tensors stay packed by default
      *     (see [Gemma4LoadConfig.weightForm]), same mechanism [sk.ainet.apps.kllama.java.KLlamaJava]
      *     uses for Llama.
-     *  2. [GGUFTokenizer.fromRandomAccessSource] — reads the tokenizer baked into the GGUF itself
-     *     (no separate `tokenizer.json` needed). Called directly rather than through
-     *     `sk.ainet.apps.llm.tokenizer.TokenizerFactory.fromGgufSource`, which delegates to the
-     *     engine's `tokenizer.ggml.model`-gated factory — that allowlist doesn't have a "gemma4"
-     *     case yet, even though `GGUFTokenizer` itself already handles Gemma 4's GGUF shape.
+     *  2. [TokenizerFactory.fromGgufSource] — reads the tokenizer baked into the GGUF itself
+     *     (no separate `tokenizer.json` needed) through the engine's resolver (SKEEP-006).
      *  3. [Gemma4ChatTemplate] — same official turn format as the SafeTensors path.
      *  4. [SkaiNetChatModel] — the neutral `ChatModel` / `StreamingChatModel` adapter.
      *
@@ -117,13 +114,10 @@ public object GemmaChatModel {
             ingestion.loadDslRuntimeStreaming { JvmRandomAccessSource.open(path) }
         }
 
-        // sk.ainet.apps.llm.tokenizer.TokenizerFactory.fromGgufSource delegates to the engine's
-        // sk.ainet.io.tokenizer.TokenizerFactory, which gates on tokenizer.ggml.model and doesn't
-        // recognize "gemma4" yet (throws UnsupportedTokenizerException) — even though GGUFTokenizer
-        // itself already has explicit Gemma-4-aware handling (see its addSpacePrefix doc). Call it
-        // directly to bypass the stale model-string allowlist.
+        // The engine factory dispatches "gemma4" GGUFs to SentencePiece with atomic
+        // CONTROL / USER_DEFINED tokens (SKEEP-006); no local tokenizer path is needed.
         val tokenizer = JvmRandomAccessSource.open(path).use { source ->
-            GGUFTokenizer.fromRandomAccessSource(source)
+            TokenizerFactory.fromGgufSource(source)
         }
 
         val chatTemplate = Gemma4ChatTemplate(enableThinking = enableThinking)
@@ -204,7 +198,11 @@ public object GemmaChatModel {
         require(tokenizerFile.exists()) {
             "tokenizer.json not found alongside checkpoint at $modelDir"
         }
-        val tokenizer = GGUFTokenizer.fromTokenizerJson(Files.readString(tokenizerFile))
+        val tokenizerConfig = modelDir.resolve("tokenizer_config.json")
+        val tokenizer = TokenizerFactory.fromTokenizerJsonString(
+            Files.readString(tokenizerFile),
+            if (tokenizerConfig.exists()) Files.readString(tokenizerConfig) else null,
+        )
 
         val chatTemplate = Gemma4ChatTemplate(enableThinking = enableThinking)
 

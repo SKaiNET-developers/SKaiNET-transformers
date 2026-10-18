@@ -1,18 +1,23 @@
+@file:Suppress("DEPRECATION")
+
 package sk.ainet.apps.llm
+
+import sk.ainet.apps.llm.families.TransformersFamilies
 
 /**
  * Registry of known model architectures and their capabilities.
  *
- * Maps GGUF architecture strings to [ModelFamily] descriptors.
- * Used for auto-detection: given GGUF metadata, determine which
- * network DSL definition, weight loader, and chat template to use.
+ * Since 0.58 (SKEEP-006) the source of truth is [TransformersFamilies.registry]: an immutable
+ * `sk.ainet.model.ModelFamilyRegistry` of family *descriptors*. This object maps its answers back
+ * onto the [ModelFamily] enum for callers that still switch on it; both are deprecated and go
+ * in 0.60.
  *
- * Usage:
  * ```kotlin
- * val family = ModelRegistry.detect("qwen3")  // returns ModelFamily.QWEN
- * val family = ModelRegistry.detect("llama")   // returns ModelFamily.LLAMA
+ * val family = TransformersFamilies.forArchitecture("qwen3")   // QwenFamily, or null
+ * val id = TransformersFamilies.registry.identify(view)       // ModelIdentity(family = "qwen", variant = "qwen3")
  * ```
  */
+@Deprecated("Use TransformersFamilies.registry / ModelIdentity (SKEEP-006); removed in 0.60.", ReplaceWith("TransformersFamilies", "sk.ainet.apps.llm.families.TransformersFamilies"))
 public object ModelRegistry {
 
     /**
@@ -23,16 +28,14 @@ public object ModelRegistry {
      */
     public fun detect(architecture: String): ModelFamily {
         val arch = architecture.lowercase()
-        return when {
-            arch == "llama" || arch == "mistral" -> ModelFamily.LLAMA
-            arch.startsWith("qwen") -> ModelFamily.QWEN
-            arch.startsWith("gemma") -> ModelFamily.GEMMA
-            arch == "apertus" -> ModelFamily.APERTUS
-            arch.startsWith("bitnet") -> ModelFamily.BITNET
-            arch == "bert" -> ModelFamily.BERT
-            arch == "voxtral" -> ModelFamily.VOXTRAL
-            else -> ModelFamily.UNKNOWN
+        val family = TransformersFamilies.forArchitecture(arch)?.family ?: when {
+            // prefix rules the 0.57 switch accepted for variants no descriptor lists yet
+            arch.startsWith("qwen") -> "qwen"
+            arch.startsWith("gemma") -> "gemma"
+            arch.startsWith("bitnet") -> "bitnet"
+            else -> null
         }
+        return ModelFamily.entries.firstOrNull { it.id == family } ?: ModelFamily.UNKNOWN
     }
 
     /**
@@ -50,11 +53,15 @@ public object ModelRegistry {
 /**
  * Describes a model family and its capabilities.
  *
+ * Deprecated view (SKEEP-006, FE-I-01): a family is a `String` on `ModelIdentity` and a
+ * descriptor object in [TransformersFamilies], so new families need no enum edit. Removed in 0.60.
+ *
  * @property id Unique identifier for the family.
  * @property displayName Human-readable name.
  * @property supportsToolCalling Whether the family supports tool calling via chat templates.
  * @property chatTemplateFamily The chat template family name for [ToolCallingSupportResolver].
  */
+@Deprecated("Families are descriptors: TransformersFamilies.forFamily(identity.family) (SKEEP-006); removed in 0.60.")
 public enum class ModelFamily(
     public val id: String,
     public val displayName: String,

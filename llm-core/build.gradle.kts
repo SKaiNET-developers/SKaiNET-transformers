@@ -41,6 +41,11 @@ kotlin {
             implementation(libs.skainet.io.core)
             implementation(libs.skainet.io.gguf)
             implementation(libs.skainet.io.safetensors)
+            // SKEEP-006: sk.ainet.apps.llm.Tokenizer extends the engine contract and
+            // GGUFModelInfo exposes ModelIdentity, so both are part of this module's API.
+            api(libs.skainet.model.identity)
+            api(libs.skainet.frontend.core)
+            implementation(libs.skainet.frontend.text)
             // KernelRegistry/KernelProvider capability queries for the
             // packed-quant kernel gate (`hasPackedMatmulKernel`, #170).
             // implementation-scoped: no backend types leak into the API.

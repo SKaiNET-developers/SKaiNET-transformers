@@ -43,6 +43,8 @@ kotlin {
         commonMain.dependencies {
             implementation(project.dependencies.platform(project(":llm-bom")))
             api(project(":llm-core"))
+            // SKEEP-006: KBertSession and BertEncoder callers hold the engine WordPieceTokenizer
+            api(libs.skainet.frontend.text)
             implementation(libs.skainet.lang.core)
             implementation(libs.skainet.io.safetensors)
             implementation(libs.skainet.compile.core)

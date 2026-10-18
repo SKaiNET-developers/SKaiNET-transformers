@@ -1,0 +1,34 @@
+public final class sk/ainet/decisions/runtime/AcceptanceEngine {
+	public static final field INSTANCE Lsk/ainet/decisions/runtime/AcceptanceEngine;
+	public final fun apply (Lsk/ainet/decisions/DecisionQuestion;Lsk/ainet/decisions/Prediction;Lsk/ainet/decisions/AcceptancePolicy;)Lsk/ainet/decisions/QuestionOutcome;
+}
+
+public final class sk/ainet/decisions/runtime/DecisionRuntime : java/lang/AutoCloseable {
+	public fun <init> (Ljava/util/Collection;)V
+	public fun close ()V
+	public final fun getInstalledModels ()Ljava/util/Set;
+	public final fun openSession (Lsk/ainet/decisions/ModelSelector;)Lsk/ainet/decisions/runtime/DecisionSession;
+}
+
+public final class sk/ainet/decisions/runtime/DecisionSession : java/lang/AutoCloseable {
+	public fun close ()V
+	public final fun decide (Lsk/ainet/decisions/DecisionRequest;Lsk/ainet/decisions/AcceptancePolicy;)Lsk/ainet/decisions/DecisionResult;
+	public static synthetic fun decide$default (Lsk/ainet/decisions/runtime/DecisionSession;Lsk/ainet/decisions/DecisionRequest;Lsk/ainet/decisions/AcceptancePolicy;ILjava/lang/Object;)Lsk/ainet/decisions/DecisionResult;
+	public final fun getCapabilities ()Lsk/ainet/decisions/AdapterCapabilities;
+}
+
+public final class sk/ainet/decisions/runtime/RequestValidator {
+	public static final field INSTANCE Lsk/ainet/decisions/runtime/RequestValidator;
+	public final fun validate (Lsk/ainet/decisions/DecisionRequest;Lsk/ainet/decisions/AdapterCapabilities;)V
+}
+
+public final class sk/ainet/decisions/runtime/SchemaSessionsKt {
+	public static final fun decide (Lsk/ainet/decisions/runtime/DecisionSession;Lsk/ainet/decisions/dsl/DecisionSchema;Ljava/lang/String;Ljava/lang/String;Lsk/ainet/decisions/AcceptancePolicy;)Lsk/ainet/decisions/DecisionResult;
+	public static final fun decide (Lsk/ainet/decisions/runtime/DecisionSession;Lsk/ainet/decisions/dsl/DecisionSchema;Ljava/lang/String;Lkotlinx/serialization/json/JsonElement;Lsk/ainet/decisions/AcceptancePolicy;)Lsk/ainet/decisions/DecisionResult;
+	public static final fun decide (Lsk/ainet/decisions/runtime/DecisionSession;Lsk/ainet/decisions/dsl/DecisionSchema;Ljava/lang/String;Lsk/ainet/decisions/DecisionState;Lsk/ainet/decisions/AcceptancePolicy;)Lsk/ainet/decisions/DecisionResult;
+	public static synthetic fun decide$default (Lsk/ainet/decisions/runtime/DecisionSession;Lsk/ainet/decisions/dsl/DecisionSchema;Ljava/lang/String;Ljava/lang/String;Lsk/ainet/decisions/AcceptancePolicy;ILjava/lang/Object;)Lsk/ainet/decisions/DecisionResult;
+	public static synthetic fun decide$default (Lsk/ainet/decisions/runtime/DecisionSession;Lsk/ainet/decisions/dsl/DecisionSchema;Ljava/lang/String;Lkotlinx/serialization/json/JsonElement;Lsk/ainet/decisions/AcceptancePolicy;ILjava/lang/Object;)Lsk/ainet/decisions/DecisionResult;
+	public static synthetic fun decide$default (Lsk/ainet/decisions/runtime/DecisionSession;Lsk/ainet/decisions/dsl/DecisionSchema;Ljava/lang/String;Lsk/ainet/decisions/DecisionState;Lsk/ainet/decisions/AcceptancePolicy;ILjava/lang/Object;)Lsk/ainet/decisions/DecisionResult;
+	public static final fun openSession (Lsk/ainet/decisions/runtime/DecisionRuntime;Lsk/ainet/decisions/dsl/DecisionSchema;)Lsk/ainet/decisions/runtime/DecisionSession;
+}
+

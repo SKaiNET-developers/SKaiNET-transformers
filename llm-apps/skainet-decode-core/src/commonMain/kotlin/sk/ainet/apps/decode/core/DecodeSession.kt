@@ -1,10 +1,10 @@
 package sk.ainet.apps.decode.core
 
 import sk.ainet.apps.llm.GGUFModelInfo
-import sk.ainet.apps.llm.ModelFamily
 import sk.ainet.apps.llm.OptimizedLLMMode
 import sk.ainet.apps.llm.OptimizedLLMRuntime
 import sk.ainet.apps.llm.UnifiedModelLoader
+import sk.ainet.apps.llm.families.TransformersFamilies
 import sk.ainet.apps.llm.sampleFromTensor
 import sk.ainet.apps.llm.tokenizer.TokenizerFactory
 import sk.ainet.backend.api.kernel.KernelDispatch
@@ -107,18 +107,19 @@ public class DecodeSession(
         onModelInfo(modelInfo)
         val tokenizer = TokenizerFactory.fromGgufFields(modelInfo.fields)
 
-        val (module, bos) = when (modelInfo.family) {
-            ModelFamily.BITNET -> {
+        val family = modelInfo.identity.family
+        val (module, bos) = when (family) {
+            "bitnet" -> {
                 val loaded = BitNetWeightLoader.loadWithMetadata(ctx, sourceProvider)
                 loaded.model to loaded.metadata.bosTokenId
             }
             else -> {
                 val weights = DecoderGgufWeightLoader(
                     randomAccessProvider = sourceProvider,
-                    acceptedArchitectures = modelInfo.family.architectures + setOf(modelInfo.architecture),
+                    acceptedArchitectures = (TransformersFamilies.forFamily(family)?.architectures ?: emptySet()) + setOf(modelInfo.architecture),
                 ).loadToMapStreaming<FP32, Float>(ctx)
-                val m = when (modelInfo.family) {
-                    ModelFamily.QWEN -> QwenNetworkLoader.fromWeights(weights)
+                val m = when (family) {
+                    "qwen" -> QwenNetworkLoader.fromWeights(weights)
                     else -> LlamaNetworkLoader.fromWeights(weights)
                 }
                 m to weights.metadata.bosTokenId

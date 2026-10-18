@@ -1,12 +1,22 @@
 public final class sk/ainet/models/voxtral/TekkenTokenizerAdapter : sk/ainet/apps/llm/Tokenizer {
 	public static final field Companion Lsk/ainet/models/voxtral/TekkenTokenizerAdapter$Companion;
-	public fun <init> (Lsk/ainet/io/tokenizer/TekkenTokenizer;)V
+	public fun <init> (Lsk/ainet/frontend/tokenizer/TekkenTokenizer;)V
 	public fun decode (I)Ljava/lang/String;
 	public fun decode ([I)Ljava/lang/String;
+	public fun decode ([IZ)Ljava/lang/String;
+	public fun decodeToken (I)Ljava/lang/String;
 	public fun encode (Ljava/lang/String;)[I
-	public fun getBosTokenId ()I
-	public fun getEosTokenId ()I
+	public fun encode (Ljava/lang/String;Z)[I
+	public fun getBosTokenId ()Ljava/lang/Integer;
+	public fun getEosTokenId ()Ljava/lang/Integer;
+	public fun getSpec ()Lsk/ainet/frontend/FrontEndSpec;
+	public fun getSpecialTokens ()Lsk/ainet/frontend/text/SpecialTokens;
 	public fun getVocabSize ()I
+	public fun getVocabulary ()Lsk/ainet/frontend/text/Vocabulary;
+	public synthetic fun invert (Ljava/lang/Object;)Ljava/lang/Object;
+	public fun invert ([I)Ljava/lang/String;
+	public synthetic fun process (Ljava/lang/Object;)Ljava/lang/Object;
+	public fun process (Ljava/lang/String;)[I
 }
 
 public final class sk/ainet/models/voxtral/TekkenTokenizerAdapter$Companion {

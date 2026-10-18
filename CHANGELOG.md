@@ -11,6 +11,263 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.62.1] — 2026-10-17
+
+Against engine **0.61.0**, a transformers-only fix: the JVM Laya loader overload is a member again
+(0.62.0 had made it an extension, which no existing caller imported). Nothing else changes; the BOM
+re-exports `skainet-bom:0.61.0`.
+
+### Fixed
+
+- **`LayaModelLoader.load(directory: Path, …)` is a member again.** 0.62.0 had turned the JVM
+  convenience into an extension function on the common `LayaModelLoader` object; an extension needs
+  an explicit `import sk.ainet.models.laya.load`, so every existing Kotlin caller of
+  `LayaModelLoader.load(dir, ctx, exactGelu = true)` stopped compiling against 0.62.0 — the opposite
+  of the source compatibility 0.62.0 claimed. `LayaModelLoader` is now an `expect` object: the common
+  `load(files, weights, ctx, …)` is unchanged on every target, and the JVM `actual` adds
+  `load(directory, ctx, exactGelu, weightFormFor)` as a member, `@JvmOverloads` so that Java callers
+  get the 0.61 `load(Path, ExecutionContext, boolean)` signature back as well.
+
+## [0.62.0] — 2026-10-17
+
+**Laya on the packed Q8_0 lane.** Against engine **0.61.0** (SKEEP-007, the browser lane:
+quantize-at-load for the SafeTensors and GGUF loaders, the `skainet-backend-wasm-simd` SIMD128
+sidecar, packed-weight dispatch order). The Laya loader is common code over a `RandomAccessSource`,
+and `LayaWeightForms.q8_0For` quantizes the encoder and head projections and the token table to
+Q8_0 at load — about a quarter of the FP32 bytes, served by the packed kernels on every tier. A
+decision-quality gate (every fixture choice agrees with FP32, no value shifts by more than 0.05,
+measured 0.035) is the contract of that lane. The BOM re-exports `skainet-bom:0.61.0`. Engine
+0.61.0 removed its SKEEP-006 compatibility aliases as scheduled; nothing here referenced them. The
+transformers SKEEP-006 schedule moves by one more minor (see *Deprecated*).
+
+### Added
+
+- **Laya on the packed Q8_0 lane** (SKEEP-007 Tier 2 consumer). `LayaModelLoader.load` is common code: the four side files as text plus a `RandomAccessSource` for `model.safetensors`, so the JVM, Android and browser builds share one loader; the JVM `load(directory: Path, …)` is now an extension over it (source-compatible). `weightForm` / `weightFormFor` pass through to the engine's SafeTensors loader, and `LayaWeightForms.q8_0For` quantizes the encoder and head projections and the 256k × 768 token table to Q8_0 at load — about a quarter of the FP32 bytes, served by the packed kernels on every tier. `LayaWeightPreparation` splits the fused `Wqkv` / `Wi` / `in_proj` matrices in their packed form (row blocks are contiguous byte ranges) and wraps the token table as a `PackedRowDequantTensorData`, so the embedding reads rows on demand.
+- **Decision-quality gate for the quantized lane**: `LayaQuantizedParityTest` (model-gated) requires every `predict.json` choice of the Q8_0 agent to agree with the FP32 agent's and no probability, score, noul value or confidence to shift by more than 0.05 (`LAYA_Q8_TOL`; measured 2026-10-16 on the multilingual checkpoint: 5/5 choices agree, 45 values, max shift 0.035). FP32 parity (1.5e-4) remains the contract of the reference lane. On the eager JVM path the Q8_0 lane is a memory measure, not a speed one — the row-major packed kernels run one activation row at a time, so the six fixture cases take 173 s against 69 s in FP32 on a 12-core laptop; the speed comes with the browser sidecar and the compiled lane.
+
+### Changed
+
+- **Engine 0.61.0.** The version catalog moves `sk.ainet.core:*` to 0.61.0; the new
+  `skainet-backend-wasm-simd` module is available to browser builds through the engine BOM.
+
+### Deprecated
+
+- **Schedule moved by one more minor.** The SKEEP-006 legacy surface (`GGUFTokenizer` and its
+  strategies, `TokenizerType`, `SentencePieceSpecialTokens`, `TekkenTokenizerAdapter`, `ModelRegistry`,
+  the `sk.ainet.apps.kllama.GGUFTokenizer` alias) stays at WARNING in 0.62, goes to ERROR in 0.63
+  and leaves in 0.64; `TokenizerFactory` and the `sk.ainet.apps.llm.Tokenizer` sub-interface are
+  deprecated in 0.63 and removed in 0.64. This release carries the engine bump and the quantized
+  Laya lane; the runtimes, CLIs and benchmarks still reach the engine through the factory, and that
+  migration stays a release of its own.
+
+## [0.61.0] — 2026-10-16
+
+**Padded batches for the encoders.** Against engine **0.60.0**, which gives
+`scaledDotProductAttention` key lengths, a window and a right context carried as op metadata
+(`maskKind`) and a `skainet.sdpa` composite for fused attention kernels. BERT-class encoders and the
+Laya decision models run the sequences of one request as right-padded batches (#490): one attention
+node per layer takes the batch's lengths instead of a dense `[b, 1, S, S]` mask, the lengths are a
+graph input on the compiled path, and the Laya adapter reports `batchSupport = true`. Parity holds
+(the multilingual predict fixtures reproduce through the batched path, 55 values, max |diff| 4.99e-5;
+batched vs single logits within 1.9e-6). On the eager FP32 CPU path a batch saves about 10 % per
+question at best, since that path is compute-bound; the gain is for the compiled lane and for
+accelerators. The BOM re-exports `skainet-bom:0.60.0`. Engine 0.60.0 made its io-core compatibility
+aliases errors; the transformers SKEEP-006 schedule moves by one more minor (see *Deprecated*).
+
+### Added
+
+- **Padded batches for the encoders** (#490): `PaddedBatch` (`transformer-core`) describes a
+  right-padded batch flattened into rows, `row = sequence * seqLen + position`. Every row-wise module
+  stays unchanged; `MultiHeadAttention` and `BertEmbeddings` implement `PaddedBatchAware` and, under
+  `withPaddedBatch(model, batch) { … }`, run attention as `[batch, heads, seqLen, headDim]` with the
+  batch's lengths passed to the engine's `scaledDotProductAttention(keyLengths, window, rightContext)`
+  (engine 0.60): padded keys are excluded by the op's rule and the recorded node carries `maskKind`
+  metadata instead of a dense `[b, 1, S, S]` mask. The single-sequence path is untouched.
+- `BertEncoderRuntime.forwardBatch`, `encodeBatch(tokenIds, seqLen, attentionMask)` (the layout
+  `BatchTokenizer.encodeBatch` produces) and `encodePadded(tokenIds, seqLen, lengths)`: masked mean or
+  CLS pooling over the real rows, projection and L2 normalization per sequence, on the DIRECT and the
+  OPTIMIZED path (the lengths are a graph input, one compiled graph per `batch × seqLen`). Each
+  embedding equals the single-sequence `encode` within 1e-5 on the synthetic checkpoints.
+- `LayaDecisionModel.encodeBatch` / `hiddenBatch` / `logitsBatch` (REQ-EXE-005) and
+  `LayaAgent.logitsFor`: the questions of one request run as padded batches under
+  `LayaAgent.maxBatchTokens` (default 4096 tokens per pass); `decideAll` uses them, `decide` keeps the
+  unpadded single pass. `LayaDecisionAdapter.predict` packs every question first, batches the ones
+  that fit and reports `batchSupport = true`.
+
+### Changed
+
+- **Engine 0.60.0** (`scaledDotProductAttention` with `keyLengths`, `window`, `rightContext`;
+  `skainet.sdpa` composite). The version catalog moves `sk.ainet.core:*` to 0.60.0.
+
+### Deprecated
+
+- **Schedule moved by one more minor.** The SKEEP-006 legacy surface (`GGUFTokenizer` and its
+  strategies, `TokenizerType`, `SentencePieceSpecialTokens`, `TekkenTokenizerAdapter`, `ModelRegistry`,
+  the `sk.ainet.apps.kllama.GGUFTokenizer` alias) stays at WARNING in 0.61, goes to ERROR in 0.62
+  and leaves in 0.63; `TokenizerFactory` and the `sk.ainet.apps.llm.Tokenizer` sub-interface are
+  deprecated in 0.62 and removed in 0.63. The runtimes, CLIs and benchmarks still reach the engine
+  through the factory; this release carries the engine bump and the batched encoders, and that
+  migration stays a release of its own. The engine's own io-core aliases (`sk.ainet.io.tokenizer.*`,
+  `sk.ainet.io.model.ModelFormat`, the weight name maps) are errors since engine 0.60.0; the two
+  tests here that still imported `sk.ainet.io.tokenizer.SentencePieceTokenizer` use the
+  `sk.ainet.frontend.tokenizer` home.
+
+## [0.60.0] — 2026-10-15
+
+**Exact GELU from the engine.** Against engine **0.59.0**, which makes `erf` a first-class op and
+gives `gelu` an `approximate` flag carried as op metadata. Laya's decision models now run their
+exact GELU through `gelu(approximate = false)` instead of a host-side loop per FFN per layer, so the
+activation is a regular op on the compiled path (graph executor, backward rule, StableHLO `chlo.erf`
+or `skainet.gelu` composite) and the multilingual predict fixtures still reproduce (55 values,
+max |diff| 4.99e-5). The BOM re-exports `skainet-bom:0.59.0`. The SKEEP-006 deprecation schedule
+moves by one more minor (see *Deprecated*).
+
+### Changed
+
+- **Engine 0.59.0.** The version catalog moves `sk.ainet.core:*` to 0.59.0.
+- **Laya's exact GELU is the engine op.** `LayaGelu` calls `gelu(approximate = false)` (new in
+  engine 0.59.0) instead of copying every activation to the host, applying erf there and copying
+  it back; `exactGelu = true` keeps its meaning and the parity gates are unchanged. The activation
+  is now a regular op on the compiled path (graph executor, backward rule, StableHLO export), and
+  the 22-layer encoder no longer pays 44 host round trips per decision. `LayaGelu.geluErf` /
+  `erf` stay as the double-precision reference the engine kernel is checked against.
+
+### Deprecated
+
+- **Schedule moved by one more minor.** The SKEEP-006 legacy surface (`GGUFTokenizer` and its
+  strategies, `TokenizerType`, `SentencePieceSpecialTokens`, `TekkenTokenizerAdapter`, `ModelRegistry`,
+  the `sk.ainet.apps.kllama.GGUFTokenizer` alias) stays at WARNING in 0.60, goes to ERROR in 0.61
+  and leaves in 0.62; `TokenizerFactory` and the `sk.ainet.apps.llm.Tokenizer` sub-interface are
+  deprecated in 0.61 and removed in 0.62. The runtimes, CLIs and benchmarks still reach the engine
+  through the factory (about thirty main-source files); that migration is a release of its own and
+  did not fit next to the engine bump. This matches the engine, whose io-core aliases also stay at
+  WARNING in 0.59.
+
+## [0.59.0] — 2026-10-13
+
+**Typed decisions.** Three new modules on the JVM path, against engine **0.58.0**: the
+`sk.ainet.decisions` contract (choice, score, boolean probability; accepted, abstained or failed,
+never a silent guess), the runtime that validates a request and applies the caller's acceptance
+policy, and **Laya** (mmBERT-base encoder + decision head, Apache 2.0) as the first
+`DecisionAdapter`, verified against the reference fixtures of the multilingual checkpoint. A Kotlin
+DSL (`decisionSchema { }`, `decisionRequest { }`, `acceptancePolicy { }`) and typed readback on
+`DecisionResult` round it off. `HuggingFaceBPETokenizer` is gone; the remaining SKEEP-006
+deprecations move one minor (see *Deprecated*). No engine bump: the BOM re-exports `skainet-bom:0.58.0`.
+
+### Added
+
+- **Typed decisions and the Laya adapter.** Three new modules bring decision models
+  ("System 1": a typed answer instead of generated text) to the JVM path:
+  - `skainet-transformers-decisions-api` (`sk.ainet.decisions`, no engine dependency): a
+    `DecisionRequest` carries a text or structured state and up to 64 questions of three
+    primitives, `ChoiceQuestion` (one option out of a list), `ScoreQuestion` (an ordinal scale)
+    and `BooleanProbabilityQuestion` (P(statement is true)). Every question ends in a
+    `QuestionOutcome`: `Accepted(decision)`, `Abstained(reason, candidate)` or `Failed(error)`,
+    never a silent guess; an `AcceptancePolicy` sets the inclusive confidence, margin and
+    probability thresholds. `Provenance` records model, policy, preprocessing version, calibration
+    status and per-question packing traces.
+  - `skainet-transformers-decisions-runtime`: `DecisionRuntime(adapters).openSession(model)
+    .decide(request, policy)` validates the request against the adapter's `AdapterCapabilities`
+    and applies the policy (`AcceptanceEngine`); `FakeAdapter`-based conformance tests document
+    the contract any adapter must meet.
+  - `skainet-transformers-inference-laya` (`sk.ainet.models.laya`): the Laya multilingual
+    checkpoint (mmBERT-base encoder, two-layer decision head, type embedding and scorer; Apache
+    2.0, Convai Innovations) as a `DecisionAdapter`. Preprocessing is a port of the reference
+    `build_sequence` (CPython `json.dumps` parity included), the encoder runs on the FP32 CPU
+    path with exact (erf) GELU, and the JVM `LayaModelLoader` reads the SafeTensors directory.
+    Verified against the reference fixtures shipped with the checkpoint: 26/26 sequences, a
+    40-text tokenizer corpus and the six `predict.json` cases within 5e-5. The Metaspace BPE
+    tokenizer and the added-token `lstrip` flag it needs are engine 0.58.0 features (SKEEP-006).
+- **Decision DSL** (`sk.ainet.decisions.dsl`, in `decisions-api`): `decisionSchema(id) { }` declares
+  the questions, policy and model once and stamps out a `DecisionRequest` per state;
+  `decisionRequest(id) { }` and `acceptancePolicy(id, version) { }` build a single request or policy;
+  `choice`/`score`/`probability` take blocks or varargs. `decisions-runtime` adds
+  `DecisionRuntime.openSession(schema)` and `DecisionSession.decide(schema, requestId, state)`.
+  Typed readback on `DecisionResult`: `choice(id)`, `score(id)`, `boolean(id)` (null when abstained
+  or failed), `probabilityTrue(id)`, `outcome.candidate`, `accepted(id)`, `isComplete`, `summary()`.
+  The DSL produces the same data classes as the constructors, so nothing changes on the wire.
+
+### Removed
+
+- `HuggingFaceBPETokenizer` (deprecated in 0.58 with no callers; the engine's `QwenByteLevelBpeTokenizer`
+  and `MetaspaceBpeTokenizer` replace it through `TokenizerFactory.fromTokenizerJsonString`).
+
+### Deprecated
+
+- **Schedule moved by one minor.** The remaining SKEEP-006 legacy surface (`GGUFTokenizer` and its
+  strategies, `TokenizerType`, `SentencePieceSpecialTokens`, `TekkenTokenizerAdapter`, `ModelRegistry`,
+  the `sk.ainet.apps.kllama.GGUFTokenizer` alias) stays at WARNING in 0.59, goes to ERROR in 0.60
+  and leaves in 0.61; `TokenizerFactory` and the `sk.ainet.apps.llm.Tokenizer` sub-interface are
+  deprecated in 0.60 and removed in 0.61. The runtimes, CLIs and benchmarks still reach the engine
+  through the factory, and moving them is a release of its own.
+
+## [0.58.0] — 2026-10-13
+
+Lock-step with **SKaiNET engine 0.58.0** (input front ends and model identity, SKEEP-006). The
+tokenizers move into the engine; this release makes every transformers path consume them and
+introduces the family descriptors that replace the `ModelFamily` enum. Java binaries built against
+0.57 must be recompiled (see *Binary compatibility*).
+
+The three tokenizer fixes below are the Lane 2 work of the `tokenizer.json` parity gate (#471),
+contributed by [@Sehul07](https://github.com/Sehul07) in #480, #481 and #482.
+
+### Fixed
+
+- **`GGUFTokenizer.fromTokenizerJson` reads array-form merges** (#472). `tokenizers` 0.20+ writes
+  each BPE merge as `["a", "b"]` instead of `"a b"`; the merges block was only parsed in the string
+  form, so every merge of a modern `tokenizer.json` was dropped and encoding fell back to
+  character-by-character merges in vocabulary order. Both forms now produce the same ranks.
+- **`GGUFTokenizer.fromTokenizerJson` honours the Metaspace `prepend_scheme`** (#473). The JSON path
+  assumed that no `▁` is prepended to the first word; files that declare
+  `"prepend_scheme": "always"` (or a legacy `Prepend` normalizer) encoded the first word one id off
+  from the reference. Gemma 4, which declares neither, is unchanged.
+- **`BPEStrategy.preprocess` applies the full byte-to-unicode table** (#474). Only spaces were
+  mapped to `Ġ`; newlines, tabs and every non-ASCII character were passed through as is, so their
+  byte-level vocabulary entries (`Ċ`, `ĉ`, `Ã¼`, …) never matched and they encoded as unknown.
+  `postprocess` already had the inverse table; the forward pass now uses the same one.
+
+### Changed
+
+- **Tokenization is the engine's job (SKEEP-006).** `sk.ainet.apps.llm.Tokenizer` is now a
+  sub-interface of the engine's `sk.ainet.frontend.text.Tokenizer` (same `encode` / `decode`,
+  plus `vocabulary`, `specialTokens`, the `addSpecialTokens` / `skipSpecialTokens` overloads
+  and `decodeToken`; the `-1` bos/eos sentinels and `decode(Int)` stay for two releases).
+  `TokenizerFactory` is engine-backed on every path — byte-level BPE, Metaspace BPE, SentencePiece,
+  Unigram, WordPiece, Tekken — and gains `fromTekkenJson`, `resolve(view)` and `fromCheckpoint(view)`;
+  `GemmaStopTokens.resolve` accepts any engine tokenizer. Every runtime, CLI, Java facade and
+  benchmark now resolves its tokenizer through the factory: kgemma (`GemmaChatModel`,
+  `FunctionGemma`, CLI), kllama (JVM / native / browser CLIs, `KLlamaJava`), `gemma-iree`,
+  `llm-performance`, `skainet-cli`, `skainet-decode-core`; the bert Java facade and
+  `BertEmbeddingModel` use the engine `WordPieceTokenizer`. SafeTensors paths also read
+  `tokenizer_config.json`. Token ids on the former legacy paths change to the reference ids.
+- **Families are descriptors.** `sk.ainet.apps.llm.families.TransformersFamilies` (Llama, Qwen,
+  Gemma, Apertus, BitNet, BERT, Voxtral, Whisper, Moonshine, T5) replaces the `ModelFamily` enum
+  and `ModelRegistry.detect`; `GGUFModelInfo.identity` / `.view` expose the engine identity and
+  checkpoint view. `skainet-cli` and `skainet-decode-core` switch on the string family.
+- Engine pin `skainet 0.57.0 → 0.58.0`; new dependency aliases
+  `skainet-model-identity`, `skainet-frontend-core`, `skainet-frontend-text`.
+
+### Binary compatibility
+
+- The JVM dumps of `llm-core`, `bert`, `voxtral`, `kgemma` and `kllama` show signature changes,
+  not removals: `Tokenizer.getBosTokenId()` / `getEosTokenId()` now return the boxed `Integer`
+  the engine contract declares (Kotlin and Java sources compile unchanged; Java binaries built
+  against 0.57 must be recompiled), `GemmaStopTokens.resolve` takes the engine `Tokenizer`,
+  `KBertSession` takes the engine `WordPieceTokenizer`, and the constructors of the deprecated
+  `SentencePieceSpecialTokens` / `TekkenTokenizerAdapter` name the engine classes behind the
+  former `sk.ainet.io.tokenizer` aliases.
+
+### Deprecated (WARNING; ERROR in 0.59; removed in 0.60)
+
+- `GGUFTokenizer`, its strategies (`BPEStrategy`, `SentencePieceStrategy`, `WordPieceStrategy`,
+  `UnknownStrategy`), `TokenizerType` / `TokenizerStrategy`, `HuggingFaceBPETokenizer`
+  (removed in 0.59, no callers), `SentencePieceSpecialTokens`, bert `HuggingFaceTokenizer` /
+  `TokenizerOutput`, `TekkenTokenizerAdapter` (now reads bos/eos/vocab size from the file),
+  the kllama `GGUFTokenizer` alias, the `ModelFamily` enum and `ModelRegistry`. Behaviour of the
+  deprecated classes is unchanged; they are never silently forwarded to the engine (FE-D-01).
+  The `androidNativeArm32` `NativeFunctionGemma` keeps the legacy GGUF parser until that target
+  has a random-access file source.
+
 ## [0.57.1] — 2026-09-27
 
 Ships against **SKaiNET engine 0.57.0**: this release touches only the Android IREE runtime's

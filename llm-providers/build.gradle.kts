@@ -35,6 +35,7 @@ dependencies {
     implementation(libs.skainet.backend.cpu)
     implementation(libs.skainet.io.core)
     implementation(libs.skainet.io.safetensors)
+    implementation(libs.skainet.frontend.text)
     implementation(libs.skainet.data.source)
     implementation(libs.kotlinx.io.core)
 

@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION")
+
 package sk.ainet.apps.llm.tokenizer
 
 import sk.ainet.apps.llm.TokenizerStrategy
@@ -7,6 +9,7 @@ import sk.ainet.apps.llm.TokenizerType
  * Fallback tokenizer strategy when the tokenizer type cannot be determined.
  * Defaults to SentencePiece-like behavior as it's most common in GGUF models.
  */
+@Deprecated("Preprocessing strategy of the legacy GGUFTokenizer (SKEEP-006); removed in 0.60.")
 public object UnknownStrategy : TokenizerStrategy {
     override val type: TokenizerType = TokenizerType.UNKNOWN
 
