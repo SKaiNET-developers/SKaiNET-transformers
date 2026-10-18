@@ -112,6 +112,14 @@ aliases errors; the transformers SKEEP-006 schedule moves by one more minor (see
   tests here that still imported `sk.ainet.io.tokenizer.SentencePieceTokenizer` use the
   `sk.ainet.frontend.tokenizer` home.
 
+### Fixed
+
+- **Moonshine streaming: no zero-audio context at the utterance start** (`moonshine_stream_jni.c`). The first
+  encoder window fed the frontend four frames of zero samples as left context; past the first convolution's bias those
+  are non-zero features where the model zero-pads, which corrupted the first memory rows and, through attention, whole
+  transcripts (an empty final for "Fail again, fail better."). The window at frame 0 now starts at sample 0 and keeps
+  its first 64 frontend frames. Finals on the test clips match the reference model.
+
 ## [0.60.0] — 2026-10-15
 
 **Exact GELU from the engine.** Against engine **0.59.0**, which makes `erf` a first-class op and
