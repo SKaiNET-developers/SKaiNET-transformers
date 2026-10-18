@@ -11,6 +11,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.62.2] — 2026-10-18
+
+Against engine **0.61.0**, a transformers-only fix: the Android runtime's streaming Moonshine libraries
+(`libskainet_moonshine_stream.so`, both ABIs) are rebuilt with the utterance-start fix. The source fix was
+merged after 0.62.1 and the prebuilt libraries were not rebuilt with it, so the 0.62.0 and 0.62.1 AARs carry the old
+code. Nothing else changes; the BOM re-exports `skainet-bom:0.61.0`.
+
+### Fixed
+
+- **Moonshine streaming: no zero-audio context at the utterance start** (`moonshine_stream_jni.c`). The first
+  encoder window fed the frontend four frames of zero samples as left context; past the first convolution's bias those
+  are non-zero features where the model zero-pads, which corrupted the first memory rows and, through attention, whole
+  transcripts (an empty final for "Fail again, fail better."). The window at frame 0 now starts at sample 0 and keeps
+  its first 64 frontend frames. Finals on the test clips match the reference model. (#500)
+
 ## [0.62.1] — 2026-10-17
 
 Against engine **0.61.0**, a transformers-only fix: the JVM Laya loader overload is a member again
@@ -111,14 +126,6 @@ aliases errors; the transformers SKEEP-006 schedule moves by one more minor (see
   `sk.ainet.io.model.ModelFormat`, the weight name maps) are errors since engine 0.60.0; the two
   tests here that still imported `sk.ainet.io.tokenizer.SentencePieceTokenizer` use the
   `sk.ainet.frontend.tokenizer` home.
-
-### Fixed
-
-- **Moonshine streaming: no zero-audio context at the utterance start** (`moonshine_stream_jni.c`). The first
-  encoder window fed the frontend four frames of zero samples as left context; past the first convolution's bias those
-  are non-zero features where the model zero-pads, which corrupted the first memory rows and, through attention, whole
-  transcripts (an empty final for "Fail again, fail better."). The window at frame 0 now starts at sample 0 and keeps
-  its first 64 frontend frames. Finals on the test clips match the reference model.
 
 ## [0.60.0] — 2026-10-15
 

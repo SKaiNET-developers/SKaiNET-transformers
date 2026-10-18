@@ -113,7 +113,7 @@ Honest status — see the project-status note at the top of this README.
 
 ## Current release
 
-The current release is **0.62.1**, against **SKaiNET 0.61.0**: a transformers-only fix on 0.62.0, whose JVM `LayaModelLoader.load(directory, …)` had become an extension function that existing callers did not import; it is a member again (`@JvmOverloads`, so Java callers keep the 0.61 signature).
+The current release is **0.62.2**, against **SKaiNET 0.61.0**: a transformers-only fix, the Android runtime's streaming Moonshine libraries are rebuilt with the utterance-start fix (#500; 0.62.0 and 0.62.1 packed the old build, which garbles transcripts on device). It builds on **0.62.1**, a transformers-only fix on 0.62.0, whose JVM `LayaModelLoader.load(directory, …)` had become an extension function that existing callers did not import; it is a member again (`@JvmOverloads`, so Java callers keep the 0.61 signature).
 
 It builds on **0.62.0**, against **SKaiNET 0.61.0**:
 
@@ -301,7 +301,7 @@ The recommended way to consume is via the BOM. It pins every published `skainet-
 
 ```kotlin
 dependencies {
-    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.62.1"))
+    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.62.2"))
 
     // Versions resolved from the BOM:
     implementation("sk.ainet.transformers:skainet-transformers-core")
