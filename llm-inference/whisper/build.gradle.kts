@@ -25,6 +25,21 @@ kotlin {
             implementation(project(":llm-core")) // brings transformer-core transitively
             implementation(libs.kotlinx.io.core)
         }
+        val jvmMain by getting {
+            dependencies {
+                // Host tooling: Hugging Face checkpoint -> StableHLO export (WhisperExportCli).
+                // JVM only, so commonMain keeps its footprint.
+                implementation(libs.skainet.compile.dag)
+                implementation(libs.skainet.compile.hlo)
+                implementation(libs.skainet.compile.opt)
+                implementation(libs.skainet.backend.cpu)   // the masks are baked as real constants
+                implementation(libs.kotlinx.serialization.json)
+                // NOTE: sk.ainet.core:skainet-io-iree-params (IrpaWriter) was evaluated for the
+                // merged prefill/step weights archive and REJECTED by the IREE 3.x runtime
+                // (header_size=40 vs required 88; unpacked entry structs). The harness emits
+                // the packed IRPA v0 layout itself — see WhisperExportHarness.writeIrpa.
+            }
+        }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
             implementation(libs.skainet.backend.cpu)
@@ -38,11 +53,24 @@ kotlin {
                 implementation(libs.skainet.compile.dag)
                 implementation(libs.skainet.compile.hlo)
                 implementation(libs.skainet.compile.opt)
-                // NOTE: sk.ainet.core:skainet-io-iree-params (IrpaWriter) was evaluated for the
-                // merged prefill/step weights archive and REJECTED by the IREE 3.x runtime
-                // (header_size=40 vs required 88; unpacked entry structs). The harness emits
-                // the packed IRPA v0 layout itself — see WhisperExportHarness.writeIrpa.
             }
         }
     }
+}
+
+tasks.withType<JavaExec>().configureEach {
+    minHeapSize = "2g"
+    maxHeapSize = "8g"
+}
+
+tasks.register<JavaExec>("exportWhisper") {
+    group = "bridge"
+    description = "Export Whisper -> StableHLO MLIR (encoder, prefill, step) + merged params.irpa + manifest.json from a Hugging Face snapshot."
+    val jvmMainComp = kotlin.jvm().compilations.getByName("main")
+    dependsOn(jvmMainComp.compileTaskProvider)
+    classpath = jvmMainComp.output.allOutputs + jvmMainComp.runtimeDependencyFiles
+    mainClass.set("sk.ainet.models.whisper.WhisperExportCliKt")
+    listOf(
+        "WHISPER_MODEL_DIR", "WHISPER_OUT_DIR", "WHISPER_AUDIO_CTX", "WHISPER_MAX_POSITIONS", "WHISPER_LANGUAGE",
+    ).forEach { k -> System.getenv(k)?.let { environment(k, it) } }
 }
