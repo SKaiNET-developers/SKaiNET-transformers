@@ -1,4 +1,4 @@
-/* whisper_session_jni.c — Whisper speech-to-text over the IREE runtime (Vulkan or CPU).
+/* whisper_session_jni.c — Whisper speech-to-text over the IREE runtime (Vulkan, CPU, or both).
  *
  * Runs the three graphs of `WhisperExportCli` (`:llm-inference:whisper:exportWhisper`, whisper contract
  * version 2) for one utterance: encoder over a log-mel window, masked prefill of the decode prompt, then
@@ -7,8 +7,8 @@
  * geometry, KV length and vocabulary come from the contract (manifest.json) through nativeCreate.
  *
  * Exposes to sk.ainet.transformers.iree.android.IreeWhisperSession:
- *   long   nativeCreate(String device, String enc, String prefill, String step, String params, String scope,
- *                       String encFn, String prefillFn, String stepFn, int[] geometry)
+ *   long   nativeCreate(String encoderDevice, String decoderDevice, String enc, String prefill, String step,
+ *                       String params, String scope, String encFn, String prefillFn, String stepFn, int[] geometry)
  *            geometry = { nLayers, dModel, audioCtx, nMels, melFrames, maxPositions, vocab }
  *   int[]  nativeDecode(long h, float[] mel, int[] promptIds, int eot, int maxNewTokens, int repeatNgram)
  *            mel = [nMels * melFrames] row-major; returns the generated ids, end-of-text excluded
@@ -18,6 +18,11 @@
  * The step contract (fixed masked KV): self K/V are [1, maxPositions, dModel] and rewritten by the graph at
  * the one-hot write vector `wf`; `addMask` is additive (0 attends, -1e4 blocks) — no boolean tensors, so the
  * graphs stay valid SPIR-V. K/V stay on the device between steps; only the logits row comes back.
+ *
+ * Two devices: the encoder runs on [encoderDevice], prefill and step on [decoderDevice]. The encoder is where a
+ * GPU pays (one large batch over the whole window); the step is a chain of small matrix-vector products whose
+ * cost is close on both, and a graph that one backend cannot compile can stay on the other. When the devices
+ * differ, the encoder features ([1, audioCtx, dModel]) cross once through host memory.
  *
  * Repetition guard: greedy decoding over a short window can transcribe the utterance and then start it again
  * instead of ending (end-of-text is the runner-up, the same tokens come out of the PyTorch reference). With
@@ -52,13 +57,16 @@
 
 typedef struct {
   iree_runtime_instance_t* inst;
-  iree_hal_device_t* dev;
+  iree_hal_device_t* dev;          /* decoder device: prefill, step */
   iree_hal_allocator_t* alloc;
+  iree_hal_device_t* enc_dev;      /* encoder device; the same as dev when one device runs everything */
+  iree_hal_allocator_t* enc_alloc;
   iree_runtime_session_t* enc, *pre, *step;
   iree_vm_module_t* params;
   char fn_enc[160], fn_pre[160], fn_step[160];
   int n_layers, d_model, audio_ctx, n_mels, mel_frames, max_pos, vocab;
   float* logits;                  /* one row, [vocab] */
+  float* feat_host;               /* [audioCtx * dModel], only when the devices differ */
   char stats[256];
 } Session;
 
@@ -107,22 +115,28 @@ static iree_status_t load_params(Session* s, const char* path, const char* scope
   return st;
 }
 
-static iree_status_t load_session(Session* s, const char* path, int with_params, iree_runtime_session_t** out) {
+static iree_status_t load_session(Session* s, iree_hal_device_t* dev, const char* path, int with_params, iree_runtime_session_t** out) {
   iree_runtime_session_options_t o; iree_runtime_session_options_initialize(&o);
-  iree_status_t st = iree_runtime_session_create_with_device(s->inst, &o, s->dev,
+  iree_status_t st = iree_runtime_session_create_with_device(s->inst, &o, dev,
       iree_runtime_instance_host_allocator(s->inst), out);
   if (iree_status_is_ok(st) && with_params) st = iree_runtime_session_append_module(*out, s->params);
   if (iree_status_is_ok(st)) st = iree_runtime_session_append_bytecode_module_from_file(*out, path);
   return st;
 }
 
-static iree_status_t mkview(Session* s, const iree_hal_dim_t* shape, iree_host_size_t rank,
-    iree_hal_element_type_t et, const void* data, size_t bytes, iree_hal_buffer_view_t** out) {
-  return iree_hal_buffer_view_allocate_buffer_copy(s->dev, s->alloc, rank, shape, et,
+static iree_status_t mkview_on(iree_hal_device_t* dev, iree_hal_allocator_t* alloc, const iree_hal_dim_t* shape,
+    iree_host_size_t rank, iree_hal_element_type_t et, const void* data, size_t bytes, iree_hal_buffer_view_t** out) {
+  return iree_hal_buffer_view_allocate_buffer_copy(dev, alloc, rank, shape, et,
       IREE_HAL_ENCODING_TYPE_DENSE_ROW_MAJOR,
       (iree_hal_buffer_params_t){ .type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL,
         .access = IREE_HAL_MEMORY_ACCESS_ALL, .usage = IREE_HAL_BUFFER_USAGE_DEFAULT },
       iree_make_const_byte_span(data, bytes), out);
+}
+
+/* A buffer view on the decoder device. */
+static iree_status_t mkview(Session* s, const iree_hal_dim_t* shape, iree_host_size_t rank,
+    iree_hal_element_type_t et, const void* data, size_t bytes, iree_hal_buffer_view_t** out) {
+  return mkview_on(s->dev, s->alloc, shape, rank, et, data, bytes, out);
 }
 
 /* argmax over the logits row at [row] of [bv] ([1, rows, vocab]). */
@@ -149,16 +163,18 @@ static void destroy(Session* s) {
   if (s->pre) iree_runtime_session_release(s->pre);
   if (s->step) iree_runtime_session_release(s->step);
   if (s->params) iree_vm_module_release(s->params);
+  if (s->enc_dev) iree_hal_device_release(s->enc_dev);
   if (s->dev) iree_hal_device_release(s->dev);
   if (s->inst) iree_runtime_instance_release(s->inst);
   free(s->logits);
+  free(s->feat_host);
   free(s);
 }
 
 #define JNIFN(name) Java_sk_ainet_transformers_iree_android_IreeWhisperSession_##name
 
 JNIEXPORT jlong JNICALL JNIFN(nativeCreate)(JNIEnv* env, jobject thiz,
-    jstring jdev, jstring jenc, jstring jpre, jstring jstep, jstring jparams, jstring jscope,
+    jstring jencdev, jstring jdev, jstring jenc, jstring jpre, jstring jstep, jstring jparams, jstring jscope,
     jstring jfenc, jstring jfpre, jstring jfstep, jintArray jgeom) {
   if ((*env)->GetArrayLength(env, jgeom) != 7) { throw_msg(env, "whisper: geometry must have 7 entries"); return 0; }
   jint g[7]; (*env)->GetIntArrayRegion(env, jgeom, 0, 7, g);
@@ -171,6 +187,7 @@ JNIEXPORT jlong JNICALL JNIFN(nativeCreate)(JNIEnv* env, jobject thiz,
   s->max_pos = g[5]; s->vocab = g[6];
   s->logits = malloc((size_t)s->vocab * sizeof(float));
 
+  const char* encdev = (*env)->GetStringUTFChars(env, jencdev, 0);
   const char* dev = (*env)->GetStringUTFChars(env, jdev, 0);
   const char* enc = (*env)->GetStringUTFChars(env, jenc, 0);
   const char* pre = (*env)->GetStringUTFChars(env, jpre, 0);
@@ -190,12 +207,22 @@ JNIEXPORT jlong JNICALL JNIFN(nativeCreate)(JNIEnv* env, jobject thiz,
   iree_runtime_instance_options_use_all_available_drivers(&io);
   iree_status_t st = s->logits ? iree_runtime_instance_create(&io, iree_allocator_system(), &s->inst)
                                : iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED, "logits row");
-  if (iree_status_is_ok(st)) { what = "device"; st = iree_runtime_instance_try_create_default_device(s->inst, iree_make_cstring_view(dev), &s->dev); }
+  if (iree_status_is_ok(st)) { what = "decoder device"; st = iree_runtime_instance_try_create_default_device(s->inst, iree_make_cstring_view(dev), &s->dev); }
+  if (iree_status_is_ok(st)) {
+    what = "encoder device";
+    if (strcmp(encdev, dev) == 0) { s->enc_dev = s->dev; iree_hal_device_retain(s->enc_dev); }
+    else {
+      st = iree_runtime_instance_try_create_default_device(s->inst, iree_make_cstring_view(encdev), &s->enc_dev);
+      s->feat_host = malloc((size_t)s->audio_ctx * s->d_model * sizeof(float));
+      if (iree_status_is_ok(st) && !s->feat_host) st = iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED, "feature buffer");
+    }
+  }
   if (iree_status_is_ok(st)) { what = "parameters"; st = load_params(s, par, scope); }
-  if (iree_status_is_ok(st)) { what = "encoder module"; st = load_session(s, enc, 0, &s->enc); }
-  if (iree_status_is_ok(st)) { s->alloc = iree_runtime_session_device_allocator(s->enc); what = "prefill module"; st = load_session(s, pre, 1, &s->pre); }
-  if (iree_status_is_ok(st)) { what = "step module"; st = load_session(s, stp, 1, &s->step); }
+  if (iree_status_is_ok(st)) { what = "encoder module"; st = load_session(s, s->enc_dev, enc, 0, &s->enc); }
+  if (iree_status_is_ok(st)) { s->enc_alloc = iree_runtime_session_device_allocator(s->enc); what = "prefill module"; st = load_session(s, s->dev, pre, 1, &s->pre); }
+  if (iree_status_is_ok(st)) { s->alloc = iree_runtime_session_device_allocator(s->pre); what = "step module"; st = load_session(s, s->dev, stp, 1, &s->step); }
 
+  (*env)->ReleaseStringUTFChars(env, jencdev, encdev);
   (*env)->ReleaseStringUTFChars(env, jdev, dev); (*env)->ReleaseStringUTFChars(env, jenc, enc);
   (*env)->ReleaseStringUTFChars(env, jpre, pre); (*env)->ReleaseStringUTFChars(env, jstep, stp);
   (*env)->ReleaseStringUTFChars(env, jparams, par); (*env)->ReleaseStringUTFChars(env, jscope, scope);
@@ -233,14 +260,23 @@ static iree_status_t decode(Session* s, const float* mel, const int32_t* prompt,
   *n_out = 0;
 
   /* encoder: mel [1, nMels, melFrames] → features [1, audioCtx, dModel] */
-  iree_status_t st = mkview(s, (iree_hal_dim_t[]){1, s->n_mels, s->mel_frames}, 3, IREE_HAL_ELEMENT_TYPE_FLOAT_32,
-      mel, (size_t)s->n_mels * s->mel_frames * sizeof(float), &mel_bv);
+  iree_status_t st = mkview_on(s->enc_dev, s->enc_alloc, (iree_hal_dim_t[]){1, s->n_mels, s->mel_frames}, 3,
+      IREE_HAL_ELEMENT_TYPE_FLOAT_32, mel, (size_t)s->n_mels * s->mel_frames * sizeof(float), &mel_bv);
   if (iree_status_is_ok(st)) st = iree_runtime_call_initialize_by_name(s->enc, iree_make_cstring_view(s->fn_enc), &c);
   if (iree_status_is_ok(st)) {
     st = iree_runtime_call_inputs_push_back_buffer_view(&c, mel_bv);
     if (iree_status_is_ok(st)) st = iree_runtime_call_invoke(&c, 0);
     if (iree_status_is_ok(st)) st = iree_runtime_call_outputs_pop_front_buffer_view(&c, &feat);
     iree_runtime_call_deinitialize(&c);
+  }
+  if (iree_status_is_ok(st) && s->enc_dev != s->dev) {
+    /* the features cross to the decoder device once */
+    const size_t bytes = (size_t)s->audio_ctx * s->d_model * sizeof(float);
+    st = iree_hal_device_transfer_d2h(s->enc_dev, iree_hal_buffer_view_buffer(feat), 0, s->feat_host, bytes,
+        IREE_HAL_TRANSFER_BUFFER_FLAG_DEFAULT, iree_infinite_timeout());
+    iree_hal_buffer_view_release(feat); feat = NULL;
+    if (iree_status_is_ok(st)) st = mkview(s, (iree_hal_dim_t[]){1, s->audio_ctx, s->d_model}, 3, IREE_HAL_ELEMENT_TYPE_FLOAT_32,
+        s->feat_host, bytes, &feat);
   }
   t_enc = now_ms() - t0;
 

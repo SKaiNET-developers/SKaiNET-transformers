@@ -11,17 +11,26 @@ package sk.ainet.transformers.iree.android
  *
  * Nothing about the checkpoint is compiled into the library: the [Contract] (from the export's
  * `manifest.json`) carries geometry, function names, parameter scope and the prompt, so one library serves
- * tiny, base, small and the English-only variants. One instance = one decode at a time; callers serialize
+ * tiny, base, small and the English-only variants.
+ *
+ * The encoder and the decoder graphs can run on different devices: `IreeWhisperSession("vulkan", files, contract,
+ * decoderDevice = "local-task")` puts the encoder — one large batch over the whole window, where a GPU pays — on
+ * the GPU and prefill and step — chains of small matrix-vector products — on the CPU; the encoder features cross
+ * once through host memory. The vmfbs must be compiled for the device each one runs on.
+ *
+ * One instance = one decode at a time; callers serialize
  * access. Every native failure surfaces as an [IllegalStateException].
  * The package/class name is the JNI symbol contract with the library — do not move/rename.
  */
 public class IreeWhisperSession(
-    /** `"vulkan"` (GPU) or `"local-task"` (CPU). */
+    /** `"vulkan"` (GPU) or `"local-task"` (CPU): the encoder's device, and the decoder's unless [decoderDevice] says otherwise. */
     device: String,
     /** The four model files, by absolute path. */
     files: Files,
     /** The graph contract the files were exported with. */
     public val contract: Contract,
+    /** The device prefill and step run on. */
+    decoderDevice: String = device,
 ) : AutoCloseable {
     /** Absolute paths of the model files the runtime opens. */
     public data class Files(
@@ -90,7 +99,7 @@ public class IreeWhisperSession(
     init {
         loadNativeLibrary()
         handle = nativeCreate(
-            device, files.encoderVmfb, files.prefillVmfb, files.stepVmfb, files.paramsIrpa, contract.parameterScope,
+            device, decoderDevice, files.encoderVmfb, files.prefillVmfb, files.stepVmfb, files.paramsIrpa, contract.parameterScope,
             contract.encoderFunction, contract.prefillFunction, contract.stepFunction, contract.geometry(),
         )
     }
@@ -126,7 +135,7 @@ public class IreeWhisperSession(
     override fun close() { if (handle != 0L) { nativeDestroy(handle); handle = 0 } }
 
     private external fun nativeCreate(
-        device: String, enc: String, prefill: String, step: String, params: String, scope: String,
+        encoderDevice: String, decoderDevice: String, enc: String, prefill: String, step: String, params: String, scope: String,
         encFn: String, prefillFn: String, stepFn: String, geometry: IntArray,
     ): Long
     private external fun nativeDecode(handle: Long, mel: FloatArray, promptIds: IntArray, eot: Int, maxNewTokens: Int, repeatNgram: Int): IntArray

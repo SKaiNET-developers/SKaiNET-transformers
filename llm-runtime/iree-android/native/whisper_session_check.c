@@ -3,7 +3,7 @@
  * A minimal JNIEnv (only the functions the library calls) backed by plain C data: dlopen the library, then
  * nativeCreate → nativeDecode (repeated, for warm timings) → nativeStats → nativeDestroy, and print the ids.
  *
- *   whisper_session_check <lib.so> <device> <dir> <mel.bin> <geometry> <promptIds> <eot> [runs] [repeatNgram]
+ *   whisper_session_check <lib.so> <encoderDevice[:decoderDevice]> <dir> <mel.bin> <geometry> <promptIds> <eot> [runs] [repeatNgram]
  *     dir       holds encoder.vmfb, prefill.vmfb, step.vmfb, params.irpa
  *     mel.bin   little-endian f32, nMels * melFrames values
  *     geometry  nLayers,dModel,audioCtx,nMels,melFrames,maxPositions,vocab   (from manifest.json)
@@ -46,7 +46,7 @@ int main(int argc, char** argv) {
   void* lib = dlopen(argv[1], RTLD_NOW);
   if (!lib) { fprintf(stderr, "dlopen: %s\n", dlerror()); return 2; }
 #define SYM(n) dlsym(lib, "Java_sk_ainet_transformers_iree_android_IreeWhisperSession_" n)
-  jlong (*create)(JNIEnv*, jobject, jstring, jstring, jstring, jstring, jstring, jstring, jstring, jstring, jstring, jintArray) = SYM("nativeCreate");
+  jlong (*create)(JNIEnv*, jobject, jstring, jstring, jstring, jstring, jstring, jstring, jstring, jstring, jstring, jstring, jintArray) = SYM("nativeCreate");
   jintArray (*decode)(JNIEnv*, jobject, jlong, jfloatArray, jintArray, jint, jint, jint) = SYM("nativeDecode");
   jstring (*stats)(JNIEnv*, jobject, jlong) = SYM("nativeStats");
   void (*destroy)(JNIEnv*, jobject, jlong) = SYM("nativeDestroy");
@@ -64,7 +64,12 @@ int main(int argc, char** argv) {
   snprintf(enc, sizeof enc, "%s/encoder.vmfb", argv[3]); snprintf(pre, sizeof pre, "%s/prefill.vmfb", argv[3]);
   snprintf(step, sizeof step, "%s/step.vmfb", argv[3]); snprintf(par, sizeof par, "%s/params.irpa", argv[3]);
   Arr geom = ints(argv[5]), prompt = ints(argv[6]);
-  jlong h = create(env, NULL, (jstring)argv[2], (jstring)enc, (jstring)pre, (jstring)step, (jstring)par, (jstring)"model",
+  /* "vulkan:local-task" = encoder on the GPU, prefill and step on the CPU */
+  char encdev[64]; snprintf(encdev, sizeof encdev, "%s", argv[2]);
+  char* colon = strchr(encdev, ':');
+  const char* decdev = colon ? colon + 1 : encdev;
+  if (colon) *colon = 0;
+  jlong h = create(env, NULL, (jstring)encdev, (jstring)decdev, (jstring)enc, (jstring)pre, (jstring)step, (jstring)par, (jstring)"model",
       (jstring)"whisper_encoder", (jstring)"whisper_prefill", (jstring)"whisper_step", (jintArray)&geom);
   if (!h || thrown) { fprintf(stderr, "nativeCreate failed\n"); return 4; }
 
