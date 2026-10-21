@@ -23,7 +23,18 @@ class LayaSequenceFixtureTest {
     @Test
     fun `multilingual sequence fixtures reproduce exactly`() {
         val pre = LayaFixtures.preprocessor() ?: return
-        val fixture = LayaFixtures.resource("sequences.json")["multilingual"]!!.jsonObject
+        check("multilingual", pre, minCases = 26)
+    }
+
+    /** The same contract for the ModernBERT-large checkpoint (`laya-typed-decisions`, the expert heads' base). */
+    @Test
+    fun `english sequence fixtures reproduce exactly`() {
+        val pre = LayaFixtures.preprocessor(LayaFixtures.TYPED_DECISIONS_ENV) ?: return
+        check("english", pre, minCases = 26)
+    }
+
+    private fun check(section: String, pre: LayaPreprocessor, minCases: Int) {
+        val fixture = LayaFixtures.resource("sequences.json")[section]!!.jsonObject
         val special = fixture["special_ids"]!!.jsonObject
         assertEquals(special["cls"]!!.jsonPrimitive.int, pre.specialIds.cls, "cls id")
         assertEquals(special["sep"]!!.jsonPrimitive.int, pre.specialIds.sep, "sep id")
@@ -61,9 +72,9 @@ class LayaSequenceFixtureTest {
                 failures += "$name: ${e::class.simpleName}: ${e.message}"
             }
         }
-        println("[laya] sequences.json multilingual: $passed passed, ${failures.size} failed")
+        println("[laya] sequences.json $section: $passed passed, ${failures.size} failed")
         if (failures.isNotEmpty()) fail(failures.joinToString("\n"))
-        assertTrue(passed >= 26, "expected at least 26 cases, saw $passed")
+        assertTrue(passed >= minCases, "expected at least $minCases cases, saw $passed")
     }
 
     private fun questionOf(q: JsonObject): LayaQuestion {
