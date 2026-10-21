@@ -28,6 +28,7 @@ Q8_0 lane are unaffected.
 
 ### Added
 
+- **iree-android: a Whisper session over the `WhisperExportCli` graphs** — `IreeWhisperSession` with the prebuilt `libskainet_whisper_session.so`, the README section and `IreeWhisperContractTest` (#512).
 - **Whisper export ships as `WhisperExportCli`** in the whisper module's `jvmMain` (was `jvmTest`), like `MoonshineV2ExportCli`: `WhisperExportHarness` is configurable (`WhisperConfig` + `WhisperExportOptions`: audio context, KV length, prompt length, manifest language, parameter scope), `configFromHf` reads geometry and vocabulary from a Hugging Face `config.json` (tiny, base, small and `*.en`), and the Gradle task `exportWhisper` is env-driven (`WHISPER_MODEL_DIR`, `WHISPER_OUT_DIR`, `WHISPER_AUDIO_CTX`, `WHISPER_MAX_POSITIONS`, `WHISPER_LANGUAGE`), so a blueprint can produce the encoder, masked prefill and KV-step graphs with one merged `params.irpa` from the released artifact (#510).
 
 - **Expert heads and routing for Laya** (`sk.ainet.models.laya`): a Laya decision head can be loaded on its own and run on the base model's encoder output. `LayaExpertLoader.load(metaJson, weights, base, ctx)` binds an `expert.safetensors` (the `type_emb.*` / `head.*` / `scorer.*` tensors of a head copied from the base checkpoint and fine-tuned for a domain) with its `expert.json` (name, domains, calibration temperatures) into a `LayaExpert`; `LayaWeightPreparation.prepareHead` and `LayaDecisionModel.buildHead` are the steps underneath, and a head prepared on its own reproduces the base model bit for bit. `LayaDecisionModel.logitsFrom` / `logitsBatchFrom` and `LayaAgent.encodeFor` / `logitsFrom` run any `LayaDecisionHead` on an encoder output computed once, so several heads answer the same sequences for one encoder pass each. `LayaRouterSpec` is the prompted router (the base head answers a choice over kinds of text with descriptions; kind → expert; threshold; `general` fallback), `LayaMixtureAgent.decide(state, questions, expert, compare)` routes and answers with the chosen head (forced head reported as overridden; `compare` adds the base head's answers on the same encoder output; encoder and head timings), and `LayaMixtureDecisionAdapter` puts a mixture behind the typed decision contract with `onRouted` reporting the head that answered. Verified against the published evaluation of layaMOE (gated `LayaMoeEvalTest`, fixtures under `laya-moe/`, Apache-2.0).
@@ -35,7 +36,7 @@ Q8_0 lane are unaffected.
 
 ### Changed
 
-- Engine pin **SKaiNET 0.62.0** (`skainet-bom:0.62.0` re-exported by the BOM); kotest 6.2.6.
+- Engine pin **SKaiNET 0.62.0** (`skainet-bom:0.62.0` re-exported by the BOM); kotest 6.2.6. The llama `ForwardScopeSteadyStateTest` pins the scoped decode to within four ulp of the unscoped one instead of raw-bit identity: since 0.62.0 the JVM ops route slab-backed and heap activations through kernels whose accumulation order can differ by one ulp.
 - `LayaEncoderConfig.requireSupported()` accepts `position_embedding_type: "absolute"` beside `"sans_pos"`: ModernBERT positions are rotary whatever the field says, and transformers 5 exports (`convaiinnovations/laya-typed-decisions`) write `absolute`. The English checkpoint loads and its `sequences.json` section reproduces (gated on `LAYA_TYPED_DECISIONS_PATH`).
 
 ## [0.62.2] — 2026-10-18
