@@ -113,7 +113,9 @@ Honest status — see the project-status note at the top of this README.
 
 ## Current release
 
-The current release is **0.62.2**, against **SKaiNET 0.61.0**: a transformers-only fix, the Android runtime's streaming Moonshine libraries are rebuilt with the utterance-start fix (#500; 0.62.0 and 0.62.1 packed the old build, which garbles transcripts on device). It builds on **0.62.1**, a transformers-only fix on 0.62.0, whose JVM `LayaModelLoader.load(directory, …)` had become an extension function that existing callers did not import; it is a member again (`@JvmOverloads`, so Java callers keep the 0.61 signature).
+The current release is **0.63.0**, against **SKaiNET 0.62.0**: expert heads and routing for Laya — a decision head fine-tuned on top of the frozen encoder (`expert.safetensors` + `expert.json`) loads on its own with `LayaExpertLoader`, any number of heads share one encoder pass per question (`LayaDecisionModel.logitsFrom`), `LayaRouterSpec` + `LayaMixtureAgent` route a request by asking the base head what kind of text it is, and `LayaMixtureDecisionAdapter` puts the mixture behind the typed decision contract; verified against the published layaMOE evaluation. The ModernBERT-large `laya-typed-decisions` checkpoint loads (`position_embedding_type: absolute`). The whisper StableHLO export ships as `WhisperExportCli`. Engine 0.62.0 brings the JVM ↔ Kotlin/Wasm parity: every kernel on the wasm tier, resident activations, fused attention / norms / softmax, browser IO parity. The Laya Q8_0 lane on the desktop JVM with the native provider needs engine 0.62.1 (SKaiNET #1436).
+
+It builds on **0.62.2**, against **SKaiNET 0.61.0**: a transformers-only fix, the Android runtime's streaming Moonshine libraries are rebuilt with the utterance-start fix (#500; 0.62.0 and 0.62.1 packed the old build, which garbles transcripts on device). It builds on **0.62.1**, a transformers-only fix on 0.62.0, whose JVM `LayaModelLoader.load(directory, …)` had become an extension function that existing callers did not import; it is a member again (`@JvmOverloads`, so Java callers keep the 0.61 signature).
 
 It builds on **0.62.0**, against **SKaiNET 0.61.0**:
 
@@ -301,7 +303,7 @@ The recommended way to consume is via the BOM. It pins every published `skainet-
 
 ```kotlin
 dependencies {
-    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.62.2"))
+    implementation(platform("sk.ainet.transformers:skainet-transformers-bom:0.63.0"))
 
     // Versions resolved from the BOM:
     implementation("sk.ainet.transformers:skainet-transformers-core")
