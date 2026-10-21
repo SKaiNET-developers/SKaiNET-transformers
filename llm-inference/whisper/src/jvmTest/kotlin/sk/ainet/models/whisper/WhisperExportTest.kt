@@ -23,16 +23,16 @@ import kotlin.test.assertTrue
  */
 class WhisperExportTest {
 
-    private val cfg = WhisperExportHarness.cfg
-    private val maxP = WhisperExportHarness.MAX_P
+    private val cfg = WhisperExportTestSupport.cfg
+    private val maxP = WhisperExportTestSupport.MAX_P
 
     @Test
     fun exportContractV2() {
-        if (WhisperExportHarness.snapshotDir() == null) {
+        if (WhisperExportTestSupport.snapshotDir() == null) {
             println("SKIP: WHISPER_SAFETENSORS not set"); return
         }
-        val out = WhisperExportHarness.exportOutDir()
-        val r = WhisperExportHarness.export(out)
+        val out = WhisperExportTestSupport.exportOutDir()
+        val r = WhisperExportTestSupport.export(out)
 
         val fSk = "tensor<1x${maxP}x${cfg.dim}xf32>"
         val fCross = "tensor<1x${cfg.audioCtx}x${cfg.dim}xf32>"
