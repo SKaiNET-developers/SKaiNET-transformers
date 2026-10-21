@@ -155,3 +155,53 @@ stream.close()
 `native/build-moonshine-stream.sh <abi> --vulkan` builds it like the other two (`GEOMETRY="-DL=10 -DHD=64
 -DDIM=512 -DENC_DIM=620"` for the split-width `small` checkpoints).
 
+
+## Whisper (`IreeWhisperSession`, `libskainet_whisper_session.so`)
+
+Speech-to-text for one utterance over the three graphs of `WhisperExportCli`
+(`:llm-inference:whisper:exportWhisper`, whisper contract version 2): encoder over a log-mel window, masked
+prefill of the decode prompt, then greedy KV steps until end-of-text. Prefill and step share one parameter
+archive. Nothing about the checkpoint is compiled in — geometry, function names, parameter scope and the
+prompt come from the export's `manifest.json` — so one library serves every Whisper size and the
+English-only variants.
+
+```kotlin
+val contract = IreeWhisperSession.Contract.fromManifest(File(dir, "manifest.json").readText())
+val session = IreeWhisperSession(IreeWhisperSession.VULKAN_DEVICE, IreeWhisperSession.filesIn(dir), contract,
+    decoderDevice = IreeWhisperSession.CPU_DEVICE)        // encoder on the GPU, prefill and step on the CPU
+val mel = MelSpectrogram(MelFilterbanks.slaney(80, 400, 16_000), MelConfig.whisper(maxFrames = contract.melFrames))
+    .logMel(pcm16k).data                                         // SKaiNET-audio's Whisper frontend
+val ids = session.decode(mel)                                   // generated ids, end-of-text excluded
+val text = tokenizer.decode(ids)                                // the checkpoint's tokenizer.json
+```
+
+The step graph's self K/V are `[1, maxPositions, dModel]`, rewritten by the graph at a one-hot write vector;
+the attention mask is additive. Both are built natively per step, the K/V stay on the device and only the
+logits row comes back.
+
+**Repetition guard.** Greedy decoding over a short window can transcribe the utterance and then start it
+again instead of ending: on the German 4 s reference clip end-of-text is the runner-up after the full stop
+(18.05 vs 19.07), and the PyTorch reference loops the same way. `decode(..., repeatNgram = 3)` (the
+default) stops as soon as the last three tokens already occurred and drops them; `0` decodes until
+end-of-text, `maxNewTokens` or a full cache.
+
+**Two devices.** The encoder can run on another device than prefill and step:
+`IreeWhisperSession("vulkan", files, contract, decoderDevice = "local-task")`. The encoder is one large batch
+over the whole window, where a GPU pays; the step is a chain of small matrix-vector products whose cost is close
+on both. The encoder features cross once through host memory; each vmfb is compiled for the device it runs on.
+
+Measured on an arm32 Android device with a Mali GPU, whisper-tiny German, 4 s window, the reference clip
+(three runs each, guard on):
+
+| Encoder / decoder | Encoder | Prefill | Steps (10) | Total |
+|---|---|---|---|---|
+| CPU / CPU (`llvm-cpu` arm32) | ≈ 1.98 s | ≈ 0.45 s | ≈ 2.0 s | **4.4 s** (11.3 s without the guard) |
+| Vulkan / CPU | ≈ 0.47 s | ≈ 0.45 s | ≈ 2.1 s | **3.05 s** |
+
+The ids are identical in both setups, across runs, and to the eager JVM model and PyTorch over all 44 tokens
+those references decode. The **step graph does not compile for Vulkan** with IREE 3.11 yet (SPIR-V codegen of
+the M = 1 matrix-vector products); encoder and prefill do — hence the CPU decoder above.
+
+`native/build-whisper-session.sh <abi> --vulkan` builds the library like the others.
+`native/whisper_session_check.c` drives it on a device without an app (a minimal `JNIEnv` over `dlopen`) —
+how the numbers above were taken.
