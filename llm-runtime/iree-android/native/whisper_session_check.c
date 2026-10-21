@@ -5,7 +5,8 @@
  *
  *   whisper_session_check <lib.so> <encoderDevice[:decoderDevice]> <dir> <mel.bin> <geometry> <promptIds> <eot> [runs] [repeatNgram]
  *     dir       holds encoder.vmfb, prefill.vmfb, step.vmfb, params.irpa
- *     mel.bin   little-endian f32, nMels * melFrames values
+ *     mel.bin   little-endian f32, nMels * melFrames values — or a directory: every *.mel.bin in it is decoded in
+ *               one session (name order), one line per file: name <TAB> ids <TAB> stats
  *     geometry  nLayers,dModel,audioCtx,nMels,melFrames,maxPositions,vocab   (from manifest.json)
  *     promptIds comma-separated, e.g. 50258,50261,50359,50363
  *
@@ -15,6 +16,7 @@
  *        -O2 -o out/whisper_session_check whisper_session_check.c -ldl'
  */
 #include <jni.h>
+#include <dirent.h>
 #include <dlfcn.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -34,6 +36,17 @@ static jfloat* GetFloatArrayElements(JNIEnv* e, jfloatArray a, jboolean* c) { if
 static void ReleaseFloatArrayElements(JNIEnv* e, jfloatArray a, jfloat* p, jint m) {}
 static jclass FindClass(JNIEnv* e, const char* n) { return (jclass)n; }
 static jint ThrowNew(JNIEnv* e, jclass c, const char* m) { fprintf(stderr, "%s: %s\n", (const char*)c, m); thrown = 1; return 0; }
+
+static int read_floats(const char* path, Arr* out) {
+  FILE* f = fopen(path, "rb");
+  if (!f) { fprintf(stderr, "no %s\n", path); return 1; }
+  fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET);
+  out->len = (jsize)(n / 4); out->data = malloc(n);
+  int bad = fread(out->data, 1, n, f) != (size_t)n;
+  fclose(f);
+  if (bad) fprintf(stderr, "short read: %s\n", path);
+  return bad;
+}
 
 static Arr ints(const char* csv) {
   Arr a = { 0, calloc(512, sizeof(jint)) };
@@ -73,21 +86,39 @@ int main(int argc, char** argv) {
       (jstring)"whisper_encoder", (jstring)"whisper_prefill", (jstring)"whisper_step", (jintArray)&geom);
   if (!h || thrown) { fprintf(stderr, "nativeCreate failed\n"); return 4; }
 
-  FILE* f = fopen(argv[4], "rb");
-  if (!f) { fprintf(stderr, "no %s\n", argv[4]); return 5; }
-  fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET);
-  Arr mel = { (jsize)(n / 4), malloc(n) };
-  if (fread(mel.data, 1, n, f) != (size_t)n) { fprintf(stderr, "short read\n"); return 5; }
-  fclose(f);
-
   int runs = argc > 8 ? atoi(argv[8]) : 1;
   int ngram = argc > 9 ? atoi(argv[9]) : 0;
-  for (int r = 0; r < runs; ++r) {
-    Arr* ids = (Arr*)decode(env, NULL, h, (jfloatArray)&mel, (jintArray)&prompt, atoi(argv[7]), 0, ngram);
-    if (!ids || thrown) { fprintf(stderr, "nativeDecode failed\n"); return 6; }
-    printf("run %d ids:", r);
-    for (int i = 0; i < ids->len; ++i) printf("%s%d", i ? "," : " ", ((jint*)ids->data)[i]);
-    printf("\nrun %d stats: %s\n", r, (const char*)stats(env, NULL, h));
+  DIR* dir = opendir(argv[4]);
+  if (dir) {
+    /* a directory of mels: every *.mel.bin, in name order, through the one session */
+    struct dirent** names = NULL;
+    int count = scandir(argv[4], &names, NULL, alphasort);
+    for (int i = 0; i < count; ++i) {
+      const char* name = names[i]->d_name;
+      size_t len = strlen(name);
+      if (len < 8 || strcmp(name + len - 8, ".mel.bin") != 0) continue;
+      char path[1024]; snprintf(path, sizeof path, "%s/%s", argv[4], name);
+      Arr mel;
+      if (read_floats(path, &mel)) return 5;
+      Arr* ids = (Arr*)decode(env, NULL, h, (jfloatArray)&mel, (jintArray)&prompt, atoi(argv[7]), 0, ngram);
+      if (!ids || thrown) { fprintf(stderr, "nativeDecode failed on %s\n", name); return 6; }
+      printf("%s\t", name);
+      for (int k = 0; k < ids->len; ++k) printf("%s%d", k ? "," : "", ((jint*)ids->data)[k]);
+      printf("\t%s\n", (const char*)stats(env, NULL, h));
+      fflush(stdout);
+      free(mel.data);
+    }
+    closedir(dir);
+  } else {
+    Arr mel;
+    if (read_floats(argv[4], &mel)) return 5;
+    for (int r = 0; r < runs; ++r) {
+      Arr* ids = (Arr*)decode(env, NULL, h, (jfloatArray)&mel, (jintArray)&prompt, atoi(argv[7]), 0, ngram);
+      if (!ids || thrown) { fprintf(stderr, "nativeDecode failed\n"); return 6; }
+      printf("run %d ids:", r);
+      for (int i = 0; i < ids->len; ++i) printf("%s%d", i ? "," : " ", ((jint*)ids->data)[i]);
+      printf("\nrun %d stats: %s\n", r, (const char*)stats(env, NULL, h));
+    }
   }
   destroy(env, NULL, h);
   return 0;
