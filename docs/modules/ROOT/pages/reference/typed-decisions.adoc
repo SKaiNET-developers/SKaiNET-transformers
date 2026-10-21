@@ -168,11 +168,13 @@ scope by accident.
 
 == Laya (`sk.ainet.models.laya`)
 
-`skainet-transformers-inference-laya` wraps the multilingual Laya checkpoint
-(https://huggingface.co/convaiinnovations/laya[convaiinnovations/laya], Apache 2.0):
-an mmBERT-base encoder (22 layers, hidden 768, GeGLU, RoPE on every layer, a local attention
-window on two of every three layers) followed by a type embedding, a two-layer decision head
-and a scorer. The port follows the reference `build_sequence` exactly, including CPython
+`skainet-transformers-inference-laya` wraps the Laya checkpoints (Apache 2.0): the multilingual one
+(https://huggingface.co/convaiinnovations/laya[convaiinnovations/laya], an mmBERT-base encoder, 22
+layers, hidden 768) and the English one
+(https://huggingface.co/convaiinnovations/laya-typed-decisions[convaiinnovations/laya-typed-decisions],
+ModernBERT-large, 28 layers, hidden 1024) — a ModernBERT-family encoder (GeGLU, RoPE on every layer,
+a local attention window on two of every three layers) followed by a type embedding, a two-layer
+decision head and a scorer. Every size comes from the checkpoint's own `encoder/config.json`. The port follows the reference `build_sequence` exactly, including CPython
 `json.dumps` float formatting for structured states (`PythonJson`), the 48-token option cap and
 the state-type-dependent truncation direction.
 
@@ -191,6 +193,44 @@ Verification against the fixtures shipped with the checkpoint (copied under
 sequences, the 40-text tokenizer corpus (CJK, RTL, combining marks, emoji, literal `<mask>`),
 and all six `predict.json` cases within 5e-5. The model-gated tests run when
 `LAYA_MULTILINGUAL_PATH` points at the checkpoint directory.
+
+== Expert heads and routing
+
+A Laya checkpoint is an encoder plus a small decision head (type embedding, two transformer
+blocks, scorer), and the head is what a publisher fine-tunes for a domain: the encoder stays
+frozen, the head is copied, trained on domain data and saved on its own as `expert.safetensors`
+(the `type_emb.*`, `head.*`, `scorer.*` tensors, `act_head.*` ignored) with an `expert.json`
+(name, domains, its own calibration temperatures). `sk.ainet.models.laya` runs any number of such
+heads on one encoder:
+
+* `LayaExpertLoader.load(metaJson, weights, base, ctx)` binds an expert head for a loaded base
+  `LayaAgent` (`weightFormFor = LayaWeightForms.q8_0For` packs its projections like the base's);
+  `LayaExpert` holds the `LayaDecisionHead` and a `LayaDecoder` with the expert's temperatures over
+  the base agent's budgets. `LayaWeightPreparation.prepareHead` / `LayaDecisionModel.buildHead`
+  are the steps underneath; a head prepared on its own reproduces the base model bit for bit.
+* `LayaDecisionModel.logitsFrom(encoded, sequence, type, head)` runs a head on an encoder output:
+  the encoder runs once per question (the sequence contains the question) and every head that
+  should answer it reads the same hidden states. `LayaAgent.encodeFor` / `logitsFrom` do the same
+  over the padded batch plan.
+* `LayaRouterSpec(question, options, experts, threshold)` is the prompted router: the base head
+  answers a choice over fine-grained *kinds of text* (each with a description) about the state,
+  every kind maps to an expert, and the expert answers when it is loaded and the top probability
+  reaches the threshold — otherwise `general`, the base head. Routing is sequence-level, one head
+  per request; this is not a sparse mixture of experts.
+* `LayaMixtureAgent(base, experts, router).decide(state, questions, expert = null, compare = false)`
+  routes (one extra encoder pass for the router question) and answers with the chosen head;
+  `expert` forces a head (the routing is still reported as overridden), `compare` adds the base
+  head's answers on the same encoder output. The result carries the routing (probabilities over
+  the kinds, the pick, the threshold), the answers, and encoder / head milliseconds.
+* `LayaMixtureDecisionAdapter(mixture, modelId, onRouted)` is the `DecisionAdapter` of a mixture:
+  every request is routed once and answered by the chosen head with its calibration; the contract
+  has no field for the head that answered, so `onRouted` reports it.
+
+The gated `LayaMoeEvalTest` replays the published evaluation of
+https://github.com/vishalmysore/layaMOE[layaMOE] (Apache-2.0; `safety` and `customer_ops` heads on
+`convaiinnovations/laya-typed-decisions`, 108 hand-labelled cases) and requires the same routing
+and the same answers as the PyTorch FP32 run; it needs `LAYA_TYPED_DECISIONS_PATH` and
+`LAYA_MOE_EXPERTS_PATH`.
 
 == Quantized lane
 

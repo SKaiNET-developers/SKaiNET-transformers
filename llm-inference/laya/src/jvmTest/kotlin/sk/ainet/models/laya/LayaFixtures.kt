@@ -20,16 +20,23 @@ import kotlinx.serialization.json.jsonPrimitive
 internal object LayaFixtures {
     const val CHECKPOINT_ENV = "LAYA_MULTILINGUAL_PATH"
 
-    fun resource(name: String): JsonObject {
-        val stream = LayaFixtures::class.java.getResourceAsStream("/laya-fixtures/$name")
-            ?: error("fixture $name missing from test resources")
-        return Json.parseToJsonElement(stream.use { it.readBytes().decodeToString() }).jsonObject
+    /** The `laya-typed-decisions` checkpoint (ModernBERT-large, the `english` fixture section and the expert heads' base). */
+    const val TYPED_DECISIONS_ENV = "LAYA_TYPED_DECISIONS_PATH"
+
+    /** A directory with the layaMOE expert heads: `<name>/expert.json` + `<name>/expert.safetensors`. */
+    const val MOE_EXPERTS_ENV = "LAYA_MOE_EXPERTS_PATH"
+
+    fun resource(name: String): JsonObject = Json.parseToJsonElement(resourceText("/laya-fixtures/$name")).jsonObject
+
+    fun resourceText(path: String): String {
+        val stream = LayaFixtures::class.java.getResourceAsStream(path) ?: error("fixture $path missing from test resources")
+        return stream.use { it.readBytes().decodeToString() }
     }
 
-    fun checkpointDir(): Path? {
-        val raw = System.getenv(CHECKPOINT_ENV)?.trim().orEmpty()
+    fun checkpointDir(env: String = CHECKPOINT_ENV): Path? {
+        val raw = System.getenv(env)?.trim().orEmpty()
         if (raw.isEmpty()) {
-            println("[skip] $CHECKPOINT_ENV not set; the multilingual tokenizer files are needed for this test")
+            println("[skip] $env not set; the checkpoint's tokenizer files are needed for this test")
             return null
         }
         val dir = Path.of(raw)
@@ -40,7 +47,7 @@ internal object LayaFixtures {
         return dir
     }
 
-    fun preprocessor(): LayaPreprocessor? = checkpointDir()?.let { LayaPreprocessor.fromFiles(LayaCheckpointFiles.read(it)) }
+    fun preprocessor(env: String = CHECKPOINT_ENV): LayaPreprocessor? = checkpointDir(env)?.let { LayaPreprocessor.fromFiles(LayaCheckpointFiles.read(it)) }
 
     fun ints(element: JsonElement?): List<Int> = (element as? kotlinx.serialization.json.JsonArray)?.map { it.jsonObjectOrPrimitiveInt() } ?: emptyList()
 

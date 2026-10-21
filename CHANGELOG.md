@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Expert heads and routing for Laya** (`sk.ainet.models.laya`): a Laya decision head can be loaded on its own and run on the base model's encoder output. `LayaExpertLoader.load(metaJson, weights, base, ctx)` binds an `expert.safetensors` (the `type_emb.*` / `head.*` / `scorer.*` tensors of a head copied from the base checkpoint and fine-tuned for a domain) with its `expert.json` (name, domains, calibration temperatures) into a `LayaExpert`; `LayaWeightPreparation.prepareHead` and `LayaDecisionModel.buildHead` are the steps underneath, and a head prepared on its own reproduces the base model bit for bit. `LayaDecisionModel.logitsFrom` / `logitsBatchFrom` and `LayaAgent.encodeFor` / `logitsFrom` run any `LayaDecisionHead` on an encoder output computed once, so several heads answer the same sequences for one encoder pass each. `LayaRouterSpec` is the prompted router (the base head answers a choice over kinds of text with descriptions; kind → expert; threshold; `general` fallback), `LayaMixtureAgent.decide(state, questions, expert, compare)` routes and answers with the chosen head (forced head reported as overridden; `compare` adds the base head's answers on the same encoder output; encoder and head timings), and `LayaMixtureDecisionAdapter` puts a mixture behind the typed decision contract with `onRouted` reporting the head that answered. Verified against the published evaluation of layaMOE (gated `LayaMoeEvalTest`, fixtures under `laya-moe/`, Apache-2.0).
+- `LayaAgent.decide` / `decideAll` / `logitsFor` overloads that take a head and a decoder; `LayaAgent.decodeAll`; `LayaDecisionModel.encodeBatch(sequences, padId)` returning a `LayaEncodedBatch`; `LayaDecisionModel.defaultHead`. The existing signatures are unchanged.
+
+### Changed
+
+- `LayaEncoderConfig.requireSupported()` accepts `position_embedding_type: "absolute"` beside `"sans_pos"`: ModernBERT positions are rotary whatever the field says, and transformers 5 exports (`convaiinnovations/laya-typed-decisions`) write `absolute`. The English checkpoint loads and its `sequences.json` section reproduces (gated on `LAYA_TYPED_DECISIONS_PATH`).
+
 ## [0.62.2] — 2026-10-18
 
 Against engine **0.61.0**, a transformers-only fix: the Android runtime's streaming Moonshine libraries

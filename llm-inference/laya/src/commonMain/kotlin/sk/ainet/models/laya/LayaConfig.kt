@@ -125,13 +125,25 @@ public data class LayaEncoderConfig(
     public fun requireSupported(): LayaEncoderConfig {
         if (modelType != "modernbert") throw UnsupportedLayaCheckpointException("encoder model_type '$modelType' is not supported; expected modernbert")
         if (hiddenActivation != "gelu") throw UnsupportedLayaCheckpointException("hidden_activation '$hiddenActivation' is not supported; expected gelu")
-        if (positionEmbeddingType != "sans_pos") throw UnsupportedLayaCheckpointException("position_embedding_type '$positionEmbeddingType' is not supported; expected sans_pos (RoPE)")
+        if (positionEmbeddingType !in SUPPORTED_POSITION_EMBEDDING_TYPES) {
+            throw UnsupportedLayaCheckpointException(
+                "position_embedding_type '$positionEmbeddingType' is not supported; expected one of $SUPPORTED_POSITION_EMBEDDING_TYPES " +
+                    "(ModernBERT positions are rotary whatever the field says; transformers 4 writes sans_pos, transformers 5 absolute)",
+            )
+        }
         if (hiddenSize % numAttentionHeads != 0) throw UnsupportedLayaCheckpointException("hidden_size $hiddenSize is not a multiple of num_attention_heads $numAttentionHeads")
         if (layerKinds.size != numHiddenLayers) throw UnsupportedLayaCheckpointException("layer_types lists ${layerKinds.size} layers, num_hidden_layers is $numHiddenLayers")
         return this
     }
 
     public companion object {
+        /**
+         * `position_embedding_type` values ModernBERT configs carry. The model ignores the field (its
+         * positions are RoPE in every layer); the exporter version decides the spelling — `sans_pos`
+         * in transformers 4 (`laya-multilingual`), `absolute` in transformers 5 (`laya-typed-decisions`).
+         */
+        public val SUPPORTED_POSITION_EMBEDDING_TYPES: Set<String> = setOf("sans_pos", "absolute")
+
         public fun parse(json: String): LayaEncoderConfig = layaJson.decodeFromString(serializer(), json)
     }
 }
