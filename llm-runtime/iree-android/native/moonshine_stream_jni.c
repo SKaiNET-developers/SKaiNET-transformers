@@ -83,6 +83,17 @@
 #define FE_IN ((CHUNK + FE_LC) * SPF)      /* 21760 samples */
 #define FE_OUT (CHUNK + FE_LC)             /* 68 frames out */
 #define MAXMEM 256        /* compiled cross-memory pad (5.12 s of finalized speech) */
+/* Incremental frontend (optional 9th graph `frontend_step.vmfb` next to `frontend.vmfb`): the same frontend
+ * exported for FE_STEP + FE_LC frames, run as the audio arrives, so a window only runs the encoder and
+ * adapter on features that already exist. Without it the frontend reruns over the whole 68-frame window
+ * at every hop and once more over the tail at finish(), which is most of the flush.
+ * The frontend is causal: output frame f reads 200 Hz frames 4f-12..4f, i.e. 3 frames of left context,
+ * so FE_LC = 4 frames of real audio in front of a chunk makes its kept frames exact. */
+#define FE_STEP 16        /* frames computed per incremental frontend call (0.32 s) */
+#define FES_IN ((FE_STEP + FE_LC) * SPF)   /* 6400 samples */
+#define FES_OUT (FE_STEP + FE_LC)          /* 20 frames out */
+#define MAXF (MAXMEM + CHUNK + FES_OUT)    /* feature cache, frames */
+#define FE_RF 4           /* frames past `produced` that can still see audio (3 of context + a partly fed last frame) */
 #define MAXTOK 48
 /* 1 = skip the exact re-decode at the end of an utterance and keep the incremental result.
  * Off by default; switched on for the latency experiment via -DMOONSHINE_FAST_FINISH=1. */
@@ -123,6 +134,11 @@ typedef struct {
   iree_hal_device_t* dev;
   iree_hal_allocator_t* alloc;
   iree_runtime_session_t* fe, *enc, *adp, *pre, *step;
+  iree_runtime_session_t* fes;     /* incremental frontend, NULL = whole-window frontend */
+  float (*feat)[ENC_DIM];          /* [MAXF] frontend features of this utterance (fes only) */
+  int fe_done;                     /* features [0, fe_done) are exact: backed by audio, never recomputed */
+  double fe_feed_ms; int fe_calls; /* incremental frontend cost while the audio streams in */
+  float fe_silence[ENC_DIM];       /* the frontend's output for all-zero input: every frame past FE_RF of the padding */
   iree_vm_module_t* params;
   Vocab vocab;
   float* embed;                    /* [vocab.n][DIM] */
@@ -339,6 +355,43 @@ static int finish_budget(int npcm) {
   return b;
 }
 
+/* One incremental frontend call for the chunk starting at frame `s`, zero-padded past the fed audio.
+ * Fed from sample 0 when s < FE_LC (the model's own padding is then the utterance start, see
+ * process_window). Writes frames s .. s+n-1 into e->feat and returns n, or -1 on failure. */
+static int fe_chunk(Engine* e, int s) {
+  static float in[FES_IN];
+  static float out[FES_OUT][ENC_DIM];
+  const int lc = s < FE_LC ? s : FE_LC;
+  const int s0 = (s - lc) * SPF;
+  for (int i = 0; i < FES_IN; ++i) {
+    int si = s0 + i;
+    in[i] = (si >= 0 && si < e->npcm) ? e->pcm[si] : 0.0f;
+  }
+  iree_hal_buffer_view_t* v = mkview(e, (iree_hal_dim_t[]){1, FES_IN}, 2, IREE_HAL_ELEMENT_TYPE_FLOAT_32, in, sizeof(in));
+  if (!v) return -1;
+  iree_hal_buffer_view_t* o = run1(e, e->fes, FN_FE, v);
+  iree_hal_buffer_view_release(v);
+  if (!o) return -1;
+  int rc = pull(e, o, out, sizeof(out));
+  iree_hal_buffer_view_release(o);
+  if (rc) return -1;
+  int n = FES_OUT - lc;
+  if (s + n > MAXF) n = MAXF - s;
+  for (int f = 0; f < n; ++f) memcpy(e->feat[s + f], out[lc + f], ENC_DIM * sizeof(float));
+  return n;
+}
+
+/* Extend the exact features as far as the fed audio allows, in whole FE_STEP chunks. */
+static void fe_advance(Engine* e, int produced) {
+  while (e->fes && e->fe_done + FE_STEP <= produced && e->fe_done + FES_OUT <= MAXF) {
+    double t0 = now_ms();
+    int n = fe_chunk(e, e->fe_done);
+    if (n <= 0) break;
+    e->fe_done += n < produced - e->fe_done ? n : produced - e->fe_done;
+    e->fe_feed_ms += now_ms() - t0; e->fe_calls++;
+  }
+}
+
 /* Process one encoder window starting at feature frame `start`; finalize rows into e->mem. */
 static int process_window(Engine* e, int start, int produced, int flush, int peek) {
   double t0 = now_ms();
@@ -350,27 +403,70 @@ static int process_window(Engine* e, int start, int produced, int flush, int pee
    * utterance — an empty final where the reference reads "Fail again, fail better.". So the window at frame 0 is fed
    * from sample 0 and its first CHUNK output frames are kept: the graph's own convolution padding is then exactly the
    * reference start. (The peek is a window at frame 0 too.) */
-  static float fein[FE_IN];
   const int lc = start == 0 ? 0 : FE_LC;
-  int s0 = (start - lc) * SPF;
-  for (int i = 0; i < FE_IN; ++i) {
-    int si = s0 + i;
-    fein[i] = (si >= 0 && si < e->npcm) ? e->pcm[si] : 0.0f;
-  }
-  iree_hal_buffer_view_t* fev = mkview(e, (iree_hal_dim_t[]){1, FE_IN}, 2,
-      IREE_HAL_ELEMENT_TYPE_FLOAT_32, fein, sizeof(fein));
-  if (!fev) return -1;
-  iree_hal_buffer_view_t* feo = run1(e, e->fe, FN_FE, fev);
-  iree_hal_buffer_view_release(fev);
-  if (!feo) return -1;
   static float feats[FE_OUT][ENC_DIM];
-  if (pull(e, feo, feats, sizeof(feats))) { iree_hal_buffer_view_release(feo); return -1; }
-  iree_hal_buffer_view_release(feo);
+  const float* encsrc;
+  if (e->fes) {
+    /* features up to the fed audio exist already; only the part of the window past them (a peek's or
+     * the flush's zero-padded tail) is computed here. Frames before `produced` come out exact either
+     * way, so fe_done may move up to it. */
+    fe_advance(e, produced);
+    /* run the graph only as far as a frame can still see audio; the rest of the window is padding,
+     * whose feature is a constant (from warmup). The window at frame 0 keeps the graph throughout:
+     * there the zero-padded start is the model's own and FE_RF does not describe it. */
+    int need = start == 0 ? start + CHUNK : produced + FE_RF;
+    if (need > start + CHUNK) need = start + CHUNK;
+    int s = e->fe_done;
+    while (s < need) {
+      int n = fe_chunk(e, s);
+      if (n <= 0) return -1;
+      s += n;
+    }
+    for (int f = s > need ? need : s; f < start + CHUNK; ++f) memcpy(e->feat[f], e->fe_silence, sizeof(e->fe_silence));
+    if (produced > e->fe_done) e->fe_done = produced < s ? produced : s;
+    encsrc = e->feat[start];
+  } else {
+    static float fein[FE_IN];
+    int s0 = (start - lc) * SPF;
+    for (int i = 0; i < FE_IN; ++i) {
+      int si = s0 + i;
+      fein[i] = (si >= 0 && si < e->npcm) ? e->pcm[si] : 0.0f;
+    }
+    iree_hal_buffer_view_t* fev = mkview(e, (iree_hal_dim_t[]){1, FE_IN}, 2,
+        IREE_HAL_ELEMENT_TYPE_FLOAT_32, fein, sizeof(fein));
+    if (!fev) return -1;
+    iree_hal_buffer_view_t* feo = run1(e, e->fe, FN_FE, fev);
+    iree_hal_buffer_view_release(fev);
+    if (!feo) return -1;
+    if (pull(e, feo, feats, sizeof(feats))) { iree_hal_buffer_view_release(feo); return -1; }
+    iree_hal_buffer_view_release(feo);
+    encsrc = feats[lc];
+  }
+#ifdef MOONSHINE_FE_VERIFY
+  /* Check the incremental features against the whole-window frontend over the same samples. */
+  if (e->fes) {
+    static float fein[FE_IN];
+    int s0 = (start - lc) * SPF;
+    for (int i = 0; i < FE_IN; ++i) { int si = s0 + i; fein[i] = (si >= 0 && si < e->npcm) ? e->pcm[si] : 0.0f; }
+    iree_hal_buffer_view_t* fev = mkview(e, (iree_hal_dim_t[]){1, FE_IN}, 2, IREE_HAL_ELEMENT_TYPE_FLOAT_32, fein, sizeof(fein));
+    iree_hal_buffer_view_t* feo = fev ? run1(e, e->fe, FN_FE, fev) : NULL;
+    if (fev) iree_hal_buffer_view_release(fev);
+    if (feo && !pull(e, feo, feats, sizeof(feats))) {
+      double md = 0, ref = 0;
+      for (int f = 0; f < CHUNK; ++f) for (int k = 0; k < ENC_DIM; ++k) {
+        double d = fabs((double)feats[lc + f][k] - e->feat[start + f][k]); if (d > md) md = d;
+        if (fabs(feats[lc + f][k]) > ref) ref = fabs(feats[lc + f][k]);
+      }
+      TLOG("fe-verify win %d start %d produced %d maxdiff %.3g (max |x| %.3g)\n", e->win, start, produced, md, ref);
+    }
+    if (feo) iree_hal_buffer_view_release(feo);
+  }
+#endif
   double t1 = now_ms();
 
   /* encoder on the clean 64 frames (drop the lc context rows) */
   iree_hal_buffer_view_t* encin = mkview(e, (iree_hal_dim_t[]){1, CHUNK, ENC_DIM}, 3,
-      IREE_HAL_ELEMENT_TYPE_FLOAT_32, feats[lc], CHUNK * ENC_DIM * sizeof(float));
+      IREE_HAL_ELEMENT_TYPE_FLOAT_32, encsrc, CHUNK * ENC_DIM * sizeof(float));
   iree_hal_buffer_view_t* enco = encin ? run1(e, e->enc, FN_ENC, encin) : NULL;
   if (encin) iree_hal_buffer_view_release(encin);
   if (!enco) return -1;
@@ -591,6 +687,11 @@ static void warmup(Engine* e) {
   iree_hal_buffer_view_t* o = v ? run1(e, e->fe, FN_FE, v) : NULL;
   if (v) iree_hal_buffer_view_release(v);
   if (o) iree_hal_buffer_view_release(o);
+  if (e->fes) {
+    /* also captures the padding feature: a chunk at s >= FE_LC over zeros, any kept frame */
+    e->npcm = 0;
+    if (fe_chunk(e, FE_LC) > 0) memcpy(e->fe_silence, e->feat[FE_LC], sizeof(e->fe_silence));
+  }
   static float zf[CHUNK][DIM];
   memset(zf, 0, sizeof(zf));
   v = mkview(e, (iree_hal_dim_t[]){1, CHUNK, DIM}, 3,
@@ -630,6 +731,7 @@ static void warmup(Engine* e) {
 
 static void reset_utterance(Engine* e) {
   e->npcm = 0; e->win = 0; e->nmem = 0;
+  e->fe_done = 0; e->fe_feed_ms = 0.0; e->fe_calls = 0;
   e->peeked = 0; e->pending = 0; e->halted = 0; e->shown_len = 0;
   e->t_first_feed = 0.0; e->dropped = 0; e->windows = 0; e->hops = 0; e->nevt = 0;
   release_self(e); release_cross(e);
@@ -666,6 +768,18 @@ JNIEXPORT jlong JNICALL JNIFN(nativeCreate)(JNIEnv* env, jobject thiz,
     TLOG("create: fe(%s) -> %s\n", fe, e->fe ? "ok" : "FAIL");
     if (e->fe && e->params) {
       e->alloc = iree_runtime_session_device_allocator(e->fe);
+      /* optional incremental frontend, by convention next to frontend.vmfb */
+      char fesp[1024];
+      const char* slash = strrchr(fe, '/');
+      snprintf(fesp, sizeof(fesp), "%.*sfrontend_step.vmfb", slash ? (int)(slash - fe + 1) : 0, fe);
+      FILE* probe = fopen(fesp, "rb");
+      if (probe) {
+        fclose(probe);
+        e->fes = load_session(e, fesp, 0);
+        e->feat = e->fes ? malloc(sizeof(float[MAXF][ENC_DIM])) : NULL;
+        if (!e->feat && e->fes) { iree_runtime_session_release(e->fes); e->fes = NULL; }
+      }
+      TLOG("create: fes(%s) -> %s\n", fesp, e->fes ? "ok (incremental frontend)" : "absent (whole-window frontend)");
       e->enc = load_session(e, enc, 0);
       TLOG("create: enc(%s) -> %s\n", enc, e->enc ? "ok" : "FAIL");
       e->adp = load_session(e, adp, 0);
@@ -700,7 +814,7 @@ JNIEXPORT jlong JNICALL JNIFN(nativeCreate)(JNIEnv* env, jobject thiz,
   (*env)->ReleaseStringUTFChars(env, jpre, pre); (*env)->ReleaseStringUTFChars(env, jstep, stp);
   (*env)->ReleaseStringUTFChars(env, jparams, par); (*env)->ReleaseStringUTFChars(env, jvocab, voc);
   (*env)->ReleaseStringUTFChars(env, jembed, emb);
-  if (!ret && e) { free(e->embed); free(e->pcm); free(e); }
+  if (!ret && e) { free(e->embed); free(e->pcm); free(e->feat); free(e); }
   return ret;
 }
 
@@ -718,6 +832,7 @@ JNIEXPORT jstring JNICALL JNIFN(nativeFeedPcm)(JNIEnv* env, jobject thiz,
 
   int produced = e->npcm / SPF;
   int changed = 0;
+  fe_advance(e, produced);
   /* How far behind the microphone this stream is: wall clock since the first sample minus the audio
    * that has arrived. Positive means the caller is waiting on us, and every millisecond of it is still
    * owed at the moment the utterance ends. Only the optional decode work is given up for it.
@@ -831,10 +946,11 @@ JNIEXPORT jstring JNICALL JNIFN(nativeFinish)(JNIEnv* env, jobject thiz, jlong h
     const char* p = e->text; while (*p == ' ') ++p;
     out = (*env)->NewStringUTF(env, p);
     /* flush and re-decode reported apart, so the cost of each half is visible rather than inferred. */
-    TLOG("finish %.0fms (flush %.0fms decode %.0fms) nmem %d toks %d/%d fast=%d dropped %d lag %.0fms \"%s\"\n",
+    TLOG("finish %.0fms (flush %.0fms decode %.0fms) nmem %d toks %d/%d fast=%d dropped %d lag %.0fms \"%s\" festep %d/%.0fms\n",
             now_ms() - t0, t_flush - t0, now_ms() - t_flush, e->nmem, e->ntoks,
             finish_budget(e->npcm), MOONSHINE_FAST_FINISH, e->dropped,
-            e->t_first_feed > 0.0 ? t0 - e->t_first_feed - (double)e->npcm * 1000.0 / 16000.0 : 0.0, p);
+            e->t_first_feed > 0.0 ? t0 - e->t_first_feed - (double)e->npcm * 1000.0 / 16000.0 : 0.0, p,
+            e->fe_calls, e->fe_feed_ms);
   }
   /* Same figures the line above logs, kept for nativeStats — a caller should not have to parse logcat
    * to learn what recognition cost. Written before the reset, which clears the counters. */
@@ -879,6 +995,7 @@ JNIEXPORT void JNICALL JNIFN(nativeDestroy)(JNIEnv* env, jobject thiz, jlong han
   Engine* e = (Engine*)(intptr_t)handle; if (!e) return;
   reset_utterance(e);
   if (e->fe) iree_runtime_session_release(e->fe);
+  if (e->fes) iree_runtime_session_release(e->fes);
   if (e->enc) iree_runtime_session_release(e->enc);
   if (e->adp) iree_runtime_session_release(e->adp);
   if (e->pre) iree_runtime_session_release(e->pre);
@@ -887,5 +1004,5 @@ JNIEXPORT void JNICALL JNIFN(nativeDestroy)(JNIEnv* env, jobject thiz, jlong han
   if (e->dev) iree_hal_device_release(e->dev);
   if (e->inst) iree_runtime_instance_release(e->inst);
   for (int i = 0; i < e->vocab.n; ++i) free(e->vocab.t[i]);
-  free(e->vocab.t); free(e->embed); free(e->pcm); free(e);
+  free(e->vocab.t); free(e->embed); free(e->pcm); free(e->feat); free(e);
 }
