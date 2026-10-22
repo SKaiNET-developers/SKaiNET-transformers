@@ -956,12 +956,14 @@ JNIEXPORT jstring JNICALL JNIFN(nativeFinish)(JNIEnv* env, jobject thiz, jlong h
    * to learn what recognition cost. Written before the reset, which clears the counters. */
   int n = snprintf(e->stats, sizeof(e->stats),
       "flushMs=%.0f,decodeMs=%.0f,finishMs=%.0f,finishAtMs=%.0f,lagMs=%.0f,droppedDecodes=%d,"
-      "windows=%d,hops=%d,memFrames=%d,tokens=%d,tokenBudget=%d,audioMs=%.0f,fastFinish=%d,lagBudgetMs=%d",
+      "windows=%d,hops=%d,memFrames=%d,tokens=%d,tokenBudget=%d,audioMs=%.0f,fastFinish=%d,lagBudgetMs=%d,"
+      "feStepCalls=%d,feStepMs=%.0f",
       t_flush - t0, now_ms() - t_flush, now_ms() - t0,
       e->t_first_feed > 0.0 ? t0 - e->t_first_feed : 0.0,
       e->t_first_feed > 0.0 ? t0 - e->t_first_feed - (double)e->npcm * 1000.0 / 16000.0 : 0.0,
       e->dropped, e->windows, e->hops, e->nmem, e->ntoks, finish_budget(e->npcm),
-      (double)e->npcm * 1000.0 / 16000.0, MOONSHINE_FAST_FINISH, MOONSHINE_LAG_BUDGET_MS);
+      (double)e->npcm * 1000.0 / 16000.0, MOONSHINE_FAST_FINISH, MOONSHINE_LAG_BUDGET_MS,
+      e->fe_calls, e->fe_feed_ms);
   /* The utterance's timeline, so the shape can be drawn and not just totalled:
    *   timeline=<kind>:<atMs>:<a>:<b>:<c>|...
    * kind w = encoder window (a/b/c = frontend, encoder, adapter), p = early peek, h = partial

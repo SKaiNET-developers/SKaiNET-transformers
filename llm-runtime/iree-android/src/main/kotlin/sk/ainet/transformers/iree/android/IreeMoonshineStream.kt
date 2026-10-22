@@ -11,6 +11,11 @@ package sk.ainet.transformers.iree.android
  * flushes the tail, runs one exact full re-decode over the final memory, returns the final transcript
  * and resets for the next utterance. [reset] aborts the current utterance and keeps the engine.
  *
+ * Optional ninth file: `frontend_step.vmfb` next to `frontend.vmfb` (the same frontend exported for 6400 samples,
+ * `MOONSHINE_FE_SAMPLES=6400`). When it is there the frontend runs in 0.32 s chunks as the audio arrives and a window
+ * only runs the encoder and adapter, which takes most of the frontend out of [finish]. The features are bit-identical
+ * either way, so the transcript does not change; without the file the runtime behaves as before. See [OPTIONAL_FILE_NAMES].
+ *
  * One instance = one utterance at a time; callers serialize access. Per-hop stage timings are logged
  * under the `moonshine-timing` tag.
  *
@@ -74,6 +79,8 @@ public class IreeMoonshineStream(
      *   partial decodes actually run, and encoder windows processed. Windows are the mandatory work;
      *   a dropped decode costs a partial and cannot change the final transcript.
      * - `memFrames`, `tokens`, `tokenBudget`, `audioMs` — the utterance's size in each unit.
+     * - `feStepCalls`, `feStepMs` — incremental frontend calls made while the audio streamed in, and their cost;
+     *   both 0 without `frontend_step.vmfb`.
      * - `fastFinish`, `lagBudgetMs` — what this binary was compiled with, so a measurement can say
      *   which build produced it.
      *
@@ -110,6 +117,12 @@ public class IreeMoonshineStream(
         public val FILE_NAMES: List<String> = listOf(
             "frontend.vmfb", "encoder.vmfb", "adapter.vmfb", "prefill.vmfb", "step.vmfb", "params.irpa", "vocab.bin", "dec_embed.bin",
         )
+
+        /**
+         * Files the runtime picks up when they sit next to `frontend.vmfb`, and works without: `frontend_step.vmfb`, the
+         * incremental frontend. A materializer should copy them when the model has them.
+         */
+        public val OPTIONAL_FILE_NAMES: List<String> = listOf("frontend_step.vmfb")
 
         /** [Files] for a directory that holds the eight files under their standard names. */
         public fun filesIn(dir: java.io.File): Files {
