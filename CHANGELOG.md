@@ -11,6 +11,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Moonshine streaming: incremental frontend** (`moonshine_stream_jni.c`, `libskainet_moonshine_stream.so` both
+  ABIs). With an optional `frontend_step.vmfb` next to `frontend.vmfb` (the frontend exported with
+  `MOONSHINE_FE_SAMPLES=6400`) the frontend runs in 0.32 s chunks as the audio arrives, windows run only the encoder
+  and adapter on cached features, and frames that can only see zero padding take the frontend's constant silence
+  feature. On an arm32 Mali device, 40 German commands paced like a microphone, against 0.62.2: features
+  bit-identical (141/141 windows), transcripts identical (40/40), the end-of-utterance flush p50 319 → 172 ms, end of
+  audio → final text p50 −275 ms. Without the file nothing changes. `IreeMoonshineStream.OPTIONAL_FILE_NAMES` names
+  it; `stats()` gains `feStepCalls` / `feStepMs`.
+
+### Added
+
+- `native/moonshine_stream_check.c`: drives `libskainet_moonshine_stream.so` on a device without an app (fake
+  JNIEnv), feeding PCM files paced like a microphone and printing transcript and stats per file.
+
+### Fixed
+
+- `native/build-moonshine-stream.sh` always passes `CMAKE_C_FLAGS`, so a plain build after a `GEOMETRY=…` one no
+  longer keeps the previous flags from the CMake cache.
+
 ### Added
 
 - **`IreeModuleRunner` + `libskainet_iree_module.so`** (`runtime-iree-android`, `arm64-v8a` / `armeabi-v7a`,

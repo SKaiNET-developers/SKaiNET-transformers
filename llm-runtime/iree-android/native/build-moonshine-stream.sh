@@ -17,7 +17,9 @@
 set -euo pipefail
 ABI="${1:-arm64-v8a}"; shift || true
 VULKAN=""; EXTRA=()
-[ -n "${GEOMETRY:-}" ] && EXTRA=(--cmake "-DCMAKE_C_FLAGS=${GEOMETRY}")
+# Always passed, empty included: the CMake cache in the build dir keeps the last value otherwise, so a plain
+# build after a GEOMETRY="-DMOONSHINE_FE_VERIFY" one would silently still carry the verify code.
+EXTRA=(--cmake "-DCMAKE_C_FLAGS=${GEOMETRY:-}")
 while [ $# -gt 0 ]; do
   case "$1" in
     --vulkan) VULKAN="--vulkan" ;;
