@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.63.1] — 2026-10-22
+
+Against engine **0.62.0**, transformers-only and additive. The Android runtime (`runtime-iree-android`) gains the
+incremental Moonshine frontend and a generic single-module IREE runner; it still depends on nothing but the Kotlin
+standard library.
+
 ### Changed
 
 - **Moonshine streaming: incremental frontend** (`moonshine_stream_jni.c`, `libskainet_moonshine_stream.so` both
@@ -27,17 +33,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `native/moonshine_stream_check.c`: drives `libskainet_moonshine_stream.so` on a device without an app (fake
   JNIEnv), feeding PCM files paced like a microphone and printing transcript and stats per file.
 
-### Fixed
-
-- `native/build-moonshine-stream.sh` always passes `CMAKE_C_FLAGS`, so a plain build after a `GEOMETRY=…` one no
-  longer keeps the previous flags from the CMake cache.
-
-### Added
-
 - **`IreeModuleRunner` + `libskainet_iree_module.so`** (`runtime-iree-android`, `arm64-v8a` / `armeabi-v7a`,
   CPU and Vulkan drivers): a generic single-shot runner for one compiled IREE module — one float32 tensor in,
   one float32 tensor out, weights from an optional `.irpa` (scope `model`). For batch cartridges such as the
   `detection-yolov8-iree` blueprint, which extracts the `.so` from this AAR. `FloatTensor` carries data + shape.
+
+### Fixed
+
+- `native/build-moonshine-stream.sh` always passes `CMAKE_C_FLAGS`, so a plain build after a `GEOMETRY=…` one no
+  longer keeps the previous flags from the CMake cache.
 
 ## [0.63.0] — 2026-10-21
 
