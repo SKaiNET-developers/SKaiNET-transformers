@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.63.2] — 2026-10-27
+
+Against engine **0.62.0**, transformers-only and additive. The Android runtime (`runtime-iree-android`) gains an
+external-encoder hook for streaming Moonshine; it still depends on nothing but the Kotlin standard library.
+
 ### Added
 
 - **Moonshine streaming: external encoder hook** (`moonshine_stream_jni.c`, `libskainet_moonshine_stream.so` both
