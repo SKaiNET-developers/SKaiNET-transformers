@@ -24,9 +24,16 @@
  * one exact full re-decode so the transcript handed to NLU is bit-faithful.
  *
  * One engine = one utterance at a time; calls are single-threaded (host serializes).
+ *
+ * External encoder: an `enc` path of the form "ext:<library.so>|<model dir>" replaces the frontend, encoder and
+ * adapter graphs (fe and adp are then ignored, the incremental frontend is off). The library exports
+ * `const MoonshineExtEncoder* moonshine_ext_encoder(void)` (struct below): one whole window of audio in, the
+ * window's 64 memory rows (adapter applied) out. It lets an accelerator outside IREE run the encoder side while
+ * the decoder stays on the IREE device.
  * Per-hop stage timings go to stderr/logcat as "moonshine-timing" lines.
  */
 #include <jni.h>
+#include <dlfcn.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -129,12 +136,23 @@
 
 typedef struct { int n; char** t; } Vocab;
 
+/* External encoder ABI, version 1. window(): pcm[FE_IN] holds `lc` frames of left context then the window,
+ * zero past the fed audio; out[CHUNK * DIM] receives the memory rows of positions start .. start+CHUNK-1;
+ * ms[3] (may be NULL) the frontend / encoder / adapter times. Returns 0 on success. */
+typedef struct {
+  int abi;
+  void* (*create)(const char* dir);
+  int (*window)(void* h, const float* pcm, int lc, int start, float* out, double* ms);
+  void (*destroy)(void* h);
+} MoonshineExtEncoder;
+
 typedef struct {
   iree_runtime_instance_t* inst;
   iree_hal_device_t* dev;
   iree_hal_allocator_t* alloc;
   iree_runtime_session_t* fe, *enc, *adp, *pre, *step;
   iree_runtime_session_t* fes;     /* incremental frontend, NULL = whole-window frontend */
+  void* ext_lib; const MoonshineExtEncoder* ext; void* ext_h;   /* external encoder, replaces fe/enc/adp */
   float (*feat)[ENC_DIM];          /* [MAXF] frontend features of this utterance (fes only) */
   int fe_done;                     /* features [0, fe_done) are exact: backed by audio, never recomputed */
   double fe_feed_ms; int fe_calls; /* incremental frontend cost while the audio streams in */
@@ -392,6 +410,21 @@ static void fe_advance(Engine* e, int produced) {
   }
 }
 
+/* finalize: [nmem .. newFinal); at flush the lookahead holds nothing back */
+static void finalize_rows(Engine* e, int start, int produced, int flush, int peek, float (*mem64)[DIM]) {
+  int limit = flush ? start + CHUNK : start + CHUNK - LOOKAHEAD;
+  int new_final = limit < produced ? limit : produced;
+  if (new_final > MAXMEM) new_final = MAXMEM;
+  /* The real window 0 recomputes and OVERWRITES rows an early peek finalized with a
+   * zero-padded tail; regular windows only append (their overlap rows were finalized with a
+   * fuller attention band by the previous window and must not be downgraded). */
+  int first = (!peek && start == 0 && e->peeked) ? 0 : e->nmem;
+  for (int f = first; f < new_final; ++f)
+    memcpy(e->mem[f], mem64[f - start], DIM * sizeof(float));
+  if (new_final > e->nmem) e->nmem = new_final;
+  if (!peek && start == 0) e->peeked = 0;
+}
+
 /* Process one encoder window starting at feature frame `start`; finalize rows into e->mem. */
 static int process_window(Engine* e, int start, int produced, int flush, int peek) {
   double t0 = now_ms();
@@ -406,6 +439,22 @@ static int process_window(Engine* e, int start, int produced, int flush, int pee
   const int lc = start == 0 ? 0 : FE_LC;
   static float feats[FE_OUT][ENC_DIM];
   const float* encsrc;
+  if (e->ext) {
+    static float fein[FE_IN];
+    static float mem64[CHUNK][DIM];
+    const int s0 = (start - lc) * SPF;
+    for (int i = 0; i < FE_IN; ++i) {
+      int si = s0 + i;
+      fein[i] = (si >= 0 && si < e->npcm) ? e->pcm[si] : 0.0f;
+    }
+    double ms[3] = {0, 0, 0};
+    if (e->ext->window(e->ext_h, fein, lc, start, &mem64[0][0], ms)) return -1;
+    finalize_rows(e, start, produced, flush, peek, mem64);
+    e->windows++;
+    note_evt(e, EVT_WINDOW, t0 - e->t_first_feed, ms[0], ms[1], ms[2]);
+    TLOG("win %d ext fe %.0fms enc %.0fms adp %.1fms nmem %d\n", e->win, ms[0], ms[1], ms[2], e->nmem);
+    return 0;
+  }
   if (e->fes) {
     /* features up to the fed audio exist already; only the part of the window past them (a peek's or
      * the flush's zero-padded tail) is computed here. Frames before `produced` come out exact either
@@ -494,18 +543,7 @@ static int process_window(Engine* e, int start, int produced, int flush, int pee
   if (pull(e, memo, mem64, sizeof(mem64))) { iree_hal_buffer_view_release(memo); return -1; }
   iree_hal_buffer_view_release(memo);
 
-  /* finalize: [nmem .. newFinal); at flush the lookahead holds nothing back */
-  int limit = flush ? start + CHUNK : start + CHUNK - LOOKAHEAD;
-  int new_final = limit < produced ? limit : produced;
-  if (new_final > MAXMEM) new_final = MAXMEM;
-  /* The real window 0 recomputes and OVERWRITES rows an early peek finalized with a
-   * zero-padded tail; regular windows only append (their overlap rows were finalized with a
-   * fuller attention band by the previous window and must not be downgraded). */
-  int first = (!peek && start == 0 && e->peeked) ? 0 : e->nmem;
-  for (int f = first; f < new_final; ++f)
-    memcpy(e->mem[f], mem64[f - start], DIM * sizeof(float));
-  if (new_final > e->nmem) e->nmem = new_final;
-  if (!peek && start == 0) e->peeked = 0;
+  finalize_rows(e, start, produced, flush, peek, mem64);
   double t3 = now_ms();
   e->windows++;
   note_evt(e, EVT_WINDOW, t0 - e->t_first_feed, t1 - t0, t2 - t1, t3 - t2);
@@ -682,6 +720,11 @@ static void warmup(Engine* e) {
   double t0 = now_ms();
   static float za[FE_IN];
   memset(za, 0, sizeof(za));
+  if (e->ext) {
+    static float zm[CHUNK * DIM];
+    e->ext->window(e->ext_h, za, 0, 0, zm, NULL);
+    goto decoder;
+  }
   iree_hal_buffer_view_t* v = mkview(e, (iree_hal_dim_t[]){1, FE_IN}, 2,
       IREE_HAL_ELEMENT_TYPE_FLOAT_32, za, sizeof(za));
   iree_hal_buffer_view_t* o = v ? run1(e, e->fe, FN_FE, v) : NULL;
@@ -717,6 +760,7 @@ static void warmup(Engine* e) {
     if (posbv) iree_hal_buffer_view_release(posbv);
     iree_hal_buffer_view_release(enco);
   }
+decoder:
   /* decoder: fake 64 zero memory frames, prefill + one step, then reset */
   memset(e->mem, 0, sizeof(e->mem));
   e->nmem = CHUNK;
@@ -736,6 +780,26 @@ static void reset_utterance(Engine* e) {
   e->t_first_feed = 0.0; e->dropped = 0; e->windows = 0; e->hops = 0; e->nevt = 0;
   release_self(e); release_cross(e);
   e->ntoks = 0; e->pos = 0; e->text[0] = 0;
+}
+
+/* "<library.so>|<model dir>": dlopen the external encoder and create it over the model dir. */
+static void load_ext(Engine* e, const char* spec) {
+  char lib[1024];
+  const char* bar = strchr(spec, '|');
+  if (!bar || (size_t)(bar - spec) >= sizeof(lib)) { TLOG("create: ext(%s) -> FAIL (want lib|dir)\n", spec); return; }
+  memcpy(lib, spec, bar - spec); lib[bar - spec] = 0;
+  e->ext_lib = dlopen(lib, RTLD_NOW | RTLD_LOCAL);
+  const MoonshineExtEncoder* (*get)(void) = e->ext_lib ? (const MoonshineExtEncoder* (*)(void))dlsym(e->ext_lib, "moonshine_ext_encoder") : NULL;
+  const MoonshineExtEncoder* x = get ? get() : NULL;
+  if (x && x->abi == 1) e->ext_h = x->create(bar + 1);
+  if (e->ext_h) e->ext = x;
+  TLOG("create: ext(%s) -> %s%s\n", spec, e->ext ? "ok" : "FAIL ", e->ext ? "" : (e->ext_lib ? "(symbol/abi/create)" : dlerror()));
+}
+
+static void release_ext(Engine* e) {
+  if (e->ext && e->ext_h) e->ext->destroy(e->ext_h);
+  if (e->ext_lib) dlclose(e->ext_lib);
+  e->ext = NULL; e->ext_h = NULL; e->ext_lib = NULL;
 }
 
 /* ---- JNI -------------------------------------------------------------------------------- */
@@ -764,10 +828,14 @@ JNIEXPORT jlong JNICALL JNIFN(nativeCreate)(JNIEnv* env, jobject thiz,
           iree_make_cstring_view(dev), &e->dev))) {
     e->params = load_params(e, par);
     TLOG("create: params(%s) -> %s\n", par, e->params ? "ok" : "FAIL");
-    e->fe = load_session(e, fe, 0);
-    TLOG("create: fe(%s) -> %s\n", fe, e->fe ? "ok" : "FAIL");
-    if (e->fe && e->params) {
-      e->alloc = iree_runtime_session_device_allocator(e->fe);
+    const int ext = !strncmp(enc, "ext:", 4);
+    if (ext) load_ext(e, enc + 4);
+    else {
+      e->fe = load_session(e, fe, 0);
+      TLOG("create: fe(%s) -> %s\n", fe, e->fe ? "ok" : "FAIL");
+    }
+    if (e->fe) e->alloc = iree_runtime_session_device_allocator(e->fe);
+    if (!ext && e->fe && e->params) {
       /* optional incremental frontend, by convention next to frontend.vmfb */
       char fesp[1024];
       const char* slash = strrchr(fe, '/');
@@ -784,6 +852,8 @@ JNIEXPORT jlong JNICALL JNIFN(nativeCreate)(JNIEnv* env, jobject thiz,
       TLOG("create: enc(%s) -> %s\n", enc, e->enc ? "ok" : "FAIL");
       e->adp = load_session(e, adp, 0);
       TLOG("create: adp(%s) -> %s\n", adp, e->adp ? "ok" : "FAIL");
+    }
+    if ((ext ? (void*)e->ext : (void*)e->fe) && e->params) {
       e->pre = load_session(e, pre, 1);
       TLOG("create: pre(%s) -> %s\n", pre, e->pre ? "ok" : "FAIL");
       e->step = load_session(e, stp, 1);
@@ -803,7 +873,8 @@ JNIEXPORT jlong JNICALL JNIFN(nativeCreate)(JNIEnv* env, jobject thiz,
       }
       e->pcm = malloc(MAXPCM * sizeof(float));
       rope_init(e);
-      if (e->enc && e->adp && e->pre && e->step && e->vocab.n > 0 && e->embed && e->pcm) {
+      if (!e->alloc && e->pre) e->alloc = iree_runtime_session_device_allocator(e->pre);
+      if ((e->ext || (e->enc && e->adp)) && e->pre && e->step && e->vocab.n > 0 && e->embed && e->pcm) {
         warmup(e);
         ret = (jlong)(intptr_t)e;
       }
@@ -814,7 +885,7 @@ JNIEXPORT jlong JNICALL JNIFN(nativeCreate)(JNIEnv* env, jobject thiz,
   (*env)->ReleaseStringUTFChars(env, jpre, pre); (*env)->ReleaseStringUTFChars(env, jstep, stp);
   (*env)->ReleaseStringUTFChars(env, jparams, par); (*env)->ReleaseStringUTFChars(env, jvocab, voc);
   (*env)->ReleaseStringUTFChars(env, jembed, emb);
-  if (!ret && e) { free(e->embed); free(e->pcm); free(e->feat); free(e); }
+  if (!ret && e) { release_ext(e); free(e->embed); free(e->pcm); free(e->feat); free(e); }
   return ret;
 }
 
@@ -996,6 +1067,7 @@ JNIEXPORT void JNICALL JNIFN(nativeReset)(JNIEnv* env, jobject thiz, jlong handl
 JNIEXPORT void JNICALL JNIFN(nativeDestroy)(JNIEnv* env, jobject thiz, jlong handle) {
   Engine* e = (Engine*)(intptr_t)handle; if (!e) return;
   reset_utterance(e);
+  release_ext(e);
   if (e->fe) iree_runtime_session_release(e->fe);
   if (e->fes) iree_runtime_session_release(e->fes);
   if (e->enc) iree_runtime_session_release(e->enc);
