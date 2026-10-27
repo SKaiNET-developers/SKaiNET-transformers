@@ -16,6 +16,11 @@ package sk.ainet.transformers.iree.android
  * only runs the encoder and adapter, which takes most of the frontend out of [finish]. The features are bit-identical
  * either way, so the transcript does not change; without the file the runtime behaves as before. See [OPTIONAL_FILE_NAMES].
  *
+ * External encoder: an [Files.encoderVmfb] of the form `ext:<library.so>|<model dir>` replaces frontend, encoder and
+ * adapter with a native library exporting `moonshine_ext_encoder()` (see moonshine_stream_jni.c for the ABI), loaded
+ * with dlopen — a bare library name resolves among the app's own native libraries. The decoder stays on [device];
+ * frontend and adapter paths are then ignored.
+ *
  * One instance = one utterance at a time; callers serialize access. Per-hop stage timings are logged
  * under the `moonshine-timing` tag.
  *

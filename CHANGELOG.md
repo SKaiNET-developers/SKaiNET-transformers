@@ -11,6 +11,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.63.2] — 2026-10-27
+
+Against engine **0.62.0**, transformers-only and additive. The Android runtime (`runtime-iree-android`) gains an
+external-encoder hook for streaming Moonshine; it still depends on nothing but the Kotlin standard library.
+
+### Added
+
+- **Moonshine streaming: external encoder hook** (`moonshine_stream_jni.c`, `libskainet_moonshine_stream.so` both
+  ABIs). An encoder path of the form `ext:<library.so>|<model dir>` replaces the frontend, encoder and adapter graphs
+  with a native library loaded by `dlopen` that exports `moonshine_ext_encoder()` (ABI 1: one whole window of audio
+  in, the window's 64 memory rows out). An accelerator outside IREE can then run the encoder side while the decoder
+  stays on the IREE device (Vulkan or CPU). A bare library name resolves among the app's own native libraries. Without
+  the prefix nothing changes; `IreeMoonshineStream` passes the path through, so the Kotlin API is unchanged.
+  Checked on an arm32 Mali device over 444 German commands with an external encoder: 13.1 % WER against 13.9 % for
+  the all-Vulkan path from the same library.
+- `native/moonshine_stream_check.c`: `MOONSHINE_ENC` replaces the encoder path (e.g. an `ext:` encoder).
+
 ## [0.63.1] — 2026-10-22
 
 Against engine **0.62.0**, transformers-only and additive. The Android runtime (`runtime-iree-android`) gains the
