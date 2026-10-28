@@ -12,6 +12,7 @@
  *     pcm        headerless little-endian s16 mono 16 kHz; a directory = every *.pcm in it, name order
  *     --fast     feed without pacing (timings then no longer resemble a live stream)
  *   MOONSHINE_ENC (env) replaces the encoder path, e.g. "ext:<lib.so>|<dir>" for an external encoder
+ *   MOONSHINE_DEC (env) replaces the prefill path, e.g. "ext:<lib.so>|<dir>" for an external decoder
  *
  * Build (same image as the library):
  *   docker run --rm -v "$PWD/native":/src -w /src --entrypoint sh skainet/iree-android:3.11.0 -c \
@@ -79,6 +80,7 @@ int main(int argc, char** argv) {
   static char p[8][1024];
   for (int i = 0; i < 8; ++i) snprintf(p[i], sizeof p[i], "%s/%s", argv[3], names[i]);
   if (getenv("MOONSHINE_ENC")) snprintf(p[1], sizeof p[1], "%s", getenv("MOONSHINE_ENC"));
+  if (getenv("MOONSHINE_DEC")) snprintf(p[3], sizeof p[3], "%s", getenv("MOONSHINE_DEC"));
   double t0 = now_ms();
   jlong h = create(env, NULL, (jstring)argv[2], (jstring)p[0], (jstring)p[1], (jstring)p[2], (jstring)p[3], (jstring)p[4], (jstring)p[5], (jstring)p[6], (jstring)p[7]);
   if (!h) { fprintf(stderr, "nativeCreate failed\n"); return 4; }
