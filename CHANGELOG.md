@@ -11,6 +11,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.63.3] — 2026-10-28
+
+Against engine **0.62.0**, transformers-only and additive. The Android runtime (`runtime-iree-android`) gains an
+external-decoder hook for streaming Moonshine, next to 0.63.2's external encoder; it still depends on nothing but the
+Kotlin standard library.
+
+### Added
+
+- **Moonshine streaming: external decoder hook** (`moonshine_stream_jni.c`, `libskainet_moonshine_stream.so` both
+  ABIs). A prefill path of the form `ext:<library.so>|<model dir>` replaces the prefill and step graphs with a native
+  library loaded by `dlopen` that exports `moonshine_ext_decoder()` (ABI 1: `create(dir, vocab, dim, maxtok)`,
+  `cross(memory, rows)`, `reset`, `step(embedded token, logits)`, `destroy`). The streaming loop, greedy choice, token
+  budgets, repeat guard and text handling stay in the runtime, and partial transcripts keep their locked prefix
+  (`cross` refreshes the memory without dropping decoded tokens). The step path is then ignored; with both sides
+  external no params archive is needed. Without the prefix nothing changes: the IREE step moved into one helper,
+  behaviour identical (444/444 transcripts identical on the external-encoder + Vulkan-decoder path). Checked on an
+  arm32 device over 444 German commands with an external encoder and decoder on an accelerator outside IREE: 13.5 %
+  WER, transcript 238 ms after the end of the audio (p50; 1080 ms with the Vulkan decoder), no GPU use.
+- `native/moonshine_stream_check.c`: `MOONSHINE_DEC` replaces the prefill path (e.g. an `ext:` decoder).
+
 ## [0.63.2] — 2026-10-27
 
 Against engine **0.62.0**, transformers-only and additive. The Android runtime (`runtime-iree-android`) gains an
