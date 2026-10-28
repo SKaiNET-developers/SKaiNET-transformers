@@ -1,6 +1,6 @@
 [versions]
 skainet = "0.62.0"
-agp = "9.4.1"
+agp = "9.5.0"
 jacksonDatabind = "2.22.4"
 jsonSchemaValidator = "3.0.8"
 jsonSchemaValidatorVersion = "0.5.5"
