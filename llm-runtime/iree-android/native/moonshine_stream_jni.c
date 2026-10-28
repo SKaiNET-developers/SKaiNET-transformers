@@ -30,6 +30,11 @@
  * `const MoonshineExtEncoder* moonshine_ext_encoder(void)` (struct below): one whole window of audio in, the
  * window's 64 memory rows (adapter applied) out. It lets an accelerator outside IREE run the encoder side while
  * the decoder stays on the IREE device.
+ *
+ * External decoder: a `prefill` path of the same form "ext:<library.so>|<model dir>" replaces the prefill and step
+ * graphs (step is then ignored; with an external encoder too, no parameter archive is needed). The library exports
+ * `const MoonshineExtDecoder* moonshine_ext_decoder(void)` (struct below) and decodes one token per step; the
+ * streaming loop, greedy choice, budgets and guards stay here.
  * Per-hop stage timings go to stderr/logcat as "moonshine-timing" lines.
  */
 #include <jni.h>
@@ -146,6 +151,20 @@ typedef struct {
   void (*destroy)(void* h);
 } MoonshineExtEncoder;
 
+/* External decoder ABI, version 1. create(): vocab = rows of the output head, dim = DIM, maxtok = positions the decode
+ * may reach (NULL when unsupported). cross(): mem[n * DIM] = finalized memory rows (adapter applied) -> the
+ * cross-attention state; the token state is kept (partials refresh the memory under a locked prefix). reset(): forget
+ * the tokens. step(): x[DIM] = embedding of the previous token (BOS first) at the next position; logits[vocab] out.
+ * cross() and step() return 0 on success. */
+typedef struct {
+  int abi;
+  void* (*create)(const char* dir, int vocab, int dim, int maxtok);
+  int (*cross)(void* h, const float* mem, int n);
+  void (*reset)(void* h);
+  int (*step)(void* h, const float* x, float* logits);
+  void (*destroy)(void* h);
+} MoonshineExtDecoder;
+
 typedef struct {
   iree_runtime_instance_t* inst;
   iree_hal_device_t* dev;
@@ -153,6 +172,8 @@ typedef struct {
   iree_runtime_session_t* fe, *enc, *adp, *pre, *step;
   iree_runtime_session_t* fes;     /* incremental frontend, NULL = whole-window frontend */
   void* ext_lib; const MoonshineExtEncoder* ext; void* ext_h;   /* external encoder, replaces fe/enc/adp */
+  void* dext_lib; const MoonshineExtDecoder* dext; void* dext_h; /* external decoder, replaces pre/step */
+  float* logits;                   /* [vocab.n] external decoder output */
   float (*feat)[ENC_DIM];          /* [MAXF] frontend features of this utterance (fes only) */
   int fe_done;                     /* features [0, fe_done) are exact: backed by audio, never recomputed */
   double fe_feed_ms; int fe_calls; /* incremental frontend cost while the audio streams in */
@@ -304,12 +325,17 @@ static int pull(Engine* e, iree_hal_buffer_view_t* bv, void* dst, size_t bytes) 
       0, dst, bytes, IREE_HAL_TRANSFER_BUFFER_FLAG_DEFAULT, iree_infinite_timeout())) ? 0 : -1;
 }
 
+static int argmax_row(const float* row, int n) {
+  int best = 0; float b = row[0];
+  for (int i = 1; i < n; ++i) if (row[i] > b) { b = row[i]; best = i; }
+  return best;
+}
+
 static int argmax_logits(Engine* e, iree_hal_buffer_view_t* bv) {
   const int n = e->vocab.n;
   float* row = malloc((size_t)n * sizeof(float)); if (!row) return EOS;
   if (pull(e, bv, row, (size_t)n * sizeof(float))) { free(row); return EOS; }
-  int best = 0; float b = row[0];
-  for (int i = 1; i < n; ++i) if (row[i] > b) { b = row[i]; best = i; }
+  int best = argmax_row(row, n);
   free(row); return best;
 }
 
@@ -327,11 +353,13 @@ static void rope_init(Engine* e) {
 
 static void release_self(Engine* e) {
   if (!e->has_self) return;
+  if (e->dext) { e->dext->reset(e->dext_h); e->has_self = 0; return; }
   for (int l = 0; l < L; ++l) { iree_hal_buffer_view_release(e->sk[l]); iree_hal_buffer_view_release(e->sv[l]); }
   e->has_self = 0;
 }
 static void release_cross(Engine* e) {
   if (!e->has_cross) return;
+  if (e->dext) { e->has_cross = 0; return; }
   for (int l = 0; l < L; ++l) { iree_hal_buffer_view_release(e->ck[l]); iree_hal_buffer_view_release(e->cv[l]); }
   e->has_cross = 0;
 }
@@ -554,7 +582,25 @@ static int process_window(Engine* e, int start, int produced, int flush, int pee
 
 /* Prefill over the current finalized memory; refresh cross-K/V (and start the token
  * sequence if none yet). Returns 0 on success. */
+/* run_prefill on the external decoder: refresh the cross state; with start_tokens, restart the tokens and take the
+ * first one from BOS (the IREE prefill graph's logits). */
+static int run_prefill_ext(Engine* e, int start_tokens) {
+  if (e->dext->cross(e->dext_h, &e->mem[0][0], e->nmem)) return -1;
+  e->has_cross = 1;
+  e->halted = 0; e->ended_eos = 0;
+  if (!start_tokens) return 0;
+  e->dext->reset(e->dext_h);
+  e->has_self = 1;
+  e->ntoks = 0; e->pos = 0; e->text[0] = 0;
+  if (e->dext->step(e->dext_h, e->embed + (size_t)BOS * DIM, e->logits)) return -1;
+  e->pos = 1;
+  int tok = argmax_row(e->logits, e->vocab.n);
+  if (tok != EOS) { e->toks[e->ntoks++] = tok; detok_append(&e->vocab, tok, e->text, sizeof(e->text)); }
+  return 0;
+}
+
 static int run_prefill(Engine* e, int start_tokens) {
+  if (e->dext) return run_prefill_ext(e, start_tokens);
   static float mem256[MAXMEM][DIM];
   static float mask[MAXMEM];
   memcpy(mem256, e->mem, sizeof(mem256));
@@ -648,52 +694,64 @@ static void rebuild_text(Engine* e) {
   for (int i = 0; i < e->ntoks; ++i) detok_append(&e->vocab, e->toks[i], e->text, sizeof(e->text));
 }
 
+/* One with_past step on the IREE device: the embedding of `last` at e->pos over the current KV state;
+ * returns the next token, -1 on error. */
+static int iree_step(Engine* e, int last, const float* mask) {
+  iree_hal_buffer_view_t* ev = mkview(e, (iree_hal_dim_t[]){1, 1, DIM}, 3,
+      IREE_HAL_ELEMENT_TYPE_FLOAT_32, e->embed + (size_t)last * DIM, DIM * sizeof(float));
+  iree_hal_buffer_view_t* cq = mkview(e, (iree_hal_dim_t[]){1, HD}, 2,
+      IREE_HAL_ELEMENT_TYPE_FLOAT_32, e->rope_c[e->pos], HD * sizeof(float));
+  iree_hal_buffer_view_t* sq = mkview(e, (iree_hal_dim_t[]){1, HD}, 2,
+      IREE_HAL_ELEMENT_TYPE_FLOAT_32, e->rope_s[e->pos], HD * sizeof(float));
+  iree_hal_buffer_view_t* maskv = mkview(e, (iree_hal_dim_t[]){1, 1, 1, MAXMEM}, 4,
+      IREE_HAL_ELEMENT_TYPE_FLOAT_32, mask, MAXMEM * sizeof(float));
+  if (!ev || !cq || !sq || !maskv) return -1;
+
+  iree_runtime_call_t c;
+  if (!iree_status_is_ok(iree_runtime_call_initialize_by_name(
+          e->step, iree_make_cstring_view(FN_STEP), &c))) return -1;
+  iree_runtime_call_inputs_push_back_buffer_view(&c, ev);
+  iree_runtime_call_inputs_push_back_buffer_view(&c, cq);
+  iree_runtime_call_inputs_push_back_buffer_view(&c, sq);
+  for (int l = 0; l < L; ++l) {
+    iree_runtime_call_inputs_push_back_buffer_view(&c, e->sk[l]);
+    iree_runtime_call_inputs_push_back_buffer_view(&c, e->sv[l]);
+    iree_runtime_call_inputs_push_back_buffer_view(&c, e->ck[l]);
+    iree_runtime_call_inputs_push_back_buffer_view(&c, e->cv[l]);
+    if (l == 0) iree_runtime_call_inputs_push_back_buffer_view(&c, maskv);
+  }
+  int ok = iree_status_is_ok(iree_runtime_call_invoke(&c, 0));
+  iree_hal_buffer_view_release(ev); iree_hal_buffer_view_release(cq);
+  iree_hal_buffer_view_release(sq); iree_hal_buffer_view_release(maskv);
+  if (!ok) { iree_runtime_call_deinitialize(&c); return -1; }
+  for (int l = 0; l < L; ++l) {
+    iree_hal_buffer_view_release(e->sk[l]); iree_hal_buffer_view_release(e->sv[l]);
+    iree_runtime_call_outputs_pop_front_buffer_view(&c, &e->sk[l]);
+    iree_runtime_call_outputs_pop_front_buffer_view(&c, &e->sv[l]);
+  }
+  iree_hal_buffer_view_t* logits = NULL;
+  iree_runtime_call_outputs_pop_front_buffer_view(&c, &logits);
+  iree_runtime_call_deinitialize(&c);
+  int nxt = argmax_logits(e, logits);
+  if (logits) iree_hal_buffer_view_release(logits);
+  return nxt;
+}
+
 /* Greedy steps from the current state; stops on EOS / cycle / budget / MAXTOK. `trim` also
  * drops the detected cycle's repeat from the emitted tokens (safe when the decode state is
  * rebuilt next hop or discarded at finish). Returns new-token count. */
 static int run_steps(Engine* e, int budget, int trim) {
-  static float mask[MAXMEM];
+  static float mask[MAXMEM];   /* IREE decoder only */
   for (int f = 0; f < MAXMEM; ++f) mask[f] = f < e->nmem ? 0.0f : NEGMASK;
   int added = 0;
   while (e->ntoks > 0 && e->ntoks < MAXTOK && added < budget && e->pos < MAXTOK) {
-    int last = e->toks[e->ntoks - 1];
-    iree_hal_buffer_view_t* ev = mkview(e, (iree_hal_dim_t[]){1, 1, DIM}, 3,
-        IREE_HAL_ELEMENT_TYPE_FLOAT_32, e->embed + (size_t)last * DIM, DIM * sizeof(float));
-    iree_hal_buffer_view_t* cq = mkview(e, (iree_hal_dim_t[]){1, HD}, 2,
-        IREE_HAL_ELEMENT_TYPE_FLOAT_32, e->rope_c[e->pos], HD * sizeof(float));
-    iree_hal_buffer_view_t* sq = mkview(e, (iree_hal_dim_t[]){1, HD}, 2,
-        IREE_HAL_ELEMENT_TYPE_FLOAT_32, e->rope_s[e->pos], HD * sizeof(float));
-    iree_hal_buffer_view_t* maskv = mkview(e, (iree_hal_dim_t[]){1, 1, 1, MAXMEM}, 4,
-        IREE_HAL_ELEMENT_TYPE_FLOAT_32, mask, sizeof(mask));
-    if (!ev || !cq || !sq || !maskv) return added;
-
-    iree_runtime_call_t c;
-    if (!iree_status_is_ok(iree_runtime_call_initialize_by_name(
-            e->step, iree_make_cstring_view(FN_STEP), &c))) return added;
-    iree_runtime_call_inputs_push_back_buffer_view(&c, ev);
-    iree_runtime_call_inputs_push_back_buffer_view(&c, cq);
-    iree_runtime_call_inputs_push_back_buffer_view(&c, sq);
-    for (int l = 0; l < L; ++l) {
-      iree_runtime_call_inputs_push_back_buffer_view(&c, e->sk[l]);
-      iree_runtime_call_inputs_push_back_buffer_view(&c, e->sv[l]);
-      iree_runtime_call_inputs_push_back_buffer_view(&c, e->ck[l]);
-      iree_runtime_call_inputs_push_back_buffer_view(&c, e->cv[l]);
-      if (l == 0) iree_runtime_call_inputs_push_back_buffer_view(&c, maskv);
+    int last = e->toks[e->ntoks - 1], nxt;
+    if (e->dext) {
+      if (e->dext->step(e->dext_h, e->embed + (size_t)last * DIM, e->logits)) return added;
+      nxt = argmax_row(e->logits, e->vocab.n);
+    } else if ((nxt = iree_step(e, last, mask)) < 0) {
+      return added;
     }
-    int ok = iree_status_is_ok(iree_runtime_call_invoke(&c, 0));
-    iree_hal_buffer_view_release(ev); iree_hal_buffer_view_release(cq);
-    iree_hal_buffer_view_release(sq); iree_hal_buffer_view_release(maskv);
-    if (!ok) { iree_runtime_call_deinitialize(&c); return added; }
-    for (int l = 0; l < L; ++l) {
-      iree_hal_buffer_view_release(e->sk[l]); iree_hal_buffer_view_release(e->sv[l]);
-      iree_runtime_call_outputs_pop_front_buffer_view(&c, &e->sk[l]);
-      iree_runtime_call_outputs_pop_front_buffer_view(&c, &e->sv[l]);
-    }
-    iree_hal_buffer_view_t* logits = NULL;
-    iree_runtime_call_outputs_pop_front_buffer_view(&c, &logits);
-    iree_runtime_call_deinitialize(&c);
-    int nxt = argmax_logits(e, logits);
-    if (logits) iree_hal_buffer_view_release(logits);
     e->pos++;
     if (nxt == EOS) { e->halted = 1; e->ended_eos = 1; break; }   /* tentative while streaming */
     e->toks[e->ntoks++] = nxt;
@@ -782,24 +840,45 @@ static void reset_utterance(Engine* e) {
   e->ntoks = 0; e->pos = 0; e->text[0] = 0;
 }
 
-/* "<library.so>|<model dir>": dlopen the external encoder and create it over the model dir. */
-static void load_ext(Engine* e, const char* spec) {
-  char lib[1024];
+/* "<library.so>|<model dir>": dlopen the library and return its `sym()` table (NULL on failure); *dir = the model dir. */
+static const void* open_ext(const char* spec, const char* sym, void** lib, const char** dir) {
+  char path[1024];
   const char* bar = strchr(spec, '|');
-  if (!bar || (size_t)(bar - spec) >= sizeof(lib)) { TLOG("create: ext(%s) -> FAIL (want lib|dir)\n", spec); return; }
-  memcpy(lib, spec, bar - spec); lib[bar - spec] = 0;
-  e->ext_lib = dlopen(lib, RTLD_NOW | RTLD_LOCAL);
-  const MoonshineExtEncoder* (*get)(void) = e->ext_lib ? (const MoonshineExtEncoder* (*)(void))dlsym(e->ext_lib, "moonshine_ext_encoder") : NULL;
-  const MoonshineExtEncoder* x = get ? get() : NULL;
-  if (x && x->abi == 1) e->ext_h = x->create(bar + 1);
+  *lib = NULL;
+  if (!bar || (size_t)(bar - spec) >= sizeof(path)) { TLOG("create: ext(%s) -> FAIL (want lib|dir)\n", spec); return NULL; }
+  memcpy(path, spec, bar - spec); path[bar - spec] = 0;
+  *dir = bar + 1;
+  *lib = dlopen(path, RTLD_NOW | RTLD_LOCAL);
+  if (!*lib) { TLOG("create: ext(%s) -> FAIL %s\n", spec, dlerror()); return NULL; }
+  const void* (*get)(void) = (const void* (*)(void))dlsym(*lib, sym);
+  return get ? get() : NULL;
+}
+
+static void load_ext(Engine* e, const char* spec) {
+  const char* dir;
+  const MoonshineExtEncoder* x = open_ext(spec, "moonshine_ext_encoder", &e->ext_lib, &dir);
+  if (x && x->abi == 1) e->ext_h = x->create(dir);
   if (e->ext_h) e->ext = x;
-  TLOG("create: ext(%s) -> %s%s\n", spec, e->ext ? "ok" : "FAIL ", e->ext ? "" : (e->ext_lib ? "(symbol/abi/create)" : dlerror()));
+  TLOG("create: ext(%s) -> %s\n", spec, e->ext ? "ok" : "FAIL (symbol/abi/create)");
+}
+
+static void load_dext(Engine* e, const char* spec) {
+  const char* dir;
+  const MoonshineExtDecoder* x = open_ext(spec, "moonshine_ext_decoder", &e->dext_lib, &dir);
+  e->logits = x ? malloc((size_t)e->vocab.n * sizeof(float)) : NULL;
+  if (x && x->abi == 1 && e->logits) e->dext_h = x->create(dir, e->vocab.n, DIM, MAXTOK + 1);
+  if (e->dext_h) e->dext = x;
+  TLOG("create: dext(%s) -> %s\n", spec, e->dext ? "ok" : "FAIL (symbol/abi/create)");
 }
 
 static void release_ext(Engine* e) {
   if (e->ext && e->ext_h) e->ext->destroy(e->ext_h);
   if (e->ext_lib) dlclose(e->ext_lib);
   e->ext = NULL; e->ext_h = NULL; e->ext_lib = NULL;
+  if (e->dext && e->dext_h) e->dext->destroy(e->dext_h);
+  if (e->dext_lib) dlclose(e->dext_lib);
+  e->dext = NULL; e->dext_h = NULL; e->dext_lib = NULL;
+  free(e->logits); e->logits = NULL;
 }
 
 /* ---- JNI -------------------------------------------------------------------------------- */
@@ -826,9 +905,12 @@ JNIEXPORT jlong JNICALL JNIFN(nativeCreate)(JNIEnv* env, jobject thiz,
       iree_status_is_ok(iree_runtime_instance_create(&io, iree_allocator_system(), &e->inst)) &&
       iree_status_is_ok(iree_runtime_instance_try_create_default_device(e->inst,
           iree_make_cstring_view(dev), &e->dev))) {
-    e->params = load_params(e, par);
-    TLOG("create: params(%s) -> %s\n", par, e->params ? "ok" : "FAIL");
-    const int ext = !strncmp(enc, "ext:", 4);
+    const int ext = !strncmp(enc, "ext:", 4), dext = !strncmp(pre, "ext:", 4);
+    /* the parameter archive feeds the IREE decoder graphs only */
+    if (!(ext && dext)) {
+      e->params = load_params(e, par);
+      TLOG("create: params(%s) -> %s\n", par, e->params ? "ok" : "FAIL");
+    }
     if (ext) load_ext(e, enc + 4);
     else {
       e->fe = load_session(e, fe, 0);
@@ -853,13 +935,17 @@ JNIEXPORT jlong JNICALL JNIFN(nativeCreate)(JNIEnv* env, jobject thiz,
       e->adp = load_session(e, adp, 0);
       TLOG("create: adp(%s) -> %s\n", adp, e->adp ? "ok" : "FAIL");
     }
-    if ((ext ? (void*)e->ext : (void*)e->fe) && e->params) {
-      e->pre = load_session(e, pre, 1);
-      TLOG("create: pre(%s) -> %s\n", pre, e->pre ? "ok" : "FAIL");
-      e->step = load_session(e, stp, 1);
-      TLOG("create: step(%s) -> %s\n", stp, e->step ? "ok" : "FAIL");
+    if ((ext ? (void*)e->ext : (void*)e->fe) && (e->params || (ext && dext))) {
       e->vocab = vocab_load(voc);
       TLOG("create: vocab(%s) -> n=%d\n", voc, e->vocab.n);
+      if (dext) {
+        if (e->vocab.n > 0) load_dext(e, pre + 4);
+      } else {
+        e->pre = load_session(e, pre, 1);
+        TLOG("create: pre(%s) -> %s\n", pre, e->pre ? "ok" : "FAIL");
+        e->step = load_session(e, stp, 1);
+        TLOG("create: step(%s) -> %s\n", stp, e->step ? "ok" : "FAIL");
+      }
       FILE* f = e->vocab.n > 0 ? fopen(emb, "rb") : NULL;
       if (f) {
         const size_t want = (size_t)e->vocab.n * DIM;
@@ -874,7 +960,7 @@ JNIEXPORT jlong JNICALL JNIFN(nativeCreate)(JNIEnv* env, jobject thiz,
       e->pcm = malloc(MAXPCM * sizeof(float));
       rope_init(e);
       if (!e->alloc && e->pre) e->alloc = iree_runtime_session_device_allocator(e->pre);
-      if ((e->ext || (e->enc && e->adp)) && e->pre && e->step && e->vocab.n > 0 && e->embed && e->pcm) {
+      if ((e->ext || (e->enc && e->adp)) && (e->dext || (e->pre && e->step)) && e->vocab.n > 0 && e->embed && e->pcm) {
         warmup(e);
         ret = (jlong)(intptr_t)e;
       }
