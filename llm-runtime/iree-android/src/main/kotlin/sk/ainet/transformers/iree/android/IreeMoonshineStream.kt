@@ -21,6 +21,12 @@ package sk.ainet.transformers.iree.android
  * with dlopen — a bare library name resolves among the app's own native libraries. The decoder stays on [device];
  * frontend and adapter paths are then ignored.
  *
+ * External decoder: a [Files.prefillVmfb] of the same form, `ext:<library.so>|<model dir>`, replaces prefill and step
+ * with a library exporting `moonshine_ext_decoder()` (ABI 1: cross-attention state from the memory rows, then one
+ * token per step from the embedded previous token, logits out). The streaming loop, greedy choice, token budgets,
+ * repeat guard and text handling stay in the runtime; partial transcripts keep their locked prefix. The step path is
+ * then ignored, and with both sides external the params archive is not needed (pass an empty path).
+ *
  * One instance = one utterance at a time; callers serialize access. Per-hop stage timings are logged
  * under the `moonshine-timing` tag.
  *
