@@ -119,6 +119,17 @@ public object WhisperFamily : TransformersFamily("whisper", setOf("whisper"), "W
 public object MoonshineFamily : TransformersFamily("moonshine", setOf("moonshine"), "Moonshine", false, null)
 public object T5Family : TransformersFamily("t5", setOf("t5", "mt5"), "T5", false, null)
 
+/** Dense LFM2 checkpoints; the pinned text frontend is supplied by :llm-runtime:klfm2. */
+public object Lfm2Family : TransformersFamily(
+    family = "lfm2",
+    architectures = setOf("lfm2"),
+    displayName = "LFM2",
+    supportsToolCalling = false,
+    // No generic llm-agent template resolver is claimed by the initial JVM adapter.
+    chatTemplateFamily = null,
+    stopTokenStrings = listOf("<|im_end|>"),
+)
+
 /**
  * The family registry of this repository: the engine's built-in families replaced by the
  * descriptors above and extended with the families only this repository runs. Pass it to
@@ -127,7 +138,7 @@ public object T5Family : TransformersFamily("t5", setOf("t5", "mt5"), "T5", fals
 public object TransformersFamilies {
     public val all: List<TransformersFamily> = listOf(
         LlamaFamily, QwenFamily, GemmaFamily, ApertusFamily, BitNetFamily, BertFamily, VoxtralFamily,
-        WhisperFamily, MoonshineFamily, T5Family,
+        WhisperFamily, MoonshineFamily, T5Family, Lfm2Family,
     )
 
     public val registry: ModelFamilyRegistry = ModelFamilyRegistry.builtIn + all
