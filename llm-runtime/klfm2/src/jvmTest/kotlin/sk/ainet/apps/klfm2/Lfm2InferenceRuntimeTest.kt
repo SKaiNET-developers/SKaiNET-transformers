@@ -3,7 +3,6 @@ package sk.ainet.apps.klfm2
 import sk.ainet.models.lfm2.HybridLfm2Model
 import sk.ainet.models.lfm2.HybridModelState
 import sk.ainet.models.lfm2.ModelDimensions
-import sk.ainet.models.lfm2.expectedModelWeights
 import sk.ainet.apps.llm.InferenceRuntime
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.lang.tensor.Shape
@@ -22,7 +21,7 @@ class Lfm2InferenceRuntimeTest {
             8, 12, 4, 2, 2, 4, 3, 1e-5f, 1e6,
             listOf("conv", "full_attention"), contextLimit = 5,
         )
-        val weights = expectedModelWeights(dimensions).mapValues { (name, shape) ->
+        val weights = HybridLfm2Model.expectedWeights(dimensions).mapValues { (name, shape) ->
             val size = shape.dimensions.reduce(Int::times)
             val values = if (name.endsWith("norm.weight")) {
                 FloatArray(size) { 0.75f + (it % 3) * 0.1f }

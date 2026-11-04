@@ -60,7 +60,7 @@ class Lfm2CachedTensorNetwork(
         val d = dimensions
         require(capacity in 1..d.contextLimit) { "Cache capacity exceeds the configured context bound" }
         require(d.layerTypes.any { it == "full_attention" }) { "Cached export requires an attention layer" }
-        val expected = expectedModelWeights(d)
+        val expected = HybridLfm2Model.expectedWeights(d)
         require(weights.keys == expected.keys && expected.all { (name, shape) -> weights.getValue(name).shape == shape }) {
             "Cached full-model weight inventory/layout mismatch"
         }

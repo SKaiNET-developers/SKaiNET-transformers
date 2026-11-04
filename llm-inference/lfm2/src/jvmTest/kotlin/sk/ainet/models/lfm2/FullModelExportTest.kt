@@ -19,7 +19,7 @@ import kotlinx.serialization.json.*
 class FullModelExportTest {
     private val ctx = DirectCpuExecutionContext.create()
     private val dimensions = ModelDimensions(8, 12, 4, 2, 2, 4, 3, 1e-5f, 1e6, listOf("conv", "full_attention"))
-    private fun weights(): Map<String, Tensor<FP32, Float>> = expectedModelWeights(dimensions).mapValues { (name, shape) ->
+    private fun weights(): Map<String, Tensor<FP32, Float>> = HybridLfm2Model.expectedWeights(dimensions).mapValues { (name, shape) ->
         val count = shape.dimensions.reduce(Int::times)
         val values = if (name.endsWith("norm.weight")) FloatArray(count) { 0.7f + it % 3 * 0.1f }
             else FloatArray(count) { (((it * 11 + name.hashCode().mod(13)) % 23) - 11) * 0.025f }

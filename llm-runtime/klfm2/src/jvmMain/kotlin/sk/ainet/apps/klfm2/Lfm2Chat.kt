@@ -14,8 +14,8 @@ data class Lfm2ChatMessage(val role: String, val content: String, val thinking: 
 enum class Lfm2DecodingPolicy { CHECKPOINT, HUGGING_FACE_5_COMPAT }
 
 /**
- * Runtime frontend for the pinned LFM2.5-350M checkpoint's text-conversation subset.
- * This is a checked Kotlin implementation of that template, not a general Jinja engine.
+ * Runtime frontend for the LFM2 text-conversation subset. The chat template is a checked
+ * Kotlin implementation of specific verified template revisions, not a general Jinja engine.
  * Tools, multimodal content and arbitrary template revisions require separate support.
  */
 class Lfm2TextFrontend internal constructor(
@@ -26,6 +26,7 @@ class Lfm2TextFrontend internal constructor(
     val vocabularySize: Int,
     val metadataHashes: Map<String, String>,
     val effectiveTokenizerSha256: String,
+    val metadataPinned: Boolean,
     private val assignedTokenIds: Set<Int>,
     private val checkpointSpecialTokenIds: Set<Int>,
     private val hf5CompatSpecialTokenIds: Set<Int>,
@@ -80,37 +81,73 @@ class Lfm2TextFrontend internal constructor(
     }
 }
 
-private data class MetadataPin(val size: Long, val sha256: String)
+/** Byte-level pin (exact size and SHA-256) for one checkpoint metadata file. */
+data class Lfm2MetadataPin(val size: Long, val sha256: String)
 
-// LiquidAI/LFM2.5-350M @ 9e6c6ccf47cd318696e137d381a7ded8fe4df09f.
-private val textMetadataPins = linkedMapOf(
-    "config.json" to MetadataPin(1281, "720b43d6ddc2ed25be23eed355aefcf342434a176dedad23dbe0a5e3ac24bbb8"),
-    "generation_config.json" to MetadataPin(134, "0ec7d228c4de7e3453e98bf6910c7eb7841e87fede63ea11c0f75a5c64e1c3c3"),
-    "tokenizer_config.json" to MetadataPin(595, "3701f370c70034d06e28947ff51c1063983393319f429e3ce58f06a45fae67cc"),
-    "chat_template.jinja" to MetadataPin(5487, "ba551d58630afa3190b1be3602e28301f3d2e9bbac978dfc49d6d825171648b6"),
-    "tokenizer.json" to MetadataPin(4733389, "df1d8d5ec5d091b460562ffd545e4a5e91d17d4a0db7ebe733be34ed374377bd"),
-    "LICENSE" to MetadataPin(10574, "4d28ca14dedc0b3d0fcc2b3339f0e79931faa33874f3d24f522183a8fc70068c"),
+/** Every file the frontend interprets; pinned loads may verify further files (e.g. LICENSE). */
+private val requiredLfm2TextMetadata = listOf(
+    "config.json", "generation_config.json", "tokenizer_config.json", "chat_template.jinja", "tokenizer.json",
 )
 
-internal fun requirePinnedLfm2TextMetadata(name: String, bytes: ByteArray): String {
-    val pin = requireNotNull(textMetadataPins[name]) { "Unknown LFM2 text metadata file: $name" }
+/** Template revisions whose message/thinking/continue semantics renderLfm2TextChat implements exactly. */
+private val implementedLfm2TextTemplates = setOf(
+    "ba551d58630afa3190b1be3602e28301f3d2e9bbac978dfc49d6d825171648b6",
+)
+
+/** An optional byte-level pin set for one checkpoint revision's metadata files. */
+class Lfm2MetadataPins(files: Map<String, Lfm2MetadataPin>) {
+    val files: Map<String, Lfm2MetadataPin> = LinkedHashMap(files)
+
+    init {
+        require(requiredLfm2TextMetadata.all { it in this.files }) {
+            "Metadata pins must cover every interpreted file: $requiredLfm2TextMetadata"
+        }
+    }
+
+    companion object {
+        // LiquidAI/LFM2.5-350M @ 9e6c6ccf47cd318696e137d381a7ded8fe4df09f.
+        val LFM25_350M: Lfm2MetadataPins = Lfm2MetadataPins(linkedMapOf(
+            "config.json" to Lfm2MetadataPin(1281, "720b43d6ddc2ed25be23eed355aefcf342434a176dedad23dbe0a5e3ac24bbb8"),
+            "generation_config.json" to Lfm2MetadataPin(134, "0ec7d228c4de7e3453e98bf6910c7eb7841e87fede63ea11c0f75a5c64e1c3c3"),
+            "tokenizer_config.json" to Lfm2MetadataPin(595, "3701f370c70034d06e28947ff51c1063983393319f429e3ce58f06a45fae67cc"),
+            "chat_template.jinja" to Lfm2MetadataPin(5487, "ba551d58630afa3190b1be3602e28301f3d2e9bbac978dfc49d6d825171648b6"),
+            "tokenizer.json" to Lfm2MetadataPin(4733389, "df1d8d5ec5d091b460562ffd545e4a5e91d17d4a0db7ebe733be34ed374377bd"),
+            "LICENSE" to Lfm2MetadataPin(10574, "4d28ca14dedc0b3d0fcc2b3339f0e79931faa33874f3d24f522183a8fc70068c"),
+        ))
+    }
+}
+
+internal fun requirePinnedLfm2TextMetadata(
+    name: String, bytes: ByteArray, pins: Lfm2MetadataPins = Lfm2MetadataPins.LFM25_350M,
+): String {
+    val pin = requireNotNull(pins.files[name]) { "Unknown LFM2 text metadata file: $name" }
     require(bytes.size.toLong() == pin.size && textSha256(bytes) == pin.sha256) {
-        "Unsupported or changed LFM2 text metadata: $name; this renderer requires the pinned checkpoint"
+        "Unsupported or changed LFM2 text metadata: $name; this load requires the pinned checkpoint"
     }
     return pin.sha256
 }
 
-/** Verify original metadata bytes before creating the Unicode-compatible in-memory tokenizer. */
-fun loadLfm2TextFrontend(directory: File): Lfm2TextFrontend {
+/**
+ * Verify original metadata bytes before creating the Unicode-compatible in-memory tokenizer.
+ * [pins] verifies every listed file byte-for-byte; null accepts any checkpoint revision and
+ * relies on the structural validation below. Either way the chat template bytes must be a
+ * revision this module's checked Kotlin renderer implements - that gate is never relaxed.
+ */
+fun loadLfm2TextFrontend(directory: File, pins: Lfm2MetadataPins? = Lfm2MetadataPins.LFM25_350M): Lfm2TextFrontend {
     require(directory.isDirectory) { "Model metadata directory does not exist" }
     val originals = linkedMapOf<String, String>()
     val hashes = linkedMapOf<String, String>()
-    for ((name, pin) in textMetadataPins) {
+    for (name in (pins?.files?.keys ?: requiredLfm2TextMetadata)) {
         val file = File(directory, name)
-        require(file.isFile && file.length() == pin.size) { "Missing or incorrectly sized LFM2 metadata: $name" }
+        val pin = pins?.files?.getValue(name)
+        require(file.isFile && (pin == null || file.length() == pin.size)) { "Missing or incorrectly sized LFM2 metadata: $name" }
         val bytes = file.readBytes()
-        hashes[name] = requirePinnedLfm2TextMetadata(name, bytes)
+        if (pins != null) requirePinnedLfm2TextMetadata(name, bytes, pins)
+        hashes[name] = textSha256(bytes)
         originals[name] = bytes.toString(Charsets.UTF_8)
+    }
+    require(hashes.getValue("chat_template.jinja") in implementedLfm2TextTemplates) {
+        "Unsupported LFM2 chat template revision; renderLfm2TextChat implements only verified templates"
     }
     val config = Lfm2Config.parse(originals.getValue("config.json"))
     val special = resolveLfm2GenerationTokens(config.bosTokenId, config.eosTokenIds,
@@ -138,8 +175,8 @@ fun loadLfm2TextFrontend(directory: File): Lfm2TextFrontend {
     val eosIds = tokenizer.encode(eosToken, addSpecialTokens = false)
     require(eosIds.size == 1 && eosIds[0] in special.eos) { "Checkpoint EOS token is missing from generation stop IDs" }
     return Lfm2TextFrontend(tokenizer, bosToken, special.bos, special.eos.toSet(),
-        config.vocabularySize, hashes.toMap(), textSha256(effective.toByteArray(Charsets.UTF_8)), inventory.keys.toSet(),
-        decoding.checkpoint, decoding.hf5Compat)
+        config.vocabularySize, hashes.toMap(), textSha256(effective.toByteArray(Charsets.UTF_8)), pins != null,
+        inventory.keys.toSet(), decoding.checkpoint, decoding.hf5Compat)
 }
 
 internal data class Lfm2DecodingTokenSets(val checkpoint: Set<Int>, val hf5Compat: Set<Int>)

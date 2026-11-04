@@ -3,7 +3,7 @@ package sk.ainet.models.lfm2.export
 import kotlinx.serialization.json.*
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.models.lfm2.Lfm2CachedTensorNetwork
-import sk.ainet.models.lfm2.expectedModelWeights
+import sk.ainet.models.lfm2.HybridLfm2Model
 import sk.ainet.models.lfm2.Lfm2Config
 import sk.ainet.models.lfm2.loadLfm2Model
 import sk.ainet.models.lfm2.splitLfm2Embedding
@@ -25,7 +25,7 @@ fun traceLfm2CachedStep(network: Lfm2CachedTensorNetwork): Lfm2TracedFunction {
             inputs.getValue("mask"), inputs.getValue("write_mask"), states, ctx)
         linkedMapOf("logits" to result.logits).apply { putAll(result.states) }
     }
-    val expectedParameters = expectedModelWeights(network.dimensions).size - 1 + network.embeddingShardRows.size
+    val expectedParameters = HybridLfm2Model.expectedWeights(network.dimensions).size - 1 + network.embeddingShardRows.size
     check(trace.module.externalParameters.size == expectedParameters) {
         "Cached graph must use each decoder weight once and reuse the embedding row shards for its tied head"
     }

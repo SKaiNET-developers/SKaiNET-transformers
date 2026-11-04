@@ -16,7 +16,7 @@ class Lfm2PrefillNetwork(val dimensions: ModelDimensions, weights: Map<String, T
 
     init {
         val d = dimensions
-        val expected = expectedModelWeights(d)
+        val expected = HybridLfm2Model.expectedWeights(d)
         require(weights.keys == expected.keys && expected.all { (name, shape) -> weights.getValue(name).shape == shape }) { "Full-prefill weight inventory/layout mismatch" }
         for ((layer, kind) in d.layerTypes.withIndex()) {
             fun w(name: String) = weights.getValue("model.layers.$layer.$name.weight")

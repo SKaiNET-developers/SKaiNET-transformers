@@ -18,7 +18,7 @@ class Lfm2CachedTensorNetworkTest {
     private val ctx = DirectCpuExecutionContext.create()
     private val dimensions = ModelDimensions(8, 12, 4, 2, 2, 4, 3, 1e-5f, 1e6,
         listOf("conv", "full_attention", "conv", "full_attention"), contextLimit = 6)
-    private val weights = expectedModelWeights(dimensions).mapValues { (name, shape) ->
+    private val weights = HybridLfm2Model.expectedWeights(dimensions).mapValues { (name, shape) ->
         val values = FloatArray(shape.dimensions.reduce(Int::times)) { i ->
             if (name.endsWith("norm.weight")) 0.75f + i % 3 * 0.1f
             else (((i * 7 + name.hashCode().mod(17)) % 19) - 9) * 0.025f

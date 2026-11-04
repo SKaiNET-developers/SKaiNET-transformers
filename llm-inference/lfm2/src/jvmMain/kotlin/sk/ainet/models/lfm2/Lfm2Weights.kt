@@ -37,7 +37,7 @@ fun loadLfm2Model(
     rmsReduction: RmsReductionPolicy = RmsReductionPolicy.BALANCED_FP32,
 ): LoadedLfm2Model {
     val dimensions = config.toDimensions(contextLimit)
-    val expected = expectedModelWeights(dimensions)
+    val expected = HybridLfm2Model.expectedWeights(dimensions)
     require(checkpoint.isFile && checkpoint.canRead()) { "Checkpoint must be a readable single SafeTensors file" }
     if (expectedCheckpointSha256 != null) require(expectedCheckpointSha256.matches(Regex("[0-9a-fA-F]{64}"))) { "Invalid expected checkpoint SHA-256" }
     val checkpointHash = checkpoint.inputStream().buffered().use { input ->

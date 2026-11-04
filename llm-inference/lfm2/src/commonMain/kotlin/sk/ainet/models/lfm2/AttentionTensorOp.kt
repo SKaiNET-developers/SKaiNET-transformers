@@ -34,7 +34,7 @@ class AttentionTensorOp(
     private val w1: Tensor<FP32, Float>,
     private val w2: Tensor<FP32, Float>,
     private val w3: Tensor<FP32, Float>,
-    val rmsReduction: RmsReductionPolicy = RmsReductionPolicy.SERIAL_FP32,
+    val rmsReduction: RmsReductionPolicy = RmsReductionPolicy.BALANCED_FP32,
     val layoutPolicy: AttentionLayoutPolicy = AttentionLayoutPolicy.CURRENT_BATCHED,
 ) {
     init {

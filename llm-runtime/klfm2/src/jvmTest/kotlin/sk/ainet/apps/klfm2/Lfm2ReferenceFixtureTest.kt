@@ -39,6 +39,11 @@ class Lfm2ReferenceFixtureTest {
         assumeTrue(!directoryPath.isNullOrBlank(), "Set LFM2_MODEL_DIR to an explicit local pinned checkpoint directory")
         val directory = File(directoryPath!!)
         val frontend = loadLfm2TextFrontend(directory)
+        assertTrue(frontend.metadataPinned)
+        val unpinned = loadLfm2TextFrontend(directory, pins = null)
+        assertFalse(unpinned.metadataPinned)
+        assertEquals(frontend.effectiveTokenizerSha256, unpinned.effectiveTokenizerSha256)
+        assertEquals(frontend.metadataHashes.filterKeys { it != "LICENSE" }, unpinned.metadataHashes)
         for (value in fixture.getValue("cases").jsonArray) {
             val case = value.jsonObject
             val tokenIds = frontend.encodeMessages(messages(case.getValue("messages")),

@@ -8,6 +8,7 @@ import org.gradle.api.tasks.*
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
     alias(libs.plugins.vanniktech.mavenPublish)
+    alias(libs.plugins.binary.compatibility.validator)
 }
 
 // The qualified execution/loader surface is JVM CPU. Portable tensor blocks

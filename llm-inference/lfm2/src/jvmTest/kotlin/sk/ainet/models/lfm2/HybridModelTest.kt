@@ -13,7 +13,7 @@ class HybridModelTest {
     private val dimensions = ModelDimensions(8, 12, 4, 2, 2, 4, 3, 1e-5f, 1e6, listOf("conv", "full_attention"), contextLimit = 5)
 
     private fun model(): HybridLfm2Model {
-        val weights = expectedModelWeights(dimensions).mapValues { (name, shape) ->
+        val weights = HybridLfm2Model.expectedWeights(dimensions).mapValues { (name, shape) ->
             val size = shape.dimensions.reduce(Int::times)
             val values = if (name.endsWith("norm.weight")) FloatArray(size) { 0.75f + (it % 3) * 0.1f }
                 else FloatArray(size) { index -> (((index * 7 + name.hashCode().mod(17)) % 19) - 9) * 0.025f }
@@ -70,7 +70,7 @@ class HybridModelTest {
     @Test
     fun pinnedModelMappingContainsExactly148WeightsAndOneTiedEmbedding() {
         val kinds = listOf("conv", "conv", "full_attention", "conv", "conv", "full_attention", "conv", "conv", "full_attention", "conv", "full_attention", "conv", "full_attention", "conv", "full_attention", "conv")
-        val mapping = expectedModelWeights(ModelDimensions(1024, 65536, 16, 8, 64, 4608, 3, 1e-5f, 1e6, kinds))
+        val mapping = HybridLfm2Model.expectedWeights(ModelDimensions(1024, 65536, 16, 8, 64, 4608, 3, 1e-5f, 1e6, kinds))
         assertEquals(148, mapping.size)
         assertEquals(Shape(65536, 1024), mapping.getValue("model.embed_tokens.weight"))
         assertEquals(Shape(1024), mapping.getValue("model.embedding_norm.weight"))

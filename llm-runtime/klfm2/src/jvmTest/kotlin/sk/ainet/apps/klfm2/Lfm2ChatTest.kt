@@ -49,6 +49,25 @@ class Lfm2ChatTest {
         assertFailsWith<IllegalArgumentException> { requirePinnedLfm2TextMetadata("arbitrary.jinja", byteArrayOf()) }
     }
 
+    @Test fun pinSetsMustCoverInterpretedFilesAndUnpinnedLoadsKeepTheTemplateGate() {
+        assertFailsWith<IllegalArgumentException> {
+            Lfm2MetadataPins(mapOf("config.json" to Lfm2MetadataPin(1, "00")))
+        }
+        val directory = kotlin.io.path.createTempDirectory("lfm2-chat-metadata").toFile()
+        try {
+            val missing = assertFailsWith<IllegalArgumentException> { loadLfm2TextFrontend(directory, pins = null) }
+            assertTrue("Missing" in missing.message.orEmpty())
+            for (name in listOf("config.json", "generation_config.json", "tokenizer_config.json", "tokenizer.json")) {
+                java.io.File(directory, name).writeText("{}")
+            }
+            java.io.File(directory, "chat_template.jinja").writeText("{{ messages }}")
+            val changed = assertFailsWith<IllegalArgumentException> { loadLfm2TextFrontend(directory, pins = null) }
+            assertTrue("Unsupported LFM2 chat template" in changed.message.orEmpty(), changed.message)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
     @Test fun generationTokenOverridesTakePrecedenceAndInvalidValuesFail() {
         assertEquals(Lfm2GenerationTokens(1, setOf(7)), resolveLfm2GenerationTokens(1, setOf(7), "{}", 20))
         assertEquals(Lfm2GenerationTokens(2, setOf(8, 9)), resolveLfm2GenerationTokens(1, setOf(7), """{"bos_token_id":2,"eos_token_id":[8,9]}""", 20))
@@ -97,7 +116,7 @@ class Lfm2ChatTest {
             override fun encode(text: String): IntArray = intArrayOf(encodedId)
             override fun decode(ids: IntArray): String { decoded++; return ids.joinToString("") { vocabulary.idToToken(it)!! } }
         }
-        val frontend = Lfm2TextFrontend(tokenizer, "a", 0, setOf(1), 8, emptyMap(), "test", setOf(0, 1), emptySet(), emptySet())
+        val frontend = Lfm2TextFrontend(tokenizer, "a", 0, setOf(1), 8, emptyMap(), "test", false, setOf(0, 1), emptySet(), emptySet())
         assertEquals(8, frontend.vocabularySize)
         assertEquals(2, frontend.tokenizerVocabularySize)
         assertEquals(1, frontend.maximumAssignedTokenId)
@@ -137,7 +156,7 @@ class Lfm2ChatTest {
         }
         val source = """{"added_tokens":[{"id":2,"special":true},{"id":3,"special":false},{"id":4,"special":false},{"id":6,"special":false}]}"""
         val policies = lfm2DecodingTokenSets(source)
-        val frontend = Lfm2TextFrontend(tokenizer, "", 2, setOf(2), 8, emptyMap(), "test", pieces.indices.toSet(), policies.checkpoint, policies.hf5Compat)
+        val frontend = Lfm2TextFrontend(tokenizer, "", 2, setOf(2), 8, emptyMap(), "test", false, pieces.indices.toSet(), policies.checkpoint, policies.hf5Compat)
         val ids = intArrayOf(3, 0, 2, 1, 4, 5, 6)
         assertEquals("<think>é</think>nullpython", frontend.decode(ids))
         assertEquals(listOf(3, 0, 1, 4, 5, 6), calls.last())

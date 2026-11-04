@@ -11,7 +11,7 @@ class Lfm2SessionTest {
         val ctx = DirectCpuExecutionContext.create()
         val dimensions = ModelDimensions(8, 12, 4, 2, 2, 4, 3, 1e-5f, 1e6,
             listOf("conv", "full_attention"), contextLimit = 5)
-        val weights = expectedModelWeights(dimensions).mapValues { (name, shape) ->
+        val weights = HybridLfm2Model.expectedWeights(dimensions).mapValues { (name, shape) ->
             val size = shape.dimensions.reduce(Int::times)
             val values = if (name.endsWith("norm.weight")) FloatArray(size) { 0.75f + (it % 3) * 0.1f }
                 else FloatArray(size) { (((it * 7 + name.hashCode().mod(17)) % 19) - 9) * 0.025f }

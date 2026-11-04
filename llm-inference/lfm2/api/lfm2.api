@@ -1,0 +1,396 @@
+public final class sk/ainet/models/lfm2/AttentionLayoutPolicy : java/lang/Enum {
+	public static final field CURRENT_BATCHED Lsk/ainet/models/lfm2/AttentionLayoutPolicy;
+	public static final field DIRECT_KV_PER_HEAD Lsk/ainet/models/lfm2/AttentionLayoutPolicy;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lsk/ainet/models/lfm2/AttentionLayoutPolicy;
+	public static fun values ()[Lsk/ainet/models/lfm2/AttentionLayoutPolicy;
+}
+
+public final class sk/ainet/models/lfm2/AttentionTensorOp {
+	public fun <init> (IIIIIFLsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/models/lfm2/RmsReductionPolicy;Lsk/ainet/models/lfm2/AttentionLayoutPolicy;)V
+	public synthetic fun <init> (IIIIIFLsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/models/lfm2/RmsReductionPolicy;Lsk/ainet/models/lfm2/AttentionLayoutPolicy;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun forward (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/context/ExecutionContext;)Lsk/ainet/models/lfm2/AttentionTensorResult;
+	public final fun getHeadDim ()I
+	public final fun getIntermediateSize ()I
+	public final fun getKvHeads ()I
+	public final fun getLayoutPolicy ()Lsk/ainet/models/lfm2/AttentionLayoutPolicy;
+	public final fun getNormEps ()F
+	public final fun getQueryHeads ()I
+	public final fun getRmsReduction ()Lsk/ainet/models/lfm2/RmsReductionPolicy;
+	public final fun getWidth ()I
+}
+
+public final class sk/ainet/models/lfm2/AttentionTensorResult {
+	public fun <init> (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/Map;)V
+	public final fun component1 ()Lsk/ainet/lang/tensor/Tensor;
+	public final fun component2 ()Lsk/ainet/lang/tensor/Tensor;
+	public final fun component3 ()Lsk/ainet/lang/tensor/Tensor;
+	public final fun component4 ()Ljava/util/Map;
+	public final fun copy (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/Map;)Lsk/ainet/models/lfm2/AttentionTensorResult;
+	public static synthetic fun copy$default (Lsk/ainet/models/lfm2/AttentionTensorResult;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/Map;ILjava/lang/Object;)Lsk/ainet/models/lfm2/AttentionTensorResult;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getIntermediates ()Ljava/util/Map;
+	public final fun getNextKey ()Lsk/ainet/lang/tensor/Tensor;
+	public final fun getNextValue ()Lsk/ainet/lang/tensor/Tensor;
+	public final fun getOutput ()Lsk/ainet/lang/tensor/Tensor;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/models/lfm2/BlockTensorOp {
+	public fun <init> (IIIFLsk/ainet/models/lfm2/ShortConvTensorOp;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/models/lfm2/RmsReductionPolicy;)V
+	public synthetic fun <init> (IIIFLsk/ainet/models/lfm2/ShortConvTensorOp;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/models/lfm2/RmsReductionPolicy;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun forward (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/context/ExecutionContext;)Lsk/ainet/models/lfm2/BlockTensorResult;
+	public final fun getIntermediateSize ()I
+	public final fun getKernel ()I
+	public final fun getNormEps ()F
+	public final fun getRmsReduction ()Lsk/ainet/models/lfm2/RmsReductionPolicy;
+	public final fun getWidth ()I
+}
+
+public final class sk/ainet/models/lfm2/BlockTensorResult {
+	public fun <init> (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/Map;)V
+	public final fun component1 ()Lsk/ainet/lang/tensor/Tensor;
+	public final fun component2 ()Lsk/ainet/lang/tensor/Tensor;
+	public final fun component3 ()Ljava/util/Map;
+	public final fun copy (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/Map;)Lsk/ainet/models/lfm2/BlockTensorResult;
+	public static synthetic fun copy$default (Lsk/ainet/models/lfm2/BlockTensorResult;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/Map;ILjava/lang/Object;)Lsk/ainet/models/lfm2/BlockTensorResult;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getIntermediates ()Ljava/util/Map;
+	public final fun getNextHistory ()Lsk/ainet/lang/tensor/Tensor;
+	public final fun getOutput ()Lsk/ainet/lang/tensor/Tensor;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/models/lfm2/GreedyResult {
+	public fun <init> ([ILjava/lang/String;I)V
+	public final fun component1 ()[I
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()I
+	public final fun copy ([ILjava/lang/String;I)Lsk/ainet/models/lfm2/GreedyResult;
+	public static synthetic fun copy$default (Lsk/ainet/models/lfm2/GreedyResult;[ILjava/lang/String;IILjava/lang/Object;)Lsk/ainet/models/lfm2/GreedyResult;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getGeneratedIds ()[I
+	public final fun getStateInputTokens ()I
+	public final fun getStopReason ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/models/lfm2/HybridLfm2Model {
+	public static final field Companion Lsk/ainet/models/lfm2/HybridLfm2Model$Companion;
+	public fun <init> (Lsk/ainet/models/lfm2/ModelDimensions;Lsk/ainet/context/DirectCpuExecutionContext;Ljava/util/Map;Lsk/ainet/models/lfm2/RmsReductionPolicy;)V
+	public synthetic fun <init> (Lsk/ainet/models/lfm2/ModelDimensions;Lsk/ainet/context/DirectCpuExecutionContext;Ljava/util/Map;Lsk/ainet/models/lfm2/RmsReductionPolicy;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun forward ([ILsk/ainet/models/lfm2/HybridModelState;)Lsk/ainet/models/lfm2/ModelChunk;
+	public final fun generateGreedy ([IILjava/util/Set;Lkotlin/jvm/functions/Function2;)Lsk/ainet/models/lfm2/GreedyResult;
+	public static synthetic fun generateGreedy$default (Lsk/ainet/models/lfm2/HybridLfm2Model;[IILjava/util/Set;Lkotlin/jvm/functions/Function2;ILjava/lang/Object;)Lsk/ainet/models/lfm2/GreedyResult;
+	public final fun getCtx ()Lsk/ainet/context/DirectCpuExecutionContext;
+	public final fun getDimensions ()Lsk/ainet/models/lfm2/ModelDimensions;
+	public final fun getRmsReduction ()Lsk/ainet/models/lfm2/RmsReductionPolicy;
+}
+
+public final class sk/ainet/models/lfm2/HybridLfm2Model$Companion {
+	public final fun expectedWeights (Lsk/ainet/models/lfm2/ModelDimensions;)Ljava/util/LinkedHashMap;
+}
+
+public final class sk/ainet/models/lfm2/HybridModelState {
+	public fun <init> ()V
+	public final fun getConvolution ()Ljava/util/Map;
+	public final fun getKeys ()Ljava/util/Map;
+	public final fun getPosition ()I
+	public final fun getValues ()Ljava/util/Map;
+	public final fun reset ()V
+}
+
+public final class sk/ainet/models/lfm2/Lfm2CachedTensorNetwork {
+	public fun <init> (Lsk/ainet/models/lfm2/ModelDimensions;Ljava/util/Map;ILjava/util/List;)V
+	public final fun forward (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/Map;Lsk/ainet/context/ExecutionContext;)Lsk/ainet/models/lfm2/Lfm2CachedTensorResult;
+	public final fun getCapacity ()I
+	public final fun getDimensions ()Lsk/ainet/models/lfm2/ModelDimensions;
+	public final fun getEmbeddingShardRows ()Ljava/util/List;
+	public final fun stateShapes ()Ljava/util/LinkedHashMap;
+}
+
+public final class sk/ainet/models/lfm2/Lfm2CachedTensorNetworkKt {
+	public static final fun splitLfm2Embedding (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/context/ExecutionContext;I)Ljava/util/List;
+	public static synthetic fun splitLfm2Embedding$default (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/context/ExecutionContext;IILjava/lang/Object;)Ljava/util/List;
+}
+
+public final class sk/ainet/models/lfm2/Lfm2CachedTensorResult {
+	public fun <init> (Lsk/ainet/lang/tensor/Tensor;Ljava/util/LinkedHashMap;)V
+	public final fun component1 ()Lsk/ainet/lang/tensor/Tensor;
+	public final fun component2 ()Ljava/util/LinkedHashMap;
+	public final fun copy (Lsk/ainet/lang/tensor/Tensor;Ljava/util/LinkedHashMap;)Lsk/ainet/models/lfm2/Lfm2CachedTensorResult;
+	public static synthetic fun copy$default (Lsk/ainet/models/lfm2/Lfm2CachedTensorResult;Lsk/ainet/lang/tensor/Tensor;Ljava/util/LinkedHashMap;ILjava/lang/Object;)Lsk/ainet/models/lfm2/Lfm2CachedTensorResult;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getLogits ()Lsk/ainet/lang/tensor/Tensor;
+	public final fun getStates ()Ljava/util/LinkedHashMap;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/models/lfm2/Lfm2Config {
+	public static final field Companion Lsk/ainet/models/lfm2/Lfm2Config$Companion;
+	public fun <init> (IILjava/util/List;IIIIFDILjava/lang/Integer;Ljava/util/Set;)V
+	public final fun component1 ()I
+	public final fun component10 ()I
+	public final fun component11 ()Ljava/lang/Integer;
+	public final fun component12 ()Ljava/util/Set;
+	public final fun component2 ()I
+	public final fun component3 ()Ljava/util/List;
+	public final fun component4 ()I
+	public final fun component5 ()I
+	public final fun component6 ()I
+	public final fun component7 ()I
+	public final fun component8 ()F
+	public final fun component9 ()D
+	public final fun copy (IILjava/util/List;IIIIFDILjava/lang/Integer;Ljava/util/Set;)Lsk/ainet/models/lfm2/Lfm2Config;
+	public static synthetic fun copy$default (Lsk/ainet/models/lfm2/Lfm2Config;IILjava/util/List;IIIIFDILjava/lang/Integer;Ljava/util/Set;ILjava/lang/Object;)Lsk/ainet/models/lfm2/Lfm2Config;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAttentionHeads ()I
+	public final fun getBosTokenId ()Ljava/lang/Integer;
+	public final fun getEffectiveIntermediateSize ()I
+	public final fun getEosTokenIds ()Ljava/util/Set;
+	public final fun getHiddenSize ()I
+	public final fun getKernelSize ()I
+	public final fun getKvHeads ()I
+	public final fun getLayerTypes ()Ljava/util/List;
+	public final fun getMaximumPositions ()I
+	public final fun getNormEps ()F
+	public final fun getRopeTheta ()D
+	public final fun getVocabularySize ()I
+	public fun hashCode ()I
+	public final fun toDimensions (I)Lsk/ainet/models/lfm2/ModelDimensions;
+	public static synthetic fun toDimensions$default (Lsk/ainet/models/lfm2/Lfm2Config;IILjava/lang/Object;)Lsk/ainet/models/lfm2/ModelDimensions;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/models/lfm2/Lfm2Config$Companion {
+	public final fun parse (Ljava/lang/String;)Lsk/ainet/models/lfm2/Lfm2Config;
+}
+
+public final class sk/ainet/models/lfm2/Lfm2PrefillNetwork {
+	public fun <init> (Lsk/ainet/models/lfm2/ModelDimensions;Ljava/util/Map;)V
+	public final fun forward (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/Map;Lsk/ainet/context/ExecutionContext;)Lsk/ainet/models/lfm2/Lfm2PrefillResult;
+	public final fun getDimensions ()Lsk/ainet/models/lfm2/ModelDimensions;
+}
+
+public final class sk/ainet/models/lfm2/Lfm2PrefillResult {
+	public fun <init> (Lsk/ainet/lang/tensor/Tensor;Ljava/util/LinkedHashMap;)V
+	public final fun component1 ()Lsk/ainet/lang/tensor/Tensor;
+	public final fun component2 ()Ljava/util/LinkedHashMap;
+	public final fun copy (Lsk/ainet/lang/tensor/Tensor;Ljava/util/LinkedHashMap;)Lsk/ainet/models/lfm2/Lfm2PrefillResult;
+	public static synthetic fun copy$default (Lsk/ainet/models/lfm2/Lfm2PrefillResult;Lsk/ainet/lang/tensor/Tensor;Ljava/util/LinkedHashMap;ILjava/lang/Object;)Lsk/ainet/models/lfm2/Lfm2PrefillResult;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getLogits ()Lsk/ainet/lang/tensor/Tensor;
+	public final fun getStates ()Ljava/util/LinkedHashMap;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/models/lfm2/Lfm2Session : java/lang/AutoCloseable {
+	public fun <init> (Lsk/ainet/models/lfm2/HybridLfm2Model;)V
+	public fun close ()V
+	public final fun forward (I)Lsk/ainet/lang/tensor/Tensor;
+	public final fun forwardBatched ([I)Lsk/ainet/lang/tensor/Tensor;
+	public final fun getPosition ()I
+	public final fun reset ()V
+}
+
+public final class sk/ainet/models/lfm2/Lfm2WeightRecord {
+	public fun <init> (Ljava/lang/String;Ljava/util/List;Ljava/lang/String;Ljava/lang/String;J)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/util/List;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()J
+	public final fun copy (Ljava/lang/String;Ljava/util/List;Ljava/lang/String;Ljava/lang/String;J)Lsk/ainet/models/lfm2/Lfm2WeightRecord;
+	public static synthetic fun copy$default (Lsk/ainet/models/lfm2/Lfm2WeightRecord;Ljava/lang/String;Ljava/util/List;Ljava/lang/String;Ljava/lang/String;JILjava/lang/Object;)Lsk/ainet/models/lfm2/Lfm2WeightRecord;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getFp32Bytes ()J
+	public final fun getFp32Sha256 ()Ljava/lang/String;
+	public final fun getShape ()Ljava/util/List;
+	public final fun getSourceDtype ()Ljava/lang/String;
+	public final fun getTensorName ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/models/lfm2/Lfm2WeightsKt {
+	public static final fun loadLfm2Model (Lsk/ainet/models/lfm2/Lfm2Config;Ljava/io/File;ILjava/lang/String;Lsk/ainet/context/DirectCpuExecutionContext;Lsk/ainet/models/lfm2/RmsReductionPolicy;)Lsk/ainet/models/lfm2/LoadedLfm2Model;
+	public static synthetic fun loadLfm2Model$default (Lsk/ainet/models/lfm2/Lfm2Config;Ljava/io/File;ILjava/lang/String;Lsk/ainet/context/DirectCpuExecutionContext;Lsk/ainet/models/lfm2/RmsReductionPolicy;ILjava/lang/Object;)Lsk/ainet/models/lfm2/LoadedLfm2Model;
+}
+
+public final class sk/ainet/models/lfm2/LoadedLfm2Model {
+	public fun <init> (Lsk/ainet/models/lfm2/HybridLfm2Model;Ljava/util/Map;Ljava/util/List;Ljava/lang/String;)V
+	public final fun component1 ()Lsk/ainet/models/lfm2/HybridLfm2Model;
+	public final fun component2 ()Ljava/util/Map;
+	public final fun component3 ()Ljava/util/List;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun copy (Lsk/ainet/models/lfm2/HybridLfm2Model;Ljava/util/Map;Ljava/util/List;Ljava/lang/String;)Lsk/ainet/models/lfm2/LoadedLfm2Model;
+	public static synthetic fun copy$default (Lsk/ainet/models/lfm2/LoadedLfm2Model;Lsk/ainet/models/lfm2/HybridLfm2Model;Ljava/util/Map;Ljava/util/List;Ljava/lang/String;ILjava/lang/Object;)Lsk/ainet/models/lfm2/LoadedLfm2Model;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCheckpointSha256 ()Ljava/lang/String;
+	public final fun getModel ()Lsk/ainet/models/lfm2/HybridLfm2Model;
+	public final fun getRecords ()Ljava/util/List;
+	public final fun getWeights ()Ljava/util/Map;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/models/lfm2/ModelChunk {
+	public fun <init> (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/Map;)V
+	public final fun component1 ()Lsk/ainet/lang/tensor/Tensor;
+	public final fun component2 ()Lsk/ainet/lang/tensor/Tensor;
+	public final fun component3 ()Ljava/util/Map;
+	public final fun copy (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/Map;)Lsk/ainet/models/lfm2/ModelChunk;
+	public static synthetic fun copy$default (Lsk/ainet/models/lfm2/ModelChunk;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/Map;ILjava/lang/Object;)Lsk/ainet/models/lfm2/ModelChunk;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getFinalNorm ()Lsk/ainet/lang/tensor/Tensor;
+	public final fun getLayerOutputs ()Ljava/util/Map;
+	public final fun getLogits ()Lsk/ainet/lang/tensor/Tensor;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/models/lfm2/ModelDimensions {
+	public fun <init> (IIIIIIIFDLjava/util/List;I)V
+	public synthetic fun <init> (IIIIIIIFDLjava/util/List;IILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()I
+	public final fun component10 ()Ljava/util/List;
+	public final fun component11 ()I
+	public final fun component2 ()I
+	public final fun component3 ()I
+	public final fun component4 ()I
+	public final fun component5 ()I
+	public final fun component6 ()I
+	public final fun component7 ()I
+	public final fun component8 ()F
+	public final fun component9 ()D
+	public final fun copy (IIIIIIIFDLjava/util/List;I)Lsk/ainet/models/lfm2/ModelDimensions;
+	public static synthetic fun copy$default (Lsk/ainet/models/lfm2/ModelDimensions;IIIIIIIFDLjava/util/List;IILjava/lang/Object;)Lsk/ainet/models/lfm2/ModelDimensions;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getContextLimit ()I
+	public final fun getEpsilon ()F
+	public final fun getHeadDim ()I
+	public final fun getIntermediate ()I
+	public final fun getKernel ()I
+	public final fun getKvHeads ()I
+	public final fun getLayerTypes ()Ljava/util/List;
+	public final fun getQueryHeads ()I
+	public final fun getTheta ()D
+	public final fun getVocabulary ()I
+	public final fun getWidth ()I
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/models/lfm2/RmsNormKt {
+	public static final fun rmsNormalize (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/lfm2/RmsReductionPolicy;F)Lsk/ainet/lang/tensor/Tensor;
+	public static synthetic fun rmsNormalize$default (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/context/ExecutionContext;Lsk/ainet/models/lfm2/RmsReductionPolicy;FILjava/lang/Object;)Lsk/ainet/lang/tensor/Tensor;
+}
+
+public final class sk/ainet/models/lfm2/RmsReductionPolicy : java/lang/Enum {
+	public static final field BALANCED_FP32 Lsk/ainet/models/lfm2/RmsReductionPolicy;
+	public static final field SERIAL_FP32 Lsk/ainet/models/lfm2/RmsReductionPolicy;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lsk/ainet/models/lfm2/RmsReductionPolicy;
+	public static fun values ()[Lsk/ainet/models/lfm2/RmsReductionPolicy;
+}
+
+public final class sk/ainet/models/lfm2/ShortConvTensorOp {
+	public fun <init> (IILsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;)V
+	public final fun forward (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/context/ExecutionContext;)Lsk/ainet/models/lfm2/ShortConvTensorResult;
+	public final fun getKernel ()I
+	public final fun getWidth ()I
+}
+
+public final class sk/ainet/models/lfm2/ShortConvTensorResult {
+	public fun <init> (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;)V
+	public final fun component1 ()Lsk/ainet/lang/tensor/Tensor;
+	public final fun component2 ()Lsk/ainet/lang/tensor/Tensor;
+	public final fun copy (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;)Lsk/ainet/models/lfm2/ShortConvTensorResult;
+	public static synthetic fun copy$default (Lsk/ainet/models/lfm2/ShortConvTensorResult;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;ILjava/lang/Object;)Lsk/ainet/models/lfm2/ShortConvTensorResult;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getNextHistory ()Lsk/ainet/lang/tensor/Tensor;
+	public final fun getOutput ()Lsk/ainet/lang/tensor/Tensor;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/models/lfm2/export/Lfm2ExportBundleKt {
+	public static final fun lfm2ExportSourcePins ()Lkotlinx/serialization/json/JsonObject;
+	public static final fun sha256 (Ljava/io/File;)Ljava/lang/String;
+	public static final fun writeLfm2ExportBundle (Lsk/ainet/models/lfm2/export/Lfm2TracedFunction;Ljava/io/File;Ljava/util/List;Lkotlinx/serialization/json/JsonObject;)Lkotlinx/serialization/json/JsonObject;
+	public static final fun writeLfm2ParameterArchive (Lsk/ainet/compile/hlo/StableHloModule;Ljava/io/File;Ljava/util/List;)Lkotlinx/serialization/json/JsonObject;
+}
+
+public final class sk/ainet/models/lfm2/export/Lfm2ExportHarness {
+	public fun <init> (Lsk/ainet/models/lfm2/LoadedLfm2Model;)V
+	public final fun attentionBlock (IIILsk/ainet/models/lfm2/AttentionLayoutPolicy;)Lsk/ainet/models/lfm2/export/Lfm2TracedFunction;
+	public static synthetic fun attentionBlock$default (Lsk/ainet/models/lfm2/export/Lfm2ExportHarness;IIILsk/ainet/models/lfm2/AttentionLayoutPolicy;ILjava/lang/Object;)Lsk/ainet/models/lfm2/export/Lfm2TracedFunction;
+	public final fun convolutionBlock (II)Lsk/ainet/models/lfm2/export/Lfm2TracedFunction;
+	public final fun prefill (I)Lsk/ainet/models/lfm2/export/Lfm2TracedFunction;
+	public final fun shortConvolution (II)Lsk/ainet/models/lfm2/export/Lfm2TracedFunction;
+	public final fun weightHashes (Lsk/ainet/models/lfm2/export/Lfm2ExportKind;Ljava/lang/Integer;)Ljava/util/List;
+	public static synthetic fun weightHashes$default (Lsk/ainet/models/lfm2/export/Lfm2ExportHarness;Lsk/ainet/models/lfm2/export/Lfm2ExportKind;Ljava/lang/Integer;ILjava/lang/Object;)Ljava/util/List;
+}
+
+public final class sk/ainet/models/lfm2/export/Lfm2ExportHarnessKt {
+	public static final fun main ([Ljava/lang/String;)V
+}
+
+public final class sk/ainet/models/lfm2/export/Lfm2ExportKind : java/lang/Enum {
+	public static final field ATTENTION Lsk/ainet/models/lfm2/export/Lfm2ExportKind;
+	public static final field CONV_BLOCK Lsk/ainet/models/lfm2/export/Lfm2ExportKind;
+	public static final field PREFILL Lsk/ainet/models/lfm2/export/Lfm2ExportKind;
+	public static final field SHORT_CONV Lsk/ainet/models/lfm2/export/Lfm2ExportKind;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lsk/ainet/models/lfm2/export/Lfm2ExportKind;
+	public static fun values ()[Lsk/ainet/models/lfm2/export/Lfm2ExportKind;
+}
+
+public final class sk/ainet/models/lfm2/export/Lfm2GenerationExportCli {
+	public static final field INSTANCE Lsk/ainet/models/lfm2/export/Lfm2GenerationExportCli;
+	public static final fun main ([Ljava/lang/String;)V
+}
+
+public final class sk/ainet/models/lfm2/export/Lfm2GenerationExportKt {
+	public static final fun lfm2CachedStepContract (Lsk/ainet/models/lfm2/Lfm2CachedTensorNetwork;Lsk/ainet/models/lfm2/export/Lfm2TracedFunction;)Lkotlinx/serialization/json/JsonObject;
+	public static final fun traceLfm2CachedStep (Lsk/ainet/models/lfm2/Lfm2CachedTensorNetwork;)Lsk/ainet/models/lfm2/export/Lfm2TracedFunction;
+}
+
+public final class sk/ainet/models/lfm2/export/Lfm2TracedFunction {
+	public fun <init> (Lsk/ainet/compile/hlo/StableHloModule;Ljava/util/List;Ljava/util/List;ILjava/util/List;Ljava/util/List;)V
+	public final fun component1 ()Lsk/ainet/compile/hlo/StableHloModule;
+	public final fun component2 ()Ljava/util/List;
+	public final fun component3 ()Ljava/util/List;
+	public final fun component4 ()I
+	public final fun component5 ()Ljava/util/List;
+	public final fun component6 ()Ljava/util/List;
+	public final fun copy (Lsk/ainet/compile/hlo/StableHloModule;Ljava/util/List;Ljava/util/List;ILjava/util/List;Ljava/util/List;)Lsk/ainet/models/lfm2/export/Lfm2TracedFunction;
+	public static synthetic fun copy$default (Lsk/ainet/models/lfm2/export/Lfm2TracedFunction;Lsk/ainet/compile/hlo/StableHloModule;Ljava/util/List;Ljava/util/List;ILjava/util/List;Ljava/util/List;ILjava/lang/Object;)Lsk/ainet/models/lfm2/export/Lfm2TracedFunction;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getInputNames ()Ljava/util/List;
+	public final fun getInputShapes ()Ljava/util/List;
+	public final fun getModule ()Lsk/ainet/compile/hlo/StableHloModule;
+	public final fun getOperationCount ()I
+	public final fun getOutputNames ()Ljava/util/List;
+	public final fun getOutputShapes ()Ljava/util/List;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/models/lfm2/export/Lfm2TracingKt {
+	public static final fun traceLfm2Attention (Lsk/ainet/models/lfm2/AttentionTensorOp;IILsk/ainet/compile/hlo/ConstantMaterializationPolicy;)Lsk/ainet/models/lfm2/export/Lfm2TracedFunction;
+	public static synthetic fun traceLfm2Attention$default (Lsk/ainet/models/lfm2/AttentionTensorOp;IILsk/ainet/compile/hlo/ConstantMaterializationPolicy;ILjava/lang/Object;)Lsk/ainet/models/lfm2/export/Lfm2TracedFunction;
+	public static final fun traceLfm2ConvBlock (Lsk/ainet/models/lfm2/BlockTensorOp;ILsk/ainet/compile/hlo/ConstantMaterializationPolicy;)Lsk/ainet/models/lfm2/export/Lfm2TracedFunction;
+	public static synthetic fun traceLfm2ConvBlock$default (Lsk/ainet/models/lfm2/BlockTensorOp;ILsk/ainet/compile/hlo/ConstantMaterializationPolicy;ILjava/lang/Object;)Lsk/ainet/models/lfm2/export/Lfm2TracedFunction;
+	public static final fun traceLfm2Function (Ljava/lang/String;Ljava/util/LinkedHashMap;Lsk/ainet/compile/hlo/ConstantMaterializationPolicy;Lkotlin/jvm/functions/Function2;)Lsk/ainet/models/lfm2/export/Lfm2TracedFunction;
+	public static synthetic fun traceLfm2Function$default (Ljava/lang/String;Ljava/util/LinkedHashMap;Lsk/ainet/compile/hlo/ConstantMaterializationPolicy;Lkotlin/jvm/functions/Function2;ILjava/lang/Object;)Lsk/ainet/models/lfm2/export/Lfm2TracedFunction;
+	public static final fun traceLfm2Prefill (Lsk/ainet/models/lfm2/Lfm2PrefillNetwork;I)Lsk/ainet/models/lfm2/export/Lfm2TracedFunction;
+	public static final fun traceLfm2ShortConv (Lsk/ainet/models/lfm2/ShortConvTensorOp;ILsk/ainet/compile/hlo/ConstantMaterializationPolicy;)Lsk/ainet/models/lfm2/export/Lfm2TracedFunction;
+	public static synthetic fun traceLfm2ShortConv$default (Lsk/ainet/models/lfm2/ShortConvTensorOp;ILsk/ainet/compile/hlo/ConstantMaterializationPolicy;ILjava/lang/Object;)Lsk/ainet/models/lfm2/export/Lfm2TracedFunction;
+}
+

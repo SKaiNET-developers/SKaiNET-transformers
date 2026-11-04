@@ -15,7 +15,7 @@ class Lfm2WeightsTest {
         changeHeader: (MutableMap<String, JsonElement>) -> Unit = {},
     ): File {
         val bytesPerValue = if (dtype == "F32") 4 else 2
-        val expected = expectedModelWeights(config.toDimensions())
+        val expected = HybridLfm2Model.expectedWeights(config.toDimensions())
         val payload = ByteBuffer.allocate(expected.values.sumOf { it.dimensions.reduce(Int::times) * bytesPerValue }).order(ByteOrder.LITTLE_ENDIAN)
         val header = linkedMapOf<String, JsonElement>()
         for ((name, shape) in expected) {
@@ -53,7 +53,7 @@ class Lfm2WeightsTest {
         for (dtype in listOf("BF16", "F16", "F32")) {
             val file = checkpoint(directory, dtype)
             val loaded = loadLfm2Model(config, file)
-            assertEquals(expectedModelWeights(config.toDimensions()).keys, loaded.weights.keys)
+            assertEquals(HybridLfm2Model.expectedWeights(config.toDimensions()).keys, loaded.weights.keys)
             assertEquals(21, loaded.records.size)
             assertEquals(RmsReductionPolicy.BALANCED_FP32, loaded.model.rmsReduction)
             for (record in loaded.records) {

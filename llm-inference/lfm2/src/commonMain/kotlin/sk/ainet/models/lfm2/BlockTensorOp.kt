@@ -23,7 +23,7 @@ class BlockTensorOp(
     private val w1: Tensor<FP32, Float>,
     private val w2: Tensor<FP32, Float>,
     private val w3: Tensor<FP32, Float>,
-    val rmsReduction: RmsReductionPolicy = RmsReductionPolicy.SERIAL_FP32,
+    val rmsReduction: RmsReductionPolicy = RmsReductionPolicy.BALANCED_FP32,
 ) {
     init {
         require(width > 0 && kernel > 0 && intermediateSize > 0 && normEps.isFinite() && normEps > 0f)

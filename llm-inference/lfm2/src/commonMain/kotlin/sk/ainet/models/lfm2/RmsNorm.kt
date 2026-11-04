@@ -7,9 +7,12 @@ import sk.ainet.lang.types.FP32
 
 enum class RmsReductionPolicy { SERIAL_FP32, BALANCED_FP32 }
 
-/** FP32 throughout. Two shorter reductions limit rounding drift in wide RMS sums. */
+/**
+ * FP32 throughout. Two shorter reductions limit rounding drift in wide RMS sums.
+ * BALANCED_FP32 is the policy the full model was qualified with and the default everywhere.
+ */
 fun rmsNormalize(input: Tensor<FP32, Float>, weight: Tensor<FP32, Float>, ctx: ExecutionContext,
-    policy: RmsReductionPolicy = RmsReductionPolicy.SERIAL_FP32,
+    policy: RmsReductionPolicy = RmsReductionPolicy.BALANCED_FP32,
     epsilon: Float = 1e-5f,
 ): Tensor<FP32, Float> {
     val ops = ctx.ops

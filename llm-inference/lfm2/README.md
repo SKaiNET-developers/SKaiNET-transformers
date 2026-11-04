@@ -30,7 +30,7 @@ The loader checks the configured tensor inventory, shapes, supported BF16/F16/F3
 
 `HybridLfm2Model.forward` returns logits for every input position and updates a caller-owned `HybridModelState`. `Lfm2Session` returns the final position and owns an independent state. Session close is terminal and idempotent; it releases session state while retaining shared weights. Calls are synchronous and thread-confined. A caller sharing an execution context or model must serialize its use.
 
-Complete model execution uses `BALANCED_FP32` RMS reduction, preserving small contributions in wide reductions. Individual blocks retain `SERIAL_FP32` as their explicit default for compatibility with operator-level comparisons. `CURRENT_BATCHED` is the model's attention default; `DIRECT_KV_PER_HEAD` is an explicit alternative. Numerical policy changes require new fidelity measurements.
+`BALANCED_FP32` RMS reduction — the policy the complete model was qualified with — is the uniform default for the model, the individual blocks, and `rmsNormalize`; `SERIAL_FP32` remains available explicitly for operator-level comparisons against serial references. `CURRENT_BATCHED` is the model's attention default; `DIRECT_KV_PER_HEAD` is an explicit alternative. Numerical policy changes require new fidelity measurements.
 
 For checkpoint-specific chat and greedy text generation, use [`klfm2`](../../llm-runtime/klfm2/README.md).
 

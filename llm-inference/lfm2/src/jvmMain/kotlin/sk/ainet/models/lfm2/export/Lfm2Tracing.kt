@@ -120,7 +120,7 @@ fun traceLfm2Prefill(network: Lfm2PrefillNetwork, length: Int): Lfm2TracedFuncti
         val r = network.forward(inputs.getValue("embeddings"), inputs.getValue("cos"), inputs.getValue("sin"), inputs.getValue("mask"), histories, ctx)
         linkedMapOf("logits" to r.logits).apply { putAll(r.states) }
     }
-    check(traced.module.externalParameters.size == expectedModelWeights(d).size) { "Prefill must reference every source weight exactly once" }
+    check(traced.module.externalParameters.size == HybridLfm2Model.expectedWeights(d).size) { "Prefill must reference every source weight exactly once" }
     return traced
 }
 

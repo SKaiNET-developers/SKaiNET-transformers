@@ -21,31 +21,6 @@ data class ModelDimensions(
     }
 }
 
-fun expectedModelWeights(dim: ModelDimensions): LinkedHashMap<String, Shape> = linkedMapOf<String, Shape>().apply {
-    put("model.embed_tokens.weight", Shape(dim.vocabulary, dim.width))
-    put("model.embedding_norm.weight", Shape(dim.width))
-    for ((index, kind) in dim.layerTypes.withIndex()) {
-        val prefix = "model.layers.$index."
-        put(prefix + "operator_norm.weight", Shape(dim.width))
-        put(prefix + "ffn_norm.weight", Shape(dim.width))
-        put(prefix + "feed_forward.w1.weight", Shape(dim.intermediate, dim.width))
-        put(prefix + "feed_forward.w2.weight", Shape(dim.width, dim.intermediate))
-        put(prefix + "feed_forward.w3.weight", Shape(dim.intermediate, dim.width))
-        if (kind == "conv") {
-            put(prefix + "conv.in_proj.weight", Shape(3 * dim.width, dim.width))
-            put(prefix + "conv.conv.weight", Shape(dim.width, 1, dim.kernel))
-            put(prefix + "conv.out_proj.weight", Shape(dim.width, dim.width))
-        } else {
-            put(prefix + "self_attn.q_proj.weight", Shape(dim.width, dim.width))
-            put(prefix + "self_attn.k_proj.weight", Shape(dim.kvHeads * dim.headDim, dim.width))
-            put(prefix + "self_attn.v_proj.weight", Shape(dim.kvHeads * dim.headDim, dim.width))
-            put(prefix + "self_attn.out_proj.weight", Shape(dim.width, dim.width))
-            put(prefix + "self_attn.q_layernorm.weight", Shape(dim.headDim))
-            put(prefix + "self_attn.k_layernorm.weight", Shape(dim.headDim))
-        }
-    }
-}
-
 /** One request owns all hybrid state. Reset never relies on a reference runtime's cache helper. */
 class HybridModelState {
     var position: Int = 0
@@ -79,13 +54,41 @@ data class GreedyResult(val generatedIds: IntArray, val stopReason: String, val 
 class HybridLfm2Model(val dimensions: ModelDimensions, val ctx: DirectCpuExecutionContext, weights: Map<String, Tensor<FP32, Float>>,
     val rmsReduction: RmsReductionPolicy = RmsReductionPolicy.BALANCED_FP32,
 ) {
+    companion object {
+        /** The loader/export contract: source tensor names and layouts for one configured architecture. */
+        fun expectedWeights(dim: ModelDimensions): LinkedHashMap<String, Shape> = linkedMapOf<String, Shape>().apply {
+            put("model.embed_tokens.weight", Shape(dim.vocabulary, dim.width))
+            put("model.embedding_norm.weight", Shape(dim.width))
+            for ((index, kind) in dim.layerTypes.withIndex()) {
+                val prefix = "model.layers.$index."
+                put(prefix + "operator_norm.weight", Shape(dim.width))
+                put(prefix + "ffn_norm.weight", Shape(dim.width))
+                put(prefix + "feed_forward.w1.weight", Shape(dim.intermediate, dim.width))
+                put(prefix + "feed_forward.w2.weight", Shape(dim.width, dim.intermediate))
+                put(prefix + "feed_forward.w3.weight", Shape(dim.intermediate, dim.width))
+                if (kind == "conv") {
+                    put(prefix + "conv.in_proj.weight", Shape(3 * dim.width, dim.width))
+                    put(prefix + "conv.conv.weight", Shape(dim.width, 1, dim.kernel))
+                    put(prefix + "conv.out_proj.weight", Shape(dim.width, dim.width))
+                } else {
+                    put(prefix + "self_attn.q_proj.weight", Shape(dim.width, dim.width))
+                    put(prefix + "self_attn.k_proj.weight", Shape(dim.kvHeads * dim.headDim, dim.width))
+                    put(prefix + "self_attn.v_proj.weight", Shape(dim.kvHeads * dim.headDim, dim.width))
+                    put(prefix + "self_attn.out_proj.weight", Shape(dim.width, dim.width))
+                    put(prefix + "self_attn.q_layernorm.weight", Shape(dim.headDim))
+                    put(prefix + "self_attn.k_layernorm.weight", Shape(dim.headDim))
+                }
+            }
+        }
+    }
+
     private val embedding = weights.getValue("model.embed_tokens.weight")
     private val finalNorm = weights.getValue("model.embedding_norm.weight")
     private val convolution = mutableMapOf<Int, BlockTensorOp>()
     private val attention = mutableMapOf<Int, AttentionTensorOp>()
 
     init {
-        val expected = expectedModelWeights(dimensions)
+        val expected = expectedWeights(dimensions)
         require(weights.keys == expected.keys && expected.all { (name, shape) -> weights.getValue(name).shape == shape }) { "Full-model tensor names/layouts differ from configured architecture" }
         for ((index, kind) in dimensions.layerTypes.withIndex()) {
             val prefix = "model.layers.$index."
