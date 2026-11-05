@@ -55,6 +55,8 @@ Use the version shown in this README as the source of truth for first-run snippe
 - **GGUF + SafeTensors loading.** Streaming reader for any model size; `NATIVE_OPTIMIZED` quant policy keeps weights in their packed SIMD-friendly form.
 - **Kotlin Multiplatform.** JVM, Android, Kotlin/Native (Linux x64/ARM64, macOS ARM64, iOS arm64/sim arm64), JS, Wasm targets — see the [supported targets matrix](#supported-targets) for exactly which module publishes which target.
 
+For the experimental dense LFM2 CPU model, verified local checkpoint loading, and fixed-shape StableHLO export, see [`llm-inference:lfm2`](llm-inference/lfm2/README.md). The checkpoint-specific text facade is documented in [`llm-runtime:klfm2`](llm-runtime/klfm2/README.md).
+
 ## Roadmap
 
 ### Architecture goal

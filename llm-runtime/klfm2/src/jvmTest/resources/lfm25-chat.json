@@ -1,0 +1,1932 @@
+{
+  "schema_version": 1,
+  "provenance": {
+    "kind": "real_checkpoint_chat_frontend_fixture",
+    "model_id": "LiquidAI/LFM2.5-350M",
+    "revision": "9e6c6ccf47cd318696e137d381a7ded8fe4df09f",
+    "versions": {
+      "transformers": "5.0.0rc1",
+      "tokenizers": "0.22.2",
+      "jinja2": "3.1.6"
+    },
+    "artifact_sha256": {
+      "config.json": "720b43d6ddc2ed25be23eed355aefcf342434a176dedad23dbe0a5e3ac24bbb8",
+      "generation_config.json": "0ec7d228c4de7e3453e98bf6910c7eb7841e87fede63ea11c0f75a5c64e1c3c3",
+      "tokenizer_config.json": "3701f370c70034d06e28947ff51c1063983393319f429e3ce58f06a45fae67cc",
+      "chat_template.jinja": "ba551d58630afa3190b1be3602e28301f3d2e9bbac978dfc49d6d825171648b6",
+      "tokenizer.json": "df1d8d5ec5d091b460562ffd545e4a5e91d17d4a0db7ebe733be34ed374377bd",
+      "LICENSE": "4d28ca14dedc0b3d0fcc2b3339f0e79931faa33874f3d24f522183a8fc70068c"
+    },
+    "oracle": "Unmodified Hugging Face AutoTokenizer.apply_chat_template, pinned checkpoint Jinja template, local files only",
+    "scope": "Text content, leading system/user/assistant roles and explicit thinking field; tools, structured/multimodal content and continuation API are not qualified"
+  },
+  "special_tokens": {
+    "bos_token": "<|startoftext|>",
+    "bos_token_id": 1,
+    "eos_token": "<|im_end|>",
+    "eos_token_ids": [
+      7
+    ],
+    "source": "generation_config.json overrides model config for provided token settings"
+  },
+  "encoding_policy": {
+    "rendered_text_add_special_tokens": false
+  },
+  "cases": [
+    {
+      "id": "math",
+      "category": "single_turn",
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is 2 + 2?"
+        }
+      ],
+      "add_generation_prompt": true,
+      "preserve_thinking": false,
+      "expected_rendered": "<|startoftext|><|im_start|>user\nWhat is 2 + 2?<|im_end|>\n<|im_start|>assistant\n",
+      "expected_rendered_utf8_sha256": "1fa3a81ce291d63dff5e0cae6fe6439e08454288dd4eb29212968e1fea8c41d7",
+      "expected_ids": [
+        1,
+        6,
+        6423,
+        708,
+        3493,
+        856,
+        730,
+        527,
+        2011,
+        730,
+        527,
+        540,
+        7,
+        708,
+        6,
+        64015,
+        708
+      ],
+      "expected_decoded": "<|startoftext|><|im_start|>user\nWhat is 2 + 2?<|im_end|>\n<|im_start|>assistant\n",
+      "expected_decoded_skip_special_tokens": "user\nWhat is 2 + 2?\nassistant\n"
+    },
+    {
+      "id": "math-no-generation-prefix",
+      "category": "single_turn",
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is 2 + 2?"
+        }
+      ],
+      "add_generation_prompt": false,
+      "preserve_thinking": false,
+      "expected_rendered": "<|startoftext|><|im_start|>user\nWhat is 2 + 2?<|im_end|>\n",
+      "expected_rendered_utf8_sha256": "c43427c2879a3fb3c1b69c67d7ec1de16abf829d8eb4ce6671bac84665177a0a",
+      "expected_ids": [
+        1,
+        6,
+        6423,
+        708,
+        3493,
+        856,
+        730,
+        527,
+        2011,
+        730,
+        527,
+        540,
+        7,
+        708
+      ],
+      "expected_decoded": "<|startoftext|><|im_start|>user\nWhat is 2 + 2?<|im_end|>\n",
+      "expected_decoded_skip_special_tokens": "user\nWhat is 2 + 2?\n"
+    },
+    {
+      "id": "system-user",
+      "category": "system",
+      "messages": [
+        {
+          "role": "system",
+          "content": "Answer briefly."
+        },
+        {
+          "role": "user",
+          "content": "What is the capital of France?"
+        }
+      ],
+      "add_generation_prompt": true,
+      "preserve_thinking": false,
+      "expected_rendered": "<|startoftext|><|im_start|>system\nAnswer briefly.<|im_end|>\n<|im_start|>user\nWhat is the capital of France?<|im_end|>\n<|im_start|>assistant\n",
+      "expected_rendered_utf8_sha256": "0de768d81635beac7626f03bc212e30091ce45977bbee3461587a438439e85d2",
+      "expected_ids": [
+        1,
+        6,
+        24131,
+        708,
+        40131,
+        21923,
+        523,
+        7,
+        708,
+        6,
+        6423,
+        708,
+        3493,
+        856,
+        779,
+        5706,
+        803,
+        4481,
+        540,
+        7,
+        708,
+        6,
+        64015,
+        708
+      ],
+      "expected_decoded": "<|startoftext|><|im_start|>system\nAnswer briefly.<|im_end|>\n<|im_start|>user\nWhat is the capital of France?<|im_end|>\n<|im_start|>assistant\n",
+      "expected_decoded_skip_special_tokens": "system\nAnswer briefly.\nuser\nWhat is the capital of France?\nassistant\n"
+    },
+    {
+      "id": "empty-system",
+      "category": "system",
+      "messages": [
+        {
+          "role": "system",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ],
+      "add_generation_prompt": true,
+      "preserve_thinking": false,
+      "expected_rendered": "<|startoftext|><|im_start|>user\nHello<|im_end|>\n<|im_start|>assistant\n",
+      "expected_rendered_utf8_sha256": "7eb341f34d4ca015322b3da0b9b9a7fca35f0937ef915d4f6ee2afbdfe71efc2",
+      "expected_ids": [
+        1,
+        6,
+        6423,
+        708,
+        36309,
+        7,
+        708,
+        6,
+        64015,
+        708
+      ],
+      "expected_decoded": "<|startoftext|><|im_start|>user\nHello<|im_end|>\n<|im_start|>assistant\n",
+      "expected_decoded_skip_special_tokens": "user\nHello\nassistant\n"
+    },
+    {
+      "id": "system-only",
+      "category": "system",
+      "messages": [
+        {
+          "role": "system",
+          "content": "Return JSON."
+        }
+      ],
+      "add_generation_prompt": true,
+      "preserve_thinking": false,
+      "expected_rendered": "<|startoftext|><|im_start|>system\nReturn JSON.<|im_end|>\n<|im_start|>assistant\n",
+      "expected_rendered_utf8_sha256": "909bb05accdb3dc74ebe35c78687a09af0fc2c70b13ea5a93c3d4f6e1616e4ec",
+      "expected_ids": [
+        1,
+        6,
+        24131,
+        708,
+        17820,
+        26444,
+        523,
+        7,
+        708,
+        6,
+        64015,
+        708
+      ],
+      "expected_decoded": "<|startoftext|><|im_start|>system\nReturn JSON.<|im_end|>\n<|im_start|>assistant\n",
+      "expected_decoded_skip_special_tokens": "system\nReturn JSON.\nassistant\n"
+    },
+    {
+      "id": "empty-system-only",
+      "category": "system",
+      "messages": [
+        {
+          "role": "system",
+          "content": ""
+        }
+      ],
+      "add_generation_prompt": false,
+      "preserve_thinking": false,
+      "expected_rendered": "<|startoftext|>",
+      "expected_rendered_utf8_sha256": "56b784287c70c5d7b87c94ab601ccf0a6e6813e47903e4979918b743173bf568",
+      "expected_ids": [
+        1
+      ],
+      "expected_decoded": "<|startoftext|>",
+      "expected_decoded_skip_special_tokens": ""
+    },
+    {
+      "id": "empty-user",
+      "category": "empty",
+      "messages": [
+        {
+          "role": "user",
+          "content": ""
+        }
+      ],
+      "add_generation_prompt": true,
+      "preserve_thinking": false,
+      "expected_rendered": "<|startoftext|><|im_start|>user\n<|im_end|>\n<|im_start|>assistant\n",
+      "expected_rendered_utf8_sha256": "9a254e807d2d7cdb8ecfe75e3f811c2617cce55e996418080275b47b03b211b3",
+      "expected_ids": [
+        1,
+        6,
+        6423,
+        708,
+        7,
+        708,
+        6,
+        64015,
+        708
+      ],
+      "expected_decoded": "<|startoftext|><|im_start|>user\n<|im_end|>\n<|im_start|>assistant\n",
+      "expected_decoded_skip_special_tokens": "user\n\nassistant\n"
+    },
+    {
+      "id": "whitespace-user",
+      "category": "whitespace",
+      "messages": [
+        {
+          "role": "user",
+          "content": " \t\n  "
+        }
+      ],
+      "add_generation_prompt": true,
+      "preserve_thinking": false,
+      "expected_rendered": "<|startoftext|><|im_start|>user\n \t\n  <|im_end|>\n<|im_start|>assistant\n",
+      "expected_rendered_utf8_sha256": "4b9cc3bb9c7ca0e9ca3304c84aa2621c650171c638fec8902646313b218f6e20",
+      "expected_ids": [
+        1,
+        6,
+        6423,
+        708,
+        730,
+        2471,
+        767,
+        7,
+        708,
+        6,
+        64015,
+        708
+      ],
+      "expected_decoded": "<|startoftext|><|im_start|>user\n \t\n  <|im_end|>\n<|im_start|>assistant\n",
+      "expected_decoded_skip_special_tokens": "user\n \t\n  \nassistant\n"
+    },
+    {
+      "id": "unicode-whitespace",
+      "category": "unicode",
+      "messages": [
+        {
+          "role": "user",
+          "content": "temperature 83.5 °Cnext"
+        }
+      ],
+      "add_generation_prompt": true,
+      "preserve_thinking": false,
+      "expected_rendered": "<|startoftext|><|im_start|>user\ntemperature 83.5 °Cnext<|im_end|>\n<|im_start|>assistant\n",
+      "expected_rendered_utf8_sha256": "576ab47481535b5a8306c3a7d17174fbb81d491c1c6465d7e1622dab2ecd693d",
+      "expected_ids": [
+        1,
+        6,
+        6423,
+        708,
+        593,
+        25793,
+        1219,
+        9865,
+        523,
+        530,
+        20047,
+        9154,
+        636,
+        737,
+        14180,
+        7,
+        708,
+        6,
+        64015,
+        708
+      ],
+      "expected_decoded": "<|startoftext|><|im_start|>user\ntemperature 83.5 °Cnext<|im_end|>\n<|im_start|>assistant\n",
+      "expected_decoded_skip_special_tokens": "user\ntemperature 83.5 °Cnext\nassistant\n"
+    },
+    {
+      "id": "unicode-languages",
+      "category": "unicode",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Überprüfen Sie den Lüfter. 设备温度高。 جهاز جاهز"
+        }
+      ],
+      "add_generation_prompt": true,
+      "preserve_thinking": false,
+      "expected_rendered": "<|startoftext|><|im_start|>user\nÜberprüfen Sie den Lüfter. 设备温度高。 جهاز جاهز<|im_end|>\n<|im_start|>assistant\n",
+      "expected_rendered_utf8_sha256": "37954fe01ab4bed3e97f43d4c78330141d78c228b53d73f81c1c49859ef70e59",
+      "expected_ids": [
+        1,
+        6,
+        6423,
+        708,
+        46565,
+        16025,
+        9426,
+        3612,
+        1566,
+        33378,
+        1462,
+        523,
+        730,
+        19737,
+        38806,
+        3646,
+        1147,
+        8158,
+        1832,
+        18074,
+        8158,
+        17538,
+        5024,
+        7,
+        708,
+        6,
+        64015,
+        708
+      ],
+      "expected_decoded": "<|startoftext|><|im_start|>user\nÜberprüfen Sie den Lüfter. 设备温度高。 جهاز جاهز<|im_end|>\n<|im_start|>assistant\n",
+      "expected_decoded_skip_special_tokens": "user\nÜberprüfen Sie den Lüfter. 设备温度高。 جهاز جاهز\nassistant\n"
+    },
+    {
+      "id": "emoji-zwj",
+      "category": "unicode",
+      "messages": [
+        {
+          "role": "user",
+          "content": "👩‍🔧 🌡️ ✅"
+        }
+      ],
+      "add_generation_prompt": true,
+      "preserve_thinking": false,
+      "expected_rendered": "<|startoftext|><|im_start|>user\n👩‍🔧 🌡️ ✅<|im_end|>\n<|im_start|>assistant\n",
+      "expected_rendered_utf8_sha256": "132fd1477d767e74f9bcba028af2334cb5b74d41c9cd60d5d1154dfdcc5d984d",
+      "expected_ids": [
+        1,
+        6,
+        6423,
+        708,
+        13421,
+        749,
+        612,
+        844,
+        745,
+        13421,
+        752,
+        610,
+        23805,
+        744,
+        604,
+        47854,
+        57503,
+        737,
+        7,
+        708,
+        6,
+        64015,
+        708
+      ],
+      "expected_decoded": "<|startoftext|><|im_start|>user\n👩‍🔧 🌡️ ✅<|im_end|>\n<|im_start|>assistant\n",
+      "expected_decoded_skip_special_tokens": "user\n👩‍🔧 🌡️ ✅\nassistant\n"
+    },
+    {
+      "id": "combining-accent",
+      "category": "unicode",
+      "messages": [
+        {
+          "role": "user",
+          "content": "café café"
+        }
+      ],
+      "add_generation_prompt": true,
+      "preserve_thinking": false,
+      "expected_rendered": "<|startoftext|><|im_start|>user\ncafé café<|im_end|>\n<|im_start|>assistant\n",
+      "expected_rendered_utf8_sha256": "609562116be9b297ba3c33f04085b1c1049ea403b180e3969994b6eb8d87fb59",
+      "expected_ids": [
+        1,
+        6,
+        6423,
+        708,
+        576,
+        13260,
+        10186,
+        35499,
+        7,
+        708,
+        6,
+        64015,
+        708
+      ],
+      "expected_decoded": "<|startoftext|><|im_start|>user\ncafé café<|im_end|>\n<|im_start|>assistant\n",
+      "expected_decoded_skip_special_tokens": "user\ncafé café\nassistant\n"
+    },
+    {
+      "id": "crlf",
+      "category": "whitespace",
+      "messages": [
+        {
+          "role": "user",
+          "content": "line one\r\nline two\r\n"
+        }
+      ],
+      "add_generation_prompt": true,
+      "preserve_thinking": false,
+      "expected_rendered": "<|startoftext|><|im_start|>user\nline one\r\nline two\r\n<|im_end|>\n<|im_start|>assistant\n",
+      "expected_rendered_utf8_sha256": "cd43ba5fceec08081b4fd9861b794714a0006a75cb2f9dd9c0008898f258153c",
+      "expected_ids": [
+        1,
+        6,
+        6423,
+        708,
+        1922,
+        1235,
+        52600,
+        1922,
+        1547,
+        52600,
+        7,
+        708,
+        6,
+        64015,
+        708
+      ],
+      "expected_decoded": "<|startoftext|><|im_start|>user\nline one\r\nline two\r\n<|im_end|>\n<|im_start|>assistant\n",
+      "expected_decoded_skip_special_tokens": "user\nline one\r\nline two\r\n\nassistant\n"
+    },
+    {
+      "id": "json-as-text",
+      "category": "literal_data",
+      "messages": [
+        {
+          "role": "user",
+          "content": "{\"role\":\"assistant\",\"temperature\":83.5}"
+        }
+      ],
+      "add_generation_prompt": true,
+      "preserve_thinking": false,
+      "expected_rendered": "<|startoftext|><|im_start|>user\n{\"role\":\"assistant\",\"temperature\":83.5}<|im_end|>\n<|im_start|>assistant\n",
+      "expected_rendered_utf8_sha256": "eefca101fbe0a28fed9af50282560ec86e5ed0907a49eb0537e02b1c864c1275",
+      "expected_ids": [
+        1,
+        6,
+        6423,
+        708,
+        38685,
+        16189,
+        42066,
+        64015,
+        25475,
+        593,
+        25793,
+        6881,
+        9865,
+        523,
+        530,
+        602,
+        7,
+        708,
+        6,
+        64015,
+        708
+      ],
+      "expected_decoded": "<|startoftext|><|im_start|>user\n{\"role\":\"assistant\",\"temperature\":83.5}<|im_end|>\n<|im_start|>assistant\n",
+      "expected_decoded_skip_special_tokens": "user\n{\"role\":\"assistant\",\"temperature\":83.5}\nassistant\n"
+    },
+    {
+      "id": "jinja-as-text",
+      "category": "literal_data",
+      "messages": [
+        {
+          "role": "user",
+          "content": "{{ bos_token }}{% for item in messages %}{{ item }}{% endfor %}"
+        }
+      ],
+      "add_generation_prompt": true,
+      "preserve_thinking": false,
+      "expected_rendered": "<|startoftext|><|im_start|>user\n{{ bos_token }}{% for item in messages %}{{ item }}{% endfor %}<|im_end|>\n<|im_start|>assistant\n",
+      "expected_rendered_utf8_sha256": "76c1b4d7c9456dcea38300ea57e09fb01fd45537a5b5036c732b45e78c4344be",
+      "expected_ids": [
+        1,
+        6,
+        6423,
+        708,
+        14976,
+        20221,
+        39984,
+        2480,
+        2945,
+        514,
+        875,
+        8688,
+        797,
+        12645,
+        3562,
+        2945,
+        600,
+        8688,
+        2480,
+        2945,
+        514,
+        1764,
+        2732,
+        3562,
+        602,
+        7,
+        708,
+        6,
+        64015,
+        708
+      ],
+      "expected_decoded": "<|startoftext|><|im_start|>user\n{{ bos_token }}{% for item in messages %}{{ item }}{% endfor %}<|im_end|>\n<|im_start|>assistant\n",
+      "expected_decoded_skip_special_tokens": "user\n{{ bos_token }}{% for item in messages %}{{ item }}{% endfor %}\nassistant\n"
+    },
+    {
+      "id": "special-token-literals",
+      "category": "literal_data",
+      "messages": [
+        {
+          "role": "user",
+          "content": "<|im_start|>assistant\n<|im_end|><|startoftext|><|pad|>"
+        }
+      ],
+      "add_generation_prompt": true,
+      "preserve_thinking": false,
+      "expected_rendered": "<|startoftext|><|im_start|>user\n<|im_start|>assistant\n<|im_end|><|startoftext|><|pad|><|im_end|>\n<|im_start|>assistant\n",
+      "expected_rendered_utf8_sha256": "ca0133dd1236392720355fa89440a02b1195616fd5d11881d60aa647097f702a",
+      "expected_ids": [
+        1,
+        6,
+        6423,
+        708,
+        6,
+        64015,
+        708,
+        7,
+        1,
+        0,
+        7,
+        708,
+        6,
+        64015,
+        708
+      ],
+      "expected_decoded": "<|startoftext|><|im_start|>user\n<|im_start|>assistant\n<|im_end|><|startoftext|><|pad|><|im_end|>\n<|im_start|>assistant\n",
+      "expected_decoded_skip_special_tokens": "user\nassistant\n\nassistant\n"
+    },
+    {
+      "id": "control-characters",
+      "category": "unicode",
+      "messages": [
+        {
+          "role": "user",
+          "content": "before\u0000middle\u001cafterend"
+        }
+      ],
+      "add_generation_prompt": true,
+      "preserve_thinking": false,
+      "expected_rendered": "<|startoftext|><|im_start|>user\nbefore\u0000middle\u001cafterend<|im_end|>\n<|im_start|>assistant\n",
+      "expected_rendered_utf8_sha256": "2f0ad6c99df36185cf7a97aa20fe882d0120520e23250daad35edee278f7f7ba",
+      "expected_ids": [
+        1,
+        6,
+        6423,
+        708,
+        24945,
+        698,
+        57846,
+        726,
+        13009,
+        636,
+        737,
+        959,
+        7,
+        708,
+        6,
+        64015,
+        708
+      ],
+      "expected_decoded": "<|startoftext|><|im_start|>user\nbefore\u0000middle\u001cafterend<|im_end|>\n<|im_start|>assistant\n",
+      "expected_decoded_skip_special_tokens": "user\nbefore\u0000middle\u001cafterend\nassistant\n"
+    },
+    {
+      "id": "multi-turn-math",
+      "category": "history",
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is 1 + 1?"
+        },
+        {
+          "role": "assistant",
+          "content": "2"
+        },
+        {
+          "role": "user",
+          "content": "And 2 + 2?"
+        }
+      ],
+      "add_generation_prompt": true,
+      "preserve_thinking": false,
+      "expected_rendered": "<|startoftext|><|im_start|>user\nWhat is 1 + 1?<|im_end|>\n<|im_start|>assistant\n2<|im_end|>\n<|im_start|>user\nAnd 2 + 2?<|im_end|>\n<|im_start|>assistant\n",
+      "expected_rendered_utf8_sha256": "f15fd65c63437fe906f912e9a85005f4747ddc925677728eaee7c03b78a82437",
+      "expected_ids": [
+        1,
+        6,
+        6423,
+        708,
+        3493,
+        856,
+        730,
+        526,
+        2011,
+        730,
+        526,
+        540,
+        7,
+        708,
+        6,
+        64015,
+        708,
+        527,
+        7,
+        708,
+        6,
+        6423,
+        708,
+        4483,
+        730,
+        527,
+        2011,
+        730,
+        527,
+        540,
+        7,
+        708,
+        6,
+        64015,
+        708
+      ],
+      "expected_decoded": "<|startoftext|><|im_start|>user\nWhat is 1 + 1?<|im_end|>\n<|im_start|>assistant\n2<|im_end|>\n<|im_start|>user\nAnd 2 + 2?<|im_end|>\n<|im_start|>assistant\n",
+      "expected_decoded_skip_special_tokens": "user\nWhat is 1 + 1?\nassistant\n2\nuser\nAnd 2 + 2?\nassistant\n"
+    },
+    {
+      "id": "history-no-generation-prefix",
+      "category": "history",
+      "messages": [
+        {
+          "role": "system",
+          "content": "Be concise."
+        },
+        {
+          "role": "user",
+          "content": "Hello"
+        },
+        {
+          "role": "assistant",
+          "content": "Hello!"
+        },
+        {
+          "role": "user",
+          "content": "Again"
+        }
+      ],
+      "add_generation_prompt": false,
+      "preserve_thinking": false,
+      "expected_rendered": "<|startoftext|><|im_start|>system\nBe concise.<|im_end|>\n<|im_start|>user\nHello<|im_end|>\n<|im_start|>assistant\nHello!<|im_end|>\n<|im_start|>user\nAgain<|im_end|>\n",
+      "expected_rendered_utf8_sha256": "66d245b819e6affd44da78ffbf1aaff84a09529cec91a5986412667eafa67a00",
+      "expected_ids": [
+        1,
+        6,
+        24131,
+        708,
+        4685,
+        56412,
+        523,
+        7,
+        708,
+        6,
+        6423,
+        708,
+        36309,
+        7,
+        708,
+        6,
+        64015,
+        708,
+        36309,
+        510,
+        7,
+        708,
+        6,
+        6423,
+        708,
+        41808,
+        7,
+        708
+      ],
+      "expected_decoded": "<|startoftext|><|im_start|>system\nBe concise.<|im_end|>\n<|im_start|>user\nHello<|im_end|>\n<|im_start|>assistant\nHello!<|im_end|>\n<|im_start|>user\nAgain<|im_end|>\n",
+      "expected_decoded_skip_special_tokens": "system\nBe concise.\nuser\nHello\nassistant\nHello!\nuser\nAgain\n"
+    },
+    {
+      "id": "empty-assistant",
+      "category": "empty",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "Continue"
+        }
+      ],
+      "add_generation_prompt": true,
+      "preserve_thinking": false,
+      "expected_rendered": "<|startoftext|><|im_start|>user\nHello<|im_end|>\n<|im_start|>assistant\n<|im_end|>\n<|im_start|>user\nContinue<|im_end|>\n<|im_start|>assistant\n",
+      "expected_rendered_utf8_sha256": "9a926b277ae371233923f94e4bf7f05262464a093c7cc6821a426d6770dceb3f",
+      "expected_ids": [
+        1,
+        6,
+        6423,
+        708,
+        36309,
+        7,
+        708,
+        6,
+        64015,
+        708,
+        7,
+        708,
+        6,
+        6423,
+        708,
+        48687,
+        7,
+        708,
+        6,
+        64015,
+        708
+      ],
+      "expected_decoded": "<|startoftext|><|im_start|>user\nHello<|im_end|>\n<|im_start|>assistant\n<|im_end|>\n<|im_start|>user\nContinue<|im_end|>\n<|im_start|>assistant\n",
+      "expected_decoded_skip_special_tokens": "user\nHello\nassistant\n\nuser\nContinue\nassistant\n"
+    },
+    {
+      "id": "assistant-last",
+      "category": "history",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        },
+        {
+          "role": "assistant",
+          "content": "Hello!"
+        }
+      ],
+      "add_generation_prompt": false,
+      "preserve_thinking": false,
+      "expected_rendered": "<|startoftext|><|im_start|>user\nHello<|im_end|>\n<|im_start|>assistant\nHello!<|im_end|>\n",
+      "expected_rendered_utf8_sha256": "490e4d73ca948c9de2602577703e41a7f9987a94be9f5418acb199fd94701096",
+      "expected_ids": [
+        1,
+        6,
+        6423,
+        708,
+        36309,
+        7,
+        708,
+        6,
+        64015,
+        708,
+        36309,
+        510,
+        7,
+        708
+      ],
+      "expected_decoded": "<|startoftext|><|im_start|>user\nHello<|im_end|>\n<|im_start|>assistant\nHello!<|im_end|>\n",
+      "expected_decoded_skip_special_tokens": "user\nHello\nassistant\nHello!\n"
+    },
+    {
+      "id": "thinking-last-assistant",
+      "category": "thinking",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Compute"
+        },
+        {
+          "role": "assistant",
+          "content": "4",
+          "thinking": "Add two and two."
+        }
+      ],
+      "add_generation_prompt": false,
+      "preserve_thinking": false,
+      "expected_rendered": "<|startoftext|><|im_start|>user\nCompute<|im_end|>\n<|im_start|>assistant\n<think>Add two and two.</think>4<|im_end|>\n",
+      "expected_rendered_utf8_sha256": "93abae3ee45ba316b91999ce95b3b5cb187bdddcb4580249d7098f79e3e7eb13",
+      "expected_ids": [
+        1,
+        6,
+        6423,
+        708,
+        12345,
+        1732,
+        7,
+        708,
+        6,
+        64015,
+        708,
+        64400,
+        5957,
+        1547,
+        810,
+        1547,
+        523,
+        64401,
+        529,
+        7,
+        708
+      ],
+      "expected_decoded": "<|startoftext|><|im_start|>user\nCompute<|im_end|>\n<|im_start|>assistant\n<think>Add two and two.</think>4<|im_end|>\n",
+      "expected_decoded_skip_special_tokens": "user\nCompute\nassistant\nAdd two and two.4\n"
+    },
+    {
+      "id": "thinking-older-assistant",
+      "category": "thinking",
+      "messages": [
+        {
+          "role": "user",
+          "content": "First"
+        },
+        {
+          "role": "assistant",
+          "content": "2",
+          "thinking": "Old thought"
+        },
+        {
+          "role": "user",
+          "content": "Second"
+        },
+        {
+          "role": "assistant",
+          "content": "4",
+          "thinking": "New thought"
+        },
+        {
+          "role": "user",
+          "content": "Next"
+        }
+      ],
+      "add_generation_prompt": true,
+      "preserve_thinking": false,
+      "expected_rendered": "<|startoftext|><|im_start|>user\nFirst<|im_end|>\n<|im_start|>assistant\n2<|im_end|>\n<|im_start|>user\nSecond<|im_end|>\n<|im_start|>assistant\n<think>New thought</think>4<|im_end|>\n<|im_start|>user\nNext<|im_end|>\n<|im_start|>assistant\n",
+      "expected_rendered_utf8_sha256": "a575ae22326f3bfb7b76bc18af4744f9af8d4587c5da7fa4ce0ac07261af022a",
+      "expected_ids": [
+        1,
+        6,
+        6423,
+        708,
+        9578,
+        7,
+        708,
+        6,
+        64015,
+        708,
+        527,
+        7,
+        708,
+        6,
+        6423,
+        708,
+        15783,
+        7,
+        708,
+        6,
+        64015,
+        708,
+        64400,
+        5802,
+        4215,
+        64401,
+        529,
+        7,
+        708,
+        6,
+        6423,
+        708,
+        13304,
+        7,
+        708,
+        6,
+        64015,
+        708
+      ],
+      "expected_decoded": "<|startoftext|><|im_start|>user\nFirst<|im_end|>\n<|im_start|>assistant\n2<|im_end|>\n<|im_start|>user\nSecond<|im_end|>\n<|im_start|>assistant\n<think>New thought</think>4<|im_end|>\n<|im_start|>user\nNext<|im_end|>\n<|im_start|>assistant\n",
+      "expected_decoded_skip_special_tokens": "user\nFirst\nassistant\n2\nuser\nSecond\nassistant\nNew thought4\nuser\nNext\nassistant\n"
+    },
+    {
+      "id": "thinking-preserve-all",
+      "category": "thinking",
+      "messages": [
+        {
+          "role": "user",
+          "content": "First"
+        },
+        {
+          "role": "assistant",
+          "content": "2",
+          "thinking": "Old thought"
+        },
+        {
+          "role": "user",
+          "content": "Second"
+        },
+        {
+          "role": "assistant",
+          "content": "4",
+          "thinking": "New thought"
+        },
+        {
+          "role": "user",
+          "content": "Next"
+        }
+      ],
+      "add_generation_prompt": true,
+      "preserve_thinking": true,
+      "expected_rendered": "<|startoftext|><|im_start|>user\nFirst<|im_end|>\n<|im_start|>assistant\n<think>Old thought</think>2<|im_end|>\n<|im_start|>user\nSecond<|im_end|>\n<|im_start|>assistant\n<think>New thought</think>4<|im_end|>\n<|im_start|>user\nNext<|im_end|>\n<|im_start|>assistant\n",
+      "expected_rendered_utf8_sha256": "11efa8e2f156f6d50e4f8b545f7a7e7cd34eaa46fce4b6f12dc0f9254baf9448",
+      "expected_ids": [
+        1,
+        6,
+        6423,
+        708,
+        9578,
+        7,
+        708,
+        6,
+        64015,
+        708,
+        64400,
+        29784,
+        4215,
+        64401,
+        527,
+        7,
+        708,
+        6,
+        6423,
+        708,
+        15783,
+        7,
+        708,
+        6,
+        64015,
+        708,
+        64400,
+        5802,
+        4215,
+        64401,
+        529,
+        7,
+        708,
+        6,
+        6423,
+        708,
+        13304,
+        7,
+        708,
+        6,
+        64015,
+        708
+      ],
+      "expected_decoded": "<|startoftext|><|im_start|>user\nFirst<|im_end|>\n<|im_start|>assistant\n<think>Old thought</think>2<|im_end|>\n<|im_start|>user\nSecond<|im_end|>\n<|im_start|>assistant\n<think>New thought</think>4<|im_end|>\n<|im_start|>user\nNext<|im_end|>\n<|im_start|>assistant\n",
+      "expected_decoded_skip_special_tokens": "user\nFirst\nassistant\nOld thought2\nuser\nSecond\nassistant\nNew thought4\nuser\nNext\nassistant\n"
+    },
+    {
+      "id": "thinking-last-followed-by-user",
+      "category": "thinking",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Compute"
+        },
+        {
+          "role": "assistant",
+          "content": "4",
+          "thinking": "Keep this last assistant thought"
+        },
+        {
+          "role": "user",
+          "content": "Explain"
+        }
+      ],
+      "add_generation_prompt": true,
+      "preserve_thinking": false,
+      "expected_rendered": "<|startoftext|><|im_start|>user\nCompute<|im_end|>\n<|im_start|>assistant\n<think>Keep this last assistant thought</think>4<|im_end|>\n<|im_start|>user\nExplain<|im_end|>\n<|im_start|>assistant\n",
+      "expected_rendered_utf8_sha256": "f1e7b0619226ff127089e28a38999512f326d4c992b072bac3a0aef947241b96",
+      "expected_ids": [
+        1,
+        6,
+        6423,
+        708,
+        12345,
+        1732,
+        7,
+        708,
+        6,
+        64015,
+        708,
+        64400,
+        31829,
+        1033,
+        2659,
+        16701,
+        4215,
+        64401,
+        529,
+        7,
+        708,
+        6,
+        6423,
+        708,
+        27388,
+        958,
+        7,
+        708,
+        6,
+        64015,
+        708
+      ],
+      "expected_decoded": "<|startoftext|><|im_start|>user\nCompute<|im_end|>\n<|im_start|>assistant\n<think>Keep this last assistant thought</think>4<|im_end|>\n<|im_start|>user\nExplain<|im_end|>\n<|im_start|>assistant\n",
+      "expected_decoded_skip_special_tokens": "user\nCompute\nassistant\nKeep this last assistant thought4\nuser\nExplain\nassistant\n"
+    },
+    {
+      "id": "inline-thinking-older",
+      "category": "thinking",
+      "messages": [
+        {
+          "role": "user",
+          "content": "First"
+        },
+        {
+          "role": "assistant",
+          "content": "<think>discard</think>  answer  "
+        },
+        {
+          "role": "user",
+          "content": "Second"
+        },
+        {
+          "role": "assistant",
+          "content": "new"
+        },
+        {
+          "role": "user",
+          "content": "Next"
+        }
+      ],
+      "add_generation_prompt": true,
+      "preserve_thinking": false,
+      "expected_rendered": "<|startoftext|><|im_start|>user\nFirst<|im_end|>\n<|im_start|>assistant\nanswer<|im_end|>\n<|im_start|>user\nSecond<|im_end|>\n<|im_start|>assistant\nnew<|im_end|>\n<|im_start|>user\nNext<|im_end|>\n<|im_start|>assistant\n",
+      "expected_rendered_utf8_sha256": "f14eeec1e57a0b1d7cfb50ef1f8d701c6f7314d5daa50175dd16316f3978adf6",
+      "expected_ids": [
+        1,
+        6,
+        6423,
+        708,
+        9578,
+        7,
+        708,
+        6,
+        64015,
+        708,
+        44745,
+        7,
+        708,
+        6,
+        6423,
+        708,
+        15783,
+        7,
+        708,
+        6,
+        64015,
+        708,
+        3514,
+        7,
+        708,
+        6,
+        6423,
+        708,
+        13304,
+        7,
+        708,
+        6,
+        64015,
+        708
+      ],
+      "expected_decoded": "<|startoftext|><|im_start|>user\nFirst<|im_end|>\n<|im_start|>assistant\nanswer<|im_end|>\n<|im_start|>user\nSecond<|im_end|>\n<|im_start|>assistant\nnew<|im_end|>\n<|im_start|>user\nNext<|im_end|>\n<|im_start|>assistant\n",
+      "expected_decoded_skip_special_tokens": "user\nFirst\nassistant\nanswer\nuser\nSecond\nassistant\nnew\nuser\nNext\nassistant\n"
+    },
+    {
+      "id": "inline-thinking-preserve-all",
+      "category": "thinking",
+      "messages": [
+        {
+          "role": "user",
+          "content": "First"
+        },
+        {
+          "role": "assistant",
+          "content": "<think>keep</think>  answer  "
+        },
+        {
+          "role": "user",
+          "content": "Second"
+        },
+        {
+          "role": "assistant",
+          "content": "new"
+        }
+      ],
+      "add_generation_prompt": true,
+      "preserve_thinking": true,
+      "expected_rendered": "<|startoftext|><|im_start|>user\nFirst<|im_end|>\n<|im_start|>assistant\n<think>keep</think>  answer  <|im_end|>\n<|im_start|>user\nSecond<|im_end|>\n<|im_start|>assistant\nnew<|im_end|>\n<|im_start|>assistant\n",
+      "expected_rendered_utf8_sha256": "a30aac1de4708c159beed2bd71c66d268218e39424699507ddc4c9a366647894",
+      "expected_ids": [
+        1,
+        6,
+        6423,
+        708,
+        9578,
+        7,
+        708,
+        6,
+        64015,
+        708,
+        64400,
+        30132,
+        64401,
+        730,
+        5642,
+        767,
+        7,
+        708,
+        6,
+        6423,
+        708,
+        15783,
+        7,
+        708,
+        6,
+        64015,
+        708,
+        3514,
+        7,
+        708,
+        6,
+        64015,
+        708
+      ],
+      "expected_decoded": "<|startoftext|><|im_start|>user\nFirst<|im_end|>\n<|im_start|>assistant\n<think>keep</think>  answer  <|im_end|>\n<|im_start|>user\nSecond<|im_end|>\n<|im_start|>assistant\nnew<|im_end|>\n<|im_start|>assistant\n",
+      "expected_decoded_skip_special_tokens": "user\nFirst\nassistant\nkeep  answer  \nuser\nSecond\nassistant\nnew\nassistant\n"
+    },
+    {
+      "id": "inline-thinking-last",
+      "category": "thinking",
+      "messages": [
+        {
+          "role": "user",
+          "content": "First"
+        },
+        {
+          "role": "assistant",
+          "content": "<think>keep</think>  answer  "
+        },
+        {
+          "role": "user",
+          "content": "Next"
+        }
+      ],
+      "add_generation_prompt": true,
+      "preserve_thinking": false,
+      "expected_rendered": "<|startoftext|><|im_start|>user\nFirst<|im_end|>\n<|im_start|>assistant\n<think>keep</think>  answer  <|im_end|>\n<|im_start|>user\nNext<|im_end|>\n<|im_start|>assistant\n",
+      "expected_rendered_utf8_sha256": "5958065528aaaa9ac56253c409cd9cc9fef47e28ea9496dc82eb8a57f20851dd",
+      "expected_ids": [
+        1,
+        6,
+        6423,
+        708,
+        9578,
+        7,
+        708,
+        6,
+        64015,
+        708,
+        64400,
+        30132,
+        64401,
+        730,
+        5642,
+        767,
+        7,
+        708,
+        6,
+        6423,
+        708,
+        13304,
+        7,
+        708,
+        6,
+        64015,
+        708
+      ],
+      "expected_decoded": "<|startoftext|><|im_start|>user\nFirst<|im_end|>\n<|im_start|>assistant\n<think>keep</think>  answer  <|im_end|>\n<|im_start|>user\nNext<|im_end|>\n<|im_start|>assistant\n",
+      "expected_decoded_skip_special_tokens": "user\nFirst\nassistant\nkeep  answer  \nuser\nNext\nassistant\n"
+    },
+    {
+      "id": "inline-multiple-close-tags",
+      "category": "thinking",
+      "messages": [
+        {
+          "role": "user",
+          "content": "First"
+        },
+        {
+          "role": "assistant",
+          "content": "<think>a</think>b</think> final "
+        },
+        {
+          "role": "user",
+          "content": "Second"
+        },
+        {
+          "role": "assistant",
+          "content": "new"
+        }
+      ],
+      "add_generation_prompt": true,
+      "preserve_thinking": false,
+      "expected_rendered": "<|startoftext|><|im_start|>user\nFirst<|im_end|>\n<|im_start|>assistant\nfinal<|im_end|>\n<|im_start|>user\nSecond<|im_end|>\n<|im_start|>assistant\nnew<|im_end|>\n<|im_start|>assistant\n",
+      "expected_rendered_utf8_sha256": "d47040bbf33906ddd9d3fab984bb97fa8a84a68ce14313b72e945a4e1b38285a",
+      "expected_ids": [
+        1,
+        6,
+        6423,
+        708,
+        9578,
+        7,
+        708,
+        6,
+        64015,
+        708,
+        34599,
+        7,
+        708,
+        6,
+        6423,
+        708,
+        15783,
+        7,
+        708,
+        6,
+        64015,
+        708,
+        3514,
+        7,
+        708,
+        6,
+        64015,
+        708
+      ],
+      "expected_decoded": "<|startoftext|><|im_start|>user\nFirst<|im_end|>\n<|im_start|>assistant\nfinal<|im_end|>\n<|im_start|>user\nSecond<|im_end|>\n<|im_start|>assistant\nnew<|im_end|>\n<|im_start|>assistant\n",
+      "expected_decoded_skip_special_tokens": "user\nFirst\nassistant\nfinal\nuser\nSecond\nassistant\nnew\nassistant\n"
+    },
+    {
+      "id": "inline-python-control-trim",
+      "category": "thinking",
+      "messages": [
+        {
+          "role": "user",
+          "content": "First"
+        },
+        {
+          "role": "assistant",
+          "content": "hidden</think>\u001c\u001d\u001e\u001fanswer\u001c\u001d\u001e\u001f"
+        },
+        {
+          "role": "user",
+          "content": "Second"
+        },
+        {
+          "role": "assistant",
+          "content": "new"
+        }
+      ],
+      "add_generation_prompt": true,
+      "preserve_thinking": false,
+      "expected_rendered": "<|startoftext|><|im_start|>user\nFirst<|im_end|>\n<|im_start|>assistant\nanswer<|im_end|>\n<|im_start|>user\nSecond<|im_end|>\n<|im_start|>assistant\nnew<|im_end|>\n<|im_start|>assistant\n",
+      "expected_rendered_utf8_sha256": "096f68bde949f277b90a254c7e6c70475f64955ab3e5f66bec438d4c47009a1f",
+      "expected_ids": [
+        1,
+        6,
+        6423,
+        708,
+        9578,
+        7,
+        708,
+        6,
+        64015,
+        708,
+        44745,
+        7,
+        708,
+        6,
+        6423,
+        708,
+        15783,
+        7,
+        708,
+        6,
+        64015,
+        708,
+        3514,
+        7,
+        708,
+        6,
+        64015,
+        708
+      ],
+      "expected_decoded": "<|startoftext|><|im_start|>user\nFirst<|im_end|>\n<|im_start|>assistant\nanswer<|im_end|>\n<|im_start|>user\nSecond<|im_end|>\n<|im_start|>assistant\nnew<|im_end|>\n<|im_start|>assistant\n",
+      "expected_decoded_skip_special_tokens": "user\nFirst\nassistant\nanswer\nuser\nSecond\nassistant\nnew\nassistant\n"
+    },
+    {
+      "id": "inline-python-unicode-trim",
+      "category": "thinking",
+      "messages": [
+        {
+          "role": "user",
+          "content": "First"
+        },
+        {
+          "role": "assistant",
+          "content": "hidden</think>  answer  "
+        },
+        {
+          "role": "user",
+          "content": "Second"
+        },
+        {
+          "role": "assistant",
+          "content": "new"
+        }
+      ],
+      "add_generation_prompt": true,
+      "preserve_thinking": false,
+      "expected_rendered": "<|startoftext|><|im_start|>user\nFirst<|im_end|>\n<|im_start|>assistant\nanswer<|im_end|>\n<|im_start|>user\nSecond<|im_end|>\n<|im_start|>assistant\nnew<|im_end|>\n<|im_start|>assistant\n",
+      "expected_rendered_utf8_sha256": "096f68bde949f277b90a254c7e6c70475f64955ab3e5f66bec438d4c47009a1f",
+      "expected_ids": [
+        1,
+        6,
+        6423,
+        708,
+        9578,
+        7,
+        708,
+        6,
+        64015,
+        708,
+        44745,
+        7,
+        708,
+        6,
+        6423,
+        708,
+        15783,
+        7,
+        708,
+        6,
+        64015,
+        708,
+        3514,
+        7,
+        708,
+        6,
+        64015,
+        708
+      ],
+      "expected_decoded": "<|startoftext|><|im_start|>user\nFirst<|im_end|>\n<|im_start|>assistant\nanswer<|im_end|>\n<|im_start|>user\nSecond<|im_end|>\n<|im_start|>assistant\nnew<|im_end|>\n<|im_start|>assistant\n",
+      "expected_decoded_skip_special_tokens": "user\nFirst\nassistant\nanswer\nuser\nSecond\nassistant\nnew\nassistant\n"
+    },
+    {
+      "id": "empty-thinking",
+      "category": "thinking",
+      "messages": [
+        {
+          "role": "user",
+          "content": "First"
+        },
+        {
+          "role": "assistant",
+          "content": "answer",
+          "thinking": ""
+        }
+      ],
+      "add_generation_prompt": true,
+      "preserve_thinking": false,
+      "expected_rendered": "<|startoftext|><|im_start|>user\nFirst<|im_end|>\n<|im_start|>assistant\nanswer<|im_end|>\n<|im_start|>assistant\n",
+      "expected_rendered_utf8_sha256": "064691007cbf4b99e2d222775ec34f7dc51492288b2b78a96ab54d1a87305811",
+      "expected_ids": [
+        1,
+        6,
+        6423,
+        708,
+        9578,
+        7,
+        708,
+        6,
+        64015,
+        708,
+        44745,
+        7,
+        708,
+        6,
+        64015,
+        708
+      ],
+      "expected_decoded": "<|startoftext|><|im_start|>user\nFirst<|im_end|>\n<|im_start|>assistant\nanswer<|im_end|>\n<|im_start|>assistant\n",
+      "expected_decoded_skip_special_tokens": "user\nFirst\nassistant\nanswer\nassistant\n"
+    },
+    {
+      "id": "thinking-empty-content",
+      "category": "thinking",
+      "messages": [
+        {
+          "role": "user",
+          "content": "First"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "thinking": "reasoning only"
+        }
+      ],
+      "add_generation_prompt": true,
+      "preserve_thinking": false,
+      "expected_rendered": "<|startoftext|><|im_start|>user\nFirst<|im_end|>\n<|im_start|>assistant\n<think>reasoning only</think><|im_end|>\n<|im_start|>assistant\n",
+      "expected_rendered_utf8_sha256": "a9e3ac647f342fd48fdfe724edc1e66db30cf26b63ee4d9753a10f81aea16d0a",
+      "expected_ids": [
+        1,
+        6,
+        6423,
+        708,
+        9578,
+        7,
+        708,
+        6,
+        64015,
+        708,
+        64400,
+        782,
+        2245,
+        800,
+        1550,
+        64401,
+        7,
+        708,
+        6,
+        64015,
+        708
+      ],
+      "expected_decoded": "<|startoftext|><|im_start|>user\nFirst<|im_end|>\n<|im_start|>assistant\n<think>reasoning only</think><|im_end|>\n<|im_start|>assistant\n",
+      "expected_decoded_skip_special_tokens": "user\nFirst\nassistant\nreasoning only\nassistant\n"
+    },
+    {
+      "id": "continuation-tag-last",
+      "category": "literal_data",
+      "messages": [
+        {
+          "role": "user",
+          "content": "First"
+        },
+        {
+          "role": "assistant",
+          "content": "answer CONTINUE_FINAL_MESSAGE_TAG "
+        }
+      ],
+      "add_generation_prompt": false,
+      "preserve_thinking": false,
+      "expected_rendered": "<|startoftext|><|im_start|>user\nFirst<|im_end|>\n<|im_start|>assistant\nanswer CONTINUE_FINAL_MESSAGE_TAG <|im_end|>\n",
+      "expected_rendered_utf8_sha256": "26cbb334a08b03ab3ade3d10dcdae86d14de26818ded3007e3d0a6382fbda940",
+      "expected_ids": [
+        1,
+        6,
+        6423,
+        708,
+        9578,
+        7,
+        708,
+        6,
+        64015,
+        708,
+        44745,
+        47111,
+        2287,
+        10088,
+        7881,
+        2287,
+        3125,
+        8630,
+        58133,
+        6362,
+        5658,
+        730,
+        7,
+        708
+      ],
+      "expected_decoded": "<|startoftext|><|im_start|>user\nFirst<|im_end|>\n<|im_start|>assistant\nanswer CONTINUE_FINAL_MESSAGE_TAG <|im_end|>\n",
+      "expected_decoded_skip_special_tokens": "user\nFirst\nassistant\nanswer CONTINUE_FINAL_MESSAGE_TAG \n"
+    },
+    {
+      "id": "continuation-tag-older",
+      "category": "thinking",
+      "messages": [
+        {
+          "role": "user",
+          "content": "First"
+        },
+        {
+          "role": "assistant",
+          "content": "hidden</think> answer CONTINUE_FINAL_MESSAGE_TAG "
+        },
+        {
+          "role": "user",
+          "content": "Second"
+        },
+        {
+          "role": "assistant",
+          "content": "new"
+        }
+      ],
+      "add_generation_prompt": true,
+      "preserve_thinking": false,
+      "expected_rendered": "<|startoftext|><|im_start|>user\nFirst<|im_end|>\n<|im_start|>assistant\nanswer CONTINUE_FINAL_MESSAGE_TAG<|im_end|>\n<|im_start|>user\nSecond<|im_end|>\n<|im_start|>assistant\nnew<|im_end|>\n<|im_start|>assistant\n",
+      "expected_rendered_utf8_sha256": "37352ab62009d24914c5126d403e5a19b62a56a4ac78e50c4cd79a6f7745e7ae",
+      "expected_ids": [
+        1,
+        6,
+        6423,
+        708,
+        9578,
+        7,
+        708,
+        6,
+        64015,
+        708,
+        44745,
+        47111,
+        2287,
+        10088,
+        7881,
+        2287,
+        3125,
+        8630,
+        58133,
+        6362,
+        5658,
+        7,
+        708,
+        6,
+        6423,
+        708,
+        15783,
+        7,
+        708,
+        6,
+        64015,
+        708,
+        3514,
+        7,
+        708,
+        6,
+        64015,
+        708
+      ],
+      "expected_decoded": "<|startoftext|><|im_start|>user\nFirst<|im_end|>\n<|im_start|>assistant\nanswer CONTINUE_FINAL_MESSAGE_TAG<|im_end|>\n<|im_start|>user\nSecond<|im_end|>\n<|im_start|>assistant\nnew<|im_end|>\n<|im_start|>assistant\n",
+      "expected_decoded_skip_special_tokens": "user\nFirst\nassistant\nanswer CONTINUE_FINAL_MESSAGE_TAG\nuser\nSecond\nassistant\nnew\nassistant\n"
+    },
+    {
+      "id": "user-thinking-literals",
+      "category": "literal_data",
+      "messages": [
+        {
+          "role": "user",
+          "content": "<think>user text</think> keep whitespace  "
+        }
+      ],
+      "add_generation_prompt": true,
+      "preserve_thinking": false,
+      "expected_rendered": "<|startoftext|><|im_start|>user\n<think>user text</think> keep whitespace  <|im_end|>\n<|im_start|>assistant\n",
+      "expected_rendered_utf8_sha256": "6bfdf6677bf5d19497857a0dc5c980f5a1316149e1486a29ba2c08a42fbf950e",
+      "expected_ids": [
+        1,
+        6,
+        6423,
+        708,
+        64400,
+        6423,
+        3304,
+        64401,
+        3089,
+        27946,
+        6041,
+        767,
+        7,
+        708,
+        6,
+        64015,
+        708
+      ],
+      "expected_decoded": "<|startoftext|><|im_start|>user\n<think>user text</think> keep whitespace  <|im_end|>\n<|im_start|>assistant\n",
+      "expected_decoded_skip_special_tokens": "user\nuser text keep whitespace  \nassistant\n"
+    },
+    {
+      "id": "system-thinking-literals",
+      "category": "literal_data",
+      "messages": [
+        {
+          "role": "system",
+          "content": "<think>system literal</think>"
+        },
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ],
+      "add_generation_prompt": true,
+      "preserve_thinking": false,
+      "expected_rendered": "<|startoftext|><|im_start|>system\n<think>system literal</think><|im_end|>\n<|im_start|>user\nHello<|im_end|>\n<|im_start|>assistant\n",
+      "expected_rendered_utf8_sha256": "8878725e0426cff7857c3ab9376d9d1e3d47fa969863c83e9883ae6e07d2bd3c",
+      "expected_ids": [
+        1,
+        6,
+        24131,
+        708,
+        64400,
+        24131,
+        30521,
+        64401,
+        7,
+        708,
+        6,
+        6423,
+        708,
+        36309,
+        7,
+        708,
+        6,
+        64015,
+        708
+      ],
+      "expected_decoded": "<|startoftext|><|im_start|>system\n<think>system literal</think><|im_end|>\n<|im_start|>user\nHello<|im_end|>\n<|im_start|>assistant\n",
+      "expected_decoded_skip_special_tokens": "system\nsystem literal\nuser\nHello\nassistant\n"
+    },
+    {
+      "id": "system-whitespace-only",
+      "category": "whitespace",
+      "messages": [
+        {
+          "role": "system",
+          "content": " \t\n"
+        },
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ],
+      "add_generation_prompt": true,
+      "preserve_thinking": false,
+      "expected_rendered": "<|startoftext|><|im_start|>system\n \t\n<|im_end|>\n<|im_start|>user\nHello<|im_end|>\n<|im_start|>assistant\n",
+      "expected_rendered_utf8_sha256": "c26108d63baf74745d1dd21f057fc2bd720c2b859210ae9a8742b1038bc42b84",
+      "expected_ids": [
+        1,
+        6,
+        24131,
+        708,
+        730,
+        2471,
+        7,
+        708,
+        6,
+        6423,
+        708,
+        36309,
+        7,
+        708,
+        6,
+        64015,
+        708
+      ],
+      "expected_decoded": "<|startoftext|><|im_start|>system\n \t\n<|im_end|>\n<|im_start|>user\nHello<|im_end|>\n<|im_start|>assistant\n",
+      "expected_decoded_skip_special_tokens": "system\n \t\n\nuser\nHello\nassistant\n"
+    }
+  ],
+  "generation_traces": [
+    {
+      "id": "system-user",
+      "messages": [
+        {
+          "role": "system",
+          "content": "Answer briefly."
+        },
+        {
+          "role": "user",
+          "content": "What is the capital of France?"
+        }
+      ],
+      "add_generation_prompt": true,
+      "preserve_thinking": false,
+      "rendered_prompt": "<|startoftext|><|im_start|>system\nAnswer briefly.<|im_end|>\n<|im_start|>user\nWhat is the capital of France?<|im_end|>\n<|im_start|>assistant\n",
+      "prompt_ids": [
+        1,
+        6,
+        24131,
+        708,
+        40131,
+        21923,
+        523,
+        7,
+        708,
+        6,
+        6423,
+        708,
+        3493,
+        856,
+        779,
+        5706,
+        803,
+        4481,
+        540,
+        7,
+        708,
+        6,
+        64015,
+        708
+      ],
+      "max_new_tokens": 8,
+      "stop_token_ids": [
+        7
+      ],
+      "expected_generated_ids": [
+        41677,
+        7
+      ],
+      "expected_stop_reason": "eos",
+      "expected_decoded_completion": "Paris<|im_end|>",
+      "expected_decoded_completion_skip_special_tokens": "Paris",
+      "expected_state_input_tokens": 25,
+      "reference_mode": "Unmodified HF complete-prefix recomputation for every greedy token; no native HF cached continuation",
+      "task_quality_qualified": false,
+      "steps": [
+        {
+          "index": 0,
+          "input_length": 24,
+          "expected_token_id": 41677,
+          "top_two_logit_margin": 2.02276611328125,
+          "logits_fp32_sha256": "18d2dc759633cb7a803aaea7c87868620d84c8bd44b4f86be29e4a70bf755d2d"
+        },
+        {
+          "index": 1,
+          "input_length": 25,
+          "expected_token_id": 7,
+          "top_two_logit_margin": 1.902688980102539,
+          "logits_fp32_sha256": "81b675f7188eeed39114eef8c495b04aa0dcf79a04547339f91c15a42f5beee1"
+        }
+      ]
+    },
+    {
+      "id": "multi-turn-math",
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is 1 + 1?"
+        },
+        {
+          "role": "assistant",
+          "content": "2"
+        },
+        {
+          "role": "user",
+          "content": "And 2 + 2?"
+        }
+      ],
+      "add_generation_prompt": true,
+      "preserve_thinking": false,
+      "rendered_prompt": "<|startoftext|><|im_start|>user\nWhat is 1 + 1?<|im_end|>\n<|im_start|>assistant\n2<|im_end|>\n<|im_start|>user\nAnd 2 + 2?<|im_end|>\n<|im_start|>assistant\n",
+      "prompt_ids": [
+        1,
+        6,
+        6423,
+        708,
+        3493,
+        856,
+        730,
+        526,
+        2011,
+        730,
+        526,
+        540,
+        7,
+        708,
+        6,
+        64015,
+        708,
+        527,
+        7,
+        708,
+        6,
+        6423,
+        708,
+        4483,
+        730,
+        527,
+        2011,
+        730,
+        527,
+        540,
+        7,
+        708,
+        6,
+        64015,
+        708
+      ],
+      "max_new_tokens": 8,
+      "stop_token_ids": [
+        7
+      ],
+      "expected_generated_ids": [
+        528,
+        7
+      ],
+      "expected_stop_reason": "eos",
+      "expected_decoded_completion": "3<|im_end|>",
+      "expected_decoded_completion_skip_special_tokens": "3",
+      "expected_state_input_tokens": 36,
+      "reference_mode": "Unmodified HF complete-prefix recomputation for every greedy token; no native HF cached continuation",
+      "task_quality_qualified": false,
+      "steps": [
+        {
+          "index": 0,
+          "input_length": 35,
+          "expected_token_id": 528,
+          "top_two_logit_margin": 1.5344467163085938,
+          "logits_fp32_sha256": "ed5be984df1a4195525f4d35c460f0cd4998d13c9d49b1006fcfc8fc52f767d0"
+        },
+        {
+          "index": 1,
+          "input_length": 36,
+          "expected_token_id": 7,
+          "top_two_logit_margin": 7.671077728271484,
+          "logits_fp32_sha256": "c68cac375d06e85c674d3b02d6236f2978780656b042f0453fdadb3812e01a4a"
+        }
+      ]
+    }
+  ],
+  "generation_provenance": {
+    "checkpoint": {
+      "repository": "LiquidAI/LFM2.5-350M",
+      "revision": "9e6c6ccf47cd318696e137d381a7ded8fe4df09f",
+      "filename": "model.safetensors",
+      "size_bytes": 708984464,
+      "sha256": "1c9c77a4471a7f590f85240f74ed1fc26df7fbde88c3006724e2f93ca993ea4e"
+    },
+    "unique_weight_tensors": 148,
+    "dtype": "BF16 source converted to FP32",
+    "model_reference_source_sha256": "eba676a4f6941a80dd8788a9b687acd4a21a5b2d568762120d1046f3f43fc739",
+    "native_hf_cached_generation_qualified": false
+  }
+}

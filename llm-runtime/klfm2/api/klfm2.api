@@ -1,0 +1,191 @@
+public final class sk/ainet/apps/klfm2/Lfm2ChatKt {
+	public static final fun loadLfm2TextFrontend (Ljava/io/File;Lsk/ainet/apps/klfm2/Lfm2MetadataPins;)Lsk/ainet/apps/klfm2/Lfm2TextFrontend;
+	public static synthetic fun loadLfm2TextFrontend$default (Ljava/io/File;Lsk/ainet/apps/klfm2/Lfm2MetadataPins;ILjava/lang/Object;)Lsk/ainet/apps/klfm2/Lfm2TextFrontend;
+}
+
+public final class sk/ainet/apps/klfm2/Lfm2ChatMessage {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Lsk/ainet/apps/klfm2/Lfm2ChatMessage;
+	public static synthetic fun copy$default (Lsk/ainet/apps/klfm2/Lfm2ChatMessage;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lsk/ainet/apps/klfm2/Lfm2ChatMessage;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getContent ()Ljava/lang/String;
+	public final fun getRole ()Ljava/lang/String;
+	public final fun getThinking ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/apps/klfm2/Lfm2DecodingPolicy : java/lang/Enum {
+	public static final field CHECKPOINT Lsk/ainet/apps/klfm2/Lfm2DecodingPolicy;
+	public static final field HUGGING_FACE_5_COMPAT Lsk/ainet/apps/klfm2/Lfm2DecodingPolicy;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lsk/ainet/apps/klfm2/Lfm2DecodingPolicy;
+	public static fun values ()[Lsk/ainet/apps/klfm2/Lfm2DecodingPolicy;
+}
+
+public final class sk/ainet/apps/klfm2/Lfm2GeneratedToken {
+	public fun <init> (IILjava/lang/String;Z)V
+	public final fun component1 ()I
+	public final fun component2 ()I
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Z
+	public final fun copy (IILjava/lang/String;Z)Lsk/ainet/apps/klfm2/Lfm2GeneratedToken;
+	public static synthetic fun copy$default (Lsk/ainet/apps/klfm2/Lfm2GeneratedToken;IILjava/lang/String;ZILjava/lang/Object;)Lsk/ainet/apps/klfm2/Lfm2GeneratedToken;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getIndex ()I
+	public final fun getText ()Ljava/lang/String;
+	public final fun getTokenId ()I
+	public fun hashCode ()I
+	public final fun isStopToken ()Z
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/apps/klfm2/Lfm2GenerationOptions {
+	public fun <init> ()V
+	public fun <init> (IZ)V
+	public synthetic fun <init> (IZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()I
+	public final fun component2 ()Z
+	public final fun copy (IZ)Lsk/ainet/apps/klfm2/Lfm2GenerationOptions;
+	public static synthetic fun copy$default (Lsk/ainet/apps/klfm2/Lfm2GenerationOptions;IZILjava/lang/Object;)Lsk/ainet/apps/klfm2/Lfm2GenerationOptions;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getMaxNewTokens ()I
+	public final fun getPreserveThinking ()Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/apps/klfm2/Lfm2InferenceRuntime : java/lang/AutoCloseable, sk/ainet/apps/llm/InferenceRuntime {
+	public fun <init> (Lsk/ainet/models/lfm2/HybridLfm2Model;)V
+	public fun close ()V
+	public fun forward (I)Lsk/ainet/lang/tensor/Tensor;
+	public fun forwardBatched ([I)Lsk/ainet/lang/tensor/Tensor;
+	public final fun getPosition ()I
+	public fun reset ()V
+}
+
+public final class sk/ainet/apps/klfm2/Lfm2IreeChatCli {
+	public static final field INSTANCE Lsk/ainet/apps/klfm2/Lfm2IreeChatCli;
+	public static final fun main ([Ljava/lang/String;)V
+}
+
+public final class sk/ainet/apps/klfm2/Lfm2IreeGenerationRuntime : java/lang/AutoCloseable, sk/ainet/apps/llm/InferenceRuntime {
+	public static final field Companion Lsk/ainet/apps/klfm2/Lfm2IreeGenerationRuntime$Companion;
+	public fun <init> (Lsk/ainet/apps/klfm2/Lfm2IreeOptions;)V
+	public fun close ()V
+	public fun forward (I)Lsk/ainet/lang/tensor/Tensor;
+	public fun forwardBatched ([I)Lsk/ainet/lang/tensor/Tensor;
+	public final fun getCapacity ()I
+	public final fun getCompletedDeviceSteps ()J
+	public final fun getImplementationSourcePins ()Lkotlinx/serialization/json/JsonObject;
+	public final fun getPosition ()I
+	public final fun getVocabularySize ()I
+	public final fun getWorkerInfo ()Lkotlinx/serialization/json/JsonObject;
+	public static final fun preflight (Lsk/ainet/apps/klfm2/Lfm2IreeOptions;)Lkotlinx/serialization/json/JsonObject;
+	public fun reset ()V
+	public final fun textGenerator (Lsk/ainet/apps/klfm2/Lfm2TextFrontend;Lsk/ainet/apps/klfm2/Lfm2DecodingPolicy;)Lsk/ainet/apps/klfm2/Lfm2TextGenerator;
+	public static synthetic fun textGenerator$default (Lsk/ainet/apps/klfm2/Lfm2IreeGenerationRuntime;Lsk/ainet/apps/klfm2/Lfm2TextFrontend;Lsk/ainet/apps/klfm2/Lfm2DecodingPolicy;ILjava/lang/Object;)Lsk/ainet/apps/klfm2/Lfm2TextGenerator;
+}
+
+public final class sk/ainet/apps/klfm2/Lfm2IreeGenerationRuntime$Companion {
+	public final fun preflight (Lsk/ainet/apps/klfm2/Lfm2IreeOptions;)Lkotlinx/serialization/json/JsonObject;
+}
+
+public final class sk/ainet/apps/klfm2/Lfm2IreeOptions {
+	public fun <init> (Ljava/io/File;Ljava/io/File;Ljava/lang/String;Ljava/io/File;JJ)V
+	public synthetic fun <init> (Ljava/io/File;Ljava/io/File;Ljava/lang/String;Ljava/io/File;JJILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/io/File;
+	public final fun component2 ()Ljava/io/File;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/io/File;
+	public final fun component5 ()J
+	public final fun component6 ()J
+	public final fun copy (Ljava/io/File;Ljava/io/File;Ljava/lang/String;Ljava/io/File;JJ)Lsk/ainet/apps/klfm2/Lfm2IreeOptions;
+	public static synthetic fun copy$default (Lsk/ainet/apps/klfm2/Lfm2IreeOptions;Ljava/io/File;Ljava/io/File;Ljava/lang/String;Ljava/io/File;JJILjava/lang/Object;)Lsk/ainet/apps/klfm2/Lfm2IreeOptions;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getBundleDirectory ()Ljava/io/File;
+	public final fun getCloseTimeoutMillis ()J
+	public final fun getDeviceUri ()Ljava/lang/String;
+	public final fun getPackageDirectory ()Ljava/io/File;
+	public final fun getPythonExecutable ()Ljava/io/File;
+	public final fun getTimeoutMillis ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/apps/klfm2/Lfm2MetadataPin {
+	public fun <init> (JLjava/lang/String;)V
+	public final fun component1 ()J
+	public final fun component2 ()Ljava/lang/String;
+	public final fun copy (JLjava/lang/String;)Lsk/ainet/apps/klfm2/Lfm2MetadataPin;
+	public static synthetic fun copy$default (Lsk/ainet/apps/klfm2/Lfm2MetadataPin;JLjava/lang/String;ILjava/lang/Object;)Lsk/ainet/apps/klfm2/Lfm2MetadataPin;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getSha256 ()Ljava/lang/String;
+	public final fun getSize ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/apps/klfm2/Lfm2MetadataPins {
+	public static final field Companion Lsk/ainet/apps/klfm2/Lfm2MetadataPins$Companion;
+	public fun <init> (Ljava/util/Map;)V
+	public final fun getFiles ()Ljava/util/Map;
+}
+
+public final class sk/ainet/apps/klfm2/Lfm2MetadataPins$Companion {
+	public final fun getLFM25_350M ()Lsk/ainet/apps/klfm2/Lfm2MetadataPins;
+}
+
+public final class sk/ainet/apps/klfm2/Lfm2TextFrontend {
+	public final fun decode ([IZLsk/ainet/apps/klfm2/Lfm2DecodingPolicy;)Ljava/lang/String;
+	public static synthetic fun decode$default (Lsk/ainet/apps/klfm2/Lfm2TextFrontend;[IZLsk/ainet/apps/klfm2/Lfm2DecodingPolicy;ILjava/lang/Object;)Ljava/lang/String;
+	public final fun encode (Ljava/lang/String;)[I
+	public final fun encodeMessages (Ljava/util/List;ZZ)[I
+	public static synthetic fun encodeMessages$default (Lsk/ainet/apps/klfm2/Lfm2TextFrontend;Ljava/util/List;ZZILjava/lang/Object;)[I
+	public final fun getBosTokenId ()I
+	public final fun getCheckpointSpecialTokenCount ()I
+	public final fun getEffectiveTokenizerSha256 ()Ljava/lang/String;
+	public final fun getHf5CompatSpecialTokenCount ()I
+	public final fun getHf5PromotedSpecialTokenIds ()Ljava/util/Set;
+	public final fun getMaximumAssignedTokenId ()I
+	public final fun getMetadataHashes ()Ljava/util/Map;
+	public final fun getMetadataPinned ()Z
+	public final fun getStopTokenIds ()Ljava/util/Set;
+	public final fun getTemplateImplementation ()Ljava/lang/String;
+	public final fun getTokenizerCompatibility ()Ljava/lang/String;
+	public final fun getTokenizerVocabularySize ()I
+	public final fun getVocabularySize ()I
+	public final fun render (Ljava/util/List;ZZ)Ljava/lang/String;
+	public static synthetic fun render$default (Lsk/ainet/apps/klfm2/Lfm2TextFrontend;Ljava/util/List;ZZILjava/lang/Object;)Ljava/lang/String;
+}
+
+public final class sk/ainet/apps/klfm2/Lfm2TextGenerator {
+	public fun <init> (Lsk/ainet/models/lfm2/HybridLfm2Model;Lsk/ainet/apps/klfm2/Lfm2TextFrontend;Lsk/ainet/apps/klfm2/Lfm2DecodingPolicy;)V
+	public synthetic fun <init> (Lsk/ainet/models/lfm2/HybridLfm2Model;Lsk/ainet/apps/klfm2/Lfm2TextFrontend;Lsk/ainet/apps/klfm2/Lfm2DecodingPolicy;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun generate (Ljava/util/List;Lsk/ainet/apps/klfm2/Lfm2GenerationOptions;Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function1;)Lsk/ainet/apps/klfm2/Lfm2TextResult;
+	public static synthetic fun generate$default (Lsk/ainet/apps/klfm2/Lfm2TextGenerator;Ljava/util/List;Lsk/ainet/apps/klfm2/Lfm2GenerationOptions;Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function1;ILjava/lang/Object;)Lsk/ainet/apps/klfm2/Lfm2TextResult;
+}
+
+public final class sk/ainet/apps/klfm2/Lfm2TextResult {
+	public fun <init> ([I[ILjava/lang/String;Ljava/lang/String;I)V
+	public final fun component1 ()[I
+	public final fun component2 ()[I
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()I
+	public final fun copy ([I[ILjava/lang/String;Ljava/lang/String;I)Lsk/ainet/apps/klfm2/Lfm2TextResult;
+	public static synthetic fun copy$default (Lsk/ainet/apps/klfm2/Lfm2TextResult;[I[ILjava/lang/String;Ljava/lang/String;IILjava/lang/Object;)Lsk/ainet/apps/klfm2/Lfm2TextResult;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getGeneratedTokenIds ()[I
+	public final fun getPromptTokenIds ()[I
+	public final fun getStateInputTokens ()I
+	public final fun getStopReason ()Ljava/lang/String;
+	public final fun getText ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+

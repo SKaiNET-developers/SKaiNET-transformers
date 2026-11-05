@@ -12,6 +12,18 @@ import kotlin.test.assertTrue
 class TransformersFamiliesTest {
 
     @Test
+    fun `dense lfm2 safetensors metadata resolves without claiming unsupported variants`() {
+        val identity = TransformersFamilies.registry.identify(
+            InMemoryCheckpointView(ModelFormat.SAFETENSORS, mapOf("model_type" to "lfm2"))
+        )
+        assertEquals("lfm2", identity.family)
+        assertEquals(Lfm2Family, TransformersFamilies.forFamily("lfm2"))
+        assertEquals(false, Lfm2Family.supportsToolCalling)
+        assertEquals(null, Lfm2Family.chatTemplateFamily)
+        assertEquals(null, TransformersFamilies.forArchitecture("lfm2_moe"))
+    }
+
+    @Test
     fun `every architecture string is claimed by exactly one family`() {
         val seen = HashMap<String, String>()
         for (f in TransformersFamilies.all) for (a in f.architectures) {
