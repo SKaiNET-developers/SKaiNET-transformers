@@ -547,7 +547,28 @@ public class GemmaModel<T : DType, V>(
         require(ple == null) { "GemmaModel.forwardWithPast: PLE models not supported by the KV-cache path yet" }
         val ops = ctx.ops
         val rawEmbeds = tokenEmbedding.forward(tokenId, ctx)
-        var h = if (embedScale != 1f) ops.mulScalar(rawEmbeds, embedScale) else rawEmbeds
+        val h = if (embedScale != 1f) ops.mulScalar(rawEmbeds, embedScale) else rawEmbeds
+        return forwardEmbeddedWithPast(h, rope, selfKIn, selfVIn, ctx)
+    }
+
+    /**
+     * [forwardWithPast] from the scaled token embedding [embedded] (`[1, hidden]`) instead of a token
+     * id, so a caller can do the lookup itself — e.g. a compiled decode step that keeps the
+     * `[vocab, hidden]` table out of the graph. [lmHeadWeight] (`[vocab, hidden]`) replaces the
+     * model's output projection weight when given: a tied model can project with a differently
+     * encoded copy of its embedding.
+     */
+    public fun forwardEmbeddedWithPast(
+        embedded: Tensor<T, V>,
+        rope: RopeCosSin<T, V>,
+        selfKIn: List<Tensor<T, V>>,
+        selfVIn: List<Tensor<T, V>>,
+        ctx: ExecutionContext,
+        lmHeadWeight: Tensor<T, V>? = null,
+    ): GemmaWithPastOutput<T, V> {
+        require(ple == null) { "GemmaModel.forwardEmbeddedWithPast: PLE models not supported by the KV-cache path yet" }
+        val ops = ctx.ops
+        var h = embedded
         val nsk = ArrayList<Tensor<T, V>>(blocks.size)
         val nsv = ArrayList<Tensor<T, V>>(blocks.size)
         for ((i, block) in blocks.withIndex()) {
@@ -567,7 +588,9 @@ public class GemmaModel<T : DType, V>(
             nsk += ops.reshape(fullK, fullK.shape)   // identity → distinct graph output node
             nsv += ops.reshape(fullV, fullV.shape)
         }
-        val logits = applySoftcap(lmHead.forward(outputNorm.forward(h, ctx), ctx), ctx)
+        val normed = outputNorm.forward(h, ctx)
+        val projected = if (lmHeadWeight != null) ops.matmulWeightTransposed(normed, lmHeadWeight) else lmHead.forward(normed, ctx)
+        val logits = applySoftcap(projected, ctx)
         return GemmaWithPastOutput(logits, nsk, nsv)
     }
 
