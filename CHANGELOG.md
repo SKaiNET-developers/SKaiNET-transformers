@@ -11,6 +11,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Against engine **0.63.0** (SKaiNET#1478 and SKaiNET#1479, block-quant export).
+
+### Added
+
+- **Decode step for an NPU with block-quantized weights** (`llm-core`, jvm): `DecodeStepExport.export(spec, dtype) { inputs, ctx -> … }`
+  traces one single-token step of any KV-cache decoder with a static past, the embedding lookup left to the host, keeps
+  Q8_0 / Q4_0 weights packed and folds them with the engine's `BlockQuantMatmulFusionPass`, and returns the StableHLO
+  module with every argument and result named (`embedded`, `cosGlobal`/`sinGlobal`, `cosSliding`/`sinSliding`,
+  `l<i>.k`/`l<i>.v`, `logits`). FunctionGemma 270M (Q8_0 projections, Q4_0 copy of the tied head, past 16) compiles
+  with Torq 2.3.0 to one dispatch on its `mixed_quant_matmul` kernel and runs on an SL2610 at 162 ms per step with the
+  same top-1 as the f32 reference (`TorqDecodeStepExportTest`, gated on `TORQ_DECODE_OUT` and `GEMMA_GGUF`).
+- `forwardEmbeddedWithPast(embedded, rope, selfKIn, selfVIn, ctx, lmHeadWeight = null)` on `GemmaModel` and
+  `DecoderKvModel`: the decode step from an already embedded token, optionally projecting with a replacement output
+  weight (e.g. a differently encoded copy of a tied embedding). `forwardWithPast` delegates to it.
+
+### Changed
+
+- **The with-past inputs and outputs are shared** (`llm-core`, `sk.ainet.lang.nn.dsl.decoder`): `RopeTables`,
+  `RopeCosSin` (tables per RoPE base: `global`, and `sliding` for Gemma 3), `ChunkContext` (`rope` plus a mask per
+  layer type), `KvStepOutput` and `buildRopeCosSin(attention, position, dtype, ctx, rows)` replace
+  `GemmaModel.RopeCosSin` / `ChunkContext` / `GemmaPrefillOutput` / `GemmaWithPastOutput` and
+  `DecoderKvModel.RopeCosSin` / `ChunkContext` / `PrefillOutput` / `WithPastOutput`. Both models route per layer by
+  `MultiHeadAttention.slidingWindow`. `RopeCosSin(cos, sin)` and `RopeCosSin(cosGlobal, sinGlobal, cosSliding,
+  sinSliding)` keep the old call shapes; `ChunkContext` now takes a `RopeCosSin`. `:llm-inference:gemma` exposes
+  `:llm-core` as `api`.
+
 ## [0.63.3] — 2026-10-28
 
 Against engine **0.62.0**, transformers-only and additive. The Android runtime (`runtime-iree-android`) gains an

@@ -50,7 +50,8 @@ kotlin {
             implementation(libs.skainet.io.gguf)
             implementation(libs.skainet.io.safetensors)
             implementation(libs.skainet.compile.core)
-            implementation(project(":llm-core"))
+            // api: the with-past forwards take and return llm-core's RopeCosSin / ChunkContext / KvStepOutput.
+            api(project(":llm-core"))
             implementation(libs.kotlinx.io.core)
             implementation(libs.kotlinx.coroutines)
         }

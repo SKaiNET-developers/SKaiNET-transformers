@@ -54,7 +54,12 @@ kotlin {
             implementation(libs.kotlinx.serialization.json)
         }
 
-        val jvmMain by getting
+        val jvmMain by getting {
+            dependencies {
+                // DecodeStepExport: trace -> ComputeGraph -> StableHLO (compile-hlo publishes no JS variant).
+                implementation(libs.skainet.compile.hlo)
+            }
+        }
 
         val jvmTest by getting {
             dependencies {

@@ -11,6 +11,8 @@ import sk.ainet.lang.graph.DefaultExecutionTape
 import sk.ainet.lang.graph.DefaultGraphExecutionContext
 import sk.ainet.lang.nn.dsl.decoder.DECODER_DEQUANTIZE_ALL
 import sk.ainet.lang.nn.dsl.decoder.DecoderKvModel
+import sk.ainet.lang.nn.dsl.decoder.ChunkContext
+import sk.ainet.lang.nn.dsl.decoder.RopeCosSin
 import sk.ainet.lang.tensor.Dim
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.Tensor
@@ -224,7 +226,7 @@ public object QwenExportHarness {
      * layer's K/V -- see [QwenKvContract.prefillWithPastArgs]), select 1xC) -> per-layer K,V
      * extended by C THEN token 1xi32`. One call per utterance instead of C [exportWithPastTraced]
      * steps. [QwenKvArch] has one RoPE base and no sliding window (every layer "global"), so
-     * [DecoderKvModel.ChunkContext] carries exactly one cos/sin/mask triple -- half the arguments
+     * [ChunkContext] carries exactly one cos/sin/mask triple -- half the arguments
      * FunctionGemma's per-layer-type version needs.
      */
     private fun exportPrefillWithPastTraced(kv: DecoderKvModel<FP32, Float>, arch: QwenKvArch, outDir: String, chunk: Int, bf16: Boolean, hostGather: Boolean): File {
@@ -250,7 +252,7 @@ public object QwenExportHarness {
             try {
                 val ectx = this as ExecutionContext
                 val out = kv.forwardPrefillWithPast(
-                    tokens, DecoderKvModel.ChunkContext(cos, sin, mask), select, selfKIn, selfVIn, ectx,
+                    tokens, ChunkContext(RopeCosSin(cos, sin), mask), select, selfKIn, selfVIn, ectx,
                 )
                 ectx.ops.argMax(out.logits, dim = -1)
             } finally {
@@ -291,7 +293,7 @@ public object QwenExportHarness {
             Execution.tapeStack.pushTape(ct)
             try {
                 val ectx = this as ExecutionContext
-                val out = kv.forwardWithPast(tokenId, DecoderKvModel.RopeCosSin(cos, sin), selfKIn, selfVIn, ectx)
+                val out = kv.forwardWithPast(tokenId, RopeCosSin(cos, sin), selfKIn, selfVIn, ectx)
                 ectx.ops.argMax(out.logits, dim = -1)
             } finally {
                 Execution.tapeStack.popTape()

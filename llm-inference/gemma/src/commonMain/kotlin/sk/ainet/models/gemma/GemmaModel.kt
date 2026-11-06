@@ -3,6 +3,10 @@ package sk.ainet.models.gemma
 import sk.ainet.apps.llm.HybridTransformerBlock
 import sk.ainet.context.ExecutionContext
 import sk.ainet.lang.nn.Module
+import sk.ainet.lang.nn.dsl.decoder.ChunkContext
+import sk.ainet.lang.nn.dsl.decoder.KvStepOutput
+import sk.ainet.lang.nn.dsl.decoder.RopeCosSin
+import sk.ainet.lang.nn.dsl.decoder.buildRopeCosSin
 import sk.ainet.lang.nn.layers.Embedding
 import sk.ainet.lang.nn.layers.EmbeddingAdapter
 import sk.ainet.lang.nn.normalization.RMSNormalization
@@ -230,47 +234,6 @@ public class GemmaModel<T : DType, V>(
     // typed fields, which assume SwiGLU and mis-select Gemma's four RMSNorms.
     // ================================================================
 
-    /** logits `[seq, vocab]` + per-layer initial self K/V (`[1, nKVHeads, seq, headDim]`). */
-    public class GemmaPrefillOutput<T : DType, V>(
-        public val logits: Tensor<T, V>,
-        public val selfK: List<Tensor<T, V>>,
-        public val selfV: List<Tensor<T, V>>,
-    )
-
-    /** logits `[1, vocab]` + per-layer extended self K/V (`[1, nKVHeads, past+1, headDim]`). */
-    public class GemmaWithPastOutput<T : DType, V>(
-        public val logits: Tensor<T, V>,
-        public val selfK: List<Tensor<T, V>>,
-        public val selfV: List<Tensor<T, V>>,
-    )
-
-    /** Per-step SPLIT_HALF RoPE cos/sin (`[1, headDim]`), one pair per RoPE base
-     *  (global / sliding); [forwardWithPast] routes per layer by `MHA.slidingWindow`. */
-    public class RopeCosSin<T : DType, V>(
-        public val cosGlobal: Tensor<T, V>,
-        public val sinGlobal: Tensor<T, V>,
-        public val cosSliding: Tensor<T, V>,
-        public val sinSliding: Tensor<T, V>,
-    )
-
-    /**
-     * Inputs of [forwardPrefillWithPast] for a C-token chunk: per-RoPE-base cos/sin tables `[C, headDim]`
-     * (one row per absolute position `past .. past+C-1`, split-half layout as in [buildRopeCosSin]) and
-     * per-layer-type **additive** attention masks `[1, nHeads, C, past+C]` (0 = attend, -1e30 = masked;
-     * per head because a broadcast over heads to a dynamic shape is not expressible in static StableHLO). The
-     * masks carry everything position-dependent — the causal band inside the chunk, the zero padding
-     * beyond the real tokens, and the 512-position sliding window of the sliding layers — so the graph
-     * itself stays position-agnostic like `gemma_with_past`.
-     */
-    public class ChunkContext<T : DType, V>(
-        public val cosGlobal: Tensor<T, V>,
-        public val sinGlobal: Tensor<T, V>,
-        public val cosSliding: Tensor<T, V>,
-        public val sinSliding: Tensor<T, V>,
-        public val maskGlobal: Tensor<T, V>,
-        public val maskSliding: Tensor<T, V>,
-    )
-
     private class GemmaBlockRefs<T : DType, V>(
         val attnNorm: RMSNormalization<T, V>,
         val mha: MultiHeadAttention<T, V>,
@@ -344,6 +307,10 @@ public class GemmaModel<T : DType, V>(
      * position picked by the one-hot [selectAt] (`[1, C]`), plus the per-layer cache extended by all C
      * positions (`[1, nKVHeads, past+C, headDim]`; the caller slices the padding off, as after prefill).
      * This is what makes a user utterance cost one call instead of C single-token [forwardWithPast] steps.
+     *
+     * [chunk] carries split-half tables per RoPE base and a mask per layer type, each per head
+     * (`[1, nHeads, C, past+C]`): a broadcast over heads to a dynamic shape is not expressible in static
+     * StableHLO. The sliding mask also carries the 512-position window.
      */
     public fun forwardPrefillWithPast(
         tokens: Tensor<T, V>,
@@ -352,7 +319,7 @@ public class GemmaModel<T : DType, V>(
         selfKIn: List<Tensor<T, V>>,
         selfVIn: List<Tensor<T, V>>,
         ctx: ExecutionContext,
-    ): GemmaWithPastOutput<T, V> {
+    ): KvStepOutput<T, V> {
         require(ple == null) { "GemmaModel.forwardPrefillWithPast: PLE models not supported by the KV-cache path yet" }
         val ops = ctx.ops
         val rawEmbeds = tokenEmbedding.forward(tokens, ctx)                         // [C, hidden]
@@ -361,12 +328,9 @@ public class GemmaModel<T : DType, V>(
         val nsv = ArrayList<Tensor<T, V>>(blocks.size)
         for ((i, block) in blocks.withIndex()) {
             val r = refsFor(block)
-            val isGlobal = r.mha.slidingWindow == null
-            val cos = if (isGlobal) chunk.cosGlobal else chunk.cosSliding
-            val sin = if (isGlobal) chunk.sinGlobal else chunk.sinSliding
-            val mask = if (isGlobal) chunk.maskGlobal else chunk.maskSliding
+            val tables = chunk.rope.forLayer(r.mha)
             val sn = r.attnNorm.forward(h, ctx)
-            val (attnOut, fullK, fullV) = attnWithPastChunk(r.mha, sn, cos, sin, mask, selfKIn[i], selfVIn[i], ctx)
+            val (attnOut, fullK, fullV) = attnWithPastChunk(r.mha, sn, tables.cos, tables.sin, chunk.maskFor(r.mha), selfKIn[i], selfVIn[i], ctx)
             val postAttn = r.postAttnNorm?.forward(attnOut, ctx) ?: attnOut
             val h1 = ops.add(h, postAttn)
             val ffnOut = r.ffn.forward(r.ffnNorm.forward(h1, ctx), ctx)
@@ -380,7 +344,7 @@ public class GemmaModel<T : DType, V>(
         val normed = outputNorm.forward(h, ctx)                                       // [C, hidden]
         val hAt = ops.matmul(selectAt, normed)                                        // [1, hidden]
         val logits = applySoftcap(lmHead.forward(hAt, ctx), ctx)                      // [1, vocab]
-        return GemmaWithPastOutput(logits, nsk, nsv)
+        return KvStepOutput(logits, nsk, nsv)
     }
 
     /** [attnWithPast] for a C-row chunk: heads-first `[heads, C, headDim]` projections, RoPE from `[C, headDim]`
@@ -473,7 +437,7 @@ public class GemmaModel<T : DType, V>(
      * plus the per-layer initial self K/V (`[1, nKVHeads, seq, headDim]`) that seed [forwardWithPast].
      * Nulls the block KV caches first (stateless one-pass prefill). PLE is unsupported here.
      */
-    public fun forwardPrefill(input: Tensor<T, V>, ctx: ExecutionContext): GemmaPrefillOutput<T, V> {
+    public fun forwardPrefill(input: Tensor<T, V>, ctx: ExecutionContext): KvStepOutput<T, V> {
         require(ple == null) { "GemmaModel.forwardPrefill: PLE models not supported by the KV-cache path yet" }
         stripCaches()
         val ops = ctx.ops
@@ -495,7 +459,7 @@ public class GemmaModel<T : DType, V>(
             selfV += ops.unsqueeze(kv.v, 0)
         }
         val logits = applySoftcap(lmHead.forward(outputNorm.forward(h, ctx), ctx), ctx)
-        return GemmaPrefillOutput(logits, selfK, selfV)
+        return KvStepOutput(logits, selfK, selfV)
     }
 
     /**
@@ -504,7 +468,7 @@ public class GemmaModel<T : DType, V>(
      * `gemma_prefill_at` graph reads the first generated token from this single row instead of
      * computing `seq × vocab` logits for the padding positions.
      */
-    public fun forwardPrefillAt(input: Tensor<T, V>, selectAt: Tensor<T, V>, ctx: ExecutionContext): GemmaPrefillOutput<T, V> {
+    public fun forwardPrefillAt(input: Tensor<T, V>, selectAt: Tensor<T, V>, ctx: ExecutionContext): KvStepOutput<T, V> {
         require(ple == null) { "GemmaModel.forwardPrefillAt: PLE models not supported by the KV-cache path yet" }
         stripCaches()
         val ops = ctx.ops
@@ -528,7 +492,7 @@ public class GemmaModel<T : DType, V>(
         val normed = outputNorm.forward(h, ctx)
         val hAt = ops.matmul(selectAt, if (normed.rank == 3) ops.squeeze(normed, dim = 0) else normed)  // [1, hidden]
         val logits = applySoftcap(lmHead.forward(hAt, ctx), ctx)                                        // [1, vocab]
-        return GemmaPrefillOutput(logits, selfK, selfV)
+        return KvStepOutput(logits, selfK, selfV)
     }
 
     /**
@@ -543,20 +507,39 @@ public class GemmaModel<T : DType, V>(
         selfKIn: List<Tensor<T, V>>,
         selfVIn: List<Tensor<T, V>>,
         ctx: ExecutionContext,
-    ): GemmaWithPastOutput<T, V> {
+    ): KvStepOutput<T, V> {
         require(ple == null) { "GemmaModel.forwardWithPast: PLE models not supported by the KV-cache path yet" }
         val ops = ctx.ops
         val rawEmbeds = tokenEmbedding.forward(tokenId, ctx)
-        var h = if (embedScale != 1f) ops.mulScalar(rawEmbeds, embedScale) else rawEmbeds
+        val h = if (embedScale != 1f) ops.mulScalar(rawEmbeds, embedScale) else rawEmbeds
+        return forwardEmbeddedWithPast(h, rope, selfKIn, selfVIn, ctx)
+    }
+
+    /**
+     * [forwardWithPast] from the scaled token embedding [embedded] (`[1, hidden]`) instead of a token
+     * id, so a caller can do the lookup itself — e.g. a compiled decode step that keeps the
+     * `[vocab, hidden]` table out of the graph. [lmHeadWeight] (`[vocab, hidden]`) replaces the
+     * model's output projection weight when given: a tied model can project with a differently
+     * encoded copy of its embedding.
+     */
+    public fun forwardEmbeddedWithPast(
+        embedded: Tensor<T, V>,
+        rope: RopeCosSin<T, V>,
+        selfKIn: List<Tensor<T, V>>,
+        selfVIn: List<Tensor<T, V>>,
+        ctx: ExecutionContext,
+        lmHeadWeight: Tensor<T, V>? = null,
+    ): KvStepOutput<T, V> {
+        require(ple == null) { "GemmaModel.forwardEmbeddedWithPast: PLE models not supported by the KV-cache path yet" }
+        val ops = ctx.ops
+        var h = embedded
         val nsk = ArrayList<Tensor<T, V>>(blocks.size)
         val nsv = ArrayList<Tensor<T, V>>(blocks.size)
         for ((i, block) in blocks.withIndex()) {
             val r = refsFor(block)
-            val isGlobal = r.mha.slidingWindow == null
-            val cos = if (isGlobal) rope.cosGlobal else rope.cosSliding
-            val sin = if (isGlobal) rope.sinGlobal else rope.sinSliding
+            val tables = rope.forLayer(r.mha)
             val sn = r.attnNorm.forward(h, ctx)
-            val (attnOut, fullK, fullV) = attnWithPast(r.mha, sn, cos, sin, selfKIn[i], selfVIn[i], ctx)
+            val (attnOut, fullK, fullV) = attnWithPast(r.mha, sn, tables.cos, tables.sin, selfKIn[i], selfVIn[i], ctx)
             val postAttn = r.postAttnNorm?.forward(attnOut, ctx) ?: attnOut
             val h1 = ops.add(h, postAttn)
             val ffnOut = r.ffn.forward(r.ffnNorm.forward(h1, ctx), ctx)
@@ -567,32 +550,19 @@ public class GemmaModel<T : DType, V>(
             nsk += ops.reshape(fullK, fullK.shape)   // identity → distinct graph output node
             nsv += ops.reshape(fullV, fullV.shape)
         }
-        val logits = applySoftcap(lmHead.forward(outputNorm.forward(h, ctx), ctx), ctx)
-        return GemmaWithPastOutput(logits, nsk, nsv)
+        val normed = outputNorm.forward(h, ctx)
+        val projected = if (lmHeadWeight != null) ops.matmulWeightTransposed(normed, lmHeadWeight) else lmHead.forward(normed, ctx)
+        val logits = applySoftcap(projected, ctx)
+        return KvStepOutput(logits, nsk, nsv)
     }
 
     /**
-     * Build the per-step SPLIT_HALF RoPE cos/sin tables for [position] (seqLen 1): one pair from a
-     * global-base layer, one from a sliding-base layer (gemma3 uses two RoPE bases). Fed to
-     * [forwardWithPast] as runtime inputs so the decode graph carries no compile-time position.
+     * Build the per-step RoPE cos/sin tables for [position] (seqLen 1): one pair from a global-base
+     * layer, one from a sliding-base layer (gemma3 uses two RoPE bases). Fed to [forwardWithPast] as
+     * runtime inputs so the decode graph carries no compile-time position.
      */
-    public fun buildRopeCosSin(position: Int, ctx: ExecutionContext): RopeCosSin<T, V> {
-        val mhas = blocks.map { refsFor(it).mha }
-        val globalMha = mhas.firstOrNull { it.slidingWindow == null }
-        val slidingMha = mhas.firstOrNull { it.slidingWindow != null }
-        val gRope = (globalMha ?: slidingMha ?: error("GemmaModel: no attention layers")).rope!!
-        val sRope = (slidingMha ?: globalMha)!!.rope!!
-        val (gc, gs) = gRope.buildSplitHalfCosSin(position, 1)
-        val (sc, ss) = sRope.buildSplitHalfCosSin(position, 1)
-        val gShape = Shape(1, gRope.headDim)
-        val sShape = Shape(1, sRope.headDim)
-        return RopeCosSin(
-            cosGlobal = ctx.fromFloatArray(gShape, dtype, gc),
-            sinGlobal = ctx.fromFloatArray(gShape, dtype, gs),
-            cosSliding = ctx.fromFloatArray(sShape, dtype, sc),
-            sinSliding = ctx.fromFloatArray(sShape, dtype, ss),
-        )
-    }
+    public fun buildRopeCosSin(position: Int, ctx: ExecutionContext): RopeCosSin<T, V> =
+        buildRopeCosSin(blocks.map { refsFor(it).mha }, position, dtype, ctx)
 
     public companion object {
         /**

@@ -2,6 +2,7 @@ package sk.ainet.lang.nn.dsl.decoder
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import sk.ainet.apps.llm.OptimizedLLMMode
 import sk.ainet.apps.llm.OptimizedLLMRuntime
@@ -10,6 +11,7 @@ import sk.ainet.io.weights.MappingConfig
 import sk.ainet.io.weights.WeightMapper
 import sk.ainet.io.weights.WeightTensor
 import sk.ainet.lang.nn.transformer.RoPEMode
+import sk.ainet.lang.nn.transformer.VoidDense
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.types.FP32
@@ -162,8 +164,49 @@ class DecoderKvModelTest {
         val model = buildModel()
         val kv = DecoderKvModel<FP32, Float>(model, FP32::class)
         val rope = kv.buildRopeCosSin(0, ctx)
-        assertEquals(Shape(1, headDim), rope.cos.shape)
-        assertEquals(Shape(1, headDim), rope.sin.shape)
+        assertEquals(Shape(1, headDim), rope.global.cos.shape)
+        assertEquals(Shape(1, headDim), rope.global.sin.shape)
+        assertFalse(rope.hasSlidingBase, "one RoPE base: the sliding tables are the global ones")
+    }
+
+    @Test fun forwardEmbeddedWithPastMatchesForwardWithPast() {
+        val kv = DecoderKvModel<FP32, Float>(buildModel(), FP32::class)
+        val prompt = intArrayOf(3, 7, 1)
+        val promptTensor: Tensor<FP32, Float> = ctx.fromFloatArray(Shape(prompt.size), FP32::class, FloatArray(prompt.size) { prompt[it].toFloat() })
+        val selectLast: Tensor<FP32, Float> = ctx.fromFloatArray(Shape(1, prompt.size), FP32::class, FloatArray(prompt.size) { if (it == prompt.size - 1) 1f else 0f })
+        val prefill = kv.forwardPrefillAt(promptTensor, selectLast, ctx)
+        val rope = kv.buildRopeCosSin(prompt.size, ctx)
+
+        val tok = 9
+        val byId = kv.forwardWithPast(ctx.fromFloatArray(Shape(1), FP32::class, floatArrayOf(tok.toFloat())), rope, prefill.selfK, prefill.selfV, ctx)
+        // The host-side lookup: row `tok` of the (unscaled) token embedding table.
+        val table = buildWeightTensors().getValue(DecoderTensorNames.TOKEN_EMBEDDINGS).data.copyToFloatArray()
+        val embedded = ctx.fromFloatArray<FP32, Float>(Shape(1, dim), FP32::class, table.copyOfRange(tok * dim, (tok + 1) * dim))
+        val byEmbedding = kv.forwardEmbeddedWithPast(embedded, rope, prefill.selfK, prefill.selfV, ctx)
+        assertLogitsClose(byId.logits.data.copyToFloatArray(), byEmbedding.logits.data.copyToFloatArray(), "forwardEmbeddedWithPast")
+
+        // A replacement output weight is what projects the logits: the model's own, doubled.
+        val head = kv.module.modules.filterIsInstance<VoidDense<FP32, Float>>().single().params[0].value
+        val doubled = ctx.fromFloatArray<FP32, Float>(head.shape, FP32::class, head.data.copyToFloatArray().map { it * 2f }.toFloatArray())
+        val withHead = kv.forwardEmbeddedWithPast(embedded, rope, prefill.selfK, prefill.selfV, ctx, lmHeadWeight = doubled)
+        assertLogitsClose(byId.logits.data.copyToFloatArray().map { it * 2f }.toFloatArray(), withHead.logits.data.copyToFloatArray(), "lmHeadWeight")
+    }
+
+    @Test fun decodeStepExportNamesEveryPort() {
+        val kv = DecoderKvModel<FP32, Float>(buildModel(), FP32::class)
+        val past = 5
+        val spec = DecodeStepSpec(hidden = dim, headDim = headDim, nKVHeads = kvHeads, nLayers = nLayers, past = past)
+        val step = DecodeStepExport.export<FP32, Float>(spec, FP32::class) { inputs, ectx ->
+            kv.forwardEmbeddedWithPast(inputs.embedded, inputs.rope, inputs.selfK, inputs.selfV, ectx)
+        }
+        assertTrue("func.func @decode_step" in step.mlir, step.mlir.take(400))
+        val kvRoles = (0 until nLayers).flatMap { listOf("l$it.k", "l$it.v") }
+        assertEquals((listOf("embedded", "cosGlobal", "sinGlobal") + kvRoles).sorted(), step.inputs.map { it.role }.sorted())
+        assertEquals((listOf("logits") + kvRoles).sorted(), step.outputs.map { it.role }.sorted())
+        assertEquals(listOf(1, kvHeads, past, headDim), step.inputs.first { it.role == "l0.k" }.shape)
+        assertEquals(listOf(1, kvHeads, past + 1, headDim), step.outputs.first { it.role == "l0.k" }.shape)
+        assertEquals(0, step.foldedBlockQuantMatmuls, "dense weights: nothing to fold")
+        assertTrue(step.ioTable().lines().first().startsWith("in 0 "))
     }
 
     private fun assertLogitsClose(expected: FloatArray, actual: FloatArray, label: String) {
