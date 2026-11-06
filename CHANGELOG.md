@@ -9,12 +9,32 @@ requiring an engine release. `0.57.1` against engine `0.57.0` is such a release.
 The format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.64.0] — 2026-11-06
 
-Against engine **0.63.0** (SKaiNET#1478 and SKaiNET#1479, block-quant export).
+Against engine **0.63.0** (block-quantized weights through StableHLO export: SKaiNET#1478 and SKaiNET#1479, plus
+the Unicode Split fix in the JVM tokenizer, SKaiNET#1477). Headline: **one decode step of a KV-cache decoder as an NPU
+graph with block-quantized weights** — FunctionGemma 270M runs its decode step on the Torq NPU of an SL2610 in one
+dispatch, 162 ms per step against about 610 ms per token on the CPU path, with the same top-1. Plus the **LFM2**
+model family and its chat frontend.
+
+Version note: the with-past types moved to `llm-core` and the Gemma / `DecoderKvModel` nested classes are gone (see
+Changed); code that constructs `ChunkContext` directly needs one change. Everything else is additive.
 
 ### Added
 
+- **LFM2** (`llm-inference:lfm2`, `skainet-transformers-inference-lfm2`, JVM): the dense, bias-free LFM2 hybrid
+  (gated causal short convolution with a fixed `[D,K]` history, grouped-query attention with per-head Q/K RMS norms
+  before rotation, SiLU-gated MLP, tied head). `Lfm2Config.parse`, `loadLfm2Model` (single SafeTensors checkpoint,
+  BF16 / F16 / F32 sources, full weight-manifest verification, optional checkpoint SHA-256), `Lfm2Session` with
+  explicit per-layer hybrid state, and a fixed-shape StableHLO export (`Lfm2ExportHarness`, `Lfm2GenerationExport`).
+  `BALANCED_FP32` RMS reduction is the default. Validated against the reference implementation of LFM2.5-350M
+  (4,924,416 teacher-forced and greedy logit comparisons, exact bounded generation traces) on x86-64 and ARM64.
+  `Lfm2Family` is registered in `TransformersFamilies` (#527).
+- **`llm-runtime:klfm2`** (`skainet-transformers-runtime-klfm2`, JVM): the LFM2 chat frontend.
+  `loadLfm2TextFrontend` byte-pins the validated LFM2.5-350M metadata by default (`Lfm2MetadataPins`; `pins = null`
+  accepts other checkpoints through structural validation), renders the checkpoint's chat template (only verified
+  template revisions, never relaxed), and generates greedily with streaming, stop tokens and per-request state
+  isolation. An IREE path (`Lfm2IreeChatCli`, `Lfm2IreeGenerationRuntime`) runs the exported graphs (#527).
 - **Decode step for an NPU with block-quantized weights** (`llm-core`, jvm): `DecodeStepExport.export(spec, dtype) { inputs, ctx -> … }`
   traces one single-token step of any KV-cache decoder with a static past, the embedding lookup left to the host, keeps
   Q8_0 / Q4_0 weights packed and folds them with the engine's `BlockQuantMatmulFusionPass`, and returns the StableHLO
@@ -36,6 +56,10 @@ Against engine **0.63.0** (SKaiNET#1478 and SKaiNET#1479, block-quant export).
   `MultiHeadAttention.slidingWindow`. `RopeCosSin(cos, sin)` and `RopeCosSin(cosGlobal, sinGlobal, cosSliding,
   sinSliding)` keep the old call shapes; `ChunkContext` now takes a `RopeCosSin`. `:llm-inference:gemma` exposes
   `:llm-core` as `api`.
+- Engine pin **SKaiNET 0.63.0** (`skainet-bom:0.63.0` re-exported by the BOM). The llama `ForwardScopeSteadyStateTest`
+  pins the scoped decode to four ulp of each step's largest logit instead of four ulp of each value: 0.63.0 changes
+  the accumulation order, so a logit of 0.0066 moves by 7.5e-9, 16 of its own ulps but under one ulp of the largest.
+- Dependencies: Ktor 3.6.1 (#525), kotlinx-io 0.9.2 (#526), logback 1.6.6 (#523).
 
 ## [0.63.3] — 2026-10-28
 
