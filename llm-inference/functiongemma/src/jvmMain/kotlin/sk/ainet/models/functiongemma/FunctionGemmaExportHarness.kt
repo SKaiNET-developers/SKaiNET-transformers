@@ -17,6 +17,8 @@ import sk.ainet.lang.tensor.data.TensorData
 import sk.ainet.lang.tensor.ops.VoidTensorOps
 import sk.ainet.lang.tensor.storage.BufferHandle
 import sk.ainet.lang.types.FP32
+import sk.ainet.lang.nn.dsl.decoder.ChunkContext
+import sk.ainet.lang.nn.dsl.decoder.RopeCosSin
 import sk.ainet.models.gemma.GEMMA_DEQUANTIZE_ALL
 import sk.ainet.io.gguf.StreamingGGUFReader
 import sk.ainet.models.gemma.GemmaWeightLoader
@@ -374,7 +376,7 @@ public object FunctionGemmaExportHarness {
             try {
                 val ectx = this as ExecutionContext
                 val out = model.forwardWithPast(
-                    tokenId, GemmaModel.RopeCosSin(cosG, sinG, cosS, sinS), selfKIn, selfVIn, ectx,
+                    tokenId, RopeCosSin(cosG, sinG, cosS, sinS), selfKIn, selfVIn, ectx,
                 )
                 // token output: argMax over [1, vocab] -> [1] i32 (small-int board contract).
                 ectx.ops.argMax(out.logits, dim = -1)
@@ -653,7 +655,7 @@ public object FunctionGemmaExportHarness {
             try {
                 val ectx = this as ExecutionContext
                 val out = model.forwardPrefillWithPast(
-                    tokens, GemmaModel.ChunkContext(cosG, sinG, cosS, sinS, maskG, maskS), select, selfKIn, selfVIn, ectx,
+                    tokens, ChunkContext(RopeCosSin(cosG, sinG, cosS, sinS), maskG, maskS), select, selfKIn, selfVIn, ectx,
                 )
                 ectx.ops.argMax(out.logits, dim = -1)   // [1] i32 — the selected position's token
             } finally {
