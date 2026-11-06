@@ -1,6 +1,6 @@
 # LFM2 model and StableHLO export
 
-This module implements the dense, bias-free LFM2 hybrid architecture using SKaiNET tensor operations. It publishes a JVM target as `sk.ainet.transformers:skainet-transformers-inference-lfm2`; the tensor blocks live in `commonMain`, while checkpoint loading and export tooling run on the JVM. It uses the repository's engine BOM, currently 0.62.0.
+This module implements the dense, bias-free LFM2 hybrid architecture using SKaiNET tensor operations. It publishes a JVM target as `sk.ainet.transformers:skainet-transformers-inference-lfm2`; the tensor blocks live in `commonMain`, while checkpoint loading and export tooling run on the JVM. It uses the repository's engine BOM, currently 0.63.0.
 
 The supported configuration has short convolution and grouped-query attention layers, split-half RoPE, SwiGLU feed-forward blocks, and a tied embedding/output projection. Unsupported architectural choices fail validation. This does not establish support for every checkpoint marketed as LFM, LFM2, or LFM2.5; MoE, multimodal paths, projection biases, scaled RoPE, quantized execution, and untied heads are outside this implementation.
 
