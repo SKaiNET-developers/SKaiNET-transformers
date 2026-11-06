@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Needs an engine release with SKaiNET#1478 and SKaiNET#1479 (block-quant export).
+Against engine **0.63.0** (SKaiNET#1478 and SKaiNET#1479, block-quant export).
 
 ### Added
 
