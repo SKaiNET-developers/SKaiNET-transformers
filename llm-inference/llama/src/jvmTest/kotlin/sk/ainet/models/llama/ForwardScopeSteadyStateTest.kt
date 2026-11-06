@@ -23,7 +23,8 @@ import sk.ainet.lang.types.FP32
  *    unscoped one (`forwardSlabFloats = 0`), step for step. The slab changes
  *    where activations live, never what they hold; since engine 0.62.0 the JVM
  *    kernels chosen for slab-backed and heap activations may accumulate in a
- *    different order, so the pin allows four ulp instead of raw-bit equality.
+ *    different order, so the pin allows four ulp of the step's largest logit
+ *    instead of raw-bit equality.
  * 2. **Flat peak** — `peakFloats` stops growing once decode is warm. The KV
  *    history lives outside the scope (the cache detaches it to ambient
  *    storage), so per-step slab use grows only with the KV *views* concat
@@ -106,14 +107,16 @@ class ForwardScopeSteadyStateTest {
             val a = scoped.forward(tokenId).data.copyToFloatArray()
             val b = unscoped.forward(tokenId).data.copyToFloatArray()
             assertEquals(b.size, a.size)
+            // Equal to within a few ulp of the step's largest logit. Up to engine 0.61 this was
+            // raw-bit identity (same kernels, same values, different storage); since engine 0.62.0
+            // the JVM ops route slab-backed and heap activations through kernels whose accumulation
+            // order can differ (the fused native attention and norm kernels take heap operands, a
+            // segment-backed activation is bridged first). The rounding that moves is on the scale
+            // of the step's activations, so a logit near zero can move by many of its own ulps:
+            // engine 0.63.0 moves 0.0066 by 7.5e-9 (16 of its ulps, one ulp of the largest logit).
+            // The slab still changes where activations live, never what they mean.
+            val tolerance = 4 * Math.ulp(b.maxOf { kotlin.math.abs(it) })
             for (i in a.indices) {
-                // Equal to within a few ulp. Up to engine 0.61 this was raw-bit identity (same
-                // kernels, same values, different storage); since engine 0.62.0 the JVM ops route
-                // slab-backed and heap activations through kernels whose accumulation order can
-                // differ (the fused native attention and norm kernels take heap operands, a
-                // segment-backed activation is bridged first), which moves a logit by one ulp.
-                // The slab still changes where activations live, never what they mean.
-                val tolerance = 4 * Math.ulp(b[i])
                 assertTrue(
                     a[i] == b[i] || kotlin.math.abs(a[i] - b[i]) <= tolerance,
                     "step=$step logit[$i]: scoped=${a[i]} unscoped=${b[i]} (tolerance $tolerance)",
