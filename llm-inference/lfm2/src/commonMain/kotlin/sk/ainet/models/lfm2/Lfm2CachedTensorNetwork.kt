@@ -51,51 +51,21 @@ class Lfm2CachedTensorNetwork(
     embeddingShards: List<Tensor<FP32, Float>>,
 ) {
     private val shards = embeddingShards.toList()
-    private val finalNorm = weights.getValue("model.embedding_norm.weight")
-    private val convolution = linkedMapOf<Int, BlockTensorOp>()
-    private val attention = linkedMapOf<Int, AttentionTensorOp>()
+    private val layers = Lfm2CachedLayers(dimensions, weights, capacity, ShortConvLowering.DEPTHWISE, AttentionLayoutPolicy.DIRECT_KV_PER_HEAD)
     val embeddingShardRows: List<Int> get() = shards.map { it.shape[0] }
 
     init {
         val d = dimensions
-        require(capacity in 1..d.contextLimit) { "Cache capacity exceeds the configured context bound" }
-        require(d.layerTypes.any { it == "full_attention" }) { "Cached export requires an attention layer" }
-        val expected = HybridLfm2Model.expectedWeights(d)
-        require(weights.keys == expected.keys && expected.all { (name, shape) -> weights.getValue(name).shape == shape }) {
-            "Cached full-model weight inventory/layout mismatch"
-        }
         require(shards.isNotEmpty() && shards.all {
             it.shape.dimensions.size == 2 && it.shape[0] > 0 && it.shape[1] == d.width &&
                 it.shape[0].toLong() * d.width * 4L <= MAX_EMBEDDING_SHARD_BYTES
         } && shards.sumOf { it.shape[0].toLong() } == d.vocabulary.toLong()) {
             "Embedding shards must cover the vocabulary in contiguous row order, each at most 64 MiB"
         }
-        for ((layer, kind) in d.layerTypes.withIndex()) {
-            fun w(name: String) = weights.getValue("model.layers.$layer.$name.weight")
-            if (kind == "conv") {
-                convolution[layer] = BlockTensorOp(d.width, d.kernel, d.intermediate, d.epsilon,
-                    ShortConvTensorOp(d.width, d.kernel, w("conv.in_proj"), w("conv.conv"), w("conv.out_proj")),
-                    w("operator_norm"), w("ffn_norm"), w("feed_forward.w1"), w("feed_forward.w2"), w("feed_forward.w3"),
-                    RmsReductionPolicy.BALANCED_FP32)
-            } else {
-                attention[layer] = AttentionTensorOp(d.width, d.queryHeads, d.kvHeads, d.headDim, d.intermediate, d.epsilon,
-                    w("operator_norm"), w("ffn_norm"), w("self_attn.q_proj"), w("self_attn.k_proj"), w("self_attn.v_proj"),
-                    w("self_attn.out_proj"), w("self_attn.q_layernorm"), w("self_attn.k_layernorm"),
-                    w("feed_forward.w1"), w("feed_forward.w2"), w("feed_forward.w3"),
-                    RmsReductionPolicy.BALANCED_FP32, AttentionLayoutPolicy.DIRECT_KV_PER_HEAD)
-            }
-        }
     }
 
     /** State names and shapes are identical at the graph input and output. */
-    fun stateShapes(): LinkedHashMap<String, Shape> = linkedMapOf<String, Shape>().apply {
-        for ((layer, kind) in dimensions.layerTypes.withIndex()) {
-            if (kind == "conv") put("history_$layer", Shape(dimensions.width, dimensions.kernel)) else {
-                put("key_$layer", Shape(dimensions.kvHeads, capacity, dimensions.headDim))
-                put("value_$layer", Shape(dimensions.kvHeads, capacity, dimensions.headDim))
-            }
-        }
-    }
+    fun stateShapes(): LinkedHashMap<String, Shape> = layers.stateShapes()
 
     /**
      * [mask] has zero at populated prefix slots and the appended current-token slot C,
@@ -113,12 +83,6 @@ class Lfm2CachedTensorNetwork(
     ): Lfm2CachedTensorResult {
         val d = dimensions
         require(tokenOneHot.shape == Shape(1, d.vocabulary))
-        require(cos.shape == Shape(1, d.headDim) && sin.shape == cos.shape)
-        require(mask.shape == Shape(1, capacity + 1) && writeMask.shape == Shape(1, capacity, 1))
-        val expected = stateShapes()
-        require(states.keys == expected.keys && expected.all { (name, shape) -> states.getValue(name).shape == shape }) {
-            "Every decoder layer needs its complete fixed-capacity runtime state"
-        }
         val ops = ctx.ops
         var offset = 0
         val selected = shards.map { shard ->
@@ -126,7 +90,83 @@ class Lfm2CachedTensorNetwork(
             offset += shard.shape[0]
             ops.matmul(oneHot, shard)
         }
-        var hidden = selected.reduce { total, part -> ops.add(total, part) }
+        val (normalized, nextStates) = layers.forward(selected.reduce { total, part -> ops.add(total, part) },
+            cos, sin, mask, writeMask, states, ctx)
+        val logits = shards.map { ops.matmulWeightTransposed(normalized, it) }
+        return Lfm2CachedTensorResult(if (logits.size == 1) logits.single() else ops.concat(logits, dim = 1), nextStates)
+    }
+}
+
+/**
+ * The decoder blocks of a fixed-capacity single-token step, from the token's hidden row to the
+ * final-norm output, with the cache bookkeeping of [Lfm2CachedTensorNetwork.forward]: shared by that
+ * network and [Lfm2DecodeStep].
+ */
+internal class Lfm2CachedLayers(
+    val dimensions: ModelDimensions,
+    weights: Map<String, Tensor<FP32, Float>>,
+    val capacity: Int,
+    convLowering: ShortConvLowering,
+    attentionLayout: AttentionLayoutPolicy,
+) {
+    private val finalNorm = weights.getValue("model.embedding_norm.weight")
+    private val convolution = linkedMapOf<Int, BlockTensorOp>()
+    private val attention = linkedMapOf<Int, AttentionTensorOp>()
+
+    init {
+        val d = dimensions
+        require(capacity in 1..d.contextLimit) { "Cache capacity exceeds the configured context bound" }
+        require(d.layerTypes.any { it == "full_attention" }) { "Cached export requires an attention layer" }
+        val expected = HybridLfm2Model.expectedWeights(d)
+        require(weights.keys == expected.keys && expected.all { (name, shape) -> weights.getValue(name).shape == shape }) {
+            "Cached full-model weight inventory/layout mismatch"
+        }
+        for ((layer, kind) in d.layerTypes.withIndex()) {
+            fun w(name: String) = weights.getValue("model.layers.$layer.$name.weight")
+            if (kind == "conv") {
+                convolution[layer] = BlockTensorOp(d.width, d.kernel, d.intermediate, d.epsilon,
+                    ShortConvTensorOp(d.width, d.kernel, w("conv.in_proj"), w("conv.conv"), w("conv.out_proj"), convLowering),
+                    w("operator_norm"), w("ffn_norm"), w("feed_forward.w1"), w("feed_forward.w2"), w("feed_forward.w3"),
+                    RmsReductionPolicy.BALANCED_FP32)
+            } else {
+                attention[layer] = AttentionTensorOp(d.width, d.queryHeads, d.kvHeads, d.headDim, d.intermediate, d.epsilon,
+                    w("operator_norm"), w("ffn_norm"), w("self_attn.q_proj"), w("self_attn.k_proj"), w("self_attn.v_proj"),
+                    w("self_attn.out_proj"), w("self_attn.q_layernorm"), w("self_attn.k_layernorm"),
+                    w("feed_forward.w1"), w("feed_forward.w2"), w("feed_forward.w3"),
+                    RmsReductionPolicy.BALANCED_FP32, attentionLayout)
+            }
+        }
+    }
+
+    fun stateShapes(): LinkedHashMap<String, Shape> = linkedMapOf<String, Shape>().apply {
+        for ((layer, kind) in dimensions.layerTypes.withIndex()) {
+            if (kind == "conv") put("history_$layer", Shape(dimensions.width, dimensions.kernel)) else {
+                put("key_$layer", Shape(dimensions.kvHeads, capacity, dimensions.headDim))
+                put("value_$layer", Shape(dimensions.kvHeads, capacity, dimensions.headDim))
+            }
+        }
+    }
+
+    /** The final-norm output `[1, width]` and every next state, for the hidden row [input] `[1, width]`. */
+    fun forward(
+        input: Tensor<FP32, Float>,
+        cos: Tensor<FP32, Float>,
+        sin: Tensor<FP32, Float>,
+        mask: Tensor<FP32, Float>,
+        writeMask: Tensor<FP32, Float>,
+        states: Map<String, Tensor<FP32, Float>>,
+        ctx: ExecutionContext,
+    ): Pair<Tensor<FP32, Float>, LinkedHashMap<String, Tensor<FP32, Float>>> {
+        val d = dimensions
+        require(input.shape == Shape(1, d.width))
+        require(cos.shape == Shape(1, d.headDim) && sin.shape == cos.shape)
+        require(mask.shape == Shape(1, capacity + 1) && writeMask.shape == Shape(1, capacity, 1))
+        val expected = stateShapes()
+        require(states.keys == expected.keys && expected.all { (name, shape) -> states.getValue(name).shape == shape }) {
+            "Every decoder layer needs its complete fixed-capacity runtime state"
+        }
+        val ops = ctx.ops
+        var hidden = input
         val keepMask = ops.rsubScalar(1f, writeMask)
         val nextStates = linkedMapOf<String, Tensor<FP32, Float>>()
         for ((layer, kind) in d.layerTypes.withIndex()) {
@@ -147,8 +187,6 @@ class Lfm2CachedTensorNetwork(
                 result.output
             }
         }
-        val normalized = rmsNormalize(hidden, finalNorm, ctx, RmsReductionPolicy.BALANCED_FP32, d.epsilon)
-        val logits = shards.map { ops.matmulWeightTransposed(normalized, it) }
-        return Lfm2CachedTensorResult(if (logits.size == 1) logits.single() else ops.concat(logits, dim = 1), nextStates)
+        return rmsNormalize(hidden, finalNorm, ctx, RmsReductionPolicy.BALANCED_FP32, d.epsilon) to nextStates
     }
 }

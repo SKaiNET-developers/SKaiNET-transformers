@@ -24,6 +24,7 @@ kotlin {
             api(libs.kotlinx.serialization.json)
         }
         jvmMain.dependencies {
+            api(project(":llm-core"))
             api(libs.skainet.compile.hlo)
             implementation(libs.skainet.compile.core)
             implementation(libs.skainet.compile.dag)
@@ -41,7 +42,10 @@ kotlin {
 
 tasks.withType<Test>().configureEach {
     jvmArgs("--enable-preview", "--add-modules", "jdk.incubator.vector")
-    maxHeapSize = "512m"
+    maxHeapSize = "2g"
+    // The gated real-checkpoint decode-step test (LFM2_MODEL_DIR) loads LFM2.5-350M twice.
+    if (System.getenv("LFM2_MODEL_DIR") != null) maxHeapSize = "12g"
+    System.getenv("LFM2_MODEL_DIR")?.let { environment("LFM2_MODEL_DIR", it) }
 }
 
 /** Provenance travels with the published JAR, including runtime source additions. */
@@ -81,6 +85,15 @@ tasks.register<JavaExec>("exportLfm2") {
     group = "export"
     description = "Export a local verified LFM2 checkpoint; use --args='--help' for options"
     mainClass.set("sk.ainet.models.lfm2.export.Lfm2ExportHarnessKt")
+    classpath = files(jvmMainCompilation.output.allOutputs, jvmMainCompilation.runtimeDependencyFiles)
+    jvmArgs("--enable-preview", "--add-modules", "jdk.incubator.vector")
+    maxHeapSize = "8g"
+}
+
+tasks.register<JavaExec>("exportLfm2DecodeStep") {
+    group = "export"
+    description = "Export the LFM2 decode step with block-quantized weights for an NPU; use --args='--help' for options"
+    mainClass.set("sk.ainet.models.lfm2.export.Lfm2DecodeStepExportCli")
     classpath = files(jvmMainCompilation.output.allOutputs, jvmMainCompilation.runtimeDependencyFiles)
     jvmArgs("--enable-preview", "--add-modules", "jdk.incubator.vector")
     maxHeapSize = "8g"

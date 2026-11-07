@@ -5,6 +5,10 @@ import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
 import sk.ainet.io.safetensors.SafeTensorsParametersLoader
 import sk.ainet.io.safetensors.StreamingSafeTensorsReader
+import sk.ainet.lang.memory.plan.EncodingRequest
+import sk.ainet.lang.memory.plan.WeightForm
+import sk.ainet.lang.tensor.storage.PackedBlockStorage
+import sk.ainet.lang.tensor.storage.TensorEncoding
 import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.types.FP32
 import java.io.File
@@ -35,6 +39,20 @@ fun loadLfm2Model(
     expectedCheckpointSha256: String? = null,
     ctx: DirectCpuExecutionContext = DirectCpuExecutionContext.create(),
     rmsReduction: RmsReductionPolicy = RmsReductionPolicy.BALANCED_FP32,
+): LoadedLfm2Model = loadLfm2Model(config, checkpoint, contextLimit, expectedCheckpointSha256, ctx, rmsReduction, weightFormFor = null)
+
+/**
+ * [loadLfm2Model] with a load form per tensor name: [weightFormFor], e.g. [lfm2ProjectionsAs], requantizes
+ * the projections; the records then hash the values the model computes with (dequantized).
+ */
+fun loadLfm2Model(
+    config: Lfm2Config,
+    checkpoint: File,
+    contextLimit: Int = minOf(2048, config.maximumPositions),
+    expectedCheckpointSha256: String? = null,
+    ctx: DirectCpuExecutionContext = DirectCpuExecutionContext.create(),
+    rmsReduction: RmsReductionPolicy = RmsReductionPolicy.BALANCED_FP32,
+    weightFormFor: ((String) -> WeightForm?)?,
 ): LoadedLfm2Model {
     val dimensions = config.toDimensions(contextLimit)
     val expected = HybridLfm2Model.expectedWeights(dimensions)
@@ -75,7 +93,7 @@ fun loadLfm2Model(
 
     val weights = linkedMapOf<String, Tensor<FP32, Float>>()
     runBlocking {
-        SafeTensorsParametersLoader(sourceProvider = { JvmRandomAccessSource.open(checkpoint.absolutePath) })
+        SafeTensorsParametersLoader(sourceProvider = { JvmRandomAccessSource.open(checkpoint.absolutePath) }, weightFormFor = weightFormFor)
             .load<FP32, Float>(ctx, FP32::class) { name, tensor ->
                 require(name in expected && weights.put(name, tensor) == null) { "Unexpected or repeated loaded tensor: $name" }
             }
@@ -84,7 +102,7 @@ fun loadLfm2Model(
     val records = expected.map { (name, shape) ->
         val tensor = weights.getValue(name)
         require(tensor.shape == shape) { "Loaded tensor shape mismatch: $name" }
-        val values = tensor.data.copyToFloatArray()
+        val values = (tensor.data as? PackedBlockStorage)?.toFloatArray() ?: tensor.data.copyToFloatArray()
         val digest = MessageDigest.getInstance("SHA-256")
         val buffer = ByteBuffer.allocate(256 * 1024).order(ByteOrder.LITTLE_ENDIAN)
         for (value in values) {
@@ -97,6 +115,16 @@ fun loadLfm2Model(
     }
     // The model uses the same embed_tokens tensor for lookup and output projection.
     return LoadedLfm2Model(HybridLfm2Model(dimensions, ctx, weights, rmsReduction), weights.toMap(), records, checkpointHash)
+}
+
+/**
+ * A [loadLfm2Model] form that loads every projection (attention, convolution in/out, feed-forward)
+ * as [encoding]; the embedding, norms and convolution taps stay dense.
+ */
+fun lfm2ProjectionsAs(encoding: TensorEncoding): (String) -> WeightForm? {
+    val form = WeightForm(encoding = EncodingRequest.RequantizeTo(encoding))
+    val projection = Regex("""model\.layers\.\d+\.(self_attn\.(q|k|v|out)_proj|conv\.(in|out)_proj|feed_forward\.w[123])\.weight""")
+    return { name -> if (projection.matches(name)) form else null }
 }
 
 private fun ByteArray.hex(): String = joinToString("") { "%02x".format(it) }
