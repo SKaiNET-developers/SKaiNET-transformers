@@ -9,6 +9,28 @@ requiring an engine release. `0.57.1` against engine `0.57.0` is such a release.
 The format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Against engine **0.63.0**, transformers-only and additive.
+
+### Added
+
+- **LFM2 decode step for an NPU with block-quantized weights** (`llm-inference:lfm2`): `Lfm2DecodeStep` is the
+  fixed-capacity single-token step of `Lfm2CachedTensorNetwork` from an already embedded token, with its own output
+  head, so one graph serves every position up to the capacity (mask and one-hot write mask as inputs, conv histories
+  and K/V as explicit state). `exportLfm2DecodeStep` traces it through `DecodeStepExport.exportPorts` with Q8_0 / Q4_0
+  weights kept packed and folded; `Lfm2DecodeStepExportCli` (Gradle `exportLfm2DecodeStep`) writes
+  `decode_step.mlir`, the port table, the host's bf16 embedding rows and an export manifest from a verified local
+  checkpoint. LFM2.5-350M with Q8_0 projections and a Q4_0 head: all 93 matmuls fold; against the FP32 model the
+  logits cosine is 0.997–0.999 with the same top-1 over a 10-token sequence. Compiled with Torq 2.3.0 it is one NPU
+  dispatch and runs on an SL2610 at 533 ms per step, logits cosine 0.996 to FP32 with the same top-1.
+- `ShortConvLowering.MULTIPLY_SUM`: the single-token short convolution as `sum(window * taps)` instead of a grouped
+  `conv1d`, numerically equal, for compilers without grouped convolutions (the decode step's default).
+- `DecodeStepExport.exportPorts(inputs, dtype) { ports, ctx -> results }` (`llm-core`, jvm): the decode-step export
+  over arbitrary named ports, for decoders whose state is more than K/V; `export` is built on it, unchanged.
+- `loadLfm2Model(..., weightFormFor)` and `lfm2ProjectionsAs(encoding)`: load the projections requantized (e.g. Q8_0),
+  the embedding, norms and convolution taps dense.
+
 ## [0.64.1] — 2026-11-07
 
 Against engine **0.63.0**. A packaging fix: Maven Central refused the 0.64.0 deployment, so **0.64.0 was never

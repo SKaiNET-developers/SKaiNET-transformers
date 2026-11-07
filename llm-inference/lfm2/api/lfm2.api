@@ -170,6 +170,17 @@ public final class sk/ainet/models/lfm2/Lfm2Config$Companion {
 	public final fun parse (Ljava/lang/String;)Lsk/ainet/models/lfm2/Lfm2Config;
 }
 
+public final class sk/ainet/models/lfm2/Lfm2DecodeStep {
+	public fun <init> (Lsk/ainet/models/lfm2/ModelDimensions;Ljava/util/Map;ILsk/ainet/lang/tensor/Tensor;Lsk/ainet/models/lfm2/ShortConvLowering;Lsk/ainet/models/lfm2/AttentionLayoutPolicy;)V
+	public synthetic fun <init> (Lsk/ainet/models/lfm2/ModelDimensions;Ljava/util/Map;ILsk/ainet/lang/tensor/Tensor;Lsk/ainet/models/lfm2/ShortConvLowering;Lsk/ainet/models/lfm2/AttentionLayoutPolicy;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun forward (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/Map;Lsk/ainet/context/ExecutionContext;)Lsk/ainet/models/lfm2/Lfm2CachedTensorResult;
+	public final fun getAttentionLayout ()Lsk/ainet/models/lfm2/AttentionLayoutPolicy;
+	public final fun getCapacity ()I
+	public final fun getConvLowering ()Lsk/ainet/models/lfm2/ShortConvLowering;
+	public final fun getDimensions ()Lsk/ainet/models/lfm2/ModelDimensions;
+	public final fun stateShapes ()Ljava/util/LinkedHashMap;
+}
+
 public final class sk/ainet/models/lfm2/Lfm2PrefillNetwork {
 	public fun <init> (Lsk/ainet/models/lfm2/ModelDimensions;Ljava/util/Map;)V
 	public final fun forward (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Ljava/util/Map;Lsk/ainet/context/ExecutionContext;)Lsk/ainet/models/lfm2/Lfm2PrefillResult;
@@ -218,8 +229,11 @@ public final class sk/ainet/models/lfm2/Lfm2WeightRecord {
 }
 
 public final class sk/ainet/models/lfm2/Lfm2WeightsKt {
+	public static final fun lfm2ProjectionsAs (Lsk/ainet/lang/tensor/storage/TensorEncoding;)Lkotlin/jvm/functions/Function1;
 	public static final fun loadLfm2Model (Lsk/ainet/models/lfm2/Lfm2Config;Ljava/io/File;ILjava/lang/String;Lsk/ainet/context/DirectCpuExecutionContext;Lsk/ainet/models/lfm2/RmsReductionPolicy;)Lsk/ainet/models/lfm2/LoadedLfm2Model;
+	public static final fun loadLfm2Model (Lsk/ainet/models/lfm2/Lfm2Config;Ljava/io/File;ILjava/lang/String;Lsk/ainet/context/DirectCpuExecutionContext;Lsk/ainet/models/lfm2/RmsReductionPolicy;Lkotlin/jvm/functions/Function1;)Lsk/ainet/models/lfm2/LoadedLfm2Model;
 	public static synthetic fun loadLfm2Model$default (Lsk/ainet/models/lfm2/Lfm2Config;Ljava/io/File;ILjava/lang/String;Lsk/ainet/context/DirectCpuExecutionContext;Lsk/ainet/models/lfm2/RmsReductionPolicy;ILjava/lang/Object;)Lsk/ainet/models/lfm2/LoadedLfm2Model;
+	public static synthetic fun loadLfm2Model$default (Lsk/ainet/models/lfm2/Lfm2Config;Ljava/io/File;ILjava/lang/String;Lsk/ainet/context/DirectCpuExecutionContext;Lsk/ainet/models/lfm2/RmsReductionPolicy;Lkotlin/jvm/functions/Function1;ILjava/lang/Object;)Lsk/ainet/models/lfm2/LoadedLfm2Model;
 }
 
 public final class sk/ainet/models/lfm2/LoadedLfm2Model {
@@ -299,10 +313,20 @@ public final class sk/ainet/models/lfm2/RmsReductionPolicy : java/lang/Enum {
 	public static fun values ()[Lsk/ainet/models/lfm2/RmsReductionPolicy;
 }
 
+public final class sk/ainet/models/lfm2/ShortConvLowering : java/lang/Enum {
+	public static final field DEPTHWISE Lsk/ainet/models/lfm2/ShortConvLowering;
+	public static final field MULTIPLY_SUM Lsk/ainet/models/lfm2/ShortConvLowering;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lsk/ainet/models/lfm2/ShortConvLowering;
+	public static fun values ()[Lsk/ainet/models/lfm2/ShortConvLowering;
+}
+
 public final class sk/ainet/models/lfm2/ShortConvTensorOp {
 	public fun <init> (IILsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;)V
+	public fun <init> (IILsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/models/lfm2/ShortConvLowering;)V
 	public final fun forward (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/context/ExecutionContext;)Lsk/ainet/models/lfm2/ShortConvTensorResult;
 	public final fun getKernel ()I
+	public final fun getLowering ()Lsk/ainet/models/lfm2/ShortConvLowering;
 	public final fun getWidth ()I
 }
 
@@ -317,6 +341,22 @@ public final class sk/ainet/models/lfm2/ShortConvTensorResult {
 	public final fun getOutput ()Lsk/ainet/lang/tensor/Tensor;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
+}
+
+public final class sk/ainet/models/lfm2/export/Lfm2DecodeStepExportCli {
+	public static final field INSTANCE Lsk/ainet/models/lfm2/export/Lfm2DecodeStepExportCli;
+	public static final fun main ([Ljava/lang/String;)V
+}
+
+public final class sk/ainet/models/lfm2/export/Lfm2DecodeStepExportKt {
+	public static final fun exportLfm2DecodeStep (Lsk/ainet/models/lfm2/Lfm2DecodeStep;Lsk/ainet/lang/trace/PackedConstantHandling;)Lsk/ainet/lang/nn/dsl/decoder/ExportedDecodeStep;
+	public static synthetic fun exportLfm2DecodeStep$default (Lsk/ainet/models/lfm2/Lfm2DecodeStep;Lsk/ainet/lang/trace/PackedConstantHandling;ILjava/lang/Object;)Lsk/ainet/lang/nn/dsl/decoder/ExportedDecodeStep;
+	public static final fun ioTable (Lsk/ainet/models/lfm2/export/Lfm2TracedFunction;)Ljava/lang/String;
+	public static final fun lfm2DecodeStepInputs (Lsk/ainet/models/lfm2/Lfm2DecodeStep;)Ljava/util/List;
+	public static final fun lfm2FoldableMatmuls (Ljava/util/List;)I
+	public static final fun lfm2Head (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/storage/TensorEncoding;Lsk/ainet/context/ExecutionContext;)Lsk/ainet/lang/tensor/Tensor;
+	public static final fun traceLfm2DecodeStepExternal (Lsk/ainet/models/lfm2/Lfm2DecodeStep;)Lsk/ainet/models/lfm2/export/Lfm2TracedFunction;
+	public static final fun writeLfm2Bf16Parameters (Lsk/ainet/models/lfm2/export/Lfm2TracedFunction;Ljava/io/File;)Ljava/lang/String;
 }
 
 public final class sk/ainet/models/lfm2/export/Lfm2ExportBundleKt {
