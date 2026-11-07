@@ -17,7 +17,8 @@ kotlin {
     jvm()
     sourceSets {
         commonMain.dependencies {
-            implementation(project.dependencies.platform(project(":llm-bom")))
+            // api, not implementation: the api dependencies below take their versions from it in the POM.
+            api(project.dependencies.platform(project(":llm-bom")))
             api(libs.skainet.lang.core)
             api(libs.skainet.backend.cpu)
             api(libs.kotlinx.serialization.json)
