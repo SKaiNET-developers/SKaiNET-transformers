@@ -11,6 +11,9 @@ import sk.ainet.models.lfm2.export.exportLfm2DecodeStep
 import sk.ainet.models.lfm2.export.lfm2DecodeStepInputs
 import sk.ainet.models.lfm2.export.lfm2FoldableMatmuls
 import sk.ainet.models.lfm2.export.lfm2Head
+import sk.ainet.models.lfm2.export.ioTable
+import sk.ainet.models.lfm2.export.traceLfm2DecodeStepExternal
+import sk.ainet.models.lfm2.export.writeLfm2Bf16Parameters
 import java.io.File
 import kotlin.math.abs
 import kotlin.math.cos
@@ -126,6 +129,27 @@ class Lfm2DecodeStepTest {
         val depthwise = exportLfm2DecodeStep(Lfm2DecodeStep(d, weights, 6, head, ShortConvLowering.DEPTHWISE))
         assertTrue(depthwise.mlir.contains("stablehlo.convolution"))
         assertEquals(25, depthwise.foldedBlockQuantMatmuls)
+    }
+
+    @Test
+    fun externalExportServesEveryWeightFromABf16Archive() {
+        val weights = weightsFor(small)
+        val step = Lfm2DecodeStep(small, weights, 6, weights.getValue("model.embed_tokens.weight"))
+        val trace = traceLfm2DecodeStepExternal(step)
+        assertEquals(lfm2DecodeStepInputs(step).map { it.first }, trace.inputNames)
+        assertEquals(listOf("logits") + step.stateShapes().keys, trace.outputNames)
+        // the tied embedding enters the graph once, as the head: every checkpoint tensor is one parameter
+        assertEquals(weights.size, trace.module.externalParameters.size)
+        val archive = File.createTempFile("lfm2-step", ".safetensors").apply { delete(); deleteOnExit() }
+        val mlir = writeLfm2Bf16Parameters(trace, archive)
+        assertFalse(Regex("""#flow\.parameter\.named<[^>]*> : tensor<[0-9x]*xf32>""").containsMatchIn(mlir))
+        assertEquals(weights.size, Regex("""stablehlo\.convert %[\w$.-]+_bf16""").findAll(mlir).count())
+        val bytes = archive.readBytes()
+        val headerSize = java.nio.ByteBuffer.wrap(bytes, 0, 8).order(java.nio.ByteOrder.LITTLE_ENDIAN).long.toInt()
+        val header = String(bytes, 8, headerSize)
+        assertEquals(weights.size, Regex("\"BF16\"").findAll(header).count())
+        assertEquals(8L + headerSize + weights.values.sumOf { it.shape.volume * 2L }, archive.length())
+        assertTrue(trace.ioTable().lines().first().startsWith("in 0 embedded [1, 8]"))
     }
 
     /**

@@ -351,9 +351,12 @@ public final class sk/ainet/models/lfm2/export/Lfm2DecodeStepExportCli {
 public final class sk/ainet/models/lfm2/export/Lfm2DecodeStepExportKt {
 	public static final fun exportLfm2DecodeStep (Lsk/ainet/models/lfm2/Lfm2DecodeStep;Lsk/ainet/lang/trace/PackedConstantHandling;)Lsk/ainet/lang/nn/dsl/decoder/ExportedDecodeStep;
 	public static synthetic fun exportLfm2DecodeStep$default (Lsk/ainet/models/lfm2/Lfm2DecodeStep;Lsk/ainet/lang/trace/PackedConstantHandling;ILjava/lang/Object;)Lsk/ainet/lang/nn/dsl/decoder/ExportedDecodeStep;
+	public static final fun ioTable (Lsk/ainet/models/lfm2/export/Lfm2TracedFunction;)Ljava/lang/String;
 	public static final fun lfm2DecodeStepInputs (Lsk/ainet/models/lfm2/Lfm2DecodeStep;)Ljava/util/List;
 	public static final fun lfm2FoldableMatmuls (Ljava/util/List;)I
 	public static final fun lfm2Head (Lsk/ainet/lang/tensor/Tensor;Lsk/ainet/lang/tensor/storage/TensorEncoding;Lsk/ainet/context/ExecutionContext;)Lsk/ainet/lang/tensor/Tensor;
+	public static final fun traceLfm2DecodeStepExternal (Lsk/ainet/models/lfm2/Lfm2DecodeStep;)Lsk/ainet/models/lfm2/export/Lfm2TracedFunction;
+	public static final fun writeLfm2Bf16Parameters (Lsk/ainet/models/lfm2/export/Lfm2TracedFunction;Ljava/io/File;)Ljava/lang/String;
 }
 
 public final class sk/ainet/models/lfm2/export/Lfm2ExportBundleKt {
