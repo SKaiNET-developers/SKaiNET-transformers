@@ -9,6 +9,17 @@ requiring an engine release. `0.57.1` against engine `0.57.0` is such a release.
 The format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.64.1] — 2026-11-07
+
+Against engine **0.63.0**. A packaging fix: Maven Central refused the 0.64.0 deployment, so **0.64.0 was never
+published** and its content (below) ships with this release.
+
+### Fixed
+
+- `skainet-transformers-inference-lfm2` imports the BOM as `api`: it declares `skainet-lang-core` and
+  `skainet-backend-cpu` as `api` dependencies, and with the BOM only as `implementation` its POM listed both without a
+  version, which Central rejects.
+
 ## [0.64.0] — 2026-11-06
 
 Against engine **0.63.0** (block-quantized weights through StableHLO export: SKaiNET#1478 and SKaiNET#1479, plus
