@@ -81,44 +81,75 @@ public object DecodeStepExport {
         packedConstants: PackedConstantHandling = PackedConstantHandling.KEEP_PACKED,
         step: (DecodeStepInputs<T, V>, ExecutionContext) -> KvStepOutput<T, V>,
     ): ExportedDecodeStep {
+        val kvShape = Shape(1, spec.nKVHeads, spec.past, spec.headDim)
+        val ropeShape = Shape(1, spec.headDim)
+        val ports = buildList {
+            add("embedded" to Shape(1, spec.hidden))
+            add("cosGlobal" to ropeShape); add("sinGlobal" to ropeShape)
+            if (spec.slidingRopeBase) { add("cosSliding" to ropeShape); add("sinSliding" to ropeShape) }
+            for (i in 0 until spec.nLayers) add("l$i.k" to kvShape)
+            for (i in 0 until spec.nLayers) add("l$i.v" to kvShape)
+        }
+        return exportPorts<T, V>(ports, dtype, functionName, packedConstants) { p, ctx ->
+            val global = RopeTables(p.getValue("cosGlobal"), p.getValue("sinGlobal"))
+            val rope = if (spec.slidingRopeBase) {
+                RopeCosSin(global, RopeTables(p.getValue("cosSliding"), p.getValue("sinSliding")))
+            } else {
+                RopeCosSin(global)
+            }
+            val inputs = DecodeStepInputs(
+                p.getValue("embedded"), rope,
+                List(spec.nLayers) { p.getValue("l$it.k") },
+                List(spec.nLayers) { p.getValue("l$it.v") },
+            )
+            val result = step(inputs, ctx)
+            linkedMapOf<String, Tensor<T, V>>("logits" to result.logits).apply {
+                result.selfK.forEachIndexed { i, t -> put("l$i.k", t) }
+                result.selfV.forEachIndexed { i, t -> put("l$i.v", t) }
+            }
+        }
+    }
+
+    /**
+     * Trace a step over arbitrary named ports and export it like [export]: one graph input per entry
+     * of [inputs] (bound to the trace, in this order), one result per entry [step] returns, each
+     * named by its key in [ExportedDecodeStep.inputs] / [ExportedDecodeStep.outputs]. For a decoder
+     * whose state is more than K/V (a convolution history, a fixed-capacity cache with its masks).
+     */
+    public fun <T : DType, V> exportPorts(
+        inputs: List<Pair<String, Shape>>,
+        dtype: KClass<T>,
+        functionName: String = "decode_step",
+        packedConstants: PackedConstantHandling = PackedConstantHandling.KEEP_PACKED,
+        step: (Map<String, Tensor<T, V>>, ExecutionContext) -> Map<String, Tensor<T, V>>,
+    ): ExportedDecodeStep {
+        require(inputs.map { it.first }.distinct().size == inputs.size) { "DecodeStepExport: input port names must be unique" }
         // Inputs are bound to the tape context: a bare VoidOpsTensor runs operator overloads
         // (`x * x` in RMSNorm) on its own untraced ops, and the result is captured as a constant.
         val tapeCtx = DefaultGraphExecutionContext.tape(baseOps = VoidTensorOps())
         val roles = LinkedHashMap<String, String>()
-        fun input(role: String, shape: Shape): Tensor<T, V> =
-            graphInput<T, V>(shape, dtype).bind(tapeCtx).also { roles[tapeCtx.session.refOf(it as Tensor<*, *>).id] = role }
-
-        val kvShape = Shape(1, spec.nKVHeads, spec.past, spec.headDim)
-        val ropeShape = Shape(1, spec.headDim)
-        val embedded = input("embedded", Shape(1, spec.hidden))
-        val global = RopeTables(input("cosGlobal", ropeShape), input("sinGlobal", ropeShape))
-        val rope = if (spec.slidingRopeBase) {
-            RopeCosSin(global, RopeTables(input("cosSliding", ropeShape), input("sinSliding", ropeShape)))
-        } else {
-            RopeCosSin(global)
+        val bound = LinkedHashMap<String, Tensor<T, V>>()
+        for ((role, shape) in inputs) {
+            val t = graphInput<T, V>(shape, dtype).bind(tapeCtx)
+            roles[tapeCtx.session.refOf(t as Tensor<*, *>).id] = role
+            bound[role] = t
         }
-        val inputs = DecodeStepInputs(
-            embedded, rope,
-            List(spec.nLayers) { input("l$it.k", kvShape) },
-            List(spec.nLayers) { input("l$it.v", kvShape) },
-        )
 
-        var out: KvStepOutput<T, V>? = null
+        var out: Map<String, Tensor<T, V>>? = null
         val tape = tapeCtx.record {
             val ct = (this as DefaultGraphExecutionContext).currentTape ?: error("DecodeStepExport: no tape")
             Execution.tapeStack.pushTape(ct)
             try {
-                out = step(inputs, this as ExecutionContext)
+                out = step(bound, this as ExecutionContext)
             } finally {
                 Execution.tapeStack.popTape()
             }
         }.first
-        val result = out!!
         val outRoles = HashMap<String, String>()
-        fun outRole(t: Tensor<T, V>, role: String) { outRoles[tapeCtx.session.refOf(t as Tensor<*, *>).id] = role }
-        outRole(result.logits, "logits")
-        result.selfK.forEachIndexed { i, t -> outRole(t, "l$i.k") }
-        result.selfV.forEachIndexed { i, t -> outRole(t, "l$i.v") }
+        for ((role, t) in out!!) {
+            val id = tapeCtx.session.refOf(t as Tensor<*, *>).id
+            require(outRoles.put(id, role) == null) { "DecodeStepExport: results '${outRoles[id]}' and '$role' are the same tensor" }
+        }
 
         var graph = (tape as DefaultExecutionTape).toComputeGraph(synthesizeExternalInputs = true, packedConstants = packedConstants)
         val diagnostics = if (packedConstants == PackedConstantHandling.KEEP_PACKED) {

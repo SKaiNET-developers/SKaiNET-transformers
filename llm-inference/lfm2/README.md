@@ -78,3 +78,14 @@ Synthetic tests verify implementation mechanics. They do not establish model qua
 ```
 
 The generation CLI takes local config/checkpoint paths with mandatory hashes, `--capacity`, and a new output directory. It emits the shared export bundle plus `generation-contract.json`. The host must compile and bind the resulting module/archive into a verified runtime manifest before using the [optional IREE runtime](../../llm-runtime/klfm2/README.md#optional-iree-vulkan-runtime). Export and synthetic state-parity tests establish graph structure and tensor semantics; accelerator execution still requires target validation.
+
+## Decode step for an NPU with block-quantized weights
+
+`Lfm2DecodeStep` is the fixed-capacity single-token step from an already embedded token, with an output head of its own: the host does the embedding lookup, and the graph takes the embedded row `[1, width]`, RoPE `cos`/`sin` `[1, headDim]`, the additive `mask` `[1, capacity + 1]`, the one-hot `write_mask` `[1, capacity, 1]` and every layer's state (`history_<l>` `[width, kernel]`, `key_<l>`/`value_<l>` `[kvHeads, capacity, headDim]`), and returns `logits` and the next state. One graph serves every position up to the capacity. The short convolution is lowered as multiply + sum and attention as one batched product over all heads by default.
+
+```sh
+./gradlew :llm-inference:lfm2:exportLfm2DecodeStep --args="--config model/config.json --config-sha256 <sha> \
+  --checkpoint model/model.safetensors --checkpoint-sha256 <sha> --capacity 64 --output out/decode-step"
+```
+
+The projections load as Q8_0 and the head as a Q4_0 copy of the tied embedding (`--weights`, `--head`); the export keeps them packed and folds every one into a block-quant matmul, and fails if one is left unfolded. It writes `decode_step.mlir`, `io.txt` (the argument and result order), `embed.bf16.bin` (the host's embedding rows) and `export.json`. LFM2.5-350M: 93 folded matmuls; against the FP32 model the logits cosine is 0.997–0.999 with the same top-1. The gated tests in `Lfm2DecodeStepTest` (`LFM2_MODEL_DIR`, `LFM2_GOLDEN_DIR`) check a local checkpoint and write a golden step for a device.

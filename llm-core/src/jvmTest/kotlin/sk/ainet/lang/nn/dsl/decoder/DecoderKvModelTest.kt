@@ -209,6 +209,29 @@ class DecoderKvModelTest {
         assertTrue(step.ioTable().lines().first().startsWith("in 0 "))
     }
 
+    @Test fun exportPortsNamesArbitraryStateAndRejectsAnAliasedResult() {
+        val step = DecodeStepExport.exportPorts<FP32, Float>(
+            listOf("x" to Shape(1, 4), "history" to Shape(4, 3)), FP32::class, "toy_step",
+        ) { p, ectx ->
+            val x = p.getValue("x")
+            linkedMapOf(
+                "y" to ectx.ops.add(x, x),
+                "next_history" to ectx.ops.narrow(ectx.ops.concat(listOf(p.getValue("history"), ectx.ops.transpose(x)), dim = 1), 1, 1, 3),
+            )
+        }
+        assertTrue("func.func @toy_step" in step.mlir, step.mlir.take(400))
+        assertEquals(listOf("history", "x"), step.inputs.map { it.role }.sorted())
+        assertEquals(listOf("next_history", "y"), step.outputs.map { it.role }.sorted())
+        assertEquals(listOf(4, 3), step.outputs.first { it.role == "next_history" }.shape)
+        val aliased = runCatching {
+            DecodeStepExport.exportPorts<FP32, Float>(listOf("x" to Shape(1, 4)), FP32::class) { p, ectx ->
+                val y = ectx.ops.add(p.getValue("x"), p.getValue("x"))
+                linkedMapOf("a" to y, "b" to y)
+            }
+        }
+        assertTrue(aliased.isFailure, "two results on one tensor must be rejected")
+    }
+
     private fun assertLogitsClose(expected: FloatArray, actual: FloatArray, label: String) {
         assertEquals(expected.size, actual.size, "$label: size mismatch")
         for (i in expected.indices) {
