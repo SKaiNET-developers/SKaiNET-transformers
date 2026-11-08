@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.64.2] — 2026-11-08
+
 Against engine **0.63.0**, transformers-only and additive.
 
 ### Added
@@ -24,6 +26,9 @@ Against engine **0.63.0**, transformers-only and additive.
   checkpoint. LFM2.5-350M with Q8_0 projections and a Q4_0 head: all 93 matmuls fold; against the FP32 model the
   logits cosine is 0.997–0.999 with the same top-1 over a 10-token sequence. Compiled with Torq 2.3.0 it is one NPU
   dispatch and runs on an SL2610 at 533 ms per step, logits cosine 0.996 to FP32 with the same top-1.
+- `Lfm2DecodeStepExportCli --parameters external-bf16`: every weight as a model-scope parameter, written as BF16
+  safetensors, with the parameter globals typed bf16 and converted to f32 where they load, for a GPU that serves
+  weights from an archive. Writes the same port table, export manifest and embedding rows as the inline mode.
 - `ShortConvLowering.MULTIPLY_SUM`: the single-token short convolution as `sum(window * taps)` instead of a grouped
   `conv1d`, numerically equal, for compilers without grouped convolutions (the decode step's default).
 - `DecodeStepExport.exportPorts(inputs, dtype) { ports, ctx -> results }` (`llm-core`, jvm): the decode-step export
