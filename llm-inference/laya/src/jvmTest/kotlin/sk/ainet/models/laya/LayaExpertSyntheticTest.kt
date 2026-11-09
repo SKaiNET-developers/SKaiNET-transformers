@@ -191,7 +191,12 @@ class LayaExpertSyntheticTest {
         assertTrue(differ, "beta must not answer like general")
         val unrouted = mixture.decide(state, questions, expert = "beta", route = false)
         assertNull(unrouted.routing)
-        for ((k, a) in unrouted.answers) assertContentEquals(viaBeta.answers.getValue(k).probabilities, a.probabilities, "unrouted/$k")
+        // Same answer within 1e-6, the threshold "differ" uses above: the two calls are not bit-identical (about 2e-9).
+        for ((k, a) in unrouted.answers) {
+            val routed = viaBeta.answers.getValue(k).probabilities
+            assertEquals(routed.size, a.probabilities.size, "unrouted/$k")
+            for (i in routed.indices) assertEquals(routed[i], a.probabilities[i], 1e-6, "unrouted/$k[$i]")
+        }
     }
 
     @Test
