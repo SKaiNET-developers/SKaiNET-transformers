@@ -43,6 +43,23 @@ public final class sk/ainet/models/bert/BertExecutionMode : java/lang/Enum {
 	public static fun values ()[Lsk/ainet/models/bert/BertExecutionMode;
 }
 
+public final class sk/ainet/models/bert/BertGguf {
+	public static final field INSTANCE Lsk/ainet/models/bert/BertGguf;
+	public final fun isEmbeddingTable (Ljava/lang/String;)Z
+	public final fun weightFormFor (Ljava/lang/String;Z)Lsk/ainet/lang/memory/plan/WeightForm;
+	public static synthetic fun weightFormFor$default (Lsk/ainet/models/bert/BertGguf;Ljava/lang/String;ZILjava/lang/Object;)Lsk/ainet/lang/memory/plan/WeightForm;
+}
+
+public final class sk/ainet/models/bert/BertGgufNameResolver : sk/ainet/io/weights/WeightNameResolver {
+	public static final field Companion Lsk/ainet/models/bert/BertGgufNameResolver$Companion;
+	public fun <init> (Ljava/util/Set;)V
+	public fun resolve (Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+}
+
+public final class sk/ainet/models/bert/BertGgufNameResolver$Companion {
+	public final fun forTensors (Ljava/util/List;)Lsk/ainet/models/bert/BertGgufNameResolver;
+}
+
 public final class sk/ainet/models/bert/BertModelConfig {
 	public fun <init> (IIIIIIIDLjava/lang/Integer;)V
 	public synthetic fun <init> (IIIIIIIDLjava/lang/Integer;ILkotlin/jvm/internal/DefaultConstructorMarker;)V

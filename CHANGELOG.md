@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **GGUF-BERT checkpoints load into `BertEncoderRuntime`** (`llm-inference:bert`): `BertGgufNameResolver` maps the
+  network's parameters to llama.cpp GGUF-BERT tensor names (`token_embd`, `blk.N.attn_q`, `blk.N.ffn_up`, ...) and
+  accepts both LayerNorm naming conventions found in published conversions (`token_embd_norm` / `attn_output_norm` /
+  `layer_output_norm` and `output_norm` / `attn_norm` / `ffn_norm`). `BertGguf.weightFormFor(name)` is the
+  `weightFormFor` for `StreamingGgufParametersLoader`: 2-D weights are relabelled `[out, in]`, quantized encoder
+  weights stay packed (or are dequantized with `keepQuantizedPacked = false`), embedding tables are dequantized to
+  FP32. Pass the resolver to `createBertEncoderRuntime(resolver = ...)`.
+
 ## [0.64.2] — 2026-11-08
 
 Against engine **0.63.0**, transformers-only and additive.
