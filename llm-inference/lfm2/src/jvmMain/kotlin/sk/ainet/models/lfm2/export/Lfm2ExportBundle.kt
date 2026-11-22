@@ -2,7 +2,7 @@ package sk.ainet.models.lfm2.export
 
 import kotlinx.serialization.json.*
 import sk.ainet.compile.hlo.StableHloModule
-import sk.ainet.lang.tensor.storage.DefaultBufferResolver
+import sk.ainet.io.irpa.readBytes
 import java.io.BufferedOutputStream
 import java.io.File
 import java.nio.ByteBuffer
@@ -18,8 +18,7 @@ import java.security.MessageDigest
 fun writeLfm2ParameterArchive(module: StableHloModule, file: File, expectedWeightHashes: List<String>): JsonObject {
     require(!Files.exists(file.toPath())) { "Parameter archive already exists: ${file.name}" }
     require(expectedWeightHashes.all { it.matches(Regex("[0-9a-f]{64}")) }) { "Expected FP32 payload hashes must be lowercase SHA-256" }
-    val resolver = DefaultBufferResolver()
-    val sizes = module.externalParameters.map { p -> resolver.resolve(p.source).use { it.sizeInBytes } }
+    val sizes = module.externalParameters.map { p -> p.source.sizeInBytes }
     require(sizes.isNotEmpty() && sizes.all { it > 0 && it % 4 == 0L } && module.externalParameters.all { it.scope == "model" })
     require(module.externalParameters.map { it.key }.distinct().size == sizes.size)
     var offset = 0L
@@ -43,7 +42,7 @@ fun writeLfm2ParameterArchive(module: StableHloModule, file: File, expectedWeigh
             repeat(paddedSize - header.size) { output.write(32) }
             for ((i, parameter) in module.externalParameters.withIndex()) {
                 val digest = MessageDigest.getInstance("SHA-256")
-                resolver.resolve(parameter.source).use { source ->
+                parameter.source.let { source ->
                     require(source.sizeInBytes == sizes[i]) { "Parameter source size changed while exporting" }
                     var position = 0L
                     while (position < source.sizeInBytes) {

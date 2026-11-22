@@ -1,5 +1,6 @@
 package sk.ainet.models.lfm2.export
 
+import sk.ainet.io.irpa.readBytes
 import kotlinx.serialization.json.*
 import sk.ainet.context.ExecutionContext
 import sk.ainet.lang.nn.dsl.decoder.DecodeStepExport
@@ -245,10 +246,9 @@ fun traceLfm2DecodeStepExternal(step: Lfm2DecodeStep): Lfm2TracedFunction =
  */
 fun writeLfm2Bf16Parameters(trace: Lfm2TracedFunction, archive: File): String {
     require(!archive.exists()) { "Parameter archive already exists: ${archive.name}" }
-    val resolver = sk.ainet.lang.tensor.storage.DefaultBufferResolver()
     val params = trace.module.externalParameters
     require(params.isNotEmpty() && params.all { it.scope == "model" })
-    val sizes = params.map { p -> resolver.resolve(p.source).use { it.sizeInBytes } }
+    val sizes = params.map { p -> p.source.sizeInBytes }
     require(sizes.all { it > 0 && it % 4 == 0L })
     var offset = 0L
     val header = buildJsonObject {
@@ -266,7 +266,7 @@ fun writeLfm2Bf16Parameters(trace: Lfm2TracedFunction, archive: File): String {
         out.write(ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN).putLong(padded.toLong()).array())
         out.write(header)
         repeat(padded - header.size) { out.write(32) }
-        for ((i, p) in params.withIndex()) resolver.resolve(p.source).use { source ->
+        for ((i, p) in params.withIndex()) p.source.let { source ->
             var position = 0L
             while (position < sizes[i]) {
                 val count = minOf(1L shl 20, sizes[i] - position).toInt()

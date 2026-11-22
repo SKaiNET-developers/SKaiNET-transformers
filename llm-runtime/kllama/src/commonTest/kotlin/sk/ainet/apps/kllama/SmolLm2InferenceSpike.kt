@@ -9,7 +9,7 @@ import sk.ainet.apps.llm.OptimizedLLMRuntime
 import sk.ainet.apps.llm.generate
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.RandomAccessSource
-import sk.ainet.io.gguf.createRandomAccessSource
+import sk.ainet.io.openRandomAccessSource
 import sk.ainet.lang.nn.dsl.decoder.DECODER_DEQUANTIZE_ALL
 import sk.ainet.lang.types.FP32
 import sk.ainet.models.llama.LlamaNetworkLoader
@@ -86,11 +86,11 @@ class SmolLm2InferenceSpike {
         // Use the RandomAccessSource (streaming) overload: it keeps packed
         // quant weights packed under NATIVE_OPTIMIZED, whereas the
         // sequential Source path densifies them and trips on Q8_0's 34/32
-        // byte ratio. `createRandomAccessSource` is cross-platform — JVM
+        // byte ratio. `openRandomAccessSource` is cross-platform — JVM
         // FileChannel, native posix pread, Android positional reads (#922).
         val racProvider: () -> RandomAccessSource = {
-            createRandomAccessSource(modelPath)
-                ?: error("createRandomAccessSource returned null for $modelPath on this platform")
+            openRandomAccessSource(modelPath)
+                ?: error("openRandomAccessSource returned null for $modelPath on this platform")
         }
         val (model, loadElapsed) = measureTimedValue {
             LlamaNetworkLoader.fromGguf(racProvider, weightForm = quantForm).load<FP32, Float>(ctx)

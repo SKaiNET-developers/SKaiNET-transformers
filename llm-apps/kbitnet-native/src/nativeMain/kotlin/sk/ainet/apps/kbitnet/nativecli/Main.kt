@@ -11,7 +11,7 @@ import sk.ainet.exec.kernel.NativeKnTernaryF32Gemv
 import sk.ainet.exec.kernel.NativeKnTernaryLmhead
 import sk.ainet.exec.kernel.installNativeKernels
 import sk.ainet.io.gguf.I2sGgufLayout
-import sk.ainet.io.gguf.createRandomAccessSource
+import sk.ainet.io.openRandomAccessSource
 import sk.ainet.lang.types.FP32
 import sk.ainet.models.bitnet.BitNetRuntimeWeights
 import sk.ainet.models.bitnet.BitNetStage1Kernel
@@ -24,7 +24,7 @@ import kotlin.time.TimeSource
 fun main(args: Array<String>) = runBlocking {
     require(args.size >= 3) { "usage: kbitnet <model.gguf> <steps> <prompt>" }
     val path = args[0]; val steps = args[1].toInt(); val prompt = args.drop(2).joinToString(" ")
-    fun source() = createRandomAccessSource(path) ?: error("cannot open $path")
+    fun source() = openRandomAccessSource(path) ?: error("cannot open $path")
 
     val t0 = TimeSource.Monotonic.markNow()
     installNativeKernels()

@@ -26,6 +26,7 @@ kotlin {
         jvmMain.dependencies {
             api(project(":llm-core"))
             api(libs.skainet.compile.hlo)
+            implementation(libs.skainet.io.iree.params)
             implementation(libs.skainet.compile.core)
             implementation(libs.skainet.compile.dag)
             implementation(libs.skainet.io.core)

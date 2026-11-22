@@ -7,8 +7,8 @@ import sk.ainet.compile.hlo.StableHloConverterFactory
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.context.ExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
-import sk.ainet.lang.tensor.storage.BufferHandle
-import sk.ainet.lang.tensor.storage.DefaultBufferResolver
+import sk.ainet.compile.hlo.ConstantSource
+import sk.ainet.io.irpa.readBytes
 import sk.ainet.lang.graph.DefaultExecutionTape
 import sk.ainet.lang.graph.DefaultGraphExecutionContext
 import sk.ainet.lang.nn.Module
@@ -34,8 +34,8 @@ import kotlin.test.Test
 @Tag("integration")
 class RealGemmaBakeIrpaTest {
 
-    /** Little-endian bytes of an external parameter, whatever `BufferHandle` the engine handed over (#420). */
-    private fun bytesOf(h: BufferHandle): ByteArray = DefaultBufferResolver().resolve(h).use { it.readAllBytes() }
+    /** Little-endian bytes of an external parameter, whatever `ConstantSource` the engine handed over (#420). */
+    private fun bytesOf(h: ConstantSource): ByteArray = h.readBytes(0, h.sizeInBytes.toInt())
     @Test
     fun bakeRealGemmaToIrpa() = runBlocking {
         val path = FunctionGemmaFixture.gguf

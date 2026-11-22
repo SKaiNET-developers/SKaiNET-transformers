@@ -19,8 +19,8 @@ import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.VoidOpsTensor
 import sk.ainet.lang.tensor.data.TensorData
 import sk.ainet.lang.tensor.ops.VoidTensorOps
-import sk.ainet.lang.tensor.storage.BufferHandle
-import sk.ainet.lang.tensor.storage.DefaultBufferResolver
+import sk.ainet.compile.hlo.ConstantSource
+import sk.ainet.io.irpa.readBytes
 import sk.ainet.lang.types.FP32
 import sk.ainet.tape.Execution
 import java.io.File
@@ -56,8 +56,8 @@ import kotlin.test.Test
 @Tag("integration")
 class RealSmolLm2BakeIrpaTest {
 
-    /** Little-endian bytes of an external parameter, whatever `BufferHandle` the engine handed over (#420). */
-    private fun bytesOf(h: BufferHandle): ByteArray = DefaultBufferResolver().resolve(h).use { it.readAllBytes() }
+    /** Little-endian bytes of an external parameter, whatever `ConstantSource` the engine handed over (#420). */
+    private fun bytesOf(h: ConstantSource): ByteArray = h.readBytes(0, h.sizeInBytes.toInt())
     @Test
     fun bakeRealSmolLm2ToIrpa() = runBlocking {
         val path = System.getenv("SMOLLM2_MODEL")?.trim().orEmpty()

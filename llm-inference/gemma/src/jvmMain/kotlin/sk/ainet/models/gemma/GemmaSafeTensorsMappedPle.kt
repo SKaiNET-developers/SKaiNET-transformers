@@ -7,7 +7,6 @@ import java.nio.file.StandardOpenOption
 import sk.ainet.context.ExecutionContext
 import sk.ainet.io.safetensors.StreamingShardedSafeTensorsReader
 import sk.ainet.lang.tensor.Shape
-import sk.ainet.lang.tensor.storage.BufferHandle
 import sk.ainet.lang.types.FP32
 
 /**
@@ -63,33 +62,30 @@ public object GemmaSafeTensorsMappedPle {
         }.getOrNull() ?: return weights
 
         return reader.use { r ->
-            // Resolve the tensor's metadata + file location via the upstream
-            // sharded `loadTensorStorageMapped` (added in skainet-io-safetensors
-            // 0.22.1). The returned `TensorStorage`'s `BufferHandle.FileBacked`
-            // tells us the path / offset / size — we then run the JVM-specific
-            // `FileChannel.map(..., Arena)` to materialise a `MemorySegment` of
-            // the right byte range. (`BufferAccessor` upstream returns
-            // ByteArrays, which are 2 GB-capped; we need a long-indexed
-            // segment for the 4.7 GB PLE table on Gemma 4 E2B.)
+            // The reader names the tensor's byte range on disk: the shard's path, the
+            // absolute data offset and the byte size (SKaiNET 0.65.0; before, a
+            // `BufferHandle.FileBacked` carried the three). We then run the JVM-specific
+            // `FileChannel.map(..., Arena)` to materialise a `MemorySegment` of that
+            // range: the 4.7 GB PLE table on Gemma 4 E2B needs a long-indexed segment
+            // whose lifetime is this loader's arena.
             val info = r.tensors.firstOrNull { it.name == HF_EMBED_TOKENS_PER_LAYER }
                 ?: return@use weights
-            val storage = r.loadTensorStorageMapped(info)
-            val handle = storage.buffer
-            require(handle is BufferHandle.FileBacked) {
-                "Expected file-backed handle from loadTensorStorageMapped, got ${handle::class}"
+            val path = requireNotNull(r.shardPathOf(info)) {
+                "Shard '${info.shardFilename}' is not a file; the PLE table needs a file-backed shard"
             }
 
-            val segment = FileChannel.open(Paths.get(handle.path), StandardOpenOption.READ).use { fc ->
+            val segment = FileChannel.open(Paths.get(path), StandardOpenOption.READ).use { fc ->
                 fc.map(
                     FileChannel.MapMode.READ_ONLY,
-                    handle.fileOffset,
-                    handle.sizeInBytes,
+                    info.absoluteDataOffset,
+                    info.sizeInBytes,
                     arena,
                 )
             }
 
-            val logicalShape = if (storage.shape.rank == 2) storage.shape
-                else flattenTrailingDims(storage.shape)
+            val fileShape = Shape(*IntArray(info.shape.size) { info.shape[it].toInt() })
+            val logicalShape = if (fileShape.rank == 2) fileShape
+                else flattenTrailingDims(fileShape)
             val data = SafeTensorsPerLayerTokenEmbedTensorData(
                 logicalShape = logicalShape,
                 segment = segment,

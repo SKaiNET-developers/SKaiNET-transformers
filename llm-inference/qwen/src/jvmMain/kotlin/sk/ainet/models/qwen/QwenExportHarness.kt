@@ -20,7 +20,7 @@ import sk.ainet.lang.tensor.VoidOpsTensor
 import sk.ainet.lang.tensor.data.Bf16TensorData
 import sk.ainet.lang.tensor.data.TensorData
 import sk.ainet.lang.tensor.ops.VoidTensorOps
-import sk.ainet.lang.tensor.storage.BufferHandle
+import sk.ainet.compile.hlo.ConstantSource
 import sk.ainet.lang.types.FP32
 import sk.ainet.tape.Execution
 import java.io.BufferedOutputStream
@@ -428,11 +428,11 @@ public object QwenExportHarness {
     }
 
     /** Streams one external's f32 payload as raw f32 or truncating bf16, in 1 MiB chunks. */
-    private fun writeHandle(os: java.io.OutputStream, src: BufferHandle, bf16: Boolean) {
+    private fun writeHandle(os: java.io.OutputStream, src: ConstantSource, bf16: Boolean) {
         val n: Int
         val floatAt: (Int) -> Float
         when (src) {
-            is BufferHandle.Owned -> {
+            is ConstantSource.Bytes -> {
                 val data = src.data
                 val base = src.offset
                 n = (src.sizeInBytes / 4).toInt()
@@ -445,12 +445,12 @@ public object QwenExportHarness {
                     )
                 }
             }
-            is BufferHandle.Floats -> {
+            is ConstantSource.Floats -> {
                 val f = src.data
                 n = f.size
                 floatAt = { j -> f[j] }
             }
-            else -> error("unsupported BufferHandle ${src::class.simpleName} (${src.sizeInBytes} B)")
+            else -> error("unsupported ConstantSource ${src::class.simpleName} (${src.sizeInBytes} B)")
         }
         val bpe = if (bf16) 2 else 4
         val chunk = (1 shl 20) / bpe
