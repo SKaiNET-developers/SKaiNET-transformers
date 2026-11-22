@@ -1,7 +1,5 @@
 package sk.ainet.models.qwen
 
-import java.lang.foreign.Arena
-import java.lang.foreign.ValueLayout
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.test.Test
@@ -11,7 +9,7 @@ import sk.ainet.apps.llm.OptimizedLLMRuntime
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.Tensor
-import sk.ainet.lang.tensor.data.Q8MemorySegmentTensorData
+import sk.ainet.lang.tensor.data.Q8_0BlockTensorData
 import sk.ainet.lang.tensor.data.TensorData
 import sk.ainet.lang.types.FP32
 import sk.ainet.lang.nn.dsl.decoder.DecoderGgufWeights
@@ -26,7 +24,7 @@ import sk.ainet.lang.nn.dsl.decoder.DecoderTensorNames
  *
  * Build two parallel weight maps with identical logical values, one FP32
  * baseline and one with the 7 matmul projections (Q/K/V/O + gate/up/down)
- * swapped to `Q8MemorySegmentTensorData`. Logit divergence must stay below
+ * swapped to `Q8_0BlockTensorData`. Logit divergence must stay below
  * `1e-3` — any larger gap means the upstream Q8 dispatch isn't composing
  * with the DSL forward as expected.
  *
@@ -63,9 +61,9 @@ class QwenDslQuantizedTest {
     )
 
     @Test
-    fun `Q8 MemSeg projections flow through DSL Qwen and match FP32 within tolerance`() {
-        Arena.ofConfined().use { arena ->
-            val (fp32Weights, q8Weights) = buildWeightPair(arena)
+    fun `Q8 projections flow through DSL Qwen and match FP32 within tolerance`() {
+        run {
+            val (fp32Weights, q8Weights) = buildWeightPair()
 
             val fp32Model = QwenNetworkLoader.fromWeights(fp32Weights)
             val q8Model = QwenNetworkLoader.fromWeights(q8Weights)
@@ -93,13 +91,11 @@ class QwenDslQuantizedTest {
 
     /**
      * Build two `DecoderGgufWeights` sharing identical logical values.
-     * The Q8 variant swaps the 7 matmul projections to packed MemSeg
+     * The Q8 variant swaps the 7 matmul projections to packed Q8_0
      * tensors; norms, embeddings, output head, and QK-norm scales stay
      * FP32 (those aren't matmul targets, or aren't 32-block-multiple).
      */
-    private fun buildWeightPair(
-        arena: Arena,
-    ): Pair<DecoderGgufWeights<FP32, Float>, DecoderGgufWeights<FP32, Float>> {
+    private fun buildWeightPair(): Pair<DecoderGgufWeights<FP32, Float>, DecoderGgufWeights<FP32, Float>> {
         // Small integer values keep Q8 round-to-int exact.
         val tokenEmb = FloatArray(vocabSize * dim) { ((it % 5) - 2).toFloat() }
         val outputW = FloatArray(vocabSize * dim) { ((it % 5) - 2).toFloat() }
@@ -139,16 +135,16 @@ class QwenDslQuantizedTest {
             DecoderTensorNames.OUTPUT_NORM to fp32Tensor(Shape(dim), ones),
             DecoderTensorNames.OUTPUT_WEIGHT to fp32Tensor(Shape(vocabSize, dim), outputW),
             DecoderTensorNames.attnNorm(0) to fp32Tensor(Shape(dim), ones),
-            DecoderTensorNames.attnQ(0) to q8Tensor(nHeads * headDim, dim, q, arena),
-            DecoderTensorNames.attnK(0) to q8Tensor(kvHeads * headDim, dim, k, arena),
-            DecoderTensorNames.attnV(0) to q8Tensor(kvHeads * headDim, dim, v, arena),
-            DecoderTensorNames.attnOut(0) to q8Tensor(dim, nHeads * headDim, o, arena),
+            DecoderTensorNames.attnQ(0) to q8Tensor(nHeads * headDim, dim, q),
+            DecoderTensorNames.attnK(0) to q8Tensor(kvHeads * headDim, dim, k),
+            DecoderTensorNames.attnV(0) to q8Tensor(kvHeads * headDim, dim, v),
+            DecoderTensorNames.attnOut(0) to q8Tensor(dim, nHeads * headDim, o),
             DecoderTensorNames.attnQNorm(0) to fp32Tensor(Shape(headDim), onesHead),
             DecoderTensorNames.attnKNorm(0) to fp32Tensor(Shape(headDim), onesHead),
             DecoderTensorNames.ffnNorm(0) to fp32Tensor(Shape(dim), ones),
-            DecoderTensorNames.ffnGate(0) to q8Tensor(ffnDim, dim, gate, arena),
-            DecoderTensorNames.ffnUp(0) to q8Tensor(ffnDim, dim, up, arena),
-            DecoderTensorNames.ffnDown(0) to q8Tensor(dim, ffnDim, down, arena),
+            DecoderTensorNames.ffnGate(0) to q8Tensor(ffnDim, dim, gate),
+            DecoderTensorNames.ffnUp(0) to q8Tensor(ffnDim, dim, up),
+            DecoderTensorNames.ffnDown(0) to q8Tensor(dim, ffnDim, down),
         )
         val q8 = DecoderGgufWeights(metadata, q8Map)
 
@@ -185,17 +181,12 @@ class QwenDslQuantizedTest {
         rows: Int,
         cols: Int,
         values: FloatArray,
-        arena: Arena,
     ): Tensor<FP32, Float> {
         require(values.size == rows * cols) {
             "values.size=${values.size} != rows*cols=${rows * cols}"
         }
         val bytes = packQ8_0_unitScale(values)
-        val segment = arena.allocate(bytes.size.toLong())
-        for ((i, b) in bytes.withIndex()) {
-            segment.set(ValueLayout.JAVA_BYTE, i.toLong(), b)
-        }
-        val data = Q8MemorySegmentTensorData(Shape(rows, cols), segment)
+        val data = Q8_0BlockTensorData(Shape(rows, cols), bytes)
         @Suppress("UNCHECKED_CAST")
         return ctx.fromData(data as TensorData<FP32, Float>, FP32::class)
     }
