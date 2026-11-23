@@ -62,7 +62,7 @@ RUN npm init -y && npm i --save-exact \
       @antora/lunr-extension@1.0.0-alpha.8 \
       @mermaid-js/mermaid-cli@11 \
       asciidoctor-kroki@0.18 \
-      https://github.com/SKaiNET-developers/SKaiNET-rag/releases/download/antora-site-search-v0.1.1/skainet-antora-site-search-0.1.1.tgz \
+      https://github.com/SKaiNET-developers/SKaiNET-rag/releases/download/antora-site-search-v0.1.2/skainet-antora-site-search-0.1.2.tgz \
     && npm cache clean --force
 
 # Make installed modules resolvable even when the workdir is the mounted
