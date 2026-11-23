@@ -13,7 +13,10 @@
 #   3. Offline extras available but not forced: lunr full-text search,
 #      a pre-baked Antora UI bundle, and MathJax es5 for LaTeX.
 #   4. asciidoctor-kroki installed-but-unused as an escape hatch.
-FROM node:20-alpine
+# Node >= 22: @skainet/antora-site-search runs its indexer as Kotlin/Wasm
+# in-process at build time, which needs the wasm GC + exception-handling
+# features Node 22 enables by default.
+FROM node:22-alpine
 
 LABEL org.opencontainers.image.title="markup-antora" \
       org.opencontainers.image.description="Universal Antora site generator with offline Mermaid (mermaid-cli), offline search (lunr), pre-baked UI bundle + MathJax. No Kroki, no CDN." \
@@ -43,7 +46,13 @@ ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser \
 # Install Antora + tooling into /opt/antora (NOT /antora, which is where
 # the project gets volume-mounted at run time).
 #   - @mermaid-js/mermaid-cli  : offline diagram rendering (the point)
-#   - @antora/lunr-extension   : offline full-text search
+#   - @antora/lunr-extension   : offline full-text search (legacy; superseded
+#                                by @skainet/antora-site-search below)
+#   - @skainet/antora-site-search : hybrid client-side search — indexes the
+#                                rendered pages at build time and publishes
+#                                the engine with the site. Installed from a
+#                                SKaiNET-rag GitHub release tarball, not a
+#                                registry; the URL pins the exact version.
 #   - asciidoctor-kroki        : escape hatch only; the playbook should
 #                                use the local mermaid extension instead.
 WORKDIR /opt/antora
@@ -53,6 +62,7 @@ RUN npm init -y && npm i --save-exact \
       @antora/lunr-extension@1.0.0-alpha.8 \
       @mermaid-js/mermaid-cli@11 \
       asciidoctor-kroki@0.18 \
+      https://github.com/SKaiNET-developers/SKaiNET-rag/releases/download/antora-site-search-v0.1.2/skainet-antora-site-search-0.1.2.tgz \
     && npm cache clean --force
 
 # Make installed modules resolvable even when the workdir is the mounted

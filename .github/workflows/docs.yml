@@ -37,14 +37,34 @@ jobs:
             -f docs/.docker/Dockerfile \
             docs/.docker/
 
+      # SOURCE_DATE_EPOCH pins the search index's builtAt/contentVersion to the
+      # last commit, making the whole _search/search.lrb reproducible — which
+      # the canary step below depends on.
       - name: Build Antora site
         run: |
           docker run --rm \
+            -e SOURCE_DATE_EPOCH=$(git log -1 --format=%ct) \
             -v "${{ github.workspace }}:/antora" \
             --workdir /antora/docs \
             skainet-antora:local \
             --stacktrace \
             antora-playbook.yml
+
+      # Determinism canary for SKaiNET site search: the same content must
+      # index to byte-identical bundles. Catches nondeterminism anywhere in
+      # the extract -> chunk -> embed -> encode pipeline before it reaches
+      # production sites (this is the dogfood site for SKaiNET-rag).
+      - name: Search index determinism canary
+        run: |
+          docker run --rm \
+            -e SOURCE_DATE_EPOCH=$(git log -1 --format=%ct) \
+            -v "${{ github.workspace }}:/antora" \
+            --workdir /antora/docs \
+            skainet-antora:local \
+            --to-dir ./build/site-canary \
+            antora-playbook.yml
+          cmp docs/build/site/_search/search.lrb docs/build/site-canary/_search/search.lrb
+          echo "search.lrb is byte-identical across builds"
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v5
