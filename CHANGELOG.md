@@ -11,6 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Engine 0.65.0** (`sk.ainet.core:*`): the engine removed its old storage layer (`TensorStorage`, `BufferHandle`,
+  `DefaultBufferResolver`, the per-format source factories). What changes here:
+  - The export harnesses (SmolLM2, Qwen, Whisper, LFM2, Gemma 3n, FunctionGemma) and the IRPA bake tests read an
+    external parameter through `ConstantSource` and the engine's `readBytes(offset, length)`, instead of resolving a
+    `BufferHandle`. The copied `bytesOf` helpers shrink to one call; the harnesses that matched `BufferHandle.Owned` /
+    `Floats` match `ConstantSource.Bytes` / `Floats`.
+  - `GemmaSafeTensorsMappedPle` takes the per-layer table's path, offset and size from the sharded reader
+    (`shardPathOf`, `absoluteDataOffset`, `sizeInBytes`) instead of `loadTensorStorageMapped`.
+  - `createRandomAccessSource` (from `skainet-io-gguf`) becomes `sk.ainet.io.openRandomAccessSource`.
+  - `skainet-io-iree-params` is a dependency of the modules whose harness reads constants.
+
 ## [0.64.2] — 2026-11-08
 
 Against engine **0.63.0**, transformers-only and additive.

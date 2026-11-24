@@ -15,7 +15,7 @@ import sk.ainet.lang.tensor.VoidOpsTensor
 import sk.ainet.lang.tensor.data.Bf16TensorData
 import sk.ainet.lang.tensor.data.TensorData
 import sk.ainet.lang.tensor.ops.VoidTensorOps
-import sk.ainet.lang.tensor.storage.BufferHandle
+import sk.ainet.compile.hlo.ConstantSource
 import sk.ainet.lang.types.FP32
 import sk.ainet.lang.nn.dsl.decoder.ChunkContext
 import sk.ainet.lang.nn.dsl.decoder.RopeCosSin
@@ -73,7 +73,6 @@ public object FunctionGemmaExportHarness {
             "llvm-cpu", corePasses = listOf(sk.ainet.compile.opt.passes.ScheduleAnnotationPass("llvm-cpu")),
         ).optimize(graph).graph
 
-    /** Little-endian bytes of an external parameter, whatever `BufferHandle` the engine handed over (#420). */
     public data class RedecodeResult(
         val mlirPath: String,
         val safetensorsPath: String,
@@ -707,15 +706,15 @@ public object FunctionGemmaExportHarness {
 
     /**
      * Streams one external's f32 payload as raw f32 or truncating bf16 (= core parity), in 1 MiB
-     * chunks. Dispatches on the [BufferHandle] subtype: the 0.53.0 engine loader delivers large
-     * constants (the 262144x640 tied embedding) as [BufferHandle.Floats], not [BufferHandle.Owned] —
+     * chunks. Dispatches on the [ConstantSource] subtype: the 0.53.0 engine loader delivers large
+     * constants (the 262144x640 tied embedding) as [ConstantSource.Floats], not [ConstantSource.Bytes] —
      * the cast that #396 removed from the Gemma 3n harness was still here (#405).
      */
-    private fun writeHandle(os: java.io.OutputStream, src: BufferHandle, bf16: Boolean) {
+    private fun writeHandle(os: java.io.OutputStream, src: ConstantSource, bf16: Boolean) {
         val n: Int
         val floatAt: (Int) -> Float
         when (src) {
-            is BufferHandle.Owned -> {
+            is ConstantSource.Bytes -> {
                 val data = src.data
                 val base = src.offset
                 n = (src.sizeInBytes / 4).toInt()
@@ -731,12 +730,12 @@ public object FunctionGemmaExportHarness {
                     )
                 }
             }
-            is BufferHandle.Floats -> {
+            is ConstantSource.Floats -> {
                 val f = src.data
                 n = f.size
                 floatAt = { j -> f[j] }
             }
-            else -> error("unsupported BufferHandle ${src::class.simpleName} (${src.sizeInBytes} B)")
+            else -> error("unsupported ConstantSource ${src::class.simpleName} (${src.sizeInBytes} B)")
         }
         val bpe = if (bf16) 2 else 4
         val chunk = (1 shl 20) / bpe
@@ -760,19 +759,19 @@ public object FunctionGemmaExportHarness {
     }
 
     /**
-     * Little-endian f32 bytes + base offset for any [BufferHandle]; a [BufferHandle.Floats] is
+     * Little-endian f32 bytes + base offset for any [ConstantSource]; a [ConstantSource.Floats] is
      * materialised once (the quantizer reads rows by byte offset). See [writeHandle] / #405.
      */
-    private fun ownedBytes(src: BufferHandle): Pair<ByteArray, Int> = when (src) {
-        is BufferHandle.Owned -> src.data to src.offset
-        is BufferHandle.Floats -> {
+    private fun ownedBytes(src: ConstantSource): Pair<ByteArray, Int> = when (src) {
+        is ConstantSource.Bytes -> src.data to src.offset
+        is ConstantSource.Floats -> {
             val f = src.data
             val b = ByteArray(f.size * 4)
             val bb = ByteBuffer.wrap(b).order(ByteOrder.LITTLE_ENDIAN)
             for (x in f) bb.putFloat(x)
             b to 0
         }
-        else -> error("unsupported BufferHandle ${src::class.simpleName} (${src.sizeInBytes} B)")
+        else -> error("unsupported ConstantSource ${src::class.simpleName} (${src.sizeInBytes} B)")
     }
 
     private fun voidF32(shape: Shape): sk.ainet.lang.tensor.Tensor<FP32, Float> =

@@ -71,6 +71,7 @@ kotlin {
                 implementation(project(":transformer-core"))
                 implementation(libs.skainet.lang.core)
                 implementation(libs.skainet.compile.hlo)
+                implementation(libs.skainet.io.iree.params)
                 implementation(libs.skainet.compile.dag)
                 implementation(libs.skainet.backend.cpu)
                 implementation(libs.skainet.io.core)

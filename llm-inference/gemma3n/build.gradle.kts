@@ -73,6 +73,7 @@ kotlin {
                 // — compile-hlo/-dag publish no JS variant (same note as jvmTest below).
                 implementation(libs.skainet.compile.dag)
                 implementation(libs.skainet.compile.hlo)
+                implementation(libs.skainet.io.iree.params)
                 implementation(libs.skainet.backend.cpu)
             }
         }

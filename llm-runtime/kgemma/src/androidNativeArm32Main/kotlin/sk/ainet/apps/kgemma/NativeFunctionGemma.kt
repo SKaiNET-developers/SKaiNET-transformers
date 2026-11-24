@@ -13,7 +13,7 @@ import sk.ainet.apps.llm.OptimizedLLMRuntime
 import sk.ainet.apps.llm.generate
 import sk.ainet.apps.llm.tokenizer.GGUFTokenizer
 import sk.ainet.context.DirectCpuExecutionContext
-import sk.ainet.io.gguf.createRandomAccessSource
+import sk.ainet.io.openRandomAccessSource
 import sk.ainet.lang.types.BF16
 import sk.ainet.lang.types.DTypePolicy
 import sk.ainet.lang.types.FP32
@@ -32,7 +32,7 @@ import kotlin.random.Random
  * file-access layer differs, because `JvmRandomAccessSource`/`java.io.File` don't exist
  * here. Tokenizer loading mirrors [sk.ainet.transformers.gemma.iree.GemmaKvDecoder]'s own
  * native GGUF read (`SystemFileSystem`/`kotlinx-io`); weight loading uses
- * `sk.ainet.io.gguf.createRandomAccessSource` — POSIX `pread` via
+ * `sk.ainet.io.openRandomAccessSource` — POSIX `pread` via
  * `Posix32PreadRandomAccessSource` on this 32-bit target (see that class's own doc for why
  * it isn't the same implementation the 64-bit natives share).
  *
@@ -70,7 +70,7 @@ public class NativeFunctionGemma private constructor(
             val ctx = DirectCpuExecutionContext.create()
             val weights = GemmaWeightLoader(
                 randomAccessProvider = {
-                    createRandomAccessSource(gguf)
+                    openRandomAccessSource(gguf)
                         ?: error("could not open $gguf for random access (pread failed?)")
                 },
                 // Mirrors the JVM facade: the engine replaced QuantPolicy with WeightForm, and
