@@ -38,6 +38,8 @@ kotlin {
                 // merged prefill/step weights archive and REJECTED by the IREE 3.x runtime
                 // (header_size=40 vs required 88; unpacked entry structs). The harness emits
                 // the packed IRPA v0 layout itself — see WhisperExportHarness.writeIrpa.
+                // The module is here for `ConstantSource.readBytes` only (SKaiNET 0.65.0).
+                implementation(libs.skainet.io.iree.params)
             }
         }
         commonTest.dependencies {

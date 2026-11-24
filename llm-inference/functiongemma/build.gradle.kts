@@ -46,6 +46,7 @@ kotlin {
                 implementation(libs.skainet.compile.core)
                 // DSL -> ComputeGraph -> StableHLO export (JVM-only publications).
                 implementation(libs.skainet.compile.hlo)
+                implementation(libs.skainet.io.iree.params)
                 implementation(libs.skainet.compile.dag)
                 implementation(libs.skainet.backend.cpu)
                 implementation(libs.skainet.io.core)

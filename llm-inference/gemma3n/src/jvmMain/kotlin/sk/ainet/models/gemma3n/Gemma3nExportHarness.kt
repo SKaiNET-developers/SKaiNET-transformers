@@ -19,7 +19,7 @@ import sk.ainet.lang.tensor.VoidOpsTensor
 import sk.ainet.lang.tensor.data.Bf16TensorData
 import sk.ainet.lang.tensor.data.TensorData
 import sk.ainet.lang.tensor.ops.VoidTensorOps
-import sk.ainet.lang.tensor.storage.DefaultBufferResolver
+import sk.ainet.io.irpa.readBytes
 import sk.ainet.lang.types.FP32
 import sk.ainet.tape.Execution
 import java.io.BufferedOutputStream
@@ -263,14 +263,13 @@ public object Gemma3nExportHarness {
             os.write(ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN).putLong(headerBytes.size.toLong()).array())
             os.write(headerBytes)
             val chunkElems = 1 shl 24 // 16M floats per conversion chunk (32 MiB bf16 out)
-            // Read every handle through the resolver instead of casting to
-            // BufferHandle.Owned: with SKaiNET#1247 the engine hands ≥2 GiB
-            // FP32 constants over as an aliased FloatArray (BufferHandle.Floats)
-            // that never exists as one ByteArray, and the resolver streams it
+            // Read every source with `readBytes` instead of casting to
+            // ConstantSource.Bytes: with SKaiNET#1247 the engine hands ≥2 GiB
+            // FP32 constants over as a FloatArray (ConstantSource.Floats)
+            // that never exists as one ByteArray, and `readBytes` gives it
             // as little-endian bytes in bounded chunks.
-            val resolver = DefaultBufferResolver()
             for (e in ext) {
-                resolver.resolve(e.source).use { acc ->
+                e.source.let { acc ->
                     val total = acc.sizeInBytes
                     var doneBytes = 0L
                     while (doneBytes < total) {

@@ -19,8 +19,8 @@ import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.tensor.VoidOpsTensor
 import sk.ainet.lang.tensor.data.TensorData
 import sk.ainet.lang.tensor.ops.VoidTensorOps
-import sk.ainet.lang.tensor.storage.BufferHandle
-import sk.ainet.lang.tensor.storage.DefaultBufferResolver
+import sk.ainet.compile.hlo.ConstantSource
+import sk.ainet.io.irpa.readBytes
 import sk.ainet.lang.types.FP32
 import sk.ainet.lang.types.Int32
 import sk.ainet.tape.Execution
@@ -303,12 +303,8 @@ public class WhisperExportHarness(
             return byKey.values.toList()
         }
 
-        /** Little-endian bytes of an external parameter, whatever `BufferHandle` the engine handed over (#420). */
-        private fun bytesOf(h: BufferHandle): ByteArray = when (h) {
-            is BufferHandle.Owned -> h.data.copyOfRange(h.offset, h.offset + h.sizeInBytes.toInt())
-            is BufferHandle.Borrowed -> h.data.copyOfRange(h.offset, h.offset + h.sizeInBytes.toInt())
-            else -> DefaultBufferResolver().resolve(h).use { it.readAllBytes() }
-        }
+        /** Little-endian bytes of an external parameter, whatever `ConstantSource` the engine handed over (#420). */
+        private fun bytesOf(h: ConstantSource): ByteArray = h.readBytes(0, h.sizeInBytes.toInt())
 
         /**
          * IREE parameter archive (v0) writer.
@@ -386,8 +382,7 @@ public class WhisperExportHarness(
                 for ((i, e) in entries.withIndex()) {
                     pad(storageSegOff + storageOffsets[i])
                     when (val h = e.source) {
-                        is BufferHandle.Owned -> os.write(h.data, h.offset, h.sizeInBytes.toInt())
-                        is BufferHandle.Borrowed -> os.write(h.data, h.offset, h.sizeInBytes.toInt())
+                        is ConstantSource.Bytes -> os.write(h.data, h.offset, h.sizeInBytes.toInt())
                         else -> os.write(bytesOf(h))
                     }
                     written += e.source.sizeInBytes

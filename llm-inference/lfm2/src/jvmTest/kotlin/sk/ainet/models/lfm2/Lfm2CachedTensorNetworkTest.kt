@@ -4,7 +4,6 @@ import kotlinx.serialization.json.*
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.Tensor
-import sk.ainet.lang.tensor.storage.DefaultBufferResolver
 import sk.ainet.lang.types.FP32
 import sk.ainet.models.lfm2.export.lfm2CachedStepContract
 import sk.ainet.models.lfm2.export.traceLfm2CachedStep
@@ -158,9 +157,8 @@ class Lfm2CachedTensorNetworkTest {
         assertTrue(trace.module.content.contains("across dimensions = [2]"))
         assertFalse(trace.module.content.contains("custom_call"))
         assertFalse(trace.module.content.contains("stablehlo.gather"))
-        val resolver = DefaultBufferResolver()
         val embeddingBytes = dimensions.vocabulary.toLong() * dimensions.width * 4
-        assertTrue(trace.module.externalParameters.none { resolver.resolve(it.source).use { source -> source.sizeInBytes == embeddingBytes } })
+        assertTrue(trace.module.externalParameters.none { it.source.sizeInBytes == embeddingBytes })
         val contract = lfm2CachedStepContract(network, trace)
         assertEquals(6, contract.getValue("capacity").jsonPrimitive.int)
         assertEquals("lfm2_cached_step", contract.getValue("function_name").jsonPrimitive.content)

@@ -1,7 +1,5 @@
 package sk.ainet.models.gemma
 
-import java.lang.foreign.Arena
-import java.lang.foreign.ValueLayout
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.test.Test
@@ -11,7 +9,7 @@ import sk.ainet.apps.llm.OptimizedLLMRuntime
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.Tensor
-import sk.ainet.lang.tensor.data.Q8MemorySegmentTensorData
+import sk.ainet.lang.tensor.data.Q8_0BlockTensorData
 import sk.ainet.lang.types.FP32
 
 /**
@@ -19,17 +17,16 @@ import sk.ainet.lang.types.FP32
  * `OptimizedLLMRuntime` DIRECT mode) forward a Q8_0-quantized weight tree
  * without dequantising to FP32?
  *
- * The CPU backend (`DefaultCpuOpsJvm`) advertises a **lazy transpose** for
- * `Q8MemorySegmentMarker` and a direct `matmul(fp32, Q8_MemSeg)` dispatch.
- * If both dispatches compose correctly, running a DSL module tree whose
- * weights are `Q8MemorySegmentTensorData` should produce the same output
+ * The CPU backend keeps the transpose of a packed weight unmaterialized and
+ * multiplies an FP32 activation by the packed blocks directly.
+ * If both compose correctly, running a DSL module tree whose
+ * weights are `Q8_0BlockTensorData` should produce the same output
  * as the FP32 original, modulo quantization error. This test pins that
  * behaviour.
  *
  * Scope:
- * - **Q8_0 only.** Q4_K / Q6_K dispatch is a separate kernel chain and
- *   goes through a `Q4_KTensorData` type (not MemSeg) — out of scope for
- *   this probe.
+ * - **Q8_0 only.** Q4_K / Q6_K dispatch is a separate kernel chain, out of
+ *   scope for this probe.
  * - **Synthetic weights with integer values**, so Q8 round-to-int-8 is
  *   exact and the only variance in output comes from the matmul kernels
  *   themselves, not the quantization step.
@@ -52,10 +49,9 @@ class GemmaDslQuantizedTest {
 
 
     // Default DenseTensorDataFactory → input/activation tensors land in
-    // FloatArray-backed storage. Q8 weight tensors are explicitly MemSeg via
-    // Q8MemorySegmentTensorData below. The mix routes through the
-    // `matmul(FloatArray, Q8_MemSeg)` kernel, not the all-MemSeg fast path
-    // (which is SIMD-32-wide and would choke on dim=8 test inputs).
+    // FloatArray-backed storage. Q8 weight tensors are heap block data
+    // (`Q8_0BlockTensorData`) below. The segment weight class this test once
+    // used was removed upstream (SKaiNET#1507); it had no producer.
     private val ctx = DirectCpuExecutionContext()
 
     // Q8_0 matmul kernels assume `inputDim % 32 == 0` (SIMD lane width + block size),
@@ -97,22 +93,17 @@ class GemmaDslQuantizedTest {
     }
 
     /**
-     * Build a Q8_0 MemorySegment tensor of shape `[rows, cols]` with the
-     * provided integer-valued FP32 payload. The caller owns the [arena].
+     * Build a Q8_0 tensor of shape `[rows, cols]` with the
+     * provided integer-valued FP32 payload.
      */
     private fun q8Tensor(
         rows: Int,
         cols: Int,
         values: FloatArray,
-        arena: Arena
     ): Tensor<FP32, Float> {
         require(values.size == rows * cols) { "values.size=${values.size} != rows*cols=${rows * cols}" }
         val bytes = packQ8_0_unitScale(values)
-        val segment = arena.allocate(bytes.size.toLong())
-        for ((i, b) in bytes.withIndex()) {
-            segment.set(ValueLayout.JAVA_BYTE, i.toLong(), b)
-        }
-        val data = Q8MemorySegmentTensorData(Shape(rows, cols), segment)
+        val data = Q8_0BlockTensorData(Shape(rows, cols), bytes)
         @Suppress("UNCHECKED_CAST")
         return ctx.fromData(data as sk.ainet.lang.tensor.data.TensorData<FP32, Float>, FP32::class)
     }
@@ -147,7 +138,7 @@ class GemmaDslQuantizedTest {
      * that share identical logical values, so any divergence in output comes
      * from the matmul dispatch, not weight initialisation drift.
      */
-    private fun buildWeights(arena: Arena): Pair<GemmaWeights<FP32, Float>, GemmaWeights<FP32, Float>> {
+    private fun buildWeights(): Pair<GemmaWeights<FP32, Float>, GemmaWeights<FP32, Float>> {
         // Small integer weights → Q8 round-to-int exact with scale=1.
         val tokenEmb = FloatArray(vocabSize * dim) { ((it % 5) - 2).toFloat() }
         val finalNormVals = FloatArray(dim) { 1f }
@@ -181,31 +172,30 @@ class GemmaDslQuantizedTest {
         val fp32 = GemmaWeights(metadata, fp32Map())
 
         // Quantized map: reuse FP32 for norms, embeddings, and lm_head (all
-        // non-matmul or sub-32-block). Swap Q/K/V/O/Gate/Up/Down for Q8 MemSeg
+        // non-matmul or sub-32-block). Swap Q/K/V/O/Gate/Up/Down for Q8_0
         // — these all have volume divisible by 32 given dim=8, ffnDim=32.
         val q8 = linkedMapOf<String, Tensor<FP32, Float>>(
             GemmaTensorNames.TOKEN_EMBEDDINGS to fp32Tensor(Shape(vocabSize, dim), tokenEmb),
             GemmaTensorNames.OUTPUT_NORM to fp32Tensor(Shape(dim), finalNormVals),
             GemmaTensorNames.OUTPUT_WEIGHT to fp32Tensor(Shape(vocabSize, dim), lmHeadVals),
             GemmaTensorNames.inputLayernorm(0) to fp32Tensor(Shape(dim), attnNormVals),
-            GemmaTensorNames.attnQ(0) to q8Tensor(nHeads * headDim, dim, qVals, arena),
-            GemmaTensorNames.attnK(0) to q8Tensor(nKvHeads * headDim, dim, kVals, arena),
-            GemmaTensorNames.attnV(0) to q8Tensor(nKvHeads * headDim, dim, vVals, arena),
-            GemmaTensorNames.attnOut(0) to q8Tensor(dim, nHeads * headDim, oVals, arena),
+            GemmaTensorNames.attnQ(0) to q8Tensor(nHeads * headDim, dim, qVals),
+            GemmaTensorNames.attnK(0) to q8Tensor(nKvHeads * headDim, dim, kVals),
+            GemmaTensorNames.attnV(0) to q8Tensor(nKvHeads * headDim, dim, vVals),
+            GemmaTensorNames.attnOut(0) to q8Tensor(dim, nHeads * headDim, oVals),
             GemmaTensorNames.postAttentionLayernorm(0) to fp32Tensor(Shape(dim), postNormVals),
-            GemmaTensorNames.ffnGate(0) to q8Tensor(ffnDim, dim, gateVals, arena),
-            GemmaTensorNames.ffnUp(0) to q8Tensor(ffnDim, dim, upVals, arena),
-            GemmaTensorNames.ffnDown(0) to q8Tensor(dim, ffnDim, downVals, arena),
+            GemmaTensorNames.ffnGate(0) to q8Tensor(ffnDim, dim, gateVals),
+            GemmaTensorNames.ffnUp(0) to q8Tensor(ffnDim, dim, upVals),
+            GemmaTensorNames.ffnDown(0) to q8Tensor(dim, ffnDim, downVals),
         )
 
         return fp32 to GemmaWeights(metadata, q8)
     }
 
     @Test
-    fun `Q8 MemSeg weights flow through the DSL path and match FP32 within tolerance`() {
-        val arena = Arena.ofConfined()
-        try {
-            val (fp32Weights, q8Weights) = buildWeights(arena)
+    fun `Q8 weights flow through the DSL path and match FP32 within tolerance`() {
+        run {
+            val (fp32Weights, q8Weights) = buildWeights()
 
             val fp32Model = GemmaNetworkLoader.fromWeights(ctx, fp32Weights)
             val q8Model = GemmaNetworkLoader.fromWeights(ctx, q8Weights)
@@ -228,8 +218,6 @@ class GemmaDslQuantizedTest {
                 }
             }
             println("Q8-DSL probe PASSED. Max |Δlogit| across ${tokens.size} tokens: $maxDiff")
-        } finally {
-            arena.close()
         }
     }
 }

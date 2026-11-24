@@ -13,7 +13,7 @@ import sk.ainet.apps.llm.generate
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.exec.tensor.ops.KernelProfile
 import sk.ainet.io.RandomAccessSource
-import sk.ainet.io.gguf.createRandomAccessSource
+import sk.ainet.io.openRandomAccessSource
 import sk.ainet.lang.types.FP32
 import sk.ainet.models.llama.LlamaNetworkLoader
 import java.io.File
@@ -101,17 +101,17 @@ class AndroidSmolLm2E2eTest {
             // exact failure mode the mobile field report described. The
             // streaming path reads metadata only.
             val tokenizer = GGUFTokenizer.fromRandomAccessSource(
-                createRandomAccessSource(modelPath)
-                    ?: error("createRandomAccessSource returned null on Android")
+                openRandomAccessSource(modelPath)
+                    ?: error("openRandomAccessSource returned null on Android")
             )
 
             // RandomAccessSource overload — streaming load, packed weights
             // stay packed under NATIVE_OPTIMIZED. On Android this exercises
-            // the engine's real createRandomAccessSource (engine #922): the
+            // the engine's real openRandomAccessSource (engine #922): the
             // full-file-on-heap OOM path from the field report is gone.
             val racProvider: () -> RandomAccessSource = {
-                createRandomAccessSource(modelPath)
-                    ?: error("createRandomAccessSource returned null on Android")
+                openRandomAccessSource(modelPath)
+                    ?: error("openRandomAccessSource returned null on Android")
             }
             val (model, loadElapsed) = measureTimedValue {
                 LlamaNetworkLoader
