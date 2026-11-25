@@ -11,6 +11,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.63.4] — 2026-11-25
+
+Against engine **0.62.0**, transformers-only. One fix in the Android runtime (`runtime-iree-android`), on top of
+0.63.3.
+
+### Fixed
+
+- **Moonshine streaming: speech after a pause is no longer cut from the final transcript**
+  (`moonshine_stream_jni.c`, `libskainet_moonshine_stream.so` both ABIs). `finish()` ended the final text at the
+  first sentence end, as a guard against the greedy decode starting the utterance over on a silent tail
+  ("Go to the next. Go to next"). A speaker who pauses mid-command makes the model write a sentence end at the
+  pause ("Play. Some jazz"), and everything after it was dropped. The text is now ended only at a sentence end
+  whose next sentence starts with the first word of the utterance, which is what a restart looks like; a sentence
+  that starts differently stays. Trailing punctuation without words is still trimmed to one sentence end.
+  Partial transcripts are unchanged.
+
 ## [0.63.3] — 2026-10-28
 
 Against engine **0.62.0**, transformers-only and additive. The Android runtime (`runtime-iree-android`) gains an
