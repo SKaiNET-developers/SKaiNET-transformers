@@ -655,6 +655,35 @@ static int run_prefill(Engine* e, int start_tokens) {
 
 static void rebuild_text(Engine* e);
 
+/* On a silent tail the greedy decode restarts the utterance instead of emitting EOS
+ * ("Go to the next. Go to next"). The cure used to be "the first sentence IS the utterance":
+ * cut at the first sentence end. That also cut what a user said after a pause — the model
+ * writes "Play. Some jazz" for "Play ... some jazz", and the second half was lost.
+ *
+ * A restart begins like the utterance does, so that is what is cut: the text is ended at the
+ * first sentence end whose next sentence starts with the utterance's first word (compared
+ * without case). A sentence that starts differently is the user still speaking and stays. */
+static int word_char(unsigned char c) { return c >= 0x80 || (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z'); }
+static int lower_ascii(unsigned char c) { return (c >= 'A' && c <= 'Z') ? c + 32 : c; }
+static int same_first_word(const char* a, const char* b) {
+  int n = 0;
+  while (word_char((unsigned char)a[n]) && word_char((unsigned char)b[n])) {
+    if (lower_ascii((unsigned char)a[n]) != lower_ascii((unsigned char)b[n])) return 0;
+    ++n;
+  }
+  return n > 0 && !word_char((unsigned char)a[n]) && !word_char((unsigned char)b[n]);
+}
+static void cut_restarted_sentence(char* text) {
+  const char* first = text; while (*first && !word_char((unsigned char)*first)) ++first;
+  for (char* q = text; *q; ++q) {
+    if (*q != '.' && *q != '!' && *q != '?') continue;
+    const char* next = q + 1; while (*next && !word_char((unsigned char)*next)) ++next;
+    if (!*next) { q[1] = 0; return; }                      /* nothing but punctuation follows */
+    if (same_first_word(first, next)) { q[1] = 0; return; } /* the utterance starting over */
+  }
+}
+
+
 /* On a silent tail the greedy decode restarts the utterance; a PARTIAL restart survives the
  * cycle guard ("to the next channel to the next" — 1.5 cycles). Any proper suffix equal to a
  * prefix of the token sequence is such a restart: drop it, repeat until stable. Applied only
@@ -1094,12 +1123,7 @@ JNIEXPORT jstring JNICALL JNIFN(nativeFinish)(JNIEnv* env, jobject thiz, jlong h
     if (run_prefill(e, 1) == 0) run_steps(e, finish_budget(e->npcm), 1);
 #endif
     if (!e->ended_eos) drop_restart_suffix(e);
-    /* C&C utterances are single sentences; on a silent tail the greedy decode restarts the
-     * utterance instead of emitting EOS ("Go to the next. Go to next") — same failure and
-     * same cure as the whisper cartridge: the first sentence IS the utterance. */
-    for (char* q = e->text; *q; ++q) {
-      if (*q == '.' || *q == '!' || *q == '?') { q[1] = 0; break; }
-    }
+    cut_restarted_sentence(e->text);
     const char* p = e->text; while (*p == ' ') ++p;
     out = (*env)->NewStringUTF(env, p);
     /* flush and re-decode reported apart, so the cost of each half is visible rather than inferred. */
